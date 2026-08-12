@@ -29,9 +29,38 @@ RealmMesh 是一个计划采用帧驱动模型构建的 C++ 游戏服务器。
 
 ## 构建
 
-项目处于早期开发阶段，构建与运行说明会随着首个可运行版本一同补充。
+环境要求：
 
-计划使用 C++20 和 CMake，并优先支持 Linux。
+- 支持 C++20 的编译器（GCC 10+、Clang 12+ 或 MSVC 2022）
+- CMake 3.20+
+
+一键配置、编译并测试：
+
+```bash
+./scripts/build.sh
+```
+
+也可以分别执行：
+
+```bash
+cmake --preset dev
+cmake --build --preset dev
+ctest --preset dev
+```
+
+运行最小服务器示例：
+
+```bash
+./build/dev/realmmesh
+```
+
+默认以每秒 20 帧运行 5 帧后退出。持续运行或修改帧率：
+
+```bash
+./build/dev/realmmesh --frames 0 --tick-rate 30
+```
+
+当前优先支持 Linux。
 
 ## 参与贡献
 
