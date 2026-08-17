@@ -1,6 +1,7 @@
 # RealmMesh 架构
 
-本文档描述 RealmMesh 当前已经实现的结构，以及后续分布式服务规划。实线节点代表已有代码，虚线节点代表规划中的服务或连接。
+本文档描述 RealmMesh 当前已经实现的结构，以及后续分布式服务规划。蓝色节点和
+实线连接代表已有代码，灰色虚线节点和连接代表规划项。
 
 ## 服务拓扑
 
@@ -18,15 +19,15 @@ flowchart LR
     end
 
     Client -->|"1. 账号认证"| Login
-    Login -.->|"LoginTicket + 角色服地址"| Client
+    Login -->|"LoginTicket + 角色服地址"| Client
     Client -->|"2. 选区与角色选择"| Realm
-    Realm -.->|"EnterGameTicket + 网关地址"| Client
+    Realm -->|"EnterGameTicket + 网关地址"| Client
     Client -->|"3. 建立正式会话"| Gateway
-    Client -.->|"鉴权后按需绑定"| Auxiliary
+    Client -->|"鉴权后按需绑定（可选）"| Auxiliary
     Auxiliary --> Gateway
 
     subgraph Planned["规划中的分布式服务"]
-        Coordinator["协调服 / 控制面"]
+        Coordinator["协调服 / 编排控制面"]
         Lobby["大厅服"]
         Scene["场景服"]
         Friend["朋友服"]
@@ -34,7 +35,9 @@ flowchart LR
         Storage["存储服"]
     end
 
-    Etcd["etcd v3<br/>Lease / KV / 前缀发现"]
+    subgraph Discovery["已实现：分布式服务发现"]
+        Etcd["etcd v3<br/>Lease / KV / 前缀发现 / Watch"]
+    end
 
     Gateway -.-> Lobby
     Gateway -.-> Scene
@@ -53,9 +56,9 @@ flowchart LR
     Coordinator <-.-> Storage
     Coordinator -.-> Etcd
 
-    Login <--> Etcd
-    Realm <--> Etcd
-    Gateway <--> Etcd
+    Login <-->|"注册自身 / Watch 角色服"| Etcd
+    Realm <-->|"注册自身 / Watch 网关服"| Etcd
+    Gateway <-->|"注册自身 / Lease 续租"| Etcd
 
     classDef implemented fill:#e8f4ff,stroke:#1677ff,stroke-width:2px,color:#102a43;
     classDef planned fill:#fafafa,stroke:#8c8c8c,stroke-width:1.5px,stroke-dasharray:6 4,color:#595959;
@@ -63,7 +66,10 @@ flowchart LR
     class Coordinator,Lobby,Scene,Friend,Chat,Storage planned;
 ```
 
-`EtcdServiceRegistry` 已实现带 Lease 的注册、自动续租、前缀发现和 Watch 缓存，登录服、角色服与网关服会直接连接 etcd。协调服仍属于规划中的控制面，不作为基础服务发现的单点代理。
+图中“已实现：分布式服务发现”区域及其三条实线就是当前已经落地的服务发现链路。
+`EtcdServiceRegistry` 已实现带 Lease 的注册、自动续租、前缀发现和 Watch 缓存，
+登录服、角色服与网关服会直接连接 etcd。灰色虚线的协调服仍属于规划中的编排
+控制面，不作为基础服务发现的单点代理。
 
 ## 三阶段接入时序
 

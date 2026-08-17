@@ -34,7 +34,22 @@ FetchContent_Declare(
     URL_HASH SHA256=8f907baca4b34a3b4854103ba5811e418fb6e2ff11fe0d8df9e8280b11d79926
     DOWNLOAD_EXTRACT_TIMESTAMP TRUE
 )
+
+# Protobuf v35 explicitly selects CMP0141 OLD for MSVC compatibility, which
+# CMake 4.x reports as deprecated even on non-MSVC builds. Suppress only the
+# dependency's deprecation diagnostics and restore the project setting below.
+set(realmmesh_warn_deprecated_was_defined FALSE)
+if(DEFINED CMAKE_WARN_DEPRECATED)
+    set(realmmesh_warn_deprecated_was_defined TRUE)
+    set(realmmesh_saved_warn_deprecated "${CMAKE_WARN_DEPRECATED}")
+endif()
+set(CMAKE_WARN_DEPRECATED OFF)
 FetchContent_MakeAvailable(protobuf)
+if(realmmesh_warn_deprecated_was_defined)
+    set(CMAKE_WARN_DEPRECATED "${realmmesh_saved_warn_deprecated}")
+else()
+    unset(CMAKE_WARN_DEPRECATED)
+endif()
 
 # RealmMesh links only the lite runtime. Keep the reflection-heavy full runtime
 # out of the default build while leaving its target available to future tools.
