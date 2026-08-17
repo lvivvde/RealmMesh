@@ -1,0 +1,42 @@
+return {
+    tick_rate = 20,
+    max_events_per_frame = 4096,
+    runtime = {
+        inbound_capacity = 65536,
+        outbound_capacity = 65536,
+        max_commands_per_cycle = 4096,
+        io_poll_interval_ms = 2,
+    },
+    transports = {
+        {
+            name = "client_tcp",
+            protocol = "tcp",
+            enabled = true,
+            listen_address = "0.0.0.0",
+            listen_port = 8000,
+            max_sessions = 10000,
+            max_payload_size = 65536,
+            max_pending_output_bytes = 4194304,
+        },
+        {
+            name = "client_udp",
+            protocol = "udp",
+            enabled = false,
+            listen_address = "0.0.0.0",
+            listen_port = 8001,
+            max_sessions = 10000,
+            max_payload_size = 1400,
+        },
+        {
+            name = "client_kcp",
+            protocol = "kcp",
+            enabled = false,
+            listen_address = "0.0.0.0",
+            listen_port = 8002,
+            max_sessions = 10000,
+            max_payload_size = 1400,
+            idle_timeout_ms = 30000,
+            ticket_key_environment = "REALMMESH_KCP_TICKET_KEY",
+        },
+    },
+}

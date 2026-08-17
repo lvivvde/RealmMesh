@@ -18,5 +18,12 @@ ctest_bin="$(dirname "${cmake_bin}")/ctest"
 
 cd "${project_root}"
 "${cmake_bin}" --preset dev
+
+compile_commands="${project_root}/build/dev/compile_commands.json"
+compile_commands_link="${project_root}/compile_commands.json"
+if [[ -f "${compile_commands}" && ! -e "${compile_commands_link}" && ! -L "${compile_commands_link}" ]]; then
+    ln -s "build/dev/compile_commands.json" "${compile_commands_link}"
+fi
+
 "${cmake_bin}" --build --preset dev --parallel
 "${ctest_bin}" --preset dev
