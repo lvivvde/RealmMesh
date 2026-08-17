@@ -23,6 +23,7 @@ compile_commands.json
 .codex/
 .realmmesh-git/
 .tools/
+/.runtime/
 
 # Runtime files
 *.log

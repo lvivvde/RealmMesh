@@ -91,9 +91,23 @@ cluster::WatchId FakeServiceRegistry::watch(
         return cluster::invalid_watch_id;
     }
 
-    const std::scoped_lock lock(mutex_);
-    const auto watch_id = next_watch_id_++;
-    watches_.emplace(watch_id, Watch{type, std::move(handler)});
+    cluster::WatchId watch_id = cluster::invalid_watch_id;
+    std::vector<cluster::ServiceInstance> initial;
+    {
+        const std::scoped_lock lock(mutex_);
+        watch_id = next_watch_id_++;
+        watches_.emplace(watch_id, Watch{type, handler});
+        for (const auto& [registration_id, registration] : registrations_) {
+            static_cast<void>(registration_id);
+            if (registration.instance.type == type) {
+                initial.push_back(registration.instance);
+            }
+        }
+    }
+    std::ranges::sort(initial, {}, &cluster::ServiceInstance::instance_id);
+    for (const auto& instance : initial) {
+        handler({cluster::ServiceEventKind::Added, instance});
+    }
     return watch_id;
 }
 

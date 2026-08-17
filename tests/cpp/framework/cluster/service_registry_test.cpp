@@ -1,4 +1,6 @@
 #include "realmmesh/cluster/service_registry.hpp"
+#include "realmmesh/cluster/service_publisher.hpp"
+#include "realmmesh/cluster/service_resolver.hpp"
 #include "realmmesh/test_support/fake_service_registry.hpp"
 
 #include <gtest/gtest.h>
@@ -109,6 +111,62 @@ TEST(ServiceRegistryTest, RejectsNonPositiveLeaseTtl) {
 
     EXPECT_EQ(registration.status, RegistryStatus::InvalidArgument);
     EXPECT_EQ(registration.id, invalid_registration_id);
+}
+
+TEST(ServiceRegistryTest, ResolverTracksAddedAndRemovedEndpoints) {
+    using namespace std::chrono_literals;
+
+    test_support::FakeServiceRegistry registry;
+    ServiceResolver resolver(
+        registry,
+        ServiceType::Gateway,
+        network::TransportProtocol::Tcp);
+    const auto instance = make_instance(
+        ServiceType::Gateway, "gateway-01", 8100);
+    const auto registration = registry.register_instance(instance, 10s);
+    ASSERT_EQ(registration.status, RegistryStatus::Success);
+
+    const auto endpoint = resolver.endpoint();
+    ASSERT_TRUE(endpoint.has_value());
+    EXPECT_EQ(endpoint->address, "127.0.0.1");
+    EXPECT_EQ(endpoint->port, 8100);
+
+    ASSERT_TRUE(registry.unregister_instance(registration.id));
+    EXPECT_FALSE(resolver.endpoint().has_value());
+}
+
+TEST(ServiceRegistryTest, ResolverReceivesInstancesPresentBeforeSubscription) {
+    using namespace std::chrono_literals;
+
+    test_support::FakeServiceRegistry registry;
+    const auto instance = make_instance(
+        ServiceType::Gateway, "gateway-01", 8100);
+    ASSERT_EQ(
+        registry.register_instance(instance, 10s).status,
+        RegistryStatus::Success);
+
+    ServiceResolver resolver(
+        registry,
+        ServiceType::Gateway,
+        network::TransportProtocol::Tcp);
+
+    ASSERT_TRUE(resolver.endpoint().has_value());
+    EXPECT_EQ(resolver.endpoint()->port, 8100);
+}
+
+TEST(ServiceRegistryTest, PublisherRegistersAndUnregistersWithItsLifetime) {
+    using namespace std::chrono_literals;
+
+    test_support::FakeServiceRegistry registry;
+    const auto instance = make_instance(ServiceType::Login, "login-01", 7000);
+    {
+        ServicePublisher publisher(registry, instance, 10s);
+        EXPECT_TRUE(publisher.tick());
+        EXPECT_TRUE(publisher.registered());
+        EXPECT_EQ(registry.discover(ServiceType::Login), std::vector{instance});
+    }
+
+    EXPECT_TRUE(registry.discover(ServiceType::Login).empty());
 }
 
 }  // namespace

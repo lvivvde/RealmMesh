@@ -1,6 +1,7 @@
 #pragma once
 
 #include "realmmesh/game/gateway/client_session_router.hpp"
+#include "realmmesh/cluster/service_discovery_config.hpp"
 #include "realmmesh/network/transport/transport_config.hpp"
 
 #include <chrono>
@@ -33,6 +34,7 @@ struct GatewayConfig {
         },
     };
     GatewayRuntimeOptions runtime;
+    cluster::ServiceDiscoveryConfig service_discovery;
     std::uint32_t tick_rate{20};
     std::size_t max_events_per_frame{4'096};
     std::string downstream_address;

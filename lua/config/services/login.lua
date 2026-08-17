@@ -1,4 +1,17 @@
 return {
+    service_discovery = {
+        enabled = true,
+        required = false,
+        endpoint = "http://127.0.0.1:2379",
+        key_prefix = "/realmmesh/services",
+        instance_id = "login-dev-01",
+        node_id = "development-node",
+        zone = "development",
+        advertise_address = "127.0.0.1",
+        lease_ttl_seconds = 15,
+        request_timeout_ms = 500,
+        watch_interval_ms = 500,
+    },
     tick_rate = 20,
     max_events_per_frame = 4096,
     downstream_address = "127.0.0.1",

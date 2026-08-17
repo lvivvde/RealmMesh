@@ -187,9 +187,71 @@ GatewayConfig GatewayConfigLoader::load(const std::filesystem::path& path) {
                 "io_poll_interval_ms",
                 config.runtime.io_poll_interval.count()));
     }
+
+    const sol::object discovery_value =
+        root.raw_get<sol::object>("service_discovery");
+    if (discovery_value != sol::nil) {
+        if (!discovery_value.is<sol::table>()) {
+            throw std::invalid_argument(
+                "gateway config service_discovery must be a table");
+        }
+        const sol::table discovery = discovery_value.as<sol::table>();
+        config.service_discovery.enabled = optional_boolean(
+            discovery, "enabled", config.service_discovery.enabled);
+        config.service_discovery.required = optional_boolean(
+            discovery, "required", config.service_discovery.required);
+        config.service_discovery.endpoint = optional_string(
+            discovery, "endpoint", std::move(config.service_discovery.endpoint));
+        config.service_discovery.key_prefix = optional_string(
+            discovery,
+            "key_prefix",
+            std::move(config.service_discovery.key_prefix));
+        config.service_discovery.instance_id = optional_string(
+            discovery,
+            "instance_id",
+            std::move(config.service_discovery.instance_id));
+        config.service_discovery.node_id = optional_string(
+            discovery, "node_id", std::move(config.service_discovery.node_id));
+        config.service_discovery.zone = optional_string(
+            discovery, "zone", std::move(config.service_discovery.zone));
+        config.service_discovery.advertise_address = optional_string(
+            discovery,
+            "advertise_address",
+            std::move(config.service_discovery.advertise_address));
+        config.service_discovery.lease_ttl = std::chrono::seconds(
+            optional_integer<std::int64_t>(
+                discovery,
+                "lease_ttl_seconds",
+                config.service_discovery.lease_ttl.count()));
+        config.service_discovery.request_timeout = std::chrono::milliseconds(
+            optional_integer<std::int64_t>(
+                discovery,
+                "request_timeout_ms",
+                config.service_discovery.request_timeout.count()));
+        config.service_discovery.watch_interval = std::chrono::milliseconds(
+            optional_integer<std::int64_t>(
+                discovery,
+                "watch_interval_ms",
+                config.service_discovery.watch_interval.count()));
+    }
     if (config.tick_rate == 0 || config.max_events_per_frame == 0) {
         throw std::invalid_argument(
             "gateway tick rate and max events per frame must be positive");
+    }
+    if (config.service_discovery.enabled &&
+        (config.service_discovery.endpoint.empty() ||
+         config.service_discovery.key_prefix.empty() ||
+         config.service_discovery.instance_id.empty() ||
+         config.service_discovery.node_id.empty() ||
+         config.service_discovery.zone.empty() ||
+         config.service_discovery.advertise_address.empty() ||
+         config.service_discovery.lease_ttl <= std::chrono::seconds::zero() ||
+         config.service_discovery.request_timeout <=
+             std::chrono::milliseconds::zero() ||
+         config.service_discovery.watch_interval <=
+             std::chrono::milliseconds::zero())) {
+        throw std::invalid_argument(
+            "enabled service discovery configuration is incomplete");
     }
 
     const sol::object transports_value = root.raw_get<sol::object>("transports");

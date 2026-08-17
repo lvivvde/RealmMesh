@@ -15,6 +15,7 @@ target_include_directories(realm_gateway_service
 
 target_link_libraries(realm_gateway_service PUBLIC
     realm_concurrency
+    realm_cluster
     realm_network
     realm_scripting
 )

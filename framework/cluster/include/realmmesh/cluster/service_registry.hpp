@@ -15,6 +15,7 @@ enum class ServiceType : std::uint8_t {
     Coordinator,
     Gateway,
     Login,
+    Realm,
     Lobby,
     Scene,
     Friend,
@@ -45,6 +46,7 @@ enum class RegistryStatus {
     AlreadyExists,
     NotFound,
     InvalidArgument,
+    Unavailable,
 };
 
 struct RegistrationResult {

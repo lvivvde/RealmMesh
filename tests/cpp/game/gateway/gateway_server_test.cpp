@@ -430,6 +430,12 @@ TEST(GatewayConfigLoaderTest, LoadsProtocolSelectionFromLua) {
 
     ASSERT_EQ(config.transports.size(), 3U);
     EXPECT_EQ(config.tick_rate, 20U);
+    EXPECT_TRUE(config.service_discovery.enabled);
+    EXPECT_FALSE(config.service_discovery.required);
+    EXPECT_EQ(
+        config.service_discovery.endpoint,
+        "http://127.0.0.1:2379");
+    EXPECT_EQ(config.service_discovery.instance_id, "gateway-dev-01");
     EXPECT_EQ(config.max_events_per_frame, 4096U);
     EXPECT_EQ(config.runtime.inbound_capacity, 65536U);
     EXPECT_EQ(config.runtime.outbound_capacity, 65536U);

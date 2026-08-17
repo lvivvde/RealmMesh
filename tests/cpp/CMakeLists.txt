@@ -185,6 +185,7 @@ target_compile_features(client_session_router_test PRIVATE cxx_std_20)
 gtest_discover_tests(client_session_router_test)
 
 add_executable(service_registry_test
+    framework/cluster/etcd_service_registry_test.cpp
     framework/cluster/service_registry_test.cpp
     support/src/fake_service_registry.cpp
 )
@@ -196,6 +197,7 @@ target_include_directories(service_registry_test PRIVATE
 target_link_libraries(service_registry_test PRIVATE
     GTest::gtest_main
     realm_cluster
+    nlohmann_json::nlohmann_json
 )
 
 target_compile_features(service_registry_test PRIVATE cxx_std_20)

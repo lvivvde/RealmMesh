@@ -1,3 +1,7 @@
+#include "realmmesh/cluster/etcd_service_registry.hpp"
+#include "realmmesh/cluster/service_bootstrap.hpp"
+#include "realmmesh/cluster/service_publisher.hpp"
+#include "realmmesh/cluster/service_resolver.hpp"
 #include "realmmesh/game/common/edge_protocol.hpp"
 #include "realmmesh/game/common/session_ticket.hpp"
 #include "realmmesh/game/gateway/gateway_config_loader.hpp"
@@ -10,6 +14,7 @@
 #include <exception>
 #include <filesystem>
 #include <iostream>
+#include <memory>
 #include <stdexcept>
 #include <string_view>
 #include <utility>
@@ -52,13 +57,44 @@ int main(int argc, char* argv[]) {
             config_path(argc, argv));
         const auto tick_rate = config.tick_rate;
         const auto max_events = config.max_events_per_frame;
-        const auto realm_address = config.downstream_address;
-        const auto realm_port = config.downstream_port;
-        if (realm_address.empty() || realm_port == 0) {
+        const auto fallback_realm_address = config.downstream_address;
+        const auto fallback_realm_port = config.downstream_port;
+        const auto discovery_config = config.service_discovery;
+        if (fallback_realm_address.empty() || fallback_realm_port == 0) {
             throw std::invalid_argument("login downstream realm endpoint is required");
         }
         realm::game::common::SessionTicketCodec tickets(load_key());
         realm::game::gateway::GatewayRuntime runtime(std::move(config));
+        std::unique_ptr<realm::cluster::EtcdServiceRegistry> registry;
+        std::unique_ptr<realm::cluster::ServicePublisher> publisher;
+        std::unique_ptr<realm::cluster::ServiceResolver> realm_resolver;
+        if (discovery_config.enabled) {
+            registry = std::make_unique<realm::cluster::EtcdServiceRegistry>(
+                realm::cluster::make_etcd_registry_options(discovery_config));
+            publisher = std::make_unique<realm::cluster::ServicePublisher>(
+                *registry,
+                realm::cluster::make_service_instance(
+                    realm::cluster::ServiceType::Login,
+                    discovery_config,
+                    runtime.local_endpoints(),
+                    "0.1.0"),
+                discovery_config.lease_ttl);
+            const bool registered = publisher->tick();
+            if (!registered && discovery_config.required) {
+                throw std::runtime_error(
+                    "login service registration failed: " +
+                    registry->last_error());
+            }
+            if (!registered) {
+                std::cerr << "Login service discovery unavailable; using Lua "
+                             "fallback endpoint: "
+                          << registry->last_error() << '\n';
+            }
+            realm_resolver = std::make_unique<realm::cluster::ServiceResolver>(
+                *registry,
+                realm::cluster::ServiceType::Realm,
+                realm::network::TransportProtocol::Tcp);
+        }
 
         std::signal(SIGINT, handle_stop_signal);
         std::signal(SIGTERM, handle_stop_signal);
@@ -69,6 +105,7 @@ int main(int argc, char* argv[]) {
         realm::scheduler::SteadyFrameClock clock;
         realm::scheduler::FrameScheduler scheduler(tick_rate, clock);
         static_cast<void>(scheduler.run([&](realm::scheduler::FrameContext) {
+            if (publisher != nullptr) static_cast<void>(publisher->tick());
             for (auto& event : runtime.drain_events(max_events)) {
                 if (event.kind != realm::network::TransportEventKind::MessageReceived ||
                     !event.client_session_id.has_value()) continue;
@@ -82,6 +119,15 @@ int main(int argc, char* argv[]) {
                         realm::game::common::EdgeError{1001, "invalid credentials"});
                 } else {
                     const auto account_id = development_account_id(request->account);
+                    const auto discovered = realm_resolver != nullptr
+                        ? realm_resolver->endpoint()
+                        : std::nullopt;
+                    const auto realm_address = discovered.has_value()
+                        ? discovered->address
+                        : fallback_realm_address;
+                    const auto realm_port = discovered.has_value()
+                        ? discovered->port
+                        : fallback_realm_port;
                     response = realm::game::common::encode(
                         realm::game::common::LoginSucceeded{
                             account_id,

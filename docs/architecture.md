@@ -26,13 +26,15 @@ flowchart LR
     Auxiliary --> Gateway
 
     subgraph Planned["规划中的分布式服务"]
-        Coordinator["协调服 / 服务发现"]
+        Coordinator["协调服 / 控制面"]
         Lobby["大厅服"]
         Scene["场景服"]
         Friend["朋友服"]
         Chat["聊天服"]
         Storage["存储服"]
     end
+
+    Etcd["etcd v3<br/>Lease / KV / 前缀发现"]
 
     Gateway -.-> Lobby
     Gateway -.-> Scene
@@ -49,14 +51,19 @@ flowchart LR
     Coordinator <-.-> Friend
     Coordinator <-.-> Chat
     Coordinator <-.-> Storage
+    Coordinator -.-> Etcd
+
+    Login <--> Etcd
+    Realm <--> Etcd
+    Gateway <--> Etcd
 
     classDef implemented fill:#e8f4ff,stroke:#1677ff,stroke-width:2px,color:#102a43;
     classDef planned fill:#fafafa,stroke:#8c8c8c,stroke-width:1.5px,stroke-dasharray:6 4,color:#595959;
-    class Client,Login,Realm,Gateway,Auxiliary implemented;
+    class Client,Login,Realm,Gateway,Auxiliary,Etcd implemented;
     class Coordinator,Lobby,Scene,Friend,Chat,Storage planned;
 ```
 
-目前 `IServiceRegistry` 已定义注册、发现、租约和监听接口，并提供测试用内存实现；协调服以及 etcd 适配器仍属于规划内容。
+`EtcdServiceRegistry` 已实现带 Lease 的注册、自动续租、前缀发现和 Watch 缓存，登录服、角色服与网关服会直接连接 etcd。协调服仍属于规划中的控制面，不作为基础服务发现的单点代理。
 
 ## 三阶段接入时序
 
@@ -142,7 +149,7 @@ flowchart TB
         Scheduler["scheduler<br/>帧驱动"]
         Concurrency["concurrency<br/>有界队列"]
         Service["service<br/>生命周期"]
-        Cluster["cluster<br/>服务注册接口"]
+        Cluster["cluster<br/>etcd 注册、续租与发现"]
         Scripting["scripting<br/>LuaRuntime"]
     end
 
@@ -157,6 +164,7 @@ flowchart TB
         Sol2["sol2 v3.3.1"]
         KcpLib["KCP"]
         Sodium["libsodium"]
+        Etcd["etcd v3"]
     end
 
     Apps --> Game
@@ -167,6 +175,7 @@ flowchart TB
     Scripting --> Sol2 --> Lua
     Network --> KcpLib
     Network --> Sodium
+    Cluster --> Etcd
     GatewayService --> Network
     GatewayService --> Scheduler
     GatewayService --> Concurrency

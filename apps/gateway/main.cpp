@@ -1,3 +1,6 @@
+#include "realmmesh/cluster/etcd_service_registry.hpp"
+#include "realmmesh/cluster/service_bootstrap.hpp"
+#include "realmmesh/cluster/service_publisher.hpp"
 #include "realmmesh/game/common/edge_protocol.hpp"
 #include "realmmesh/game/common/session_ticket.hpp"
 #include "realmmesh/game/gateway/gateway_config_loader.hpp"
@@ -14,6 +17,7 @@
 #include <filesystem>
 #include <iostream>
 #include <limits>
+#include <memory>
 #include <stdexcept>
 #include <string_view>
 #include <unordered_map>
@@ -132,6 +136,7 @@ int main(int argc, char* argv[]) {
 
         const auto tick_rate = config.tick_rate;
         const auto max_events_per_frame = config.max_events_per_frame;
+        const auto discovery_config = config.service_discovery;
         realm::game::common::SessionTicketCodec tickets(
             load_session_ticket_key());
         realm::game::common::TicketReplayGuard replay_guard;
@@ -139,6 +144,31 @@ int main(int argc, char* argv[]) {
             realm::game::gateway::ClientSessionId,
             realm::game::common::SessionTicketClaims> authenticated;
         realm::game::gateway::GatewayRuntime runtime(std::move(config));
+        std::unique_ptr<realm::cluster::EtcdServiceRegistry> registry;
+        std::unique_ptr<realm::cluster::ServicePublisher> publisher;
+        if (discovery_config.enabled) {
+            registry = std::make_unique<realm::cluster::EtcdServiceRegistry>(
+                realm::cluster::make_etcd_registry_options(discovery_config));
+            publisher = std::make_unique<realm::cluster::ServicePublisher>(
+                *registry,
+                realm::cluster::make_service_instance(
+                    realm::cluster::ServiceType::Gateway,
+                    discovery_config,
+                    runtime.local_endpoints(),
+                    "0.1.0"),
+                discovery_config.lease_ttl);
+            const bool registered = publisher->tick();
+            if (!registered && discovery_config.required) {
+                throw std::runtime_error(
+                    "gateway service registration failed: " +
+                    registry->last_error());
+            }
+            if (!registered) {
+                std::cerr << "Gateway service discovery unavailable; continuing "
+                             "without registration: "
+                          << registry->last_error() << '\n';
+            }
+        }
         for (const auto& endpoint : runtime.local_endpoints()) {
             std::cout << "RealmMesh gateway listening on "
                       << endpoint.address << ':' << endpoint.port
@@ -151,6 +181,7 @@ int main(int argc, char* argv[]) {
         realm::scheduler::FrameScheduler frame_scheduler(tick_rate, frame_clock);
         bool runtime_failed = false;
         static_cast<void>(frame_scheduler.run([&](realm::scheduler::FrameContext) {
+            if (publisher != nullptr) static_cast<void>(publisher->tick());
             for (auto& event : runtime.drain_events(max_events_per_frame)) {
                 if (event.client_session_id.has_value() &&
                     event.kind == realm::network::TransportEventKind::SessionClosed) {

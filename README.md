@@ -95,6 +95,37 @@ const int damage = lua.call<int>("combat", "damage", 20);
 
 默认脚本环境不开放 `package`、`os`、`io`、`debug`、`dofile` 和 `loadfile`。这能限制脚本自行访问文件和系统接口，但不等同于可运行不受信任代码的完整安全沙箱；如果未来允许用户提交脚本，还需要指令数、执行时间和内存配额。
 
+## etcd 服务发现
+
+登录服、角色服和网关服已经接入 etcd v3。服务启动后会在 `/realmmesh/services/<类型>/<实例 ID>` 下发布带 Lease 的多协议端点，后台自动续租，正常退出时主动撤销；登录服通过 Watch 缓存角色服地址，角色服通过 Watch 缓存网关地址。
+
+安装并启动固定版本的本地 etcd：
+
+```bash
+./scripts/install-etcd.sh
+./scripts/run-etcd-dev.sh
+```
+
+服务发现参数位于各服务的 Lua 配置中：
+
+```lua
+service_discovery = {
+    enabled = true,
+    required = false,
+    endpoint = "http://127.0.0.1:2379",
+    key_prefix = "/realmmesh/services",
+    instance_id = "gateway-dev-01",
+    node_id = "development-node",
+    zone = "development",
+    advertise_address = "127.0.0.1",
+    lease_ttl_seconds = 15,
+}
+```
+
+`required = false` 时，etcd 暂时不可用不会阻止服务启动，登录服和角色服会降级使用 Lua 中的固定下游地址，并持续重试注册与发现。生产环境可以设为 `true` 以便启动失败时立即退出。
+
+当前客户端使用 etcd 官方 JSON gRPC gateway，Watch 通过可恢复的前缀快照增量对比实现。开发配置仅使用本机 HTTP；公网或跨主机部署前还需增加 TLS、etcd 身份认证以及多 endpoint 故障切换。自定义协调服仍属于后续控制面，不再承担基础服务发现的单点代理职责。
+
 ## 可配置网关协议
 
 网关网络层使用统一的 `IMessageTransport` 接口。目前已经实现：
