@@ -1,10 +1,10 @@
+#include "realmmesh/scheduler/frame_scheduler.hpp"
+
 #include <charconv>
-#include <chrono>
 #include <cstdint>
 #include <iostream>
 #include <string_view>
 #include <system_error>
-#include <thread>
 
 namespace {
 
@@ -62,26 +62,18 @@ bool parse_arguments(int argc, char* argv[], ServerConfig& config) {
 }
 
 void run_server(const ServerConfig& config) {
-    using Clock = std::chrono::steady_clock;
-
-    const auto frame_duration = std::chrono::duration_cast<Clock::duration>(
-        std::chrono::duration<double>{1.0 / static_cast<double>(config.tick_rate)});
+    realm::scheduler::SteadyFrameClock clock;
+    realm::scheduler::FrameScheduler scheduler(config.tick_rate, clock);
 
     std::cout << "RealmMesh started at " << config.tick_rate << " FPS\n";
 
-    auto next_frame = Clock::now();
-    std::uint64_t frame = 0;
-    while (config.frame_limit == 0 || frame < config.frame_limit) {
-        ++frame;
-
+    const auto completed_frames = scheduler.run([&config](realm::scheduler::FrameContext frame) {
         // Frame pipeline: receive messages -> update state -> run timers -> sync.
-        std::cout << "frame=" << frame << '\n';
+        std::cout << "frame=" << frame.index << '\n';
+        return config.frame_limit == 0 || frame.index < config.frame_limit;
+    });
 
-        next_frame += frame_duration;
-        std::this_thread::sleep_until(next_frame);
-    }
-
-    std::cout << "RealmMesh stopped after " << frame << " frames\n";
+    std::cout << "RealmMesh stopped after " << completed_frames << " frames\n";
 }
 
 }  // namespace
