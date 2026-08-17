@@ -113,27 +113,35 @@ int main(int argc, char* argv[]) {
                 if (event.kind != realm::network::TransportEventKind::MessageReceived)
                     continue;
 
+                const auto request_id =
+                    realm::game::common::edge_request_id(event.payload).value_or(0);
                 std::vector<std::byte> response;
                 if (const auto request =
                         realm::game::common::decode_realm_authenticate(event.payload);
                     request.has_value()) {
                     const auto claims = tickets.validate(
-                        request->login_ticket,
+                        realm::game::common::protobuf_bytes(
+                            request->login_ticket()),
                         realm::game::common::TicketPurpose::Login);
                     if (!claims.has_value() || claims->realm_id != 1) {
-                        response = realm::game::common::encode(
-                            realm::game::common::EdgeError{2001, "invalid login ticket"});
+                        realm::game::common::EdgeError error;
+                        error.set_code(2001);
+                        error.set_message("invalid login ticket");
+                        response = realm::game::common::encode(error, request_id);
                     } else {
                         authenticated[client] = claims->account_id;
+                        realm::game::common::CharacterList characters;
+                        auto* character = characters.add_characters();
+                        character->set_id(character_id(claims->account_id));
+                        character->set_name("Development Hero");
                         response = realm::game::common::encode(
-                            realm::game::common::CharacterList{{
-                                {character_id(claims->account_id), "Development Hero"},
-                            }});
+                            characters, request_id);
                     }
                 } else if (const auto request =
                                realm::game::common::decode_select_character(event.payload);
                            request.has_value() && authenticated.contains(client) &&
-                           request->character_id == character_id(authenticated[client])) {
+                           request->character_id() ==
+                               character_id(authenticated[client])) {
                     const auto account_id = authenticated[client];
                     const auto discovered = gateway_resolver != nullptr
                         ? gateway_resolver->endpoint()
@@ -144,19 +152,23 @@ int main(int argc, char* argv[]) {
                     const auto gateway_port = discovered.has_value()
                         ? discovered->port
                         : fallback_gateway_port;
-                    response = realm::game::common::encode(
-                        realm::game::common::EnterGameIssued{
-                            tickets.issue(
-                                realm::game::common::TicketPurpose::EnterGame,
-                                account_id,
-                                1,
-                                request->character_id,
-                                std::chrono::seconds(30)),
-                            {gateway_address, gateway_port},
-                        });
+                    const auto ticket = tickets.issue(
+                        realm::game::common::TicketPurpose::EnterGame,
+                        account_id,
+                        1,
+                        request->character_id(),
+                        std::chrono::seconds(30));
+                    realm::game::common::EnterGameIssued issued;
+                    issued.set_enter_game_ticket(ticket.data(), ticket.size());
+                    issued.mutable_gateway_endpoint()->set_address(gateway_address);
+                    issued.mutable_gateway_endpoint()->set_port(gateway_port);
+                    response = realm::game::common::encode(issued, request_id);
                 } else {
-                    response = realm::game::common::encode(
-                        realm::game::common::EdgeError{2002, "authenticate before selecting character"});
+                    realm::game::common::EdgeError error;
+                    error.set_code(2002);
+                    error.set_message(
+                        "authenticate before selecting character");
+                    response = realm::game::common::encode(error, request_id);
                 }
                 static_cast<void>(runtime.try_send(client, response));
             }

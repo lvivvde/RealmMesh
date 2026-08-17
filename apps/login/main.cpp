@@ -112,13 +112,17 @@ int main(int argc, char* argv[]) {
 
                 const auto request =
                     realm::game::common::decode_login_request(event.payload);
+                const auto request_id =
+                    realm::game::common::edge_request_id(event.payload).value_or(0);
                 std::vector<std::byte> response;
-                if (!request.has_value() || request->account.empty() ||
-                    request->credential != "dev") {
-                    response = realm::game::common::encode(
-                        realm::game::common::EdgeError{1001, "invalid credentials"});
+                if (!request.has_value() || request->account().empty() ||
+                    request->credential() != "dev") {
+                    realm::game::common::EdgeError error;
+                    error.set_code(1001);
+                    error.set_message("invalid credentials");
+                    response = realm::game::common::encode(error, request_id);
                 } else {
-                    const auto account_id = development_account_id(request->account);
+                    const auto account_id = development_account_id(request->account());
                     const auto discovered = realm_resolver != nullptr
                         ? realm_resolver->endpoint()
                         : std::nullopt;
@@ -128,17 +132,18 @@ int main(int argc, char* argv[]) {
                     const auto realm_port = discovered.has_value()
                         ? discovered->port
                         : fallback_realm_port;
-                    response = realm::game::common::encode(
-                        realm::game::common::LoginSucceeded{
-                            account_id,
-                            tickets.issue(
-                                realm::game::common::TicketPurpose::Login,
-                                account_id,
-                                1,
-                                0,
-                                std::chrono::seconds(60)),
-                            {realm_address, realm_port},
-                        });
+                    const auto ticket = tickets.issue(
+                        realm::game::common::TicketPurpose::Login,
+                        account_id,
+                        1,
+                        0,
+                        std::chrono::seconds(60));
+                    realm::game::common::LoginSucceeded success;
+                    success.set_account_id(account_id);
+                    success.set_login_ticket(ticket.data(), ticket.size());
+                    success.mutable_realm_endpoint()->set_address(realm_address);
+                    success.mutable_realm_endpoint()->set_port(realm_port);
+                    response = realm::game::common::encode(success, request_id);
                 }
                 static_cast<void>(runtime.try_send(
                     *event.client_session_id, response));

@@ -143,34 +143,47 @@ TEST(ThreeStageFlowTest, LogsInSelectsACharacterAndEntersTheGateway) {
     ChildProcess login(REALMMESH_LOGIN_EXECUTABLE);
 
     auto login_socket = connect_when_ready(7000);
-    send_message(login_socket.get(), encode(LoginRequest{"alice", "dev"}));
-    const auto login_response = decode_login_succeeded(
-        receive_message(login_socket.get()));
+    LoginRequest login_request;
+    login_request.set_account("alice");
+    login_request.set_credential("dev");
+    send_message(login_socket.get(), encode(login_request, 1));
+    const auto login_wire = receive_message(login_socket.get());
+    EXPECT_EQ(edge_request_id(login_wire), 1);
+    const auto login_response = decode_login_succeeded(login_wire);
     ASSERT_TRUE(login_response.has_value());
-    EXPECT_EQ(login_response->realm_endpoint.port, 7100);
+    EXPECT_EQ(login_response->realm_endpoint().port(), 7100);
 
-    auto realm_socket = connect_when_ready(login_response->realm_endpoint.port);
-    send_message(
-        realm_socket.get(),
-        encode(RealmAuthenticate{login_response->login_ticket}));
-    const auto characters = decode_character_list(receive_message(realm_socket.get()));
+    auto realm_socket = connect_when_ready(
+        static_cast<std::uint16_t>(login_response->realm_endpoint().port()));
+    RealmAuthenticate authenticate;
+    authenticate.set_login_ticket(login_response->login_ticket());
+    send_message(realm_socket.get(), encode(authenticate, 2));
+    const auto character_wire = receive_message(realm_socket.get());
+    EXPECT_EQ(edge_request_id(character_wire), 2);
+    const auto characters = decode_character_list(character_wire);
     ASSERT_TRUE(characters.has_value());
-    ASSERT_EQ(characters->characters.size(), 1U);
+    ASSERT_EQ(characters->characters_size(), 1);
 
-    send_message(
-        realm_socket.get(),
-        encode(SelectCharacter{characters->characters.front().id}));
-    const auto enter = decode_enter_game_issued(receive_message(realm_socket.get()));
+    SelectCharacter select_character;
+    select_character.set_character_id(characters->characters(0).id());
+    send_message(realm_socket.get(), encode(select_character, 3));
+    const auto enter_wire = receive_message(realm_socket.get());
+    EXPECT_EQ(edge_request_id(enter_wire), 3);
+    const auto enter = decode_enter_game_issued(enter_wire);
     ASSERT_TRUE(enter.has_value());
-    EXPECT_EQ(enter->gateway_endpoint.port, 8000);
+    EXPECT_EQ(enter->gateway_endpoint().port(), 8000);
 
-    auto gateway_socket = connect_when_ready(enter->gateway_endpoint.port);
-    send_message(gateway_socket.get(), encode(EnterGame{enter->enter_game_ticket}));
-    const auto accepted = decode_enter_game_accepted(
-        receive_message(gateway_socket.get()));
+    auto gateway_socket = connect_when_ready(
+        static_cast<std::uint16_t>(enter->gateway_endpoint().port()));
+    EnterGame enter_game;
+    enter_game.set_enter_game_ticket(enter->enter_game_ticket());
+    send_message(gateway_socket.get(), encode(enter_game, 4));
+    const auto accepted_wire = receive_message(gateway_socket.get());
+    EXPECT_EQ(edge_request_id(accepted_wire), 4);
+    const auto accepted = decode_enter_game_accepted(accepted_wire);
     ASSERT_TRUE(accepted.has_value());
-    EXPECT_EQ(accepted->account_id, login_response->account_id);
-    EXPECT_EQ(accepted->character_id, characters->characters.front().id);
+    EXPECT_EQ(accepted->account_id(), login_response->account_id());
+    EXPECT_EQ(accepted->character_id(), characters->characters(0).id());
 
     login.stop();
     realm.stop();

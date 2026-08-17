@@ -1,0 +1,75 @@
+syntax = "proto3";
+
+package realmmesh.protocol.edge.v1;
+
+option optimize_for = LITE_RUNTIME;
+
+// Numeric values are permanent wire identifiers. Never reuse a removed value.
+enum MessageId {
+  MESSAGE_ID_UNSPECIFIED = 0;
+
+  MESSAGE_ID_C2S_LOGIN_REQUEST = 1001;
+  MESSAGE_ID_S2C_LOGIN_SUCCEEDED = 1002;
+
+  MESSAGE_ID_C2S_REALM_AUTHENTICATE = 1101;
+  MESSAGE_ID_S2C_CHARACTER_LIST = 1102;
+  MESSAGE_ID_C2S_SELECT_CHARACTER = 1103;
+  MESSAGE_ID_S2C_ENTER_GAME_ISSUED = 1104;
+
+  MESSAGE_ID_C2S_ENTER_GAME = 1201;
+  MESSAGE_ID_S2C_ENTER_GAME_ACCEPTED = 1202;
+
+  MESSAGE_ID_S2C_ERROR = 1999;
+}
+
+message ServiceEndpoint {
+  string address = 1;
+  uint32 port = 2;
+}
+
+message LoginRequest {
+  string account = 1;
+  string credential = 2;
+}
+
+message LoginSucceeded {
+  uint64 account_id = 1;
+  bytes login_ticket = 2;
+  ServiceEndpoint realm_endpoint = 3;
+}
+
+message RealmAuthenticate {
+  bytes login_ticket = 1;
+}
+
+message CharacterSummary {
+  uint64 id = 1;
+  string name = 2;
+}
+
+message CharacterList {
+  repeated CharacterSummary characters = 1;
+}
+
+message SelectCharacter {
+  uint64 character_id = 1;
+}
+
+message EnterGameIssued {
+  bytes enter_game_ticket = 1;
+  ServiceEndpoint gateway_endpoint = 2;
+}
+
+message EnterGame {
+  bytes enter_game_ticket = 1;
+}
+
+message EnterGameAccepted {
+  uint64 account_id = 1;
+  uint64 character_id = 2;
+}
+
+message EdgeError {
+  uint32 code = 1;
+  string message = 2;
+}

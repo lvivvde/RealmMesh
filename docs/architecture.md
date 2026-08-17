@@ -82,11 +82,15 @@ sequenceDiagram
     Client->>Realm: SelectCharacter(character_id)
     Realm-->>Client: EnterGameIssued(EnterGameTicket, gateway endpoint)
     Client->>Gateway: EnterGame(EnterGameTicket)
-    Gateway-->>Client: EnterGameAccepted(session_id)
+    Gateway-->>Client: EnterGameAccepted(account_id, character_id)
     Note over Client,Gateway: EnterGameTicket 在网关单次消费，防止重复进入
 ```
 
 三个服务共享会话票据签名密钥，但客户端只能获得带用途和有效期的短期票据。正式公网部署还需要给登录服和角色服入口增加 TLS。
+
+时序中的业务消息全部使用 Protocol Buffers，并由统一 `Envelope` 携带协议版本、
+消息 ID 和请求 ID。TCP 的长度字段以及 UDP/KCP 的安全与可靠传输头位于
+`Envelope` 外层，协议细节见 [protocol.md](protocol.md)。
 
 ## 网关线程与多协议模型
 

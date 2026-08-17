@@ -1,0 +1,14 @@
+syntax = "proto3";
+
+package realmmesh.protocol.common.v1;
+
+option optimize_for = LITE_RUNTIME;
+
+// Envelope is the transport-independent wrapper for every business message.
+// TCP length framing and UDP/KCP/security headers live outside this message.
+message Envelope {
+  uint32 protocol_version = 1;
+  uint32 message_id = 2;
+  uint64 request_id = 3;
+  bytes payload = 4;
+}

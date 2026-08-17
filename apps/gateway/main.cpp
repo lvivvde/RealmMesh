@@ -199,23 +199,30 @@ int main(int argc, char* argv[]) {
                             realm::game::common::decode_enter_game(event.payload);
                         const auto claims = request.has_value()
                             ? tickets.validate(
-                                  request->enter_game_ticket,
+                                  realm::game::common::protobuf_bytes(
+                                      request->enter_game_ticket()),
                                   realm::game::common::TicketPurpose::EnterGame)
                             : std::nullopt;
+                        const auto request_id =
+                            realm::game::common::edge_request_id(event.payload)
+                                .value_or(0);
                         std::vector<std::byte> response;
                         if (!claims.has_value() || claims->realm_id != 1 ||
                             claims->character_id == 0 ||
                             !replay_guard.consume(*claims)) {
+                            realm::game::common::EdgeError error;
+                            error.set_code(3001);
+                            error.set_message(
+                                "invalid or replayed enter-game ticket");
                             response = realm::game::common::encode(
-                                realm::game::common::EdgeError{
-                                    3001, "invalid or replayed enter-game ticket"});
+                                error, request_id);
                         } else {
                             authenticated.emplace(client, *claims);
+                            realm::game::common::EnterGameAccepted accepted;
+                            accepted.set_account_id(claims->account_id);
+                            accepted.set_character_id(claims->character_id);
                             response = realm::game::common::encode(
-                                realm::game::common::EnterGameAccepted{
-                                    claims->account_id,
-                                    claims->character_id,
-                                });
+                                accepted, request_id);
                         }
                         static_cast<void>(runtime.try_send(client, response));
                     } else {
@@ -225,9 +232,11 @@ int main(int argc, char* argv[]) {
                             {.preferred = event.protocol}));
                     }
                 } else {
-                    const auto response = realm::game::common::encode(
-                        realm::game::common::EdgeError{
-                            3002, "enter game over TCP before binding another protocol"});
+                    realm::game::common::EdgeError error;
+                    error.set_code(3002);
+                    error.set_message(
+                        "enter game over TCP before binding another protocol");
+                    const auto response = realm::game::common::encode(error);
                     static_cast<void>(runtime.try_send_channel(
                         event.transport_name,
                         event.transport_session_id,

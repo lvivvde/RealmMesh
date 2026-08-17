@@ -25,5 +25,5 @@ if [[ -f "${compile_commands}" && ! -e "${compile_commands_link}" && ! -L "${com
     ln -s "build/dev/compile_commands.json" "${compile_commands_link}"
 fi
 
-"${cmake_bin}" --build --preset dev --parallel
+"${cmake_bin}" --build --preset dev
 "${ctest_bin}" --preset dev

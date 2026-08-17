@@ -51,6 +51,8 @@ cmake --build --preset dev
 ctest --preset dev
 ```
 
+首次配置会自动获取固定版本的第三方依赖。
+
 运行最小服务器示例：
 
 ```bash
@@ -260,7 +262,9 @@ export REALMMESH_SESSION_TICKET_KEY="$(openssl rand -hex 32)"
 ./build/dev/bin/realm_login
 ```
 
-客户端消息继续使用 TCP 的 4 字节大端长度字段分帧，帧内是带操作码的二进制边缘协议。完整流程为：
+客户端消息继续使用 TCP 的 4 字节大端长度字段分帧，帧内统一使用
+Protocol Buffers `Envelope`：协议版本、消息 ID、请求 ID 和具体消息载荷彼此分离。
+UDP/KCP 与 TCP 复用同一业务消息格式，只有外层传输封装不同。完整流程为：
 
 ```text
 LoginRequest(account, credential)
@@ -272,6 +276,10 @@ SelectCharacter(character_id)
 EnterGame(EnterGameTicket)
   -> EnterGameAccepted
 ```
+
+协议源文件位于 `proto/realmmesh/`，构建时由固定版本的 `protoc` 生成 C++
+代码，生成物只保存在 `build/`，不提交到仓库。字段编号与消息 ID 一经发布不得
+复用；详细分层、编号和演进规则见 [docs/protocol.md](docs/protocol.md)。
 
 监听地址、端口、下游地址和队列容量分别位于 `login.lua`、`realm.lua` 和 `gateway.lua`。当前账号认证器仅用于纵向链路开发，只接受凭据 `dev`；角色数据也是内存生成数据，不能用于生产环境。正式接入前需要替换为平台认证和存储服，并为登录与角色 TCP 链路增加 TLS。票据已经包含用途隔离、有效期、HMAC-SHA256 防篡改；`EnterGameTicket` 还会在网关单次消费以防重放。
 

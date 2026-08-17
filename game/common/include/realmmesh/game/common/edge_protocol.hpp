@@ -1,101 +1,62 @@
 #pragma once
 
+#include "realmmesh/edge/v1/edge.pb.h"
+
 #include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <span>
-#include <string>
+#include <string_view>
 #include <vector>
 
 namespace realm::game::common {
 
-enum class EdgeOpcode : std::uint8_t {
-    LoginRequest = 1,
-    LoginSucceeded = 2,
-    RealmAuthenticate = 3,
-    CharacterList = 4,
-    SelectCharacter = 5,
-    EnterGameIssued = 6,
-    EnterGame = 7,
-    EnterGameAccepted = 8,
-    Error = 255,
-};
+using ServiceEndpoint = ::realmmesh::protocol::edge::v1::ServiceEndpoint;
+using LoginRequest = ::realmmesh::protocol::edge::v1::LoginRequest;
+using LoginSucceeded = ::realmmesh::protocol::edge::v1::LoginSucceeded;
+using RealmAuthenticate = ::realmmesh::protocol::edge::v1::RealmAuthenticate;
+using CharacterSummary = ::realmmesh::protocol::edge::v1::CharacterSummary;
+using CharacterList = ::realmmesh::protocol::edge::v1::CharacterList;
+using SelectCharacter = ::realmmesh::protocol::edge::v1::SelectCharacter;
+using EnterGameIssued = ::realmmesh::protocol::edge::v1::EnterGameIssued;
+using EnterGame = ::realmmesh::protocol::edge::v1::EnterGame;
+using EnterGameAccepted = ::realmmesh::protocol::edge::v1::EnterGameAccepted;
+using EdgeError = ::realmmesh::protocol::edge::v1::EdgeError;
+using EdgeMessageId = ::realmmesh::protocol::edge::v1::MessageId;
 
-struct ServiceEndpoint {
-    std::string address;
-    std::uint16_t port{0};
-    bool operator==(const ServiceEndpoint&) const = default;
-};
+inline constexpr std::uint32_t kEdgeProtocolVersion = 1;
 
-struct LoginRequest {
-    std::string account;
-    std::string credential;
-    bool operator==(const LoginRequest&) const = default;
-};
+[[nodiscard]] inline std::span<const std::byte> protobuf_bytes(
+    std::string_view value) noexcept {
+    return {
+        reinterpret_cast<const std::byte*>(value.data()),
+        value.size(),
+    };
+}
 
-struct LoginSucceeded {
-    std::uint64_t account_id{0};
-    std::vector<std::byte> login_ticket;
-    ServiceEndpoint realm_endpoint;
-    bool operator==(const LoginSucceeded&) const = default;
-};
-
-struct RealmAuthenticate {
-    std::vector<std::byte> login_ticket;
-    bool operator==(const RealmAuthenticate&) const = default;
-};
-
-struct CharacterSummary {
-    std::uint64_t id{0};
-    std::string name;
-    bool operator==(const CharacterSummary&) const = default;
-};
-
-struct CharacterList {
-    std::vector<CharacterSummary> characters;
-    bool operator==(const CharacterList&) const = default;
-};
-
-struct SelectCharacter {
-    std::uint64_t character_id{0};
-    bool operator==(const SelectCharacter&) const = default;
-};
-
-struct EnterGameIssued {
-    std::vector<std::byte> enter_game_ticket;
-    ServiceEndpoint gateway_endpoint;
-    bool operator==(const EnterGameIssued&) const = default;
-};
-
-struct EnterGame {
-    std::vector<std::byte> enter_game_ticket;
-    bool operator==(const EnterGame&) const = default;
-};
-
-struct EnterGameAccepted {
-    std::uint64_t account_id{0};
-    std::uint64_t character_id{0};
-    bool operator==(const EnterGameAccepted&) const = default;
-};
-
-struct EdgeError {
-    std::uint16_t code{0};
-    std::string message;
-    bool operator==(const EdgeError&) const = default;
-};
-
-[[nodiscard]] std::optional<EdgeOpcode> edge_opcode(
+[[nodiscard]] std::optional<EdgeMessageId> edge_message_id(
+    std::span<const std::byte> payload);
+[[nodiscard]] std::optional<std::uint64_t> edge_request_id(
     std::span<const std::byte> payload);
 
-[[nodiscard]] std::vector<std::byte> encode(const LoginRequest& message);
-[[nodiscard]] std::vector<std::byte> encode(const LoginSucceeded& message);
-[[nodiscard]] std::vector<std::byte> encode(const RealmAuthenticate& message);
-[[nodiscard]] std::vector<std::byte> encode(const CharacterList& message);
-[[nodiscard]] std::vector<std::byte> encode(const SelectCharacter& message);
-[[nodiscard]] std::vector<std::byte> encode(const EnterGameIssued& message);
-[[nodiscard]] std::vector<std::byte> encode(const EnterGame& message);
-[[nodiscard]] std::vector<std::byte> encode(const EnterGameAccepted& message);
-[[nodiscard]] std::vector<std::byte> encode(const EdgeError& message);
+[[nodiscard]] std::vector<std::byte> encode(
+    const LoginRequest& message, std::uint64_t request_id = 0);
+[[nodiscard]] std::vector<std::byte> encode(
+    const LoginSucceeded& message, std::uint64_t request_id = 0);
+[[nodiscard]] std::vector<std::byte> encode(
+    const RealmAuthenticate& message, std::uint64_t request_id = 0);
+[[nodiscard]] std::vector<std::byte> encode(
+    const CharacterList& message, std::uint64_t request_id = 0);
+[[nodiscard]] std::vector<std::byte> encode(
+    const SelectCharacter& message, std::uint64_t request_id = 0);
+[[nodiscard]] std::vector<std::byte> encode(
+    const EnterGameIssued& message, std::uint64_t request_id = 0);
+[[nodiscard]] std::vector<std::byte> encode(
+    const EnterGame& message, std::uint64_t request_id = 0);
+[[nodiscard]] std::vector<std::byte> encode(
+    const EnterGameAccepted& message, std::uint64_t request_id = 0);
+[[nodiscard]] std::vector<std::byte> encode(
+    const EdgeError& message, std::uint64_t request_id = 0);
 
 [[nodiscard]] std::optional<LoginRequest> decode_login_request(
     std::span<const std::byte> payload);

@@ -11,7 +11,10 @@ target_include_directories(realm_game_common
         $<INSTALL_INTERFACE:include>
 )
 
-target_link_libraries(realm_game_common PUBLIC Sodium::Sodium)
+target_link_libraries(realm_game_common PUBLIC
+    RealmMesh::Protocol
+    Sodium::Sodium
+)
 target_compile_features(realm_game_common PUBLIC cxx_std_20)
 set_target_properties(realm_game_common PROPERTIES CXX_EXTENSIONS OFF)
 
