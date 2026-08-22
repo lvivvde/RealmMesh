@@ -19,6 +19,8 @@ using CharacterSummary = ::realmmesh::protocol::edge::v1::CharacterSummary;
 using CharacterList = ::realmmesh::protocol::edge::v1::CharacterList;
 using SelectCharacter = ::realmmesh::protocol::edge::v1::SelectCharacter;
 using EnterGameIssued = ::realmmesh::protocol::edge::v1::EnterGameIssued;
+using HeartbeatRequest = ::realmmesh::protocol::edge::v1::HeartbeatRequest;
+using HeartbeatResponse = ::realmmesh::protocol::edge::v1::HeartbeatResponse;
 using EnterGame = ::realmmesh::protocol::edge::v1::EnterGame;
 using EnterGameAccepted = ::realmmesh::protocol::edge::v1::EnterGameAccepted;
 using EdgeError = ::realmmesh::protocol::edge::v1::EdgeError;
@@ -54,6 +56,10 @@ inline constexpr std::uint32_t kEdgeProtocolVersion = 1;
 [[nodiscard]] std::vector<std::byte> encode(
     const EnterGameIssued& message, std::uint64_t request_id = 0);
 [[nodiscard]] std::vector<std::byte> encode(
+    const HeartbeatRequest& message, std::uint64_t request_id = 0);
+[[nodiscard]] std::vector<std::byte> encode(
+    const HeartbeatResponse& message, std::uint64_t request_id = 0);
+[[nodiscard]] std::vector<std::byte> encode(
     const EnterGame& message, std::uint64_t request_id = 0);
 [[nodiscard]] std::vector<std::byte> encode(
     const EnterGameAccepted& message, std::uint64_t request_id = 0);
@@ -71,6 +77,10 @@ inline constexpr std::uint32_t kEdgeProtocolVersion = 1;
 [[nodiscard]] std::optional<SelectCharacter> decode_select_character(
     std::span<const std::byte> payload);
 [[nodiscard]] std::optional<EnterGameIssued> decode_enter_game_issued(
+    std::span<const std::byte> payload);
+[[nodiscard]] std::optional<HeartbeatRequest> decode_heartbeat_request(
+    std::span<const std::byte> payload);
+[[nodiscard]] std::optional<HeartbeatResponse> decode_heartbeat_response(
     std::span<const std::byte> payload);
 [[nodiscard]] std::optional<EnterGame> decode_enter_game(
     std::span<const std::byte> payload);

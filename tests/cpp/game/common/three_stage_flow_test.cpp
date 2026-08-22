@@ -369,6 +369,12 @@ TEST(ThreeStageFlowTest, LogsInSelectsACharacterAndEntersTheGateway) {
     ASSERT_TRUE(characters.has_value());
     ASSERT_EQ(characters->characters_size(), 1);
 
+    HeartbeatRequest heartbeat;
+    send_message(realm_socket, encode(heartbeat, 5));
+    const auto heartbeat_wire = receive_message(realm_socket);
+    EXPECT_EQ(edge_request_id(heartbeat_wire), 5);
+    EXPECT_TRUE(decode_heartbeat_response(heartbeat_wire).has_value());
+
     SelectCharacter select_character;
     select_character.set_character_id(characters->characters(0).id());
     send_message(realm_socket, encode(select_character, 3));

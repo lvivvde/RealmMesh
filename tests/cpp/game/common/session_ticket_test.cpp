@@ -136,6 +136,15 @@ TEST(EdgeProtocolTest, RoundTripsTheThreeStageHandshakeMessages) {
     EXPECT_EQ(decoded_issued->gateway_endpoints(1).protocol(),
               edge_v1::TRANSPORT_PROTOCOL_TLS_TCP);
 
+    HeartbeatRequest heartbeat_request;
+    const auto encoded_heartbeat_request = encode(heartbeat_request, 43);
+    EXPECT_EQ(edge_request_id(encoded_heartbeat_request), 43);
+    EXPECT_TRUE(
+        decode_heartbeat_request(encoded_heartbeat_request).has_value());
+    HeartbeatResponse heartbeat_response;
+    EXPECT_TRUE(
+        decode_heartbeat_response(encode(heartbeat_response, 43)).has_value());
+
     EdgeError error;
     error.set_code(1999);
     error.set_message("test error");

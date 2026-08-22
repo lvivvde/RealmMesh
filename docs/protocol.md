@@ -45,9 +45,15 @@ QUIC 在一个客户端发起的长期可靠双向流上承载该字节流；不
 | 1102 | S2C | `CharacterList` |
 | 1103 | C2S | `SelectCharacter` |
 | 1104 | S2C | `EnterGameIssued` |
+| 1105 | C2S | `HeartbeatRequest` |
+| 1106 | S2C | `HeartbeatResponse` |
 | 1201 | C2S | `EnterGame` |
 | 1202 | S2C | `EnterGameAccepted` |
 | 1999 | S2C | `EdgeError` |
+
+Realm 鉴权成功后，客户端每 10 秒发送一次 `HeartbeatRequest`，服务端使用相同的
+`request_id` 返回 `HeartbeatResponse`。进入 Gateway 或 Realm 连接断开时停止心跳。
+心跳用于刷新 Realm 的应用层连接活动时间，不能用 TCP KeepAlive 代替。
 
 Gateway 的两个传输可以并行进行安全握手，但只有竞速胜出的连接可以发送
 `EnterGameTicket`。票据在 Gateway 单次消费，后到连接不得重发。

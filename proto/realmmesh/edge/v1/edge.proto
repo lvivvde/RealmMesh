@@ -15,6 +15,8 @@ enum MessageId {
   MESSAGE_ID_S2C_CHARACTER_LIST = 1102;
   MESSAGE_ID_C2S_SELECT_CHARACTER = 1103;
   MESSAGE_ID_S2C_ENTER_GAME_ISSUED = 1104;
+  MESSAGE_ID_C2S_HEARTBEAT_REQUEST = 1105;
+  MESSAGE_ID_S2C_HEARTBEAT_RESPONSE = 1106;
 
   MESSAGE_ID_C2S_ENTER_GAME = 1201;
   MESSAGE_ID_S2C_ENTER_GAME_ACCEPTED = 1202;
@@ -67,6 +69,10 @@ message EnterGameIssued {
   bytes enter_game_ticket = 1;
   repeated ServiceEndpoint gateway_endpoints = 2;
 }
+
+message HeartbeatRequest {}
+
+message HeartbeatResponse {}
 
 message EnterGame {
   bytes enter_game_ticket = 1;

@@ -243,6 +243,15 @@ int main(int argc, char* argv[]) {
                 }
 
                 const auto client = *event.client_session_id;
+                if (realm::game::common::decode_heartbeat_request(event.payload)
+                        .has_value() &&
+                    authenticated.contains(client)) {
+                    realm::game::common::HeartbeatResponse heartbeat;
+                    response = realm::game::common::encode(
+                        heartbeat, request_id);
+                    static_cast<void>(runtime.try_send(client, response));
+                    continue;
+                }
                 if (const auto request =
                                realm::game::common::decode_select_character(event.payload);
                            request.has_value() && authenticated.contains(client) &&

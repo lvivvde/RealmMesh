@@ -20,6 +20,8 @@ bool is_known_message_id(std::uint32_t value) {
     case edge_v1::MESSAGE_ID_S2C_CHARACTER_LIST:
     case edge_v1::MESSAGE_ID_C2S_SELECT_CHARACTER:
     case edge_v1::MESSAGE_ID_S2C_ENTER_GAME_ISSUED:
+    case edge_v1::MESSAGE_ID_C2S_HEARTBEAT_REQUEST:
+    case edge_v1::MESSAGE_ID_S2C_HEARTBEAT_RESPONSE:
     case edge_v1::MESSAGE_ID_C2S_ENTER_GAME:
     case edge_v1::MESSAGE_ID_S2C_ENTER_GAME_ACCEPTED:
     case edge_v1::MESSAGE_ID_S2C_ERROR:
@@ -146,6 +148,18 @@ std::vector<std::byte> encode(
 }
 
 std::vector<std::byte> encode(
+    const HeartbeatRequest& message, std::uint64_t request_id) {
+    return encode_message(
+        message, edge_v1::MESSAGE_ID_C2S_HEARTBEAT_REQUEST, request_id);
+}
+
+std::vector<std::byte> encode(
+    const HeartbeatResponse& message, std::uint64_t request_id) {
+    return encode_message(
+        message, edge_v1::MESSAGE_ID_S2C_HEARTBEAT_RESPONSE, request_id);
+}
+
+std::vector<std::byte> encode(
     const EnterGame& message, std::uint64_t request_id) {
     return encode_message(message, edge_v1::MESSAGE_ID_C2S_ENTER_GAME, request_id);
 }
@@ -195,6 +209,18 @@ std::optional<EnterGameIssued> decode_enter_game_issued(
     std::span<const std::byte> payload) {
     return decode_message<EnterGameIssued>(
         payload, edge_v1::MESSAGE_ID_S2C_ENTER_GAME_ISSUED);
+}
+
+std::optional<HeartbeatRequest> decode_heartbeat_request(
+    std::span<const std::byte> payload) {
+    return decode_message<HeartbeatRequest>(
+        payload, edge_v1::MESSAGE_ID_C2S_HEARTBEAT_REQUEST);
+}
+
+std::optional<HeartbeatResponse> decode_heartbeat_response(
+    std::span<const std::byte> payload) {
+    return decode_message<HeartbeatResponse>(
+        payload, edge_v1::MESSAGE_ID_S2C_HEARTBEAT_RESPONSE);
 }
 
 std::optional<EnterGame> decode_enter_game(
