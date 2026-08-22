@@ -14,8 +14,10 @@ namespace realm::game::common {
 
 inline constexpr std::size_t session_ticket_key_size = 32;
 inline constexpr std::size_t session_ticket_id_size = 16;
+inline constexpr std::size_t correlation_id_size = 16;
 using SessionTicketKey = std::array<std::byte, session_ticket_key_size>;
 using SessionTicketId = std::array<std::byte, session_ticket_id_size>;
+using CorrelationId = std::array<std::byte, correlation_id_size>;
 
 enum class TicketPurpose : std::uint8_t {
     Login = 1,
@@ -28,6 +30,7 @@ struct SessionTicketClaims {
     std::uint64_t account_id{0};
     std::uint32_t realm_id{0};
     std::uint64_t character_id{0};
+    std::optional<CorrelationId> correlation_id;
     std::chrono::system_clock::time_point expires_at;
 };
 
@@ -40,6 +43,16 @@ public:
         std::uint64_t account_id,
         std::uint32_t realm_id,
         std::uint64_t character_id,
+        std::chrono::seconds ttl,
+        std::chrono::system_clock::time_point now =
+            std::chrono::system_clock::now()) const;
+
+    [[nodiscard]] std::vector<std::byte> issue(
+        TicketPurpose purpose,
+        std::uint64_t account_id,
+        std::uint32_t realm_id,
+        std::uint64_t character_id,
+        const CorrelationId& correlation_id,
         std::chrono::seconds ttl,
         std::chrono::system_clock::time_point now =
             std::chrono::system_clock::now()) const;
@@ -73,5 +86,7 @@ private:
 };
 
 [[nodiscard]] SessionTicketKey parse_ticket_key_hex(std::string_view value);
+[[nodiscard]] CorrelationId make_correlation_id();
+[[nodiscard]] std::string correlation_id_hex(const CorrelationId& value);
 
 }  // namespace realm::game::common

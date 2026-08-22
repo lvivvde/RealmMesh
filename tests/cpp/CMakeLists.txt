@@ -51,6 +51,21 @@ target_compile_features(service_lifecycle_test PRIVATE cxx_std_20)
 
 gtest_discover_tests(service_lifecycle_test)
 
+add_executable(observability_logger_test
+    framework/observability/logger_test.cpp
+)
+
+target_link_libraries(observability_logger_test PRIVATE
+    GTest::gtest_main
+    realm_observability
+    httplib::httplib
+    nlohmann_json::nlohmann_json
+)
+
+target_compile_features(observability_logger_test PRIVATE cxx_std_20)
+
+gtest_discover_tests(observability_logger_test)
+
 add_executable(session_ticket_test
     game/common/session_ticket_test.cpp
 )
@@ -91,11 +106,13 @@ add_executable(three_stage_flow_test
 
 target_link_libraries(three_stage_flow_test PRIVATE
     GTest::gtest_main
+    nlohmann_json::nlohmann_json
     realm_game_common
     realm_network
 )
 target_compile_features(three_stage_flow_test PRIVATE cxx_std_20)
 target_compile_definitions(three_stage_flow_test PRIVATE
+    REALMMESH_TEST_SOURCE_DIR="${PROJECT_SOURCE_DIR}"
     REALMMESH_LOGIN_EXECUTABLE="$<TARGET_FILE:realm_login>"
     REALMMESH_REALM_EXECUTABLE="$<TARGET_FILE:realm_character>"
     REALMMESH_GATEWAY_EXECUTABLE="$<TARGET_FILE:realm_gateway>"

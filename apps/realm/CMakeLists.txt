@@ -4,6 +4,7 @@ target_link_libraries(realm_character PRIVATE
     realm_cluster
     realm_game_common
     realm_gateway_service
+    realm_observability
     realm_scheduler
 )
 

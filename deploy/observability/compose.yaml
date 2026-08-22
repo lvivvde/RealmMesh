@@ -1,0 +1,93 @@
+name: realmmesh-observability
+
+services:
+  vector-agent:
+    image: timberio/vector:0.57.0-debian
+    command: ["--config", "/etc/vector/vector.yaml"]
+    volumes:
+      - ./vector-agent.yaml:/etc/vector/vector.yaml:ro
+      - ../../.runtime/logs:/var/log/realmmesh:ro
+      - ../../.runtime/observability/certs:/etc/realmmesh/certs:ro
+      - vector-agent-data:/var/lib/vector
+    ports:
+      - "127.0.0.1:9597:9598"
+    depends_on:
+      log-gateway-a:
+        condition: service_started
+      log-gateway-b:
+        condition: service_started
+    restart: unless-stopped
+
+  log-gateway-a:
+    image: timberio/vector:0.57.0-debian
+    hostname: log-gateway-a
+    command: ["--config", "/etc/vector/vector.yaml"]
+    volumes:
+      - ./vector-gateway.yaml:/etc/vector/vector.yaml:ro
+      - ../../.runtime/observability/certs:/etc/realmmesh/certs:ro
+    ports:
+      - "127.0.0.1:9598:9598"
+    depends_on:
+      loki:
+        condition: service_started
+    restart: unless-stopped
+
+  log-gateway-b:
+    image: timberio/vector:0.57.0-debian
+    hostname: log-gateway-b
+    command: ["--config", "/etc/vector/vector.yaml"]
+    volumes:
+      - ./vector-gateway.yaml:/etc/vector/vector.yaml:ro
+      - ../../.runtime/observability/certs:/etc/realmmesh/certs:ro
+    ports:
+      - "127.0.0.1:9599:9598"
+    depends_on:
+      loki:
+        condition: service_started
+    restart: unless-stopped
+
+  loki:
+    image: grafana/loki:3.7.4
+    command: ["-config.file=/etc/loki/loki.yaml"]
+    volumes:
+      - ./loki.yaml:/etc/loki/loki.yaml:ro
+      - loki-data:/loki
+    ports:
+      - "127.0.0.1:3100:3100"
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:13.1.0
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-realmmesh-dev}
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      loki:
+        condition: service_started
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:v3.12.0
+    command:
+      - --config.file=/etc/prometheus/prometheus.yaml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=15d
+    volumes:
+      - ./prometheus.yaml:/etc/prometheus/prometheus.yaml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "127.0.0.1:9090:9090"
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    restart: unless-stopped
+
+volumes:
+  vector-agent-data:
+  loki-data:
+  grafana-data:
+  prometheus-data:

@@ -156,6 +156,11 @@ GatewayRuntimeStats GatewayRuntime::stats() const noexcept {
     };
 }
 
+std::optional<std::string> GatewayRuntime::terminal_error() const {
+    std::scoped_lock lock(terminal_error_mutex_);
+    return terminal_error_;
+}
+
 QueueResult GatewayRuntime::enqueue(OutboundCommand command) {
     if (!running()) {
         return QueueResult::Stopped;
@@ -176,7 +181,17 @@ void GatewayRuntime::io_loop(std::stop_token stop_token) noexcept {
             }
         }
         process_outbound_commands();
+    } catch (const std::exception& error) {
+        {
+            std::scoped_lock lock(terminal_error_mutex_);
+            terminal_error_ = error.what();
+        }
+        failed_deliveries_.fetch_add(1);
     } catch (...) {
+        {
+            std::scoped_lock lock(terminal_error_mutex_);
+            terminal_error_ = "unknown exception in gateway I/O loop";
+        }
         failed_deliveries_.fetch_add(1);
     }
     running_.store(false);

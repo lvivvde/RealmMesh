@@ -5,6 +5,7 @@
 #include "realmmesh/game/common/session_ticket.hpp"
 #include "realmmesh/game/gateway/gateway_config_loader.hpp"
 #include "realmmesh/game/gateway/gateway_runtime.hpp"
+#include "realmmesh/observability/logger.hpp"
 #include "realmmesh/scheduler/frame_scheduler.hpp"
 
 #include <algorithm>
@@ -135,12 +136,21 @@ std::string connection_key(
 }  // namespace
 
 int main(int argc, char* argv[]) {
+    std::unique_ptr<realm::observability::Logger> logger;
+    std::unique_ptr<realm::observability::LoggerMetricsServer> metrics;
     try {
-        auto config = realm::game::gateway::GatewayConfigLoader::load(
-            config_path_from_arguments(argc, argv));
+        const auto path = config_path_from_arguments(argc, argv);
+        auto config = realm::game::gateway::GatewayConfigLoader::load(path);
+        logger = std::make_unique<realm::observability::Logger>(
+            config.logging, config.logging_identity);
         const auto parse_result = parse_arguments(argc, argv, config);
         if (parse_result != ParseResult::Run) {
             return parse_result == ParseResult::ExitSuccess ? 0 : 1;
+        }
+        if (config.logging_metrics.port != 0) {
+            metrics = std::make_unique<
+                realm::observability::LoggerMetricsServer>(
+                *logger, config.logging_metrics);
         }
 
         std::signal(SIGINT, handle_stop_signal);
@@ -180,19 +190,32 @@ int main(int argc, char* argv[]) {
                     registry->last_error());
             }
             if (!registered) {
-                std::cerr << "Gateway service discovery unavailable; continuing "
-                             "without registration: "
-                          << registry->last_error() << '\n';
+                static_cast<void>(logger->warn(
+                    "dependency_state_changed",
+                    "service discovery unavailable; continuing without registration",
+                    {realm::observability::field("dependency", "etcd"),
+                     realm::observability::field(
+                         "state", "unavailable"),
+                     realm::observability::field(
+                         "error_message", registry->last_error())}));
             }
         }
         for (const auto& endpoint : runtime.local_endpoints()) {
-            std::cout << "RealmMesh gateway listening on "
-                      << endpoint.address << ':' << endpoint.port
-                      << " (" << realm::network::to_string(endpoint.protocol)
-                      << ", " << endpoint.name << ")\n";
+            static_cast<void>(logger->info(
+                "listener_started",
+                "gateway listener started",
+                {realm::observability::field(
+                     "listen_address", endpoint.address),
+                 realm::observability::field("listen_port", endpoint.port),
+                 realm::observability::field(
+                     "transport", realm::network::to_string(endpoint.protocol)),
+                 realm::observability::field(
+                     "transport_name", endpoint.name)}));
         }
 
         runtime.start();
+        static_cast<void>(logger->info(
+            "service_started", "gateway service started"));
         realm::scheduler::SteadyFrameClock frame_clock;
         realm::scheduler::FrameScheduler frame_scheduler(tick_rate, frame_clock);
         bool runtime_failed = false;
@@ -200,6 +223,23 @@ int main(int argc, char* argv[]) {
             if (reload_requested != 0) {
                 reload_requested = 0;
                 static_cast<void>(runtime.try_reload_credentials());
+                try {
+                    const auto reloaded =
+                        realm::game::gateway::GatewayConfigLoader::load(path);
+                    logger->reconfigure({
+                        .min_severity = reloaded.logging.min_severity,
+                        .module_levels =
+                            std::move(reloaded.logging.module_levels),
+                        .sample_rates =
+                            std::move(reloaded.logging.sample_rates),
+                    });
+                } catch (const std::exception& error) {
+                    static_cast<void>(logger->error(
+                        "configuration_reload_failed",
+                        "logging configuration reload failed",
+                        {realm::observability::field(
+                            "error_message", error.what())}));
+                }
             }
             if (publisher != nullptr) static_cast<void>(publisher->tick());
             for (auto& event : runtime.drain_events(max_events_per_frame)) {
@@ -258,6 +298,27 @@ int main(int argc, char* argv[]) {
                         accepted.set_character_id(claims->character_id);
                         response = realm::game::common::encode(
                             accepted, request_id);
+                        realm::observability::EventContext context{
+                            .correlation_id = std::nullopt,
+                            .request_id = request_id,
+                        };
+                        if (claims->correlation_id.has_value()) {
+                            context.correlation_id =
+                                realm::game::common::correlation_id_hex(
+                                    *claims->correlation_id);
+                        }
+                        static_cast<void>(logger->info(
+                            "player_session_established",
+                            "gateway accepted player session",
+                            {realm::observability::field(
+                                 "account_id",
+                                 claims->account_id,
+                                 realm::observability::DataClass::Pseudonymous),
+                             realm::observability::field(
+                                 "character_id",
+                                 claims->character_id,
+                                 realm::observability::DataClass::Pseudonymous)},
+                            std::move(context)));
                     }
                     if (accepted_ticket) {
                         static_cast<void>(runtime.try_accept_connection(
@@ -288,19 +349,39 @@ int main(int argc, char* argv[]) {
             runtime_failed = !runtime.running() && stop_requested == 0;
             return stop_requested == 0 && !runtime_failed;
         }));
+        if (const auto error = runtime.terminal_error(); error.has_value()) {
+            static_cast<void>(logger->error(
+                "runtime_io_failed",
+                "gateway I/O loop terminated unexpectedly",
+                {realm::observability::field("error_message", *error)}));
+        }
         runtime.stop();
 
         const auto stats = runtime.stats();
-        std::cout << "RealmMesh gateway I/O stats: overload_disconnects="
-                  << stats.overload_disconnects
-                  << ", outbound_rejected=" << stats.rejected_outbound_commands
-                  << ", delivered=" << stats.successful_deliveries
-                  << ", delivery_failed=" << stats.failed_deliveries << '\n';
-
-        std::cout << "RealmMesh gateway stopped\n";
+        static_cast<void>(logger->info(
+            "service_stopped",
+            "gateway service stopped",
+            {realm::observability::field(
+                 "overload_disconnects", stats.overload_disconnects),
+             realm::observability::field(
+                 "outbound_rejected", stats.rejected_outbound_commands),
+             realm::observability::field(
+                 "delivered", stats.successful_deliveries),
+             realm::observability::field(
+                 "delivery_failed", stats.failed_deliveries)}));
+        static_cast<void>(logger->flush(std::chrono::seconds(2)));
         return runtime_failed ? 1 : 0;
     } catch (const std::exception& error) {
-        std::cerr << "Gateway failed: " << error.what() << '\n';
+        if (logger != nullptr) {
+            static_cast<void>(logger->error(
+                "service_start_failed",
+                "gateway service failed",
+                {realm::observability::field(
+                    "error_message", error.what())}));
+            static_cast<void>(logger->flush(std::chrono::seconds(2)));
+        } else {
+            std::cerr << "Gateway failed: " << error.what() << '\n';
+        }
         return 1;
     }
 }

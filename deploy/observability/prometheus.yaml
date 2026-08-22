@@ -1,0 +1,26 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: realmmesh-services
+    static_configs:
+      - targets:
+          - host.docker.internal:9101
+          - host.docker.internal:9102
+          - host.docker.internal:9103
+
+  - job_name: vector-agent
+    static_configs:
+      - targets: [vector-agent:9598]
+
+  - job_name: vector-gateways
+    static_configs:
+      - targets:
+          - log-gateway-a:9598
+          - log-gateway-b:9598
+
+  - job_name: loki
+    metrics_path: /metrics
+    static_configs:
+      - targets: [loki:3100]

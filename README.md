@@ -8,7 +8,10 @@ RealmMesh 是一个 C++20 帧驱动游戏服务器。当前公网接入统一使
 - 不支持裸 TCP、裸 UDP、KCP、自研传输加密或逐消息协议回退。
 
 详细结构见 [架构文档](docs/architecture.md)，线上消息约定见
-[协议文档](docs/protocol.md)。
+[协议文档](docs/protocol.md)。已实施的集中日志基线和生产演进边界见
+[分布式日志架构](docs/logging-architecture.md)。
+本地独立日志服务的启动说明见
+[observability development stack](deploy/observability/README.md)。
 
 ## 安全传输约束
 

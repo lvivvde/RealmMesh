@@ -3,6 +3,7 @@
 #include "realmmesh/game/gateway/client_session_registry.hpp"
 #include "realmmesh/cluster/service_discovery_config.hpp"
 #include "realmmesh/network/transport/transport_config.hpp"
+#include "realmmesh/observability/logger.hpp"
 
 #include <chrono>
 #include <cstddef>
@@ -28,6 +29,9 @@ struct GatewayConfig {
     std::vector<network::TransportConfig> transports;
     GatewayRuntimeOptions runtime;
     cluster::ServiceDiscoveryConfig service_discovery;
+    observability::LoggerConfig logging;
+    observability::MetricsServerConfig logging_metrics;
+    observability::ServiceIdentity logging_identity;
     std::uint32_t tick_rate{20};
     std::size_t max_events_per_frame{4'096};
     std::string downstream_address;

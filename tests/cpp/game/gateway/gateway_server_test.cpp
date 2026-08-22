@@ -37,6 +37,26 @@ TEST(GatewayConfigLoaderTest, LoadsQuicPrimaryAndTlsTcpFallbackFromLua) {
     EXPECT_EQ(config.tick_rate, 20U);
     EXPECT_TRUE(config.service_discovery.enabled);
     EXPECT_EQ(config.runtime.inbound_capacity, 65536U);
+    EXPECT_EQ(config.logging.min_severity, observability::Severity::Info);
+    EXPECT_EQ(
+        config.logging.file_path,
+        std::filesystem::path(".runtime/logs/gateway/gateway-dev-01.jsonl"));
+    EXPECT_EQ(config.logging.normal_queue_capacity, 8192U);
+    EXPECT_EQ(config.logging.priority_queue_capacity, 2048U);
+    ASSERT_EQ(config.logging.module_levels.size(), 1U);
+    EXPECT_EQ(
+        config.logging.module_levels.at("framework.network"),
+        observability::Severity::Warn);
+    ASSERT_EQ(config.logging.sample_rates.size(), 1U);
+    EXPECT_DOUBLE_EQ(
+        config.logging.sample_rates.at("malformed_request"), 0.1);
+    EXPECT_EQ(config.logging_metrics.listen_address, "127.0.0.1");
+    EXPECT_EQ(config.logging_metrics.port, 9103U);
+    EXPECT_EQ(config.logging_identity.environment, "development");
+    EXPECT_EQ(config.logging_identity.cluster, "local");
+    EXPECT_EQ(config.logging_identity.service_name, "gateway");
+    EXPECT_EQ(config.logging_identity.service_instance, "gateway-dev-01");
+    EXPECT_EQ(config.logging_identity.node_id, "development-node");
 
     const auto& quic = config.transports[0];
     const auto& tls_tcp = config.transports[1];

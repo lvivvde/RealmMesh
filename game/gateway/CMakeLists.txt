@@ -17,6 +17,7 @@ target_link_libraries(realm_gateway_service PUBLIC
     realm_concurrency
     realm_cluster
     realm_network
+    realm_observability
     realm_scripting
 )
 

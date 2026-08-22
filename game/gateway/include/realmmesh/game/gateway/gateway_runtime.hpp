@@ -7,6 +7,7 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <mutex>
 #include <optional>
 #include <span>
 #include <string>
@@ -70,6 +71,7 @@ public:
     [[nodiscard]] QueueResult try_reload_credentials();
 
     [[nodiscard]] GatewayRuntimeStats stats() const noexcept;
+    [[nodiscard]] std::optional<std::string> terminal_error() const;
 
 private:
     enum class CommandKind : std::uint8_t {
@@ -106,6 +108,8 @@ private:
     std::atomic_uint64_t rejected_outbound_commands_{0};
     std::atomic_uint64_t successful_deliveries_{0};
     std::atomic_uint64_t failed_deliveries_{0};
+    mutable std::mutex terminal_error_mutex_;
+    std::optional<std::string> terminal_error_;
 };
 
 }  // namespace realm::game::gateway

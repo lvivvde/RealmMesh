@@ -37,6 +37,38 @@ TEST(SessionTicketTest, ValidatesPurposeExpiryTamperingAndReplay) {
     EXPECT_FALSE(codec.validate(ticket, TicketPurpose::EnterGame, now).has_value());
 }
 
+TEST(SessionTicketTest, V2CarriesASignedCorrelationIdAndStillAcceptsV1) {
+    using namespace std::chrono_literals;
+    const auto now = std::chrono::system_clock::time_point(2'000s);
+    SessionTicketCodec codec(test_key());
+    CorrelationId correlation_id{};
+    correlation_id.front() = std::byte{0x12};
+    correlation_id.back() = std::byte{0x34};
+
+    const auto v1 = codec.issue(TicketPurpose::Login, 7, 3, 0, 30s, now);
+    auto v2 = codec.issue(
+        TicketPurpose::Login,
+        7,
+        3,
+        0,
+        correlation_id,
+        30s,
+        now);
+
+    const auto v1_claims = codec.validate(v1, TicketPurpose::Login, now + 1s);
+    const auto v2_claims = codec.validate(v2, TicketPurpose::Login, now + 1s);
+    ASSERT_TRUE(v1_claims.has_value());
+    ASSERT_TRUE(v2_claims.has_value());
+    EXPECT_FALSE(v1_claims->correlation_id.has_value());
+    ASSERT_TRUE(v2_claims->correlation_id.has_value());
+    EXPECT_EQ(*v2_claims->correlation_id, correlation_id);
+    EXPECT_EQ(v1.front(), std::byte{1});
+    EXPECT_EQ(v2.front(), std::byte{2});
+
+    v2[2 + session_ticket_id_size] ^= std::byte{1};
+    EXPECT_FALSE(codec.validate(v2, TicketPurpose::Login, now).has_value());
+}
+
 TEST(EdgeProtocolTest, RoundTripsTheThreeStageHandshakeMessages) {
     LoginRequest login;
     login.set_account("alice");

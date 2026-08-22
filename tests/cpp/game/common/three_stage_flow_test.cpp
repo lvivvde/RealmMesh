@@ -2,6 +2,7 @@
 #include "realmmesh/network/codec/length_field_codec.hpp"
 
 #include <gtest/gtest.h>
+#include <nlohmann/json.hpp>
 #include <openssl/ssl.h>
 
 #include <arpa/inet.h>
@@ -16,11 +17,15 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
+#include <filesystem>
+#include <fstream>
 #include <optional>
 #include <memory>
 #include <span>
+#include <sstream>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <utility>
 #include <vector>
@@ -30,11 +35,20 @@ namespace {
 
 class ChildProcess final {
 public:
-    explicit ChildProcess(const char* executable) {
+    ChildProcess(
+        const char* executable,
+        const std::filesystem::path& working_directory,
+        const std::filesystem::path& config_path) {
         pid_ = ::fork();
         if (pid_ < 0) throw std::runtime_error("fork failed");
         if (pid_ == 0) {
-            ::execl(executable, executable, static_cast<char*>(nullptr));
+            if (::chdir(working_directory.c_str()) != 0) _exit(126);
+            ::execl(
+                executable,
+                executable,
+                "--config",
+                config_path.c_str(),
+                static_cast<char*>(nullptr));
             _exit(127);
         }
     }
@@ -53,6 +67,107 @@ public:
 private:
     pid_t pid_{-1};
 };
+
+class TemporaryDirectory final {
+public:
+    TemporaryDirectory()
+        : path_(
+              std::filesystem::temp_directory_path() /
+              ("realmmesh-three-stage-" +
+               std::to_string(
+                   std::chrono::steady_clock::now().time_since_epoch().count()))) {
+        std::filesystem::create_directories(path_);
+    }
+
+    ~TemporaryDirectory() {
+        std::error_code error;
+        std::filesystem::remove_all(path_, error);
+    }
+
+    [[nodiscard]] const std::filesystem::path& path() const noexcept {
+        return path_;
+    }
+
+private:
+    std::filesystem::path path_;
+};
+
+[[nodiscard]] std::string read_file(const std::filesystem::path& path) {
+    std::ifstream input(path);
+    return std::string(
+        std::istreambuf_iterator<char>(input),
+        std::istreambuf_iterator<char>());
+}
+
+[[nodiscard]] std::optional<std::string> correlation_for_event(
+    std::string_view contents,
+    std::string_view event_name) {
+    std::istringstream input{std::string(contents)};
+    std::string line;
+    while (std::getline(input, line)) {
+        const auto event = nlohmann::json::parse(line);
+        if (event.value("event_name", "") == event_name &&
+            event.contains("correlation_id")) {
+            return event.at("correlation_id").get<std::string>();
+        }
+    }
+    return std::nullopt;
+}
+
+[[nodiscard]] std::uint16_t unused_tcp_port() {
+    const int descriptor = ::socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
+    if (descriptor < 0) throw std::runtime_error("socket failed");
+    sockaddr_in address{};
+    address.sin_family = AF_INET;
+    address.sin_port = 0;
+    address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    if (::bind(
+            descriptor,
+            reinterpret_cast<const sockaddr*>(&address),
+            sizeof(address)) != 0) {
+        ::close(descriptor);
+        throw std::runtime_error("ephemeral port bind failed");
+    }
+    socklen_t size = sizeof(address);
+    if (::getsockname(
+            descriptor,
+            reinterpret_cast<sockaddr*>(&address),
+            &size) != 0) {
+        ::close(descriptor);
+        throw std::runtime_error("getsockname failed");
+    }
+    ::close(descriptor);
+    return ntohs(address.sin_port);
+}
+
+void replace_all(
+    std::string& contents,
+    std::string_view original,
+    std::string_view replacement) {
+    std::size_t position = 0;
+    while ((position = contents.find(original, position)) != std::string::npos) {
+        contents.replace(position, original.size(), replacement);
+        position += replacement.size();
+    }
+}
+
+[[nodiscard]] std::filesystem::path write_test_config(
+    const std::filesystem::path& directory,
+    std::string_view name,
+    std::initializer_list<std::pair<std::string_view, std::string>> replacements) {
+    const auto source = std::filesystem::path(REALMMESH_TEST_SOURCE_DIR) /
+        "lua/config/services" / (std::string(name) + ".lua");
+    auto contents = read_file(source);
+    if (contents.empty()) throw std::runtime_error("test config is empty");
+    for (const auto& [original, replacement] : replacements) {
+        replace_all(contents, original, replacement);
+    }
+    const auto destination = directory / (std::string(name) + ".lua");
+    std::ofstream output(destination);
+    output << contents;
+    if (!output) throw std::runtime_error("failed to write test config");
+    return destination;
+}
 
 struct ContextDeleter {
     void operator()(SSL_CTX* value) const noexcept { SSL_CTX_free(value); }
@@ -181,6 +296,30 @@ std::vector<std::byte> receive_message(TlsSocket& socket) {
 }
 
 TEST(ThreeStageFlowTest, LogsInSelectsACharacterAndEntersTheGateway) {
+    const TemporaryDirectory working_directory;
+    const auto login_port = unused_tcp_port();
+    const auto realm_port = unused_tcp_port();
+    const auto gateway_port = unused_tcp_port();
+    const auto login_config = write_test_config(
+        working_directory.path(),
+        "login",
+        {{"7000", std::to_string(login_port)},
+         {"7100", std::to_string(realm_port)},
+         {"metrics_port = 9101", "metrics_port = 0"},
+         {"console = true", "console = false"}});
+    const auto realm_config = write_test_config(
+        working_directory.path(),
+        "realm",
+        {{"7100", std::to_string(realm_port)},
+         {"8000", std::to_string(gateway_port)},
+         {"metrics_port = 9102", "metrics_port = 0"},
+         {"console = true", "console = false"}});
+    const auto gateway_config = write_test_config(
+        working_directory.path(),
+        "gateway",
+        {{"8000", std::to_string(gateway_port)},
+         {"metrics_port = 9103", "metrics_port = 0"},
+         {"console = true", "console = false"}});
     constexpr auto key =
         "0102030405060708090a0b0c0d0e0f10"
         "1112131415161718191a1b1c1d1e1f20";
@@ -194,11 +333,20 @@ TEST(ThreeStageFlowTest, LogsInSelectsACharacterAndEntersTheGateway) {
         REALMMESH_TEST_TLS_PRIVATE_KEY,
         1), 0);
 
-    ChildProcess gateway(REALMMESH_GATEWAY_EXECUTABLE);
-    ChildProcess realm(REALMMESH_REALM_EXECUTABLE);
-    ChildProcess login(REALMMESH_LOGIN_EXECUTABLE);
+    ChildProcess gateway(
+        REALMMESH_GATEWAY_EXECUTABLE,
+        working_directory.path(),
+        gateway_config);
+    ChildProcess realm(
+        REALMMESH_REALM_EXECUTABLE,
+        working_directory.path(),
+        realm_config);
+    ChildProcess login(
+        REALMMESH_LOGIN_EXECUTABLE,
+        working_directory.path(),
+        login_config);
 
-    auto login_socket = connect_when_ready(7000);
+    auto login_socket = connect_when_ready(login_port);
     LoginRequest login_request;
     login_request.set_account("alice");
     login_request.set_credential("dev");
@@ -208,7 +356,7 @@ TEST(ThreeStageFlowTest, LogsInSelectsACharacterAndEntersTheGateway) {
     const auto login_response = decode_login_succeeded(login_wire);
     ASSERT_TRUE(login_response.has_value());
     ASSERT_EQ(login_response->realm_endpoints_size(), 1);
-    EXPECT_EQ(login_response->realm_endpoints(0).port(), 7100);
+    EXPECT_EQ(login_response->realm_endpoints(0).port(), realm_port);
 
     auto realm_socket = connect_when_ready(
         static_cast<std::uint16_t>(login_response->realm_endpoints(0).port()));
@@ -232,7 +380,7 @@ TEST(ThreeStageFlowTest, LogsInSelectsACharacterAndEntersTheGateway) {
     const auto& tcp_gateway = enter->gateway_endpoints(1);
     EXPECT_EQ(tcp_gateway.protocol(),
               ::realmmesh::protocol::edge::v1::TRANSPORT_PROTOCOL_TLS_TCP);
-    EXPECT_EQ(tcp_gateway.port(), 8000);
+    EXPECT_EQ(tcp_gateway.port(), gateway_port);
 
     auto gateway_socket = connect_when_ready(
         static_cast<std::uint16_t>(tcp_gateway.port()));
@@ -249,6 +397,35 @@ TEST(ThreeStageFlowTest, LogsInSelectsACharacterAndEntersTheGateway) {
     login.stop();
     realm.stop();
     gateway.stop();
+
+    const auto login_log = read_file(
+        working_directory.path() /
+        ".runtime/logs/login/login-dev-01.jsonl");
+    const auto realm_log = read_file(
+        working_directory.path() /
+        ".runtime/logs/realm/realm-dev-01.jsonl");
+    const auto gateway_log = read_file(
+        working_directory.path() /
+        ".runtime/logs/gateway/gateway-dev-01.jsonl");
+    EXPECT_NE(login_log.find("\"event_name\":\"service_started\""),
+              std::string::npos);
+    EXPECT_NE(login_log.find("\"event_name\":\"service_stopped\""),
+              std::string::npos);
+    EXPECT_NE(realm_log.find("\"event_name\":\"service_started\""),
+              std::string::npos);
+    EXPECT_NE(gateway_log.find("\"event_name\":\"service_started\""),
+              std::string::npos);
+    const auto login_correlation = correlation_for_event(
+        login_log, "player_session_established");
+    const auto realm_correlation = correlation_for_event(
+        realm_log, "player_session_established");
+    const auto gateway_correlation = correlation_for_event(
+        gateway_log, "player_session_established");
+    ASSERT_TRUE(login_correlation.has_value());
+    ASSERT_TRUE(realm_correlation.has_value());
+    ASSERT_TRUE(gateway_correlation.has_value());
+    EXPECT_EQ(*realm_correlation, *login_correlation);
+    EXPECT_EQ(*gateway_correlation, *login_correlation);
     static_cast<void>(::unsetenv("REALMMESH_SESSION_TICKET_KEY"));
     static_cast<void>(::unsetenv("REALMMESH_TLS_CERTIFICATE_FILE"));
     static_cast<void>(::unsetenv("REALMMESH_TLS_PRIVATE_KEY_FILE"));

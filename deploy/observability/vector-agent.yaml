@@ -1,0 +1,116 @@
+data_dir: /var/lib/vector
+
+sources:
+  realmmesh_jsonl:
+    type: file
+    include:
+      - /var/log/realmmesh/**/*.jsonl
+    read_from: beginning
+    max_line_bytes: 16384
+    fingerprint:
+      strategy: checksum
+      lines: 1
+  vector_metrics:
+    type: internal_metrics
+
+transforms:
+  validate_and_decode:
+    type: remap
+    inputs: [realmmesh_jsonl]
+    drop_on_abort: true
+    reroute_dropped: true
+    source: |-
+      parsed = parse_json!(.message)
+      del(parsed.password)
+      del(parsed.credential)
+      del(parsed.token)
+      del(parsed.ticket)
+      del(parsed.private_key)
+      del(parsed.authorization)
+      del(parsed.attributes.password)
+      del(parsed.attributes.credential)
+      del(parsed.attributes.token)
+      del(parsed.attributes.ticket)
+      del(parsed.attributes.private_key)
+      del(parsed.attributes.authorization)
+      if parsed.schema_version != 1 ||
+         !exists(parsed.timestamp) ||
+         !exists(parsed.severity) ||
+         !exists(parsed.event_name) ||
+         !exists(parsed.service_name) {
+        abort
+      }
+      . = parsed
+      .timestamp = parse_timestamp!(.timestamp, format: "%+")
+  priority:
+    type: route
+    inputs: [validate_and_decode]
+    reroute_unmatched: false
+    route:
+      high: '.severity == "WARN" || .severity == "ERROR" || .severity == "FATAL"'
+      normal: '.severity != "WARN" && .severity != "ERROR" && .severity != "FATAL"'
+
+sinks:
+  normal_log_gateways:
+    type: vector
+    inputs: [priority.normal]
+    routing:
+      endpoints:
+        - https://log-gateway-a:6000
+        - https://log-gateway-b:6000
+      strategy: load_balance
+      health:
+        retry_initial_backoff_secs: 1
+        retry_max_duration_secs: 60
+    compression: zstd
+    acknowledgements:
+      enabled: true
+    buffer:
+      type: disk
+      max_size: 8589934592
+      when_full: block
+    tls:
+      enabled: true
+      ca_file: /etc/realmmesh/certs/ca.crt
+      crt_file: /etc/realmmesh/certs/agent.crt
+      key_file: /etc/realmmesh/certs/agent.key
+      verify_certificate: true
+      verify_hostname: true
+
+  high_priority_log_gateways:
+    type: vector
+    inputs: [priority.high]
+    routing:
+      endpoints:
+        - https://log-gateway-a:6000
+        - https://log-gateway-b:6000
+      strategy: load_balance
+      health:
+        retry_initial_backoff_secs: 1
+        retry_max_duration_secs: 60
+    compression: zstd
+    acknowledgements:
+      enabled: true
+    buffer:
+      type: disk
+      max_size: 2147483648
+      when_full: block
+    tls:
+      enabled: true
+      ca_file: /etc/realmmesh/certs/ca.crt
+      crt_file: /etc/realmmesh/certs/agent.crt
+      key_file: /etc/realmmesh/certs/agent.key
+      verify_certificate: true
+      verify_hostname: true
+
+  rejected_events:
+    type: file
+    inputs: [validate_and_decode.dropped]
+    path: /var/lib/vector/rejected-%Y-%m-%d.jsonl
+    encoding:
+      codec: json
+
+  prometheus:
+    type: prometheus_exporter
+    inputs: [vector_metrics]
+    address: 0.0.0.0:9598

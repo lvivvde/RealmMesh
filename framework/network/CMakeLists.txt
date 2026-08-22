@@ -21,6 +21,17 @@ target_include_directories(realm_network
         $<INSTALL_INTERFACE:include>
 )
 
+# Debian-style OpenSSL development sysroots keep generated configuration
+# headers in an architecture-specific include directory. FindOpenSSL exposes
+# only the common include root, so propagate the companion directory when it
+# exists as well.
+if(CMAKE_LIBRARY_ARCHITECTURE AND
+   EXISTS "${OPENSSL_INCLUDE_DIR}/${CMAKE_LIBRARY_ARCHITECTURE}/openssl/opensslconf.h")
+    target_include_directories(realm_network SYSTEM PUBLIC
+        "${OPENSSL_INCLUDE_DIR}/${CMAKE_LIBRARY_ARCHITECTURE}"
+    )
+endif()
+
 target_compile_features(realm_network PUBLIC cxx_std_20)
 target_link_libraries(realm_network PUBLIC
     Sodium::Sodium

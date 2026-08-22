@@ -14,8 +14,10 @@ add_subdirectory(third_party/json)
 add_subdirectory(third_party/httplib)
 add_subdirectory(third_party/msquic)
 add_subdirectory(third_party/protobuf)
+add_subdirectory(third_party/spdlog)
 add_subdirectory(proto)
 add_subdirectory(framework/concurrency)
+add_subdirectory(framework/observability)
 add_subdirectory(framework/scripting)
 add_subdirectory(framework/scheduler)
 add_subdirectory(framework/service)
@@ -32,6 +34,7 @@ add_executable(realmmesh
 )
 
 target_link_libraries(realmmesh PRIVATE
+    realm_observability
     realm_scheduler
 )
 

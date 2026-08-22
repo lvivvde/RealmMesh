@@ -77,6 +77,59 @@ template <typename Integer>
         "unsupported transport protocol: " + std::string(value));
 }
 
+[[nodiscard]] observability::Severity parse_severity(std::string_view value) {
+    if (value == "trace" || value == "TRACE") return observability::Severity::Trace;
+    if (value == "debug" || value == "DEBUG") return observability::Severity::Debug;
+    if (value == "info" || value == "INFO") return observability::Severity::Info;
+    if (value == "warn" || value == "WARN") return observability::Severity::Warn;
+    if (value == "error" || value == "ERROR") return observability::Severity::Error;
+    if (value == "fatal" || value == "FATAL") return observability::Severity::Fatal;
+    throw std::invalid_argument(
+        "unsupported logging level: " + std::string(value));
+}
+
+void read_logging_runtime_policy(
+    const sol::table& logging,
+    observability::LoggerConfig& config) {
+    const sol::object module_levels_value =
+        logging.raw_get<sol::object>("module_levels");
+    if (module_levels_value != sol::nil) {
+        if (!module_levels_value.is<sol::table>()) {
+            throw std::invalid_argument(
+                "logging module_levels must be a table");
+        }
+        for (const auto& [key, value] :
+             module_levels_value.as<sol::table>()) {
+            if (!key.is<std::string>() || !value.is<std::string>()) {
+                throw std::invalid_argument(
+                    "logging module_levels entries must be string pairs");
+            }
+            config.module_levels.insert_or_assign(
+                key.as<std::string>(),
+                parse_severity(value.as<std::string>()));
+        }
+    }
+
+    const sol::object sample_rates_value =
+        logging.raw_get<sol::object>("sample_rates");
+    if (sample_rates_value == sol::nil) return;
+    if (!sample_rates_value.is<sol::table>()) {
+        throw std::invalid_argument("logging sample_rates must be a table");
+    }
+    for (const auto& [key, value] : sample_rates_value.as<sol::table>()) {
+        if (!key.is<std::string>() || !value.is<double>()) {
+            throw std::invalid_argument(
+                "logging sample_rates entries must map strings to numbers");
+        }
+        const auto rate = value.as<double>();
+        if (rate < 0.0 || rate > 1.0) {
+            throw std::invalid_argument(
+                "logging sample rates must be in [0, 1]");
+        }
+        config.sample_rates.insert_or_assign(key.as<std::string>(), rate);
+    }
+}
+
 [[nodiscard]] std::string path_from_config_or_environment(
     const sol::table& table,
     std::string_view path_field,
@@ -233,9 +286,78 @@ GatewayConfig GatewayConfigLoader::load(const std::filesystem::path& path) {
                 "watch_interval_ms",
                 config.service_discovery.watch_interval.count()));
     }
+
+    const sol::object logging_value = root.raw_get<sol::object>("logging");
+    if (logging_value != sol::nil) {
+        if (!logging_value.is<sol::table>()) {
+            throw std::invalid_argument(
+                "gateway config logging must be a table");
+        }
+        const sol::table logging = logging_value.as<sol::table>();
+        config.logging.min_severity = parse_severity(optional_string(
+            logging,
+            "level",
+            std::string(observability::to_string(
+                config.logging.min_severity))));
+        config.logging.file_path = optional_string(
+            logging, "file_path", config.logging.file_path.string());
+        config.logging.normal_queue_capacity = optional_integer(
+            logging,
+            "normal_queue_capacity",
+            config.logging.normal_queue_capacity);
+        config.logging.priority_queue_capacity = optional_integer(
+            logging,
+            "priority_queue_capacity",
+            config.logging.priority_queue_capacity);
+        config.logging.max_file_size = optional_integer(
+            logging, "file_size_bytes", config.logging.max_file_size);
+        config.logging.retained_files = optional_integer(
+            logging, "retained_files", config.logging.retained_files);
+        config.logging.console = optional_boolean(
+            logging, "console", config.logging.console);
+        read_logging_runtime_policy(logging, config.logging);
+        config.logging_metrics.listen_address = optional_string(
+            logging,
+            "metrics_listen_address",
+            std::move(config.logging_metrics.listen_address));
+        config.logging_metrics.port = optional_integer(
+            logging, "metrics_port", config.logging_metrics.port);
+        config.logging_identity.environment = optional_string(
+            logging,
+            "environment",
+            std::move(config.logging_identity.environment));
+        config.logging_identity.cluster = optional_string(
+            logging,
+            "cluster",
+            std::move(config.logging_identity.cluster));
+        config.logging_identity.region = optional_string(
+            logging,
+            "region",
+            std::move(config.logging_identity.region));
+        config.logging_identity.service_name = required_string(
+            logging, "service_name");
+    }
+    config.logging_identity.service_instance =
+        config.service_discovery.instance_id;
+    config.logging_identity.node_id = config.service_discovery.node_id;
+    config.logging_identity.zone = config.service_discovery.zone;
     if (config.tick_rate == 0 || config.max_events_per_frame == 0) {
         throw std::invalid_argument(
             "gateway tick rate and max events per frame must be positive");
+    }
+    if (config.logging.file_path.empty() ||
+        config.logging_identity.service_name.empty() ||
+        config.logging.normal_queue_capacity == 0 ||
+        config.logging.priority_queue_capacity == 0 ||
+        config.logging.max_file_size == 0 ||
+        config.logging.retained_files == 0) {
+        throw std::invalid_argument(
+            "logging configuration is incomplete");
+    }
+    if (config.logging_metrics.port != 0 &&
+        config.logging_metrics.listen_address.empty()) {
+        throw std::invalid_argument(
+            "logging metrics listen address cannot be empty");
     }
     if (config.service_discovery.enabled &&
         (config.service_discovery.endpoint.empty() ||

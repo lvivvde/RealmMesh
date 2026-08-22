@@ -1,4 +1,19 @@
 return {
+    logging = {
+        level = "info",
+        environment = "development",
+        cluster = "local",
+        region = "local",
+        service_name = "realm",
+        file_path = ".runtime/logs/realm/realm-dev-01.jsonl",
+        normal_queue_capacity = 8192,
+        priority_queue_capacity = 2048,
+        file_size_bytes = 134217728,
+        retained_files = 8,
+        console = true,
+        metrics_listen_address = "127.0.0.1",
+        metrics_port = 9102,
+    },
     service_discovery = {
         enabled = true,
         required = false,

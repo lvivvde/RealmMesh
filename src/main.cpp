@@ -1,10 +1,13 @@
 #include "realmmesh/scheduler/frame_scheduler.hpp"
+#include "realmmesh/observability/logger.hpp"
 
 #include <charconv>
+#include <chrono>
 #include <cstdint>
 #include <iostream>
 #include <string_view>
 #include <system_error>
+#include <utility>
 
 namespace {
 
@@ -61,19 +64,32 @@ bool parse_arguments(int argc, char* argv[], ServerConfig& config) {
     return true;
 }
 
-void run_server(const ServerConfig& config) {
+void run_server(
+    const ServerConfig& config,
+    realm::observability::Logger& logger) {
     realm::scheduler::SteadyFrameClock clock;
     realm::scheduler::FrameScheduler scheduler(config.tick_rate, clock);
 
-    std::cout << "RealmMesh started at " << config.tick_rate << " FPS\n";
+    static_cast<void>(logger.info(
+        "service_started",
+        "RealmMesh scheduler demo started",
+        {realm::observability::field("tick_rate", config.tick_rate)}));
 
-    const auto completed_frames = scheduler.run([&config](realm::scheduler::FrameContext frame) {
+    const auto completed_frames = scheduler.run([&](realm::scheduler::FrameContext frame) {
         // Frame pipeline: receive messages -> update state -> run timers -> sync.
-        std::cout << "frame=" << frame.index << '\n';
+        static_cast<void>(logger.log(
+            realm::observability::Severity::Debug,
+            "frame_completed",
+            {},
+            {realm::observability::field("frame_index", frame.index)}));
         return config.frame_limit == 0 || frame.index < config.frame_limit;
     });
 
-    std::cout << "RealmMesh stopped after " << completed_frames << " frames\n";
+    static_cast<void>(logger.info(
+        "service_stopped",
+        "RealmMesh scheduler demo stopped",
+        {realm::observability::field("completed_frames", completed_frames)}));
+    static_cast<void>(logger.flush(std::chrono::seconds(2)));
 }
 
 }  // namespace
@@ -84,6 +100,21 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    run_server(config);
+    realm::observability::LoggerConfig logging;
+    logging.min_severity = realm::observability::Severity::Debug;
+    logging.file_path = ".runtime/logs/realmmesh/demo.jsonl";
+    logging.console = true;
+    realm::observability::Logger logger(
+        std::move(logging),
+        realm::observability::ServiceIdentity{
+            .environment = "development",
+            .cluster = "local",
+            .region = "local",
+            .service_name = "realmmesh",
+            .service_instance = "scheduler-demo",
+            .node_id = "development-node",
+            .zone = "development",
+        });
+    run_server(config, logger);
     return 0;
 }
