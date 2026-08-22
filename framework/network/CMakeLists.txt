@@ -1,15 +1,17 @@
 add_library(realm_network
     src/core/byte_buffer.cpp
     src/codec/length_field_codec.cpp
+    src/client/preferred_transport_connector.cpp
     src/reactor/epoll_event_loop.cpp
+    src/quic/quic_transport.cpp
     src/transport/transport_factory.cpp
-    src/tcp/tcp_connection.cpp
     src/tcp/tcp_listener.cpp
-    src/tcp/tcp_transport.cpp
-    src/udp/udp_transport.cpp
-    src/kcp/kcp_security.cpp
-    src/kcp/kcp_transport.cpp
+    src/tls/tls_connection.cpp
+    src/tls/tls_server_context.cpp
+    src/tls/tls_tcp_transport.cpp
 )
+
+find_package(OpenSSL 3.0 REQUIRED COMPONENTS SSL Crypto)
 
 add_library(RealmMesh::Network ALIAS realm_network)
 
@@ -21,8 +23,10 @@ target_include_directories(realm_network
 
 target_compile_features(realm_network PUBLIC cxx_std_20)
 target_link_libraries(realm_network PUBLIC
-    Kcp::Kcp
     Sodium::Sodium
+    OpenSSL::SSL
+    OpenSSL::Crypto
+    MsQuic::MsQuic
 )
 set_target_properties(realm_network PROPERTIES
     CXX_EXTENSIONS OFF

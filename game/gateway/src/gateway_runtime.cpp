@@ -89,15 +89,13 @@ std::vector<GatewayEvent> GatewayRuntime::drain_events(std::size_t max_events) {
 
 QueueResult GatewayRuntime::try_send(
     ClientSessionId client_session_id,
-    std::span<const std::byte> payload,
-    SendOptions options) {
+    std::span<const std::byte> payload) {
     return enqueue({
         .kind = CommandKind::SendClient,
         .client_session_id = client_session_id,
         .transport_name = {},
         .transport_session_id = network::invalid_session_id,
         .payload = std::vector<std::byte>(payload.begin(), payload.end()),
-        .send_options = options,
     });
 }
 
@@ -111,21 +109,19 @@ QueueResult GatewayRuntime::try_send_channel(
         .transport_name = std::string(transport_name),
         .transport_session_id = transport_session_id,
         .payload = std::vector<std::byte>(payload.begin(), payload.end()),
-        .send_options = {},
     });
 }
 
-QueueResult GatewayRuntime::try_bind_channel(
-    ClientSessionId client_session_id,
+QueueResult GatewayRuntime::try_accept_connection(
     std::string_view transport_name,
-    network::SessionId transport_session_id) {
+    network::SessionId transport_session_id,
+    std::span<const std::byte> response) {
     return enqueue({
-        .kind = CommandKind::BindChannel,
-        .client_session_id = client_session_id,
+        .kind = CommandKind::AcceptConnection,
+        .client_session_id = invalid_client_session_id,
         .transport_name = std::string(transport_name),
         .transport_session_id = transport_session_id,
-        .payload = {},
-        .send_options = {},
+        .payload = std::vector<std::byte>(response.begin(), response.end()),
     });
 }
 
@@ -138,17 +134,24 @@ QueueResult GatewayRuntime::try_close_channel(
         .transport_name = std::string(transport_name),
         .transport_session_id = transport_session_id,
         .payload = {},
-        .send_options = {},
+    });
+}
+
+QueueResult GatewayRuntime::try_reload_credentials() {
+    return enqueue({
+        .kind = CommandKind::ReloadCredentials,
+        .client_session_id = invalid_client_session_id,
+        .transport_name = {},
+        .transport_session_id = network::invalid_session_id,
+        .payload = {},
     });
 }
 
 GatewayRuntimeStats GatewayRuntime::stats() const noexcept {
     return {
-        .dropped_udp_messages = dropped_udp_messages_.load(),
         .overload_disconnects = overload_disconnects_.load(),
         .rejected_outbound_commands = rejected_outbound_commands_.load(),
-        .preferred_deliveries = preferred_deliveries_.load(),
-        .tcp_fallback_deliveries = tcp_fallback_deliveries_.load(),
+        .successful_deliveries = successful_deliveries_.load(),
         .failed_deliveries = failed_deliveries_.load(),
     };
 }
@@ -189,13 +192,9 @@ void GatewayRuntime::process_command(OutboundCommand command) {
     switch (command.kind) {
     case CommandKind::SendClient: {
         const auto result = server_.send(
-            command.client_session_id,
-            command.payload,
-            command.send_options);
-        if (result == SendResult::SentPreferred) {
-            preferred_deliveries_.fetch_add(1);
-        } else if (result == SendResult::SentViaTcpFallback) {
-            tcp_fallback_deliveries_.fetch_add(1);
+            command.client_session_id, command.payload);
+        if (result == SendResult::Sent) {
+            successful_deliveries_.fetch_add(1);
         } else {
             failed_deliveries_.fetch_add(1);
         }
@@ -208,21 +207,49 @@ void GatewayRuntime::process_command(OutboundCommand command) {
                 command.payload)) {
             failed_deliveries_.fetch_add(1);
         } else {
-            preferred_deliveries_.fetch_add(1);
+            successful_deliveries_.fetch_add(1);
         }
         break;
-    case CommandKind::BindChannel:
-        if (!server_.bind_channel(
-                command.client_session_id,
+    case CommandKind::AcceptConnection: {
+        if (!server_.send_channel(
+                command.transport_name,
+                command.transport_session_id,
+                command.payload)) {
+            failed_deliveries_.fetch_add(1);
+            static_cast<void>(server_.close_channel(
+                command.transport_name, command.transport_session_id));
+            break;
+        }
+        const auto client_id = server_.promote_connection(
+            command.transport_name,
+            command.transport_session_id);
+        const auto endpoint = server_.local_endpoint(command.transport_name);
+        if (!client_id.has_value() || !endpoint.has_value()) {
+            failed_deliveries_.fetch_add(1);
+            static_cast<void>(server_.close_channel(
+                command.transport_name, command.transport_session_id));
+            break;
+        }
+        successful_deliveries_.fetch_add(1);
+        publish_event({
+            .kind = GatewayEventKind::ClientSessionOpened,
+            .client_session_id = client_id,
+            .transport_name = std::move(command.transport_name),
+            .protocol = endpoint->protocol,
+            .transport_session_id = command.transport_session_id,
+            .payload = {},
+        });
+        break;
+    }
+    case CommandKind::CloseChannel:
+        if (!server_.close_channel(
                 command.transport_name,
                 command.transport_session_id)) {
             failed_deliveries_.fetch_add(1);
         }
         break;
-    case CommandKind::CloseChannel:
-        if (!server_.close_channel(
-                command.transport_name,
-                command.transport_session_id)) {
+    case CommandKind::ReloadCredentials:
+        if (!server_.reload_credentials()) {
             failed_deliveries_.fetch_add(1);
         }
         break;
@@ -231,19 +258,13 @@ void GatewayRuntime::process_command(OutboundCommand command) {
 
 void GatewayRuntime::publish_event(GatewayEvent event) {
     const auto kind = event.kind;
-    const auto protocol = event.protocol;
     const auto transport_name = event.transport_name;
     const auto transport_session_id = event.transport_session_id;
     if (inbound_.try_push(std::move(event))) {
         return;
     }
 
-    if (kind == network::TransportEventKind::MessageReceived &&
-        protocol == network::TransportProtocol::Udp) {
-        dropped_udp_messages_.fetch_add(1);
-        return;
-    }
-    if (kind != network::TransportEventKind::SessionClosed) {
+    if (kind != GatewayEventKind::ConnectionClosed) {
         overload_disconnects_.fetch_add(1);
         static_cast<void>(server_.close_channel(
             transport_name, transport_session_id));

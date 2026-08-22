@@ -23,6 +23,8 @@ using EnterGame = ::realmmesh::protocol::edge::v1::EnterGame;
 using EnterGameAccepted = ::realmmesh::protocol::edge::v1::EnterGameAccepted;
 using EdgeError = ::realmmesh::protocol::edge::v1::EdgeError;
 using EdgeMessageId = ::realmmesh::protocol::edge::v1::MessageId;
+using EdgeTransportProtocol =
+    ::realmmesh::protocol::edge::v1::TransportProtocol;
 
 inline constexpr std::uint32_t kEdgeProtocolVersion = 1;
 

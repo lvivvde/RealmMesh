@@ -16,13 +16,16 @@
 #include <iostream>
 #include <memory>
 #include <stdexcept>
+#include <string>
 #include <string_view>
 #include <utility>
 
 namespace {
 
 volatile std::sig_atomic_t stop_requested = 0;
+volatile std::sig_atomic_t reload_requested = 0;
 void handle_stop_signal(int) { stop_requested = 1; }
+void handle_reload_signal(int) { reload_requested = 1; }
 
 std::filesystem::path config_path(int argc, char* argv[]) {
     for (int index = 1; index + 1 < argc; ++index) {
@@ -93,11 +96,12 @@ int main(int argc, char* argv[]) {
             realm_resolver = std::make_unique<realm::cluster::ServiceResolver>(
                 *registry,
                 realm::cluster::ServiceType::Realm,
-                realm::network::TransportProtocol::Tcp);
+                realm::network::TransportProtocol::TlsTcp);
         }
 
         std::signal(SIGINT, handle_stop_signal);
         std::signal(SIGTERM, handle_stop_signal);
+        std::signal(SIGHUP, handle_reload_signal);
         runtime.start();
         std::cout << "RealmMesh login listening on 0.0.0.0:"
                   << runtime.local_port() << " (development authenticator)\n";
@@ -105,18 +109,25 @@ int main(int argc, char* argv[]) {
         realm::scheduler::SteadyFrameClock clock;
         realm::scheduler::FrameScheduler scheduler(tick_rate, clock);
         static_cast<void>(scheduler.run([&](realm::scheduler::FrameContext) {
+            if (reload_requested != 0) {
+                reload_requested = 0;
+                static_cast<void>(runtime.try_reload_credentials());
+            }
             if (publisher != nullptr) static_cast<void>(publisher->tick());
             for (auto& event : runtime.drain_events(max_events)) {
-                if (event.kind != realm::network::TransportEventKind::MessageReceived ||
-                    !event.client_session_id.has_value()) continue;
+                if (event.kind != realm::game::gateway::GatewayEventKind::MessageReceived) {
+                    continue;
+                }
 
                 const auto request =
                     realm::game::common::decode_login_request(event.payload);
                 const auto request_id =
                     realm::game::common::edge_request_id(event.payload).value_or(0);
                 std::vector<std::byte> response;
-                if (!request.has_value() || request->account().empty() ||
-                    request->credential() != "dev") {
+                const bool authenticated =
+                    request.has_value() && !request->account().empty() &&
+                    request->credential() == "dev";
+                if (!authenticated) {
                     realm::game::common::EdgeError error;
                     error.set_code(1001);
                     error.set_message("invalid credentials");
@@ -141,12 +152,34 @@ int main(int argc, char* argv[]) {
                     realm::game::common::LoginSucceeded success;
                     success.set_account_id(account_id);
                     success.set_login_ticket(ticket.data(), ticket.size());
-                    success.mutable_realm_endpoint()->set_address(realm_address);
-                    success.mutable_realm_endpoint()->set_port(realm_port);
+                    auto* endpoint = success.add_realm_endpoints();
+                    endpoint->set_protocol(
+                        ::realmmesh::protocol::edge::v1::
+                            TRANSPORT_PROTOCOL_TLS_TCP);
+                    endpoint->set_address(realm_address);
+                    endpoint->set_port(realm_port);
+                    endpoint->set_priority(0);
                     response = realm::game::common::encode(success, request_id);
                 }
-                static_cast<void>(runtime.try_send(
-                    *event.client_session_id, response));
+                if (event.client_session_id.has_value()) {
+                    static_cast<void>(runtime.try_send(
+                        *event.client_session_id, response));
+                } else {
+                    if (authenticated) {
+                        static_cast<void>(runtime.try_accept_connection(
+                            event.transport_name,
+                            event.transport_session_id,
+                            response));
+                    } else {
+                        static_cast<void>(runtime.try_send_channel(
+                            event.transport_name,
+                            event.transport_session_id,
+                            response));
+                        static_cast<void>(runtime.try_close_channel(
+                            event.transport_name,
+                            event.transport_session_id));
+                    }
+                }
             }
             return stop_requested == 0 && runtime.running();
         }));

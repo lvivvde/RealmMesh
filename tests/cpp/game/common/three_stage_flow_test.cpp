@@ -2,6 +2,7 @@
 #include "realmmesh/network/codec/length_field_codec.hpp"
 
 #include <gtest/gtest.h>
+#include <openssl/ssl.h>
 
 #include <arpa/inet.h>
 #include <signal.h>
@@ -11,10 +12,12 @@
 #include <unistd.h>
 
 #include <chrono>
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
 #include <optional>
+#include <memory>
 #include <span>
 #include <stdexcept>
 #include <string>
@@ -51,21 +54,37 @@ private:
     pid_t pid_{-1};
 };
 
-class SocketGuard final {
+struct ContextDeleter {
+    void operator()(SSL_CTX* value) const noexcept { SSL_CTX_free(value); }
+};
+struct SslDeleter {
+    void operator()(SSL* value) const noexcept { SSL_free(value); }
+};
+
+class TlsSocket final {
 public:
-    explicit SocketGuard(int descriptor) : descriptor_(descriptor) {}
-    ~SocketGuard() { if (descriptor_ >= 0) ::close(descriptor_); }
-    SocketGuard(const SocketGuard&) = delete;
-    SocketGuard& operator=(const SocketGuard&) = delete;
-    SocketGuard(SocketGuard&& other) noexcept
-        : descriptor_(std::exchange(other.descriptor_, -1)) {}
-    [[nodiscard]] int get() const noexcept { return descriptor_; }
+    TlsSocket(int descriptor, SSL_CTX* context, SSL* ssl)
+        : descriptor_(descriptor), context_(context), ssl_(ssl) {}
+    ~TlsSocket() {
+        ssl_.reset();
+        context_.reset();
+        if (descriptor_ >= 0) ::close(descriptor_);
+    }
+    TlsSocket(const TlsSocket&) = delete;
+    TlsSocket& operator=(const TlsSocket&) = delete;
+    TlsSocket(TlsSocket&& other) noexcept
+        : descriptor_(std::exchange(other.descriptor_, -1)),
+          context_(std::move(other.context_)),
+          ssl_(std::move(other.ssl_)) {}
+    [[nodiscard]] SSL* ssl() const noexcept { return ssl_.get(); }
 
 private:
     int descriptor_;
+    std::unique_ptr<SSL_CTX, ContextDeleter> context_;
+    std::unique_ptr<SSL, SslDeleter> ssl_;
 };
 
-std::optional<SocketGuard> try_connect(std::uint16_t port) {
+std::optional<TlsSocket> try_connect(std::uint16_t port) {
     const int descriptor = ::socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
     if (descriptor < 0) return std::nullopt;
     sockaddr_in address{};
@@ -81,10 +100,32 @@ std::optional<SocketGuard> try_connect(std::uint16_t port) {
     timeout.tv_sec = 2;
     static_cast<void>(::setsockopt(
         descriptor, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)));
-    return SocketGuard(descriptor);
+    auto* context = SSL_CTX_new(TLS_client_method());
+    if (context == nullptr ||
+        SSL_CTX_load_verify_locations(
+            context, REALMMESH_TEST_TLS_CERTIFICATE, nullptr) != 1) {
+        SSL_CTX_free(context);
+        ::close(descriptor);
+        return std::nullopt;
+    }
+    SSL_CTX_set_verify(context, SSL_VERIFY_PEER, nullptr);
+    auto* ssl = SSL_new(context);
+    const std::array<unsigned char, 17> alpn{
+        16, 'r', 'e', 'a', 'l', 'm', 'm', 'e', 's', 'h', '-', 'e', 'd', 'g', 'e', '/', '1'};
+    if (ssl == nullptr || SSL_set_fd(ssl, descriptor) != 1 ||
+        SSL_set_tlsext_host_name(ssl, "localhost") != 1 ||
+        SSL_set1_host(ssl, "localhost") != 1 ||
+        SSL_set_alpn_protos(ssl, alpn.data(), alpn.size()) != 0 ||
+        SSL_connect(ssl) != 1) {
+        SSL_free(ssl);
+        SSL_CTX_free(context);
+        ::close(descriptor);
+        return std::nullopt;
+    }
+    return TlsSocket(descriptor, context, ssl);
 }
 
-SocketGuard connect_when_ready(std::uint16_t port) {
+TlsSocket connect_when_ready(std::uint16_t port) {
     using namespace std::chrono_literals;
     for (int attempt = 0; attempt < 200; ++attempt) {
         if (auto socket = try_connect(port); socket.has_value()) {
@@ -95,41 +136,48 @@ SocketGuard connect_when_ready(std::uint16_t port) {
     throw std::runtime_error("service did not open expected port");
 }
 
-void send_all(int descriptor, std::span<const std::byte> bytes) {
+void send_all(SSL* ssl, std::span<const std::byte> bytes) {
     std::size_t offset = 0;
     while (offset < bytes.size()) {
-        const auto sent = ::send(
-            descriptor, bytes.data() + offset, bytes.size() - offset, MSG_NOSIGNAL);
-        if (sent <= 0) throw std::runtime_error("send failed");
-        offset += static_cast<std::size_t>(sent);
+        std::size_t sent = 0;
+        if (SSL_write_ex(
+                ssl, bytes.data() + offset, bytes.size() - offset, &sent) != 1) {
+            throw std::runtime_error("TLS send failed");
+        }
+        offset += sent;
     }
 }
 
-std::vector<std::byte> receive_exactly(int descriptor, std::size_t size) {
+std::vector<std::byte> receive_exactly(SSL* ssl, std::size_t size) {
     std::vector<std::byte> result(size);
     std::size_t offset = 0;
     while (offset < size) {
-        const auto received = ::recv(
-            descriptor, result.data() + offset, result.size() - offset, 0);
-        if (received <= 0) throw std::runtime_error("receive failed");
-        offset += static_cast<std::size_t>(received);
+        std::size_t received = 0;
+        if (SSL_read_ex(
+                ssl,
+                result.data() + offset,
+                result.size() - offset,
+                &received) != 1) {
+            throw std::runtime_error("TLS receive failed");
+        }
+        offset += received;
     }
     return result;
 }
 
-void send_message(int descriptor, std::span<const std::byte> payload) {
+void send_message(TlsSocket& socket, std::span<const std::byte> payload) {
     const network::LengthFieldCodec codec(65536);
-    send_all(descriptor, codec.encode(payload));
+    send_all(socket.ssl(), codec.encode(payload));
 }
 
-std::vector<std::byte> receive_message(int descriptor) {
-    const auto header = receive_exactly(descriptor, 4);
+std::vector<std::byte> receive_message(TlsSocket& socket) {
+    const auto header = receive_exactly(socket.ssl(), 4);
     std::uint32_t size = 0;
     for (const auto value : header) {
         size = (size << 8U) | std::to_integer<std::uint8_t>(value);
     }
     if (size > 65536) throw std::runtime_error("response frame too large");
-    return receive_exactly(descriptor, size);
+    return receive_exactly(socket.ssl(), size);
 }
 
 TEST(ThreeStageFlowTest, LogsInSelectsACharacterAndEntersTheGateway) {
@@ -137,6 +185,14 @@ TEST(ThreeStageFlowTest, LogsInSelectsACharacterAndEntersTheGateway) {
         "0102030405060708090a0b0c0d0e0f10"
         "1112131415161718191a1b1c1d1e1f20";
     ASSERT_EQ(::setenv("REALMMESH_SESSION_TICKET_KEY", key, 1), 0);
+    ASSERT_EQ(::setenv(
+        "REALMMESH_TLS_CERTIFICATE_FILE",
+        REALMMESH_TEST_TLS_CERTIFICATE,
+        1), 0);
+    ASSERT_EQ(::setenv(
+        "REALMMESH_TLS_PRIVATE_KEY_FILE",
+        REALMMESH_TEST_TLS_PRIVATE_KEY,
+        1), 0);
 
     ChildProcess gateway(REALMMESH_GATEWAY_EXECUTABLE);
     ChildProcess realm(REALMMESH_REALM_EXECUTABLE);
@@ -146,19 +202,20 @@ TEST(ThreeStageFlowTest, LogsInSelectsACharacterAndEntersTheGateway) {
     LoginRequest login_request;
     login_request.set_account("alice");
     login_request.set_credential("dev");
-    send_message(login_socket.get(), encode(login_request, 1));
-    const auto login_wire = receive_message(login_socket.get());
+    send_message(login_socket, encode(login_request, 1));
+    const auto login_wire = receive_message(login_socket);
     EXPECT_EQ(edge_request_id(login_wire), 1);
     const auto login_response = decode_login_succeeded(login_wire);
     ASSERT_TRUE(login_response.has_value());
-    EXPECT_EQ(login_response->realm_endpoint().port(), 7100);
+    ASSERT_EQ(login_response->realm_endpoints_size(), 1);
+    EXPECT_EQ(login_response->realm_endpoints(0).port(), 7100);
 
     auto realm_socket = connect_when_ready(
-        static_cast<std::uint16_t>(login_response->realm_endpoint().port()));
+        static_cast<std::uint16_t>(login_response->realm_endpoints(0).port()));
     RealmAuthenticate authenticate;
     authenticate.set_login_ticket(login_response->login_ticket());
-    send_message(realm_socket.get(), encode(authenticate, 2));
-    const auto character_wire = receive_message(realm_socket.get());
+    send_message(realm_socket, encode(authenticate, 2));
+    const auto character_wire = receive_message(realm_socket);
     EXPECT_EQ(edge_request_id(character_wire), 2);
     const auto characters = decode_character_list(character_wire);
     ASSERT_TRUE(characters.has_value());
@@ -166,19 +223,23 @@ TEST(ThreeStageFlowTest, LogsInSelectsACharacterAndEntersTheGateway) {
 
     SelectCharacter select_character;
     select_character.set_character_id(characters->characters(0).id());
-    send_message(realm_socket.get(), encode(select_character, 3));
-    const auto enter_wire = receive_message(realm_socket.get());
+    send_message(realm_socket, encode(select_character, 3));
+    const auto enter_wire = receive_message(realm_socket);
     EXPECT_EQ(edge_request_id(enter_wire), 3);
     const auto enter = decode_enter_game_issued(enter_wire);
     ASSERT_TRUE(enter.has_value());
-    EXPECT_EQ(enter->gateway_endpoint().port(), 8000);
+    ASSERT_EQ(enter->gateway_endpoints_size(), 2);
+    const auto& tcp_gateway = enter->gateway_endpoints(1);
+    EXPECT_EQ(tcp_gateway.protocol(),
+              ::realmmesh::protocol::edge::v1::TRANSPORT_PROTOCOL_TLS_TCP);
+    EXPECT_EQ(tcp_gateway.port(), 8000);
 
     auto gateway_socket = connect_when_ready(
-        static_cast<std::uint16_t>(enter->gateway_endpoint().port()));
+        static_cast<std::uint16_t>(tcp_gateway.port()));
     EnterGame enter_game;
     enter_game.set_enter_game_ticket(enter->enter_game_ticket());
-    send_message(gateway_socket.get(), encode(enter_game, 4));
-    const auto accepted_wire = receive_message(gateway_socket.get());
+    send_message(gateway_socket, encode(enter_game, 4));
+    const auto accepted_wire = receive_message(gateway_socket);
     EXPECT_EQ(edge_request_id(accepted_wire), 4);
     const auto accepted = decode_enter_game_accepted(accepted_wire);
     ASSERT_TRUE(accepted.has_value());
@@ -189,6 +250,8 @@ TEST(ThreeStageFlowTest, LogsInSelectsACharacterAndEntersTheGateway) {
     realm.stop();
     gateway.stop();
     static_cast<void>(::unsetenv("REALMMESH_SESSION_TICKET_KEY"));
+    static_cast<void>(::unsetenv("REALMMESH_TLS_CERTIFICATE_FILE"));
+    static_cast<void>(::unsetenv("REALMMESH_TLS_PRIVATE_KEY_FILE"));
 }
 
 }  // namespace

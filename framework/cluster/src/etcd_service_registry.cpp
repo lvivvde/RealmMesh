@@ -178,9 +178,8 @@ Json encode_instance(const ServiceInstance& instance) {
 }
 
 std::optional<network::TransportProtocol> parse_protocol(std::string_view value) {
-    if (value == "tcp") return network::TransportProtocol::Tcp;
-    if (value == "udp") return network::TransportProtocol::Udp;
-    if (value == "kcp") return network::TransportProtocol::Kcp;
+    if (value == "quic") return network::TransportProtocol::Quic;
+    if (value == "tls_tcp") return network::TransportProtocol::TlsTcp;
     return std::nullopt;
 }
 

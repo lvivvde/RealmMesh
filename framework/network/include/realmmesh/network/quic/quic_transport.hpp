@@ -6,13 +6,13 @@
 
 namespace realm::network {
 
-class KcpTransport final : public IMessageTransport {
+class QuicTransport final : public IMessageTransport {
 public:
-    explicit KcpTransport(TransportConfig config);
-    ~KcpTransport() override;
+    explicit QuicTransport(TransportConfig config);
+    ~QuicTransport() override;
 
-    KcpTransport(const KcpTransport&) = delete;
-    KcpTransport& operator=(const KcpTransport&) = delete;
+    QuicTransport(const QuicTransport&) = delete;
+    QuicTransport& operator=(const QuicTransport&) = delete;
 
     [[nodiscard]] std::string_view name() const noexcept override;
     [[nodiscard]] TransportProtocol protocol() const noexcept override;
@@ -24,10 +24,11 @@ public:
         SessionId session_id,
         std::span<const std::byte> payload) override;
     [[nodiscard]] bool close(SessionId session_id) override;
+    [[nodiscard]] bool reload_credentials() override;
 
 private:
-    class Implementation;
-    std::unique_ptr<Implementation> implementation_;
+    class Impl;
+    std::unique_ptr<Impl> impl_;
 };
 
 }  // namespace realm::network

@@ -1,292 +1,129 @@
 # RealmMesh
 
-RealmMesh 是一个计划采用帧驱动模型构建的 C++ 游戏服务器。
+RealmMesh 是一个 C++20 帧驱动游戏服务器。当前公网接入统一使用标准加密传输：
 
-服务器以固定或可配置的帧率推进游戏世界。在每一帧中，系统依次处理网络消息、游戏逻辑、定时任务与状态同步，使逻辑执行顺序清晰且可预测。
+- Gateway：QUIC + TLS 1.3 主通道，同端口 TLS 1.3/TCP 兜底。
+- Login、Realm：TLS 1.3/TCP。
+- 业务消息：4 字节大端长度 + Protocol Buffers `Envelope`。
+- 不支持裸 TCP、裸 UDP、KCP、自研传输加密或逐消息协议回退。
 
-整体服务拓扑、客户端接入时序、网关线程模型和 C++/Lua 分层见 [项目架构文档](docs/architecture.md)。
+详细结构见 [架构文档](docs/architecture.md)，线上消息约定见
+[协议文档](docs/protocol.md)。
 
-## 核心思路
+## 安全传输约束
 
-```text
-接收客户端消息
-       ↓
-更新当前帧的游戏状态
-       ↓
-处理定时任务与游戏逻辑
-       ↓
-向客户端同步结果
-       ↓
-等待下一帧
-```
+QUIC 与 TLS/TCP 使用相同证书、SNI 和 ALPN `realmmesh-edge/1`。两条路径都只接受
+TLS 1.3；首版关闭 0-RTT、会话恢复、QUIC Datagram 与 keepalive。QUIC 每条连接只允许
+一个客户端发起的长期双向流，允许连接地址迁移。
 
-## 计划功能
+客户端建连策略由 `PreferredTransportConnector` 表达：QUIC 在 0ms 开始，TLS/TCP 在
+350ms 后参与竞速，单次握手上限 3 秒、整轮上限 5 秒，第一个安全握手成功者胜出。
+只有 `Unsupported`、`NetworkUnreachable`、`HandshakeTimeout` 可以触发降级；证书、
+ALPN、鉴权或协议错误不会。网络不可达结果按当前网络缓存 5 分钟，网络切换时清除。
+业务层只能在胜出的连接上发送一次性 `EnterGameTicket`。
 
-- 可配置的服务器帧率
-- 基于事件的网络消息处理
-- 房间与玩家生命周期管理
-- 定时任务和延迟事件
-- 多线程任务调度
-- 日志、性能统计与优雅停服
+当前仓库包含可移植的竞速策略与错误分类参考实现，首个客户端集成目标为 Windows；
+生产客户端 SDK 不在本阶段范围内。
 
 ## 构建
 
-环境要求：
-
-- Linux
-- 支持 C++20 的编译器（GCC 10+ 或 Clang 12+）
-- CMake 3.20+
-
-一键配置、编译并测试：
+服务器支持 Linux，要求 CMake 3.20+、C++20 编译器、OpenSSL 3 开发包和 MsQuic 2.x。
+Ubuntu 24.04 开发环境可执行：
 
 ```bash
+sudo apt install libssl-dev libxdp1 libnl-3-200 libnl-route-3-200 libnuma1
+./scripts/install-msquic-dev.sh
 ./scripts/build.sh
 ```
 
-也可以分别执行：
+MsQuic 开发安装脚本固定使用 Microsoft 官方 `libmsquic 2.5.10` 包和对应头文件，
+下载内容均校验 SHA-256。也可自行安装 MsQuic，并通过 `MSQUIC_ROOT` 指向其前缀。
+
+## 开发证书
+
+私钥不得提交仓库。下面示例生成仅用于本机的短期证书；生产环境应由受信 CA 签发，
+客户端必须进行 DNS 名称和证书链校验。
 
 ```bash
-cmake --preset dev
-cmake --build --preset dev
-ctest --preset dev
-```
+mkdir -p .local/tls
+openssl req -x509 -newkey rsa:2048 -nodes \
+  -keyout .local/tls/private-key.pem \
+  -out .local/tls/certificate.pem \
+  -days 7 -subj /CN=localhost \
+  -addext 'subjectAltName=DNS:localhost,IP:127.0.0.1'
 
-首次配置会自动获取固定版本的第三方依赖。
-
-运行最小服务器示例：
-
-```bash
-./build/dev/realmmesh
-```
-
-默认以每秒 20 帧运行 5 帧后退出。持续运行或修改帧率：
-
-```bash
-./build/dev/realmmesh --frames 0 --tick-rate 30
-```
-
-当前优先支持 Linux。
-
-## C++ / Lua 脚本
-
-项目已接入 [sol2](https://github.com/ThePhD/sol2)，版本固定为 `v3.3.1`，底层使用仓库构建的 Lua 5.4。C++ 仍然负责网络、帧循环、并发、服务治理和核心状态；Lua 用于配置以及需要热更的轻量业务规则。
-
-`realm::scripting::LuaRuntime` 提供持久 Lua VM、C++ 函数绑定、受保护调用和按文件时间戳热更。Lua 模块必须返回一张导出表：
-
-```lua
-return {
-    damage = function(base)
-        return cpp_double(base) + 1
-    end,
-}
-```
-
-```cpp
-realm::scripting::LuaRuntime lua;
-lua.set_function("cpp_double", [](int value) { return value * 2; });
-
-std::string error;
-if (!lua.load_module("combat", "lua/scripts/combat.lua", &error)) {
-    throw std::runtime_error(error);
-}
-
-const int damage = lua.call<int>("combat", "damage", 20);
-```
-
-建议每个逻辑分片或逻辑线程独占一个 `LuaRuntime`，不要跨线程访问同一个 Lua VM。`reload_changed()` 应在帧边界调用：新脚本会先在隔离环境中完成编译和执行，成功后才替换旧模块；失败时保留上一版本并返回错误报告。
-
-默认脚本环境不开放 `package`、`os`、`io`、`debug`、`dofile` 和 `loadfile`。这能限制脚本自行访问文件和系统接口，但不等同于可运行不受信任代码的完整安全沙箱；如果未来允许用户提交脚本，还需要指令数、执行时间和内存配额。
-
-## etcd 服务发现
-
-登录服、角色服和网关服已经接入 etcd v3。服务启动后会在 `/realmmesh/services/<类型>/<实例 ID>` 下发布带 Lease 的多协议端点，后台自动续租，正常退出时主动撤销；登录服通过 Watch 缓存角色服地址，角色服通过 Watch 缓存网关地址。
-
-安装并启动固定版本的本地 etcd：
-
-```bash
-./scripts/install-etcd.sh
-./scripts/run-etcd-dev.sh
-```
-
-服务发现参数位于各服务的 Lua 配置中：
-
-```lua
-service_discovery = {
-    enabled = true,
-    required = false,
-    endpoint = "http://127.0.0.1:2379",
-    key_prefix = "/realmmesh/services",
-    instance_id = "gateway-dev-01",
-    node_id = "development-node",
-    zone = "development",
-    advertise_address = "127.0.0.1",
-    lease_ttl_seconds = 15,
-}
-```
-
-`required = false` 时，etcd 暂时不可用不会阻止服务启动，登录服和角色服会降级使用 Lua 中的固定下游地址，并持续重试注册与发现。生产环境可以设为 `true` 以便启动失败时立即退出。
-
-当前客户端使用 etcd 官方 JSON gRPC gateway，Watch 通过可恢复的前缀快照增量对比实现。开发配置仅使用本机 HTTP；公网或跨主机部署前还需增加 TLS、etcd 身份认证以及多 endpoint 故障切换。自定义协调服仍属于后续控制面，不再承担基础服务发现的单点代理职责。
-
-## 可配置网关协议
-
-网关网络层使用统一的 `IMessageTransport` 接口。目前已经实现：
-
-- TCP：非阻塞 socket + epoll，使用 4 字节大端长度字段分帧
-- UDP：按远端地址维护逻辑会话，单个数据报对应一条消息
-- KCP：基于 UDP 的可靠消息传输，带短期票据握手和加密会话
-
-协议开关、监听地址和端口位于
-[`lua/config/services/gateway.lua`](lua/config/services/gateway.lua)。一个服务可以同时启用多个协议，也可以只启用其中一个：
-
-```lua
-return {
-    transports = {
-        {
-            name = "client_tcp",
-            protocol = "tcp",
-            enabled = true,
-            listen_address = "0.0.0.0",
-            listen_port = 8000,
-        },
-        {
-            name = "client_udp",
-            protocol = "udp",
-            enabled = false,
-            listen_address = "0.0.0.0",
-            listen_port = 8001,
-        },
-    },
-}
-```
-
-启动开发阶段的 Echo 网关：
-
-```bash
-./build/dev/bin/realm_gateway
-```
-
-也可以选择另一份 Lua 配置，或临时覆盖其中启用的 TCP 监听地址：
-
-```bash
-./build/dev/bin/realm_gateway --config lua/config/services/gateway.lua
-./build/dev/bin/realm_gateway --listen 127.0.0.1 --port 9000
-```
-
-网关配置已通过 sol2 加载。配置属于启动期数据，因此读取完成后即可释放对应 Lua VM；需要热更的业务脚本使用上面的持久 `LuaRuntime`。当前 Echo 行为只用于验证协议模块，后续会替换为鉴权、消息派发和服务路由。
-
-KCP 默认安全关闭。启用前先生成 32 字节票据主密钥，并通过环境变量注入；密钥不会写入 Lua 或仓库：
-
-```bash
-export REALMMESH_KCP_TICKET_KEY="$(openssl rand -hex 32)"
-```
-
-然后在 `gateway.lua` 中将 `client_kcp.enabled` 改为 `true`。登录服使用相同主密钥调用 `KcpTicketCodec::issue()` 签发短期票据，客户端只获得单次会话票据和会话密钥，不会获得主密钥。详细协议和边界见 [KCP 安全协议](docs/kcp-security.md)。
-
-当前实现包含 XChaCha20-Poly1305 加密认证、滑动窗口抗重放、空闲会话回收，以及认证通过后的客户端地址迁移。它尚未经过独立安全审计，正式公网发布前仍应安排协议审计、密钥轮换和压力测试。
-
-服务发现中的实例现在可以发布多个带协议类型的端点，因此协调服能够同时登记同一场景服的 TCP、UDP 或 KCP 地址。
-
-## 多协议客户端会话
-
-网关把一个客户端建模为一个逻辑 `ClientSession`：TCP 是主通道，UDP 和 KCP 是经过鉴权后按需绑定的辅助通道。业务层发送消息时可以逐包选择首选协议；如果客户端尚未建立该通道，或该通道发送失败，默认自动改用 TCP：
-
-```cpp
-const auto result = gateway.send(
-    client_session_id,
-    payload,
-    {
-        .preferred = realm::network::TransportProtocol::Udp,
-        .fallback = realm::game::gateway::FallbackPolicy::UseTcp,
-    });
-```
-
-对于只适合指定协议、不能降级的消息，可以使用 `DropIfUnavailable`。TCP 断开时整个逻辑会话会被移除；UDP 或 KCP 断开只解绑对应辅助通道。
-
-TCP 建连后网关会自动创建逻辑会话。登录鉴权流程确认辅助通道属于同一客户端后，调用 `GatewayServer::bind_channel()` 完成绑定。绑定令牌的线上消息格式将随登录协议一起定义，不能仅凭来源地址自动绑定。
-
-## 网络线程与帧线程
-
-网关可执行程序现在使用生产者—消费者模型，网络 socket 和协议会话只由 I/O 线程操作：
-
-```text
-I/O 线程：epoll + TCP/UDP/KCP
-       │ 生产 GatewayEvent
-       ▼
-有界入站队列
-       │ 每帧批量消费
-       ▼
-帧逻辑线程
-       │ 生产发送/绑定/关闭命令
-       ▼
-有界出站队列
-       │ 批量消费
-       ▼
-I/O 线程
-```
-
-队列满时不会无限占用内存。UDP 入站消息允许丢弃；TCP/KCP 入站过载会主动断开对应会话；业务层提交出站命令时会立即得到 `Queued`、`Full` 或 `Stopped`。TCP 每个连接还使用 `max_pending_output_bytes` 限制尚未写入内核的发送数据。
-
-运行参数在 `gateway.lua` 中配置：
-
-```lua
-tick_rate = 20,
-max_events_per_frame = 4096,
-runtime = {
-    inbound_capacity = 65536,
-    outbound_capacity = 65536,
-    max_commands_per_cycle = 4096,
-    io_poll_interval_ms = 2,
-},
-```
-
-`GatewayRuntime::drain_events()` 由帧线程调用；`try_send()`、`try_send_channel()`、`try_bind_channel()` 和 `try_close_channel()` 只向出站队列提交命令。运行时退出时会输出丢包、过载断连、出站拒绝、TCP 回退和发送失败统计。
-
-## 三阶段客户端接入
-
-当前提供三个可执行程序和三个 TCP 公网入口：
-
-| 程序 | 默认端口 | 用途 |
-|---|---:|---|
-| `realm_login` | 7000 | 账号认证并签发 `LoginTicket` |
-| `realm_character` | 7100 | 校验登录票据、返回角色列表并签发 `EnterGameTicket` |
-| `realm_gateway` | 8000 | 单次消费进服票据并建立正式游戏会话 |
-
-三个进程必须共享同一个 32 字节票据签名密钥：
-
-```bash
+export REALMMESH_TLS_CERTIFICATE_FILE="$PWD/.local/tls/certificate.pem"
+export REALMMESH_TLS_PRIVATE_KEY_FILE="$PWD/.local/tls/private-key.pem"
 export REALMMESH_SESSION_TICKET_KEY="$(openssl rand -hex 32)"
+```
 
+服务收到 `SIGHUP` 后会重新读取证书和私钥；新身份只用于新连接，已有连接继续使用原
+TLS 上下文。加载失败时保留上一份可用身份。
+
+## 运行三段服务
+
+```bash
 ./build/dev/bin/realm_gateway &
 ./build/dev/bin/realm_character &
 ./build/dev/bin/realm_login
 ```
 
-客户端消息继续使用 TCP 的 4 字节大端长度字段分帧，帧内统一使用
-Protocol Buffers `Envelope`：协议版本、消息 ID、请求 ID 和具体消息载荷彼此分离。
-UDP/KCP 与 TCP 复用同一业务消息格式，只有外层传输封装不同。完整流程为：
+默认入口：
 
-```text
-LoginRequest(account, credential)
-  -> LoginSucceeded(LoginTicket, realm endpoint)
-RealmAuthenticate(LoginTicket)
-  -> CharacterList
-SelectCharacter(character_id)
-  -> EnterGameIssued(一次性 EnterGameTicket, gateway endpoint)
-EnterGame(EnterGameTicket)
-  -> EnterGameAccepted
+| 服务 | 端口 | 传输 |
+|---|---:|---|
+| Login | 7000 | TLS/TCP |
+| Realm | 7100 | TLS/TCP |
+| Gateway | 8000 | QUIC 优先，TLS/TCP 兜底 |
+
+Gateway 会把两个候选端点一并下发，候选项包含 `protocol/address/port/priority`。QUIC
+与 TLS/TCP 使用相同主机名和数字端口（分别占用 UDP 与 TCP 端口空间）。
+
+## 配置
+
+启动配置位于 `lua/config/services/`。安全传输示例：
+
+```lua
+{
+    name = "client_quic",
+    protocol = "quic", -- 或 "tls_tcp"
+    enabled = true,
+    listen_address = "0.0.0.0",
+    listen_port = 8000,
+    max_sessions = 10000,
+    max_payload_size = 65536,
+    max_pending_output_bytes = 4194304,
+    handshake_timeout_ms = 3000,
+    idle_timeout_ms = 30000,
+    alpn = "realmmesh-edge/1",
+    certificate_chain_file_environment = "REALMMESH_TLS_CERTIFICATE_FILE",
+    private_key_file_environment = "REALMMESH_TLS_PRIVATE_KEY_FILE",
+}
 ```
 
-协议源文件位于 `proto/realmmesh/`，构建时由固定版本的 `protoc` 生成 C++
-代码，生成物只保存在 `build/`，不提交到仓库。字段编号与消息 ID 一经发布不得
-复用；详细分层、编号和演进规则见 [docs/protocol.md](docs/protocol.md)。
+服务通过 etcd v3 Lease 发布端点并 Watch 下游服务。`required = false` 时 etcd 不可用
+会使用 Lua 固定下游地址并持续重试；生产环境可设为 `true`。
 
-监听地址、端口、下游地址和队列容量分别位于 `login.lua`、`realm.lua` 和 `gateway.lua`。当前账号认证器仅用于纵向链路开发，只接受凭据 `dev`；角色数据也是内存生成数据，不能用于生产环境。正式接入前需要替换为平台认证和存储服，并为登录与角色 TCP 链路增加 TLS。票据已经包含用途隔离、有效期、HMAC-SHA256 防篡改；`EnterGameTicket` 还会在网关单次消费以防重放。
+## 会话与线程模型
 
-## 参与贡献
+安全握手完成后连接先进入 pending 状态。只有首条业务鉴权成功，运行时才以一个原子
+命令发送响应并把它晋升为 `ClientSession`。每个逻辑会话只有一个 primary transport，
+不存在辅助通道或逐包回退。已建立 QUIC 连接中断后需要重新建连和鉴权，本阶段不提供
+透明 QUIC→TCP 热切换。
 
-欢迎通过 Issue 提交建议或问题，也欢迎提交 Pull Request。较大的功能改动建议先创建 Issue 讨论设计方案。
+MsQuic 回调、TLS/epoll 事件都被适配为统一 `GatewayEvent`，再进入有界入站队列；
+帧线程只消费事件并提交有界出站命令。过载时可靠连接会被关闭，不允许无界增长。
+
+## 测试
+
+```bash
+ctest --preset dev
+```
+
+测试覆盖真实 TLS 1.3/ALPN 往返、真实 MsQuic 往返、无 ALPN 不创建业务连接、QUIC
+竞速与安全降级分类、IPv6 双栈、端点序列化、pending→session 原子晋升，以及完整的
+Login→Realm→Gateway TLS 链路。测试证书和私钥只生成在 `build/` 中。
 
 ## License
 
-许可证尚未确定。在正式添加开源许可证前，本项目默认保留所有权利。
+许可证尚未确定；正式添加许可证前默认保留所有权利。

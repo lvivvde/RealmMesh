@@ -23,11 +23,9 @@ enum class QueueResult : std::uint8_t {
 };
 
 struct GatewayRuntimeStats {
-    std::uint64_t dropped_udp_messages{0};
     std::uint64_t overload_disconnects{0};
     std::uint64_t rejected_outbound_commands{0};
-    std::uint64_t preferred_deliveries{0};
-    std::uint64_t tcp_fallback_deliveries{0};
+    std::uint64_t successful_deliveries{0};
     std::uint64_t failed_deliveries{0};
 };
 
@@ -57,19 +55,19 @@ public:
 
     [[nodiscard]] QueueResult try_send(
         ClientSessionId client_session_id,
-        std::span<const std::byte> payload,
-        SendOptions options = {});
+        std::span<const std::byte> payload);
     [[nodiscard]] QueueResult try_send_channel(
         std::string_view transport_name,
         network::SessionId transport_session_id,
         std::span<const std::byte> payload);
-    [[nodiscard]] QueueResult try_bind_channel(
-        ClientSessionId client_session_id,
+    [[nodiscard]] QueueResult try_accept_connection(
         std::string_view transport_name,
-        network::SessionId transport_session_id);
+        network::SessionId transport_session_id,
+        std::span<const std::byte> response);
     [[nodiscard]] QueueResult try_close_channel(
         std::string_view transport_name,
         network::SessionId transport_session_id);
+    [[nodiscard]] QueueResult try_reload_credentials();
 
     [[nodiscard]] GatewayRuntimeStats stats() const noexcept;
 
@@ -77,8 +75,9 @@ private:
     enum class CommandKind : std::uint8_t {
         SendClient,
         SendChannel,
-        BindChannel,
+        AcceptConnection,
         CloseChannel,
+        ReloadCredentials,
     };
 
     struct OutboundCommand {
@@ -87,7 +86,6 @@ private:
         std::string transport_name;
         network::SessionId transport_session_id{network::invalid_session_id};
         std::vector<std::byte> payload;
-        SendOptions send_options;
     };
 
     [[nodiscard]] QueueResult enqueue(OutboundCommand command);
@@ -104,11 +102,9 @@ private:
     concurrency::BoundedQueue<OutboundCommand> outbound_;
     std::jthread io_thread_;
     std::atomic_bool running_{false};
-    std::atomic_uint64_t dropped_udp_messages_{0};
     std::atomic_uint64_t overload_disconnects_{0};
     std::atomic_uint64_t rejected_outbound_commands_{0};
-    std::atomic_uint64_t preferred_deliveries_{0};
-    std::atomic_uint64_t tcp_fallback_deliveries_{0};
+    std::atomic_uint64_t successful_deliveries_{0};
     std::atomic_uint64_t failed_deliveries_{0};
 };
 

@@ -53,8 +53,9 @@ void TcpSocket::close() noexcept {
 }
 
 TcpListener::TcpListener(std::string_view address, std::uint16_t port, int backlog) {
+    const bool ipv6 = address.find(':') != std::string_view::npos;
     const int descriptor = ::socket(
-        AF_INET,
+        ipv6 ? AF_INET6 : AF_INET,
         SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC,
         0);
     if (descriptor < 0) {
@@ -75,24 +76,50 @@ TcpListener::TcpListener(std::string_view address, std::uint16_t port, int backl
         throw std::system_error(error, std::generic_category(), "setsockopt(SO_REUSEADDR)");
     }
 
-    sockaddr_in socket_address{};
-    socket_address.sin_family = AF_INET;
-    socket_address.sin_port = htons(port);
+    if (ipv6) {
+        const int dual_stack = 0;
+        if (::setsockopt(
+                descriptor_,
+                IPPROTO_IPV6,
+                IPV6_V6ONLY,
+                &dual_stack,
+                sizeof(dual_stack)) < 0) {
+            const int error = errno;
+            close();
+            throw std::system_error(
+                error, std::generic_category(), "setsockopt(IPV6_V6ONLY)");
+        }
+    }
+
+    sockaddr_storage socket_address{};
+    socklen_t socket_address_size = 0;
 
     const std::string address_text(address);
-    const int parse_result = ::inet_pton(
-        AF_INET,
-        address_text.c_str(),
-        &socket_address.sin_addr);
+    int parse_result = 0;
+    if (ipv6) {
+        auto& value = reinterpret_cast<sockaddr_in6&>(socket_address);
+        value.sin6_family = AF_INET6;
+        value.sin6_port = htons(port);
+        parse_result = ::inet_pton(
+            AF_INET6, address_text.c_str(), &value.sin6_addr);
+        socket_address_size = sizeof(value);
+    } else {
+        auto& value = reinterpret_cast<sockaddr_in&>(socket_address);
+        value.sin_family = AF_INET;
+        value.sin_port = htons(port);
+        parse_result = ::inet_pton(
+            AF_INET, address_text.c_str(), &value.sin_addr);
+        socket_address_size = sizeof(value);
+    }
     if (parse_result != 1) {
         close();
-        throw std::invalid_argument("invalid IPv4 listen address");
+        throw std::invalid_argument("invalid IP listen address");
     }
 
     if (::bind(
             descriptor_,
             reinterpret_cast<const sockaddr*>(&socket_address),
-            sizeof(socket_address)) < 0) {
+            socket_address_size) < 0) {
         const int error = errno;
         close();
         throw std::system_error(error, std::generic_category(), "bind");
@@ -114,7 +141,9 @@ TcpListener::TcpListener(std::string_view address, std::uint16_t port, int backl
         throw std::system_error(error, std::generic_category(), "getsockname");
     }
 
-    local_port_ = ntohs(socket_address.sin_port);
+    local_port_ = ipv6
+                      ? ntohs(reinterpret_cast<sockaddr_in6&>(socket_address).sin6_port)
+                      : ntohs(reinterpret_cast<sockaddr_in&>(socket_address).sin_port);
 }
 
 TcpListener::~TcpListener() {

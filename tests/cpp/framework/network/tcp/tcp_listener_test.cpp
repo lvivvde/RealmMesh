@@ -1,5 +1,4 @@
 #include "realmmesh/network/reactor/epoll_event_loop.hpp"
-#include "realmmesh/network/tcp/tcp_connection.hpp"
 #include "realmmesh/network/tcp/tcp_listener.hpp"
 
 #include <gtest/gtest.h>
@@ -96,21 +95,16 @@ TEST(EpollEventLoopTest, ReportsListenerAsReadableWhenClientConnects) {
     EXPECT_TRUE(listener.accept().has_value());
 }
 
-TEST(TcpConnectionTest, RejectsFramesAboveTheOutputHighWatermark) {
+TEST(TcpListenerTest, AcceptsIpv4ThroughAnIpv6DualStackListener) {
     using namespace std::chrono_literals;
 
-    TcpListener listener("127.0.0.1", 0);
-    const SocketGuard client(connect_to_loopback(listener.local_port()));
+    TcpListener listener("::", 0);
     EpollEventLoop event_loop;
     event_loop.add(listener.native_handle(), EventInterest::Read);
-    ASSERT_FALSE(event_loop.wait(500ms).empty());
-    auto socket = listener.accept();
-    ASSERT_TRUE(socket.has_value());
-    TcpConnection connection(std::move(*socket), 1024, 7);
-    const std::byte payload[4]{};
 
-    EXPECT_FALSE(connection.queue_frame(payload));
-    EXPECT_FALSE(connection.has_pending_output());
+    const SocketGuard client(connect_to_loopback(listener.local_port()));
+    ASSERT_FALSE(event_loop.wait(500ms).empty());
+    EXPECT_TRUE(listener.accept().has_value());
 }
 
 }  // namespace

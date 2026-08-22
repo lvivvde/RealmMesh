@@ -71,36 +71,32 @@ template <typename Integer>
 }
 
 [[nodiscard]] network::TransportProtocol parse_protocol(std::string_view value) {
-    if (value == "tcp") return network::TransportProtocol::Tcp;
-    if (value == "udp") return network::TransportProtocol::Udp;
-    if (value == "kcp") return network::TransportProtocol::Kcp;
+    if (value == "quic") return network::TransportProtocol::Quic;
+    if (value == "tls_tcp") return network::TransportProtocol::TlsTcp;
     throw std::invalid_argument(
         "unsupported transport protocol: " + std::string(value));
 }
 
-[[nodiscard]] int hex_nibble(char value) noexcept {
-    if (value >= '0' && value <= '9') return value - '0';
-    if (value >= 'a' && value <= 'f') return value - 'a' + 10;
-    if (value >= 'A' && value <= 'F') return value - 'A' + 10;
-    return -1;
-}
-
-[[nodiscard]] network::KcpSecurityKey parse_security_key(
-    std::string_view value) {
-    if (value.size() != network::kcp_security_key_size * 2) {
+[[nodiscard]] std::string path_from_config_or_environment(
+    const sol::table& table,
+    std::string_view path_field,
+    std::string_view environment_field) {
+    auto path = optional_string(table, path_field, "");
+    if (!path.empty()) {
+        return path;
+    }
+    const auto environment = optional_string(table, environment_field, "");
+    if (environment.empty()) {
         throw std::invalid_argument(
-            "KCP ticket key must contain 64 hexadecimal characters");
+            "enabled secure transport requires " + std::string(path_field) +
+            " or " + std::string(environment_field));
     }
-    network::KcpSecurityKey key{};
-    for (std::size_t index = 0; index < key.size(); ++index) {
-        const int high = hex_nibble(value[index * 2]);
-        const int low = hex_nibble(value[index * 2 + 1]);
-        if (high < 0 || low < 0) {
-            throw std::invalid_argument("KCP ticket key contains non-hex data");
-        }
-        key[index] = static_cast<std::byte>((high << 4) | low);
+    const char* value = std::getenv(environment.c_str());
+    if (value == nullptr || *value == '\0') {
+        throw std::invalid_argument(
+            "TLS path environment variable is not set: " + environment);
     }
-    return key;
+    return value;
 }
 
 [[nodiscard]] network::TransportConfig read_transport(const sol::table& table) {
@@ -123,21 +119,24 @@ template <typename Integer>
     config.idle_timeout = std::chrono::milliseconds(
         optional_integer<std::int64_t>(
             table, "idle_timeout_ms", config.idle_timeout.count()));
+    config.handshake_timeout = std::chrono::milliseconds(
+        optional_integer<std::int64_t>(
+            table,
+            "handshake_timeout_ms",
+            config.handshake_timeout.count()));
 
-    if (config.protocol == network::TransportProtocol::Kcp && config.enabled) {
-        const auto environment_name = optional_string(
-            table, "ticket_key_environment", "");
-        if (environment_name.empty()) {
-            throw std::invalid_argument(
-                "enabled KCP transport requires ticket_key_environment");
-        }
-        const char* value = std::getenv(environment_name.c_str());
-        if (value == nullptr) {
-            throw std::invalid_argument(
-                "KCP ticket key environment variable is not set: " +
-                environment_name);
-        }
-        config.kcp_ticket_key = parse_security_key(value);
+    if (config.enabled) {
+        config.tls = network::TransportConfig::TlsServerIdentity{
+            .certificate_chain_file = path_from_config_or_environment(
+                table,
+                "certificate_chain_file",
+                "certificate_chain_file_environment"),
+            .private_key_file = path_from_config_or_environment(
+                table,
+                "private_key_file",
+                "private_key_file_environment"),
+            .alpn = optional_string(table, "alpn", "realmmesh-edge/1"),
+        };
     }
     return config;
 }

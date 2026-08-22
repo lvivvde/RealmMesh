@@ -11,27 +11,24 @@
 namespace realm::network {
 
 enum class TransportProtocol : std::uint8_t {
-    Tcp,
-    Udp,
-    Kcp,
+    Quic = 1,
+    TlsTcp = 2,
 };
 
 [[nodiscard]] constexpr std::string_view to_string(
     TransportProtocol protocol) noexcept {
     switch (protocol) {
-    case TransportProtocol::Tcp:
-        return "tcp";
-    case TransportProtocol::Udp:
-        return "udp";
-    case TransportProtocol::Kcp:
-        return "kcp";
+    case TransportProtocol::Quic:
+        return "quic";
+    case TransportProtocol::TlsTcp:
+        return "tls_tcp";
     }
     return "unknown";
 }
 
 struct TransportEndpoint {
     std::string name;
-    TransportProtocol protocol{TransportProtocol::Tcp};
+    TransportProtocol protocol{TransportProtocol::TlsTcp};
     std::string address;
     std::uint16_t port{0};
 
@@ -45,6 +42,7 @@ enum class TransportEventKind : std::uint8_t {
     SessionOpened,
     MessageReceived,
     SessionClosed,
+    PeerAddressChanged,
 };
 
 struct TransportEvent {
@@ -68,6 +66,7 @@ public:
         SessionId session_id,
         std::span<const std::byte> payload) = 0;
     [[nodiscard]] virtual bool close(SessionId session_id) = 0;
+    [[nodiscard]] virtual bool reload_credentials() = 0;
 };
 
 }  // namespace realm::network

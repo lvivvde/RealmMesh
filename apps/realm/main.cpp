@@ -15,6 +15,7 @@
 #include <filesystem>
 #include <iostream>
 #include <memory>
+#include <span>
 #include <stdexcept>
 #include <string_view>
 #include <unordered_map>
@@ -23,7 +24,9 @@
 namespace {
 
 volatile std::sig_atomic_t stop_requested = 0;
+volatile std::sig_atomic_t reload_requested = 0;
 void handle_stop_signal(int) { stop_requested = 1; }
+void handle_reload_signal(int) { reload_requested = 1; }
 
 std::filesystem::path config_path(int argc, char* argv[]) {
     for (int index = 1; index + 1 < argc; ++index) {
@@ -42,6 +45,13 @@ realm::game::common::SessionTicketKey load_key() {
 
 std::uint64_t character_id(std::uint64_t account_id) {
     return account_id ^ 0x524d434841524143ULL;
+}
+
+std::string connection_key(
+    std::string_view transport_name,
+    realm::network::SessionId transport_session_id) {
+    return std::string(transport_name) + '#' +
+           std::to_string(transport_session_id);
 }
 
 }  // namespace
@@ -88,13 +98,15 @@ int main(int argc, char* argv[]) {
             gateway_resolver = std::make_unique<realm::cluster::ServiceResolver>(
                 *registry,
                 realm::cluster::ServiceType::Gateway,
-                realm::network::TransportProtocol::Tcp);
+                realm::network::TransportProtocol::TlsTcp);
         }
         std::unordered_map<realm::game::gateway::ClientSessionId, std::uint64_t>
             authenticated;
+        std::unordered_map<std::string, std::uint64_t> pending_authenticated;
 
         std::signal(SIGINT, handle_stop_signal);
         std::signal(SIGTERM, handle_stop_signal);
+        std::signal(SIGHUP, handle_reload_signal);
         runtime.start();
         std::cout << "RealmMesh realm/character listening on 0.0.0.0:"
                   << runtime.local_port() << '\n';
@@ -102,26 +114,45 @@ int main(int argc, char* argv[]) {
         realm::scheduler::SteadyFrameClock clock;
         realm::scheduler::FrameScheduler scheduler(tick_rate, clock);
         static_cast<void>(scheduler.run([&](realm::scheduler::FrameContext) {
+            if (reload_requested != 0) {
+                reload_requested = 0;
+                static_cast<void>(runtime.try_reload_credentials());
+            }
             if (publisher != nullptr) static_cast<void>(publisher->tick());
             for (auto& event : runtime.drain_events(max_events)) {
-                if (!event.client_session_id.has_value()) continue;
-                const auto client = *event.client_session_id;
-                if (event.kind == realm::network::TransportEventKind::SessionClosed) {
-                    authenticated.erase(client);
+                if (event.kind == realm::game::gateway::GatewayEventKind::ConnectionClosed) {
+                    pending_authenticated.erase(connection_key(
+                        event.transport_name, event.transport_session_id));
+                    if (event.client_session_id.has_value()) {
+                        authenticated.erase(*event.client_session_id);
+                    }
                     continue;
                 }
-                if (event.kind != realm::network::TransportEventKind::MessageReceived)
+                if (event.kind ==
+                    realm::game::gateway::GatewayEventKind::ClientSessionOpened) {
+                    const auto pending = pending_authenticated.find(connection_key(
+                        event.transport_name, event.transport_session_id));
+                    if (pending != pending_authenticated.end() &&
+                        event.client_session_id.has_value()) {
+                        authenticated[*event.client_session_id] = pending->second;
+                        pending_authenticated.erase(pending);
+                    }
+                    continue;
+                }
+                if (event.kind != realm::game::gateway::GatewayEventKind::MessageReceived)
                     continue;
 
                 const auto request_id =
                     realm::game::common::edge_request_id(event.payload).value_or(0);
                 std::vector<std::byte> response;
-                if (const auto request =
+                if (!event.client_session_id.has_value()) {
+                    const auto request =
                         realm::game::common::decode_realm_authenticate(event.payload);
-                    request.has_value()) {
                     const auto claims = tickets.validate(
-                        realm::game::common::protobuf_bytes(
-                            request->login_ticket()),
+                        request.has_value()
+                            ? realm::game::common::protobuf_bytes(
+                                  request->login_ticket())
+                            : std::span<const std::byte>{},
                         realm::game::common::TicketPurpose::Login);
                     if (!claims.has_value() || claims->realm_id != 1) {
                         realm::game::common::EdgeError error;
@@ -129,7 +160,9 @@ int main(int argc, char* argv[]) {
                         error.set_message("invalid login ticket");
                         response = realm::game::common::encode(error, request_id);
                     } else {
-                        authenticated[client] = claims->account_id;
+                        pending_authenticated[connection_key(
+                            event.transport_name,
+                            event.transport_session_id)] = claims->account_id;
                         realm::game::common::CharacterList characters;
                         auto* character = characters.add_characters();
                         character->set_id(character_id(claims->account_id));
@@ -137,7 +170,25 @@ int main(int argc, char* argv[]) {
                         response = realm::game::common::encode(
                             characters, request_id);
                     }
-                } else if (const auto request =
+                    if (claims.has_value() && claims->realm_id == 1) {
+                        static_cast<void>(runtime.try_accept_connection(
+                            event.transport_name,
+                            event.transport_session_id,
+                            response));
+                    } else {
+                        static_cast<void>(runtime.try_send_channel(
+                            event.transport_name,
+                            event.transport_session_id,
+                            response));
+                        static_cast<void>(runtime.try_close_channel(
+                            event.transport_name,
+                            event.transport_session_id));
+                    }
+                    continue;
+                }
+
+                const auto client = *event.client_session_id;
+                if (const auto request =
                                realm::game::common::decode_select_character(event.payload);
                            request.has_value() && authenticated.contains(client) &&
                            request->character_id() ==
@@ -160,8 +211,19 @@ int main(int argc, char* argv[]) {
                         std::chrono::seconds(30));
                     realm::game::common::EnterGameIssued issued;
                     issued.set_enter_game_ticket(ticket.data(), ticket.size());
-                    issued.mutable_gateway_endpoint()->set_address(gateway_address);
-                    issued.mutable_gateway_endpoint()->set_port(gateway_port);
+                    auto* quic_endpoint = issued.add_gateway_endpoints();
+                    quic_endpoint->set_protocol(
+                        ::realmmesh::protocol::edge::v1::TRANSPORT_PROTOCOL_QUIC);
+                    quic_endpoint->set_address(gateway_address);
+                    quic_endpoint->set_port(gateway_port);
+                    quic_endpoint->set_priority(0);
+                    auto* tcp_endpoint = issued.add_gateway_endpoints();
+                    tcp_endpoint->set_protocol(
+                        ::realmmesh::protocol::edge::v1::
+                            TRANSPORT_PROTOCOL_TLS_TCP);
+                    tcp_endpoint->set_address(gateway_address);
+                    tcp_endpoint->set_port(gateway_port);
+                    tcp_endpoint->set_priority(1);
                     response = realm::game::common::encode(issued, request_id);
                 } else {
                     realm::game::common::EdgeError error;

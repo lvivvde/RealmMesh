@@ -1,5 +1,5 @@
 add_library(realm_gateway_service
-    src/client_session_router.cpp
+    src/client_session_registry.cpp
     src/gateway_config_loader.cpp
     src/gateway_runtime.cpp
     src/gateway_server.cpp

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "realmmesh/game/gateway/client_session_router.hpp"
+#include "realmmesh/game/gateway/client_session_registry.hpp"
 #include "realmmesh/cluster/service_discovery_config.hpp"
 #include "realmmesh/network/transport/transport_config.hpp"
 
@@ -11,6 +11,8 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace realm::game::gateway {
@@ -23,16 +25,7 @@ struct GatewayRuntimeOptions {
 };
 
 struct GatewayConfig {
-    std::vector<network::TransportConfig> transports{
-        {
-            .name = "client_tcp",
-            .protocol = network::TransportProtocol::Tcp,
-            .listen_address = "0.0.0.0",
-            .listen_port = 8000,
-            .kcp_ticket_key = std::nullopt,
-            .idle_timeout = std::chrono::milliseconds(30'000),
-        },
-    };
+    std::vector<network::TransportConfig> transports;
     GatewayRuntimeOptions runtime;
     cluster::ServiceDiscoveryConfig service_discovery;
     std::uint32_t tick_rate{20};
@@ -41,11 +34,19 @@ struct GatewayConfig {
     std::uint16_t downstream_port{0};
 };
 
+enum class GatewayEventKind : std::uint8_t {
+    ConnectionOpened,
+    MessageReceived,
+    ClientSessionOpened,
+    ConnectionClosed,
+    PeerAddressChanged,
+};
+
 struct GatewayEvent {
-    network::TransportEventKind kind;
+    GatewayEventKind kind;
     std::optional<ClientSessionId> client_session_id;
     std::string transport_name;
-    network::TransportProtocol protocol{network::TransportProtocol::Tcp};
+    network::TransportProtocol protocol{network::TransportProtocol::TlsTcp};
     network::SessionId transport_session_id{network::invalid_session_id};
     std::vector<std::byte> payload;
 };
@@ -62,20 +63,19 @@ public:
         std::string_view transport_name) const;
     [[nodiscard]] std::vector<network::TransportEndpoint> local_endpoints() const;
     [[nodiscard]] std::size_t connection_count() const noexcept;
+    [[nodiscard]] std::size_t pending_connection_count() const noexcept;
     [[nodiscard]] std::size_t client_count() const noexcept;
     [[nodiscard]] std::vector<ClientSessionId> client_ids() const;
     [[nodiscard]] std::optional<ClientSessionId> find_client(
         std::string_view transport_name,
         network::SessionId transport_session_id) const;
-
-    [[nodiscard]] bool bind_channel(
-        ClientSessionId client_session_id,
+    [[nodiscard]] std::optional<ClientSessionId> promote_connection(
         std::string_view transport_name,
         network::SessionId transport_session_id);
+
     [[nodiscard]] SendResult send(
         ClientSessionId client_session_id,
-        std::span<const std::byte> payload,
-        SendOptions options = {});
+        std::span<const std::byte> payload);
     [[nodiscard]] bool send_channel(
         std::string_view transport_name,
         network::SessionId transport_session_id,
@@ -83,6 +83,7 @@ public:
     [[nodiscard]] bool close_channel(
         std::string_view transport_name,
         network::SessionId transport_session_id);
+    [[nodiscard]] bool reload_credentials();
 
     [[nodiscard]] std::vector<GatewayEvent> poll_events(
         std::chrono::milliseconds timeout);
@@ -93,7 +94,9 @@ private:
         std::string_view transport_name) const;
 
     std::vector<std::unique_ptr<network::IMessageTransport>> transports_;
-    ClientSessionRouter client_router_;
+    ClientSessionRegistry client_registry_;
+    std::unordered_map<std::string, std::unordered_set<network::SessionId>>
+        pending_connections_;
 };
 
 }  // namespace realm::game::gateway

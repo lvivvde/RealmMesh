@@ -1,35 +1,43 @@
-# RealmMesh 协议
+# RealmMesh 边缘协议
 
-RealmMesh 的业务消息统一使用 Protocol Buffers。当前固定使用 Protobuf v35.0，
-Linux x86-64 构建使用官方预编译 `protoc`，服务器只链接
-`libprotobuf-lite`。生成的 C++ 文件位于 `build/dev/proto/generated/`，不进入源码仓库。
+## 传输帧
 
-## 分层
+QUIC 与 TLS/TCP 共享同一业务帧格式：
 
 ```text
-TCP: [4-byte big-endian length][Protobuf Envelope]
-UDP: [security/session header][Protobuf Envelope]
-KCP: [security/session header][KCP segments carrying Protobuf Envelope]
+[4-byte big-endian payload length][Protobuf Envelope]
 ```
 
-TCP 长度字段、UDP/KCP 会话与加密头属于传输层，不放进 Protobuf。所有传输协议
-共享同一份业务 `Envelope`，因此服务器按包选择 TCP、UDP 或 KCP 时不需要转换业务
-消息。
+QUIC 在一个客户端发起的长期可靠双向流上承载该字节流；不使用 QUIC Datagram 或
+一消息一流。载荷上限为 64KiB。传输握手必须协商 TLS 1.3 和 ALPN
+`realmmesh-edge/1`，0-RTT 数据一律不接受。
 
-`realmmesh/common/v1/envelope.proto` 定义四个字段：
+`Envelope` 字段：
 
 | 字段 | 用途 |
 |---|---|
-| `protocol_version` | 当前为 `1`；不支持的版本会被拒绝 |
-| `message_id` | 标识 `payload` 的具体消息类型 |
-| `request_id` | 客户端请求与服务器响应的关联 ID；通知可使用 `0` |
-| `payload` | 具体业务消息序列化后的字节串 |
+| `protocol_version` | 当前为 `1` |
+| `message_id` | payload 的消息类型 |
+| `request_id` | 请求/响应关联 ID，通知可为 `0` |
+| `payload` | 具体 Protobuf 消息 |
 
-## 边缘消息
+## 端点候选
 
-`realmmesh/edge/v1/edge.proto` 定义当前登录、角色选择和进服消息：
+`ServiceEndpoint` 包含：
 
-| 消息 ID | 方向 | 消息 |
+| 字段 | 说明 |
+|---|---|
+| `protocol` | `QUIC` 或 `TLS_TCP` |
+| `address` | 必须参与证书 DNS/SNI 校验的主机名 |
+| `port` | 端口；Gateway 两种协议使用同一数字 |
+| `priority` | 数字越小优先级越高 |
+
+`LoginSucceeded.realm_endpoints` 与 `EnterGameIssued.gateway_endpoints` 都是候选列表。
+客户端不得把证书或 ALPN 错误解释为“网络不支持 QUIC”。
+
+## 消息 ID
+
+| ID | 方向 | 消息 |
 |---:|---|---|
 | 1001 | C2S | `LoginRequest` |
 | 1002 | S2C | `LoginSucceeded` |
@@ -41,22 +49,23 @@ TCP 长度字段、UDP/KCP 会话与加密头属于传输层，不放进 Protobu
 | 1202 | S2C | `EnterGameAccepted` |
 | 1999 | S2C | `EdgeError` |
 
-服务器响应会保留请求的 `request_id`。业务入口会同时校验 Envelope 版本、已知消息
-ID 和具体 payload 类型；旧的单字节操作码格式不再兼容。
+Gateway 的两个传输可以并行进行安全握手，但只有竞速胜出的连接可以发送
+`EnterGameTicket`。票据在 Gateway 单次消费，后到连接不得重发。
+
+## 初次降级规则
+
+允许从 QUIC 转入 TLS/TCP 的结果只有：
+
+- 客户端构建不支持 QUIC；
+- 当前网络明确不可达 UDP/QUIC；
+- QUIC 握手超时。
+
+证书链/主机名、ALPN、业务鉴权和协议版本错误属于终止错误。当前规则只覆盖初次
+建连；已建立 QUIC 连接断开后需重新走候选选择和鉴权。
 
 ## 演进规则
 
-- 已发布字段的编号和类型不得修改或复用。
-- 删除字段时必须使用 `reserved` 保留原编号和名称。
-- 消息 ID 永久唯一；删除消息后保留其编号，不分配给其他消息。
-- 向后兼容的新增字段使用新编号，接收端必须接受未知字段。
-- 破坏兼容性的改动放入新的包版本，例如 `edge.v2`，并提升 Envelope 协议版本。
-
-这些规则遵循 Protobuf 的
-[Proto3 更新消息类型约束](https://protobuf.dev/programming-guides/proto3/#updating)。
-
-## 构建
-
-```bash
-./scripts/build.sh
-```
+- 已发布字段编号和消息 ID 不得复用。
+- 删除字段使用 `reserved`。
+- 兼容新增字段使用新编号，接收方接受未知字段。
+- 破坏兼容性的变化进入新包版本并提升 Envelope 协议版本。

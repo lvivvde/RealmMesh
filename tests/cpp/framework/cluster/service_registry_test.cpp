@@ -25,7 +25,7 @@ ServiceInstance make_instance(
         .zone = "development",
         .endpoints = {{
             .name = "rpc_tcp",
-            .protocol = network::TransportProtocol::Tcp,
+            .protocol = network::TransportProtocol::TlsTcp,
             .address = "127.0.0.1",
             .port = port,
         }},
@@ -120,7 +120,7 @@ TEST(ServiceRegistryTest, ResolverTracksAddedAndRemovedEndpoints) {
     ServiceResolver resolver(
         registry,
         ServiceType::Gateway,
-        network::TransportProtocol::Tcp);
+        network::TransportProtocol::TlsTcp);
     const auto instance = make_instance(
         ServiceType::Gateway, "gateway-01", 8100);
     const auto registration = registry.register_instance(instance, 10s);
@@ -148,7 +148,7 @@ TEST(ServiceRegistryTest, ResolverReceivesInstancesPresentBeforeSubscription) {
     ServiceResolver resolver(
         registry,
         ServiceType::Gateway,
-        network::TransportProtocol::Tcp);
+        network::TransportProtocol::TlsTcp);
 
     ASSERT_TRUE(resolver.endpoint().has_value());
     EXPECT_EQ(resolver.endpoint()->port, 8100);

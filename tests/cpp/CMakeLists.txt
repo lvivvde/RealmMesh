@@ -64,6 +64,27 @@ target_compile_features(session_ticket_test PRIVATE cxx_std_20)
 
 gtest_discover_tests(session_ticket_test)
 
+find_program(REALMMESH_OPENSSL_EXECUTABLE openssl REQUIRED)
+set(REALMMESH_TEST_TLS_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/test-tls")
+set(REALMMESH_TEST_TLS_CERTIFICATE "${REALMMESH_TEST_TLS_DIRECTORY}/certificate.pem")
+set(REALMMESH_TEST_TLS_PRIVATE_KEY "${REALMMESH_TEST_TLS_DIRECTORY}/private-key.pem")
+add_custom_command(
+    OUTPUT
+        "${REALMMESH_TEST_TLS_CERTIFICATE}"
+        "${REALMMESH_TEST_TLS_PRIVATE_KEY}"
+    COMMAND "${CMAKE_COMMAND}" -E make_directory "${REALMMESH_TEST_TLS_DIRECTORY}"
+    COMMAND "${REALMMESH_OPENSSL_EXECUTABLE}" req -x509 -newkey rsa:2048 -nodes
+        -keyout "${REALMMESH_TEST_TLS_PRIVATE_KEY}"
+        -out "${REALMMESH_TEST_TLS_CERTIFICATE}"
+        -days 3650 -subj /CN=localhost
+        -addext subjectAltName=DNS:localhost,IP:127.0.0.1
+    VERBATIM
+)
+add_custom_target(realmmesh_test_tls_identity DEPENDS
+    "${REALMMESH_TEST_TLS_CERTIFICATE}"
+    "${REALMMESH_TEST_TLS_PRIVATE_KEY}"
+)
+
 add_executable(three_stage_flow_test
     game/common/three_stage_flow_test.cpp
 )
@@ -78,11 +99,14 @@ target_compile_definitions(three_stage_flow_test PRIVATE
     REALMMESH_LOGIN_EXECUTABLE="$<TARGET_FILE:realm_login>"
     REALMMESH_REALM_EXECUTABLE="$<TARGET_FILE:realm_character>"
     REALMMESH_GATEWAY_EXECUTABLE="$<TARGET_FILE:realm_gateway>"
+    REALMMESH_TEST_TLS_CERTIFICATE="${REALMMESH_TEST_TLS_CERTIFICATE}"
+    REALMMESH_TEST_TLS_PRIVATE_KEY="${REALMMESH_TEST_TLS_PRIVATE_KEY}"
 )
 add_dependencies(three_stage_flow_test
     realm_login
     realm_character
     realm_gateway
+    realmmesh_test_tls_identity
 )
 
 gtest_discover_tests(three_stage_flow_test
@@ -101,6 +125,16 @@ target_link_libraries(network_codec_test PRIVATE
 target_compile_features(network_codec_test PRIVATE cxx_std_20)
 
 gtest_discover_tests(network_codec_test)
+
+add_executable(preferred_transport_connector_test
+    framework/network/client/preferred_transport_connector_test.cpp
+)
+target_link_libraries(preferred_transport_connector_test PRIVATE
+    GTest::gtest_main
+    realm_network
+)
+target_compile_features(preferred_transport_connector_test PRIVATE cxx_std_20)
+gtest_discover_tests(preferred_transport_connector_test)
 
 add_executable(tcp_listener_test
     framework/network/tcp/tcp_listener_test.cpp
@@ -128,18 +162,41 @@ target_compile_features(transport_factory_test PRIVATE cxx_std_20)
 
 gtest_discover_tests(transport_factory_test)
 
-add_executable(kcp_security_test
-    framework/network/kcp/kcp_security_test.cpp
+target_compile_definitions(transport_factory_test PRIVATE
+    REALMMESH_TEST_TLS_CERTIFICATE="${REALMMESH_TEST_TLS_CERTIFICATE}"
+    REALMMESH_TEST_TLS_PRIVATE_KEY="${REALMMESH_TEST_TLS_PRIVATE_KEY}"
 )
+add_dependencies(transport_factory_test realmmesh_test_tls_identity)
 
-target_link_libraries(kcp_security_test PRIVATE
+add_executable(tls_tcp_transport_test
+    framework/network/tls/tls_tcp_transport_test.cpp
+)
+target_link_libraries(tls_tcp_transport_test PRIVATE
     GTest::gtest_main
     realm_network
 )
+target_compile_features(tls_tcp_transport_test PRIVATE cxx_std_20)
+target_compile_definitions(tls_tcp_transport_test PRIVATE
+    REALMMESH_TEST_TLS_CERTIFICATE="${REALMMESH_TEST_TLS_CERTIFICATE}"
+    REALMMESH_TEST_TLS_PRIVATE_KEY="${REALMMESH_TEST_TLS_PRIVATE_KEY}"
+)
+add_dependencies(tls_tcp_transport_test realmmesh_test_tls_identity)
+gtest_discover_tests(tls_tcp_transport_test)
 
-target_compile_features(kcp_security_test PRIVATE cxx_std_20)
-
-gtest_discover_tests(kcp_security_test)
+add_executable(quic_transport_test
+    framework/network/quic/quic_transport_test.cpp
+)
+target_link_libraries(quic_transport_test PRIVATE
+    GTest::gtest_main
+    realm_network
+)
+target_compile_features(quic_transport_test PRIVATE cxx_std_20)
+target_compile_definitions(quic_transport_test PRIVATE
+    REALMMESH_TEST_TLS_CERTIFICATE="${REALMMESH_TEST_TLS_CERTIFICATE}"
+    REALMMESH_TEST_TLS_PRIVATE_KEY="${REALMMESH_TEST_TLS_PRIVATE_KEY}"
+)
+add_dependencies(quic_transport_test realmmesh_test_tls_identity)
+gtest_discover_tests(quic_transport_test)
 
 add_executable(gateway_server_test
     game/gateway/gateway_server_test.cpp
@@ -154,7 +211,10 @@ target_compile_features(gateway_server_test PRIVATE cxx_std_20)
 
 target_compile_definitions(gateway_server_test PRIVATE
     REALMMESH_TEST_SOURCE_DIR="${PROJECT_SOURCE_DIR}"
+    REALMMESH_TEST_TLS_CERTIFICATE="${REALMMESH_TEST_TLS_CERTIFICATE}"
+    REALMMESH_TEST_TLS_PRIVATE_KEY="${REALMMESH_TEST_TLS_PRIVATE_KEY}"
 )
+add_dependencies(gateway_server_test realmmesh_test_tls_identity)
 
 gtest_discover_tests(gateway_server_test)
 
@@ -169,20 +229,26 @@ target_link_libraries(gateway_runtime_test PRIVATE
 
 target_compile_features(gateway_runtime_test PRIVATE cxx_std_20)
 
+target_compile_definitions(gateway_runtime_test PRIVATE
+    REALMMESH_TEST_TLS_CERTIFICATE="${REALMMESH_TEST_TLS_CERTIFICATE}"
+    REALMMESH_TEST_TLS_PRIVATE_KEY="${REALMMESH_TEST_TLS_PRIVATE_KEY}"
+)
+add_dependencies(gateway_runtime_test realmmesh_test_tls_identity)
+
 gtest_discover_tests(gateway_runtime_test)
 
-add_executable(client_session_router_test
-    game/gateway/client_session_router_test.cpp
+add_executable(client_session_registry_test
+    game/gateway/client_session_registry_test.cpp
 )
 
-target_link_libraries(client_session_router_test PRIVATE
+target_link_libraries(client_session_registry_test PRIVATE
     GTest::gtest_main
     realm_gateway_service
 )
 
-target_compile_features(client_session_router_test PRIVATE cxx_std_20)
+target_compile_features(client_session_registry_test PRIVATE cxx_std_20)
 
-gtest_discover_tests(client_session_router_test)
+gtest_discover_tests(client_session_registry_test)
 
 add_executable(service_registry_test
     framework/cluster/etcd_service_registry_test.cpp

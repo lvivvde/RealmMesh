@@ -9,10 +9,10 @@ project(
 
 add_subdirectory(third_party/lua)
 add_subdirectory(third_party/sol2)
-add_subdirectory(third_party/kcp)
 add_subdirectory(third_party/sodium)
 add_subdirectory(third_party/json)
 add_subdirectory(third_party/httplib)
+add_subdirectory(third_party/msquic)
 add_subdirectory(third_party/protobuf)
 add_subdirectory(proto)
 add_subdirectory(framework/concurrency)
@@ -59,9 +59,9 @@ if(BUILD_TESTING)
     set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)
     FetchContent_Declare(
         googletest
-        GIT_REPOSITORY https://chromium.googlesource.com/external/github.com/google/googletest
-        GIT_TAG v1.17.0
-        GIT_SHALLOW TRUE
+        URL https://github.com/google/googletest/archive/refs/tags/v1.17.0.tar.gz
+        URL_HASH SHA256=65fab701d9829d38cb77c14acdc431d2108bfdbf8979e40eb8ae567edf10b27c
+        DOWNLOAD_EXTRACT_TIMESTAMP TRUE
     )
     FetchContent_MakeAvailable(googletest)
 

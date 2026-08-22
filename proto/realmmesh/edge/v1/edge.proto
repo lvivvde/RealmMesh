@@ -22,9 +22,17 @@ enum MessageId {
   MESSAGE_ID_S2C_ERROR = 1999;
 }
 
+enum TransportProtocol {
+  TRANSPORT_PROTOCOL_UNSPECIFIED = 0;
+  TRANSPORT_PROTOCOL_QUIC = 1;
+  TRANSPORT_PROTOCOL_TLS_TCP = 2;
+}
+
 message ServiceEndpoint {
   string address = 1;
   uint32 port = 2;
+  TransportProtocol protocol = 3;
+  uint32 priority = 4;
 }
 
 message LoginRequest {
@@ -35,7 +43,7 @@ message LoginRequest {
 message LoginSucceeded {
   uint64 account_id = 1;
   bytes login_ticket = 2;
-  ServiceEndpoint realm_endpoint = 3;
+  repeated ServiceEndpoint realm_endpoints = 3;
 }
 
 message RealmAuthenticate {
@@ -57,7 +65,7 @@ message SelectCharacter {
 
 message EnterGameIssued {
   bytes enter_game_ticket = 1;
-  ServiceEndpoint gateway_endpoint = 2;
+  repeated ServiceEndpoint gateway_endpoints = 2;
 }
 
 message EnterGame {

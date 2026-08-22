@@ -26,10 +26,12 @@
 namespace {
 
 volatile std::sig_atomic_t stop_requested = 0;
+volatile std::sig_atomic_t reload_requested = 0;
 
 void handle_stop_signal(int) {
     stop_requested = 1;
 }
+void handle_reload_signal(int) { reload_requested = 1; }
 
 void print_usage(std::string_view program) {
     std::cout << "Usage: " << program
@@ -61,12 +63,6 @@ ParseResult parse_arguments(
     int argc,
     char* argv[],
     realm::game::gateway::GatewayConfig& config) {
-    auto transport_iterator = std::ranges::find_if(
-        config.transports,
-        [](const auto& transport) {
-            return transport.enabled &&
-                   transport.protocol == realm::network::TransportProtocol::Tcp;
-        });
     for (int index = 1; index < argc; ++index) {
         const std::string_view argument(argv[index]);
         if (argument == "--help" || argument == "-h") {
@@ -82,16 +78,25 @@ ParseResult parse_arguments(
         if (argument == "--config") {
             continue;
         }
-        if (transport_iterator == config.transports.end()) {
-            std::cerr << "TCP override requires an enabled TCP transport\n";
+        const auto enabled_count = std::ranges::count_if(
+            config.transports,
+            [](const auto& transport) { return transport.enabled; });
+        if (enabled_count == 0) {
+            std::cerr << "Address override requires an enabled transport\n";
             return ParseResult::ExitFailure;
         }
         if (argument == "--listen") {
-            transport_iterator->listen_address = value;
+            for (auto& transport : config.transports) {
+                if (transport.enabled) transport.listen_address = value;
+            }
         } else if (argument == "--port") {
-            if (!parse_port(value, transport_iterator->listen_port)) {
-                std::cerr << "Invalid TCP port: " << value << '\n';
+            std::uint16_t port = 0;
+            if (!parse_port(value, port)) {
+                std::cerr << "Invalid edge port: " << value << '\n';
                 return ParseResult::ExitFailure;
+            }
+            for (auto& transport : config.transports) {
+                if (transport.enabled) transport.listen_port = port;
             }
         } else {
             std::cerr << "Unknown option: " << argument << '\n';
@@ -120,6 +125,13 @@ realm::game::common::SessionTicketKey load_session_ticket_key() {
     return realm::game::common::parse_ticket_key_hex(value);
 }
 
+std::string connection_key(
+    std::string_view transport_name,
+    realm::network::SessionId transport_session_id) {
+    return std::string(transport_name) + '#' +
+           std::to_string(transport_session_id);
+}
+
 }  // namespace
 
 int main(int argc, char* argv[]) {
@@ -133,6 +145,7 @@ int main(int argc, char* argv[]) {
 
         std::signal(SIGINT, handle_stop_signal);
         std::signal(SIGTERM, handle_stop_signal);
+        std::signal(SIGHUP, handle_reload_signal);
 
         const auto tick_rate = config.tick_rate;
         const auto max_events_per_frame = config.max_events_per_frame;
@@ -143,6 +156,9 @@ int main(int argc, char* argv[]) {
         std::unordered_map<
             realm::game::gateway::ClientSessionId,
             realm::game::common::SessionTicketClaims> authenticated;
+        std::unordered_map<
+            std::string,
+            realm::game::common::SessionTicketClaims> pending_authenticated;
         realm::game::gateway::GatewayRuntime runtime(std::move(config));
         std::unique_ptr<realm::cluster::EtcdServiceRegistry> registry;
         std::unique_ptr<realm::cluster::ServicePublisher> publisher;
@@ -181,66 +197,91 @@ int main(int argc, char* argv[]) {
         realm::scheduler::FrameScheduler frame_scheduler(tick_rate, frame_clock);
         bool runtime_failed = false;
         static_cast<void>(frame_scheduler.run([&](realm::scheduler::FrameContext) {
+            if (reload_requested != 0) {
+                reload_requested = 0;
+                static_cast<void>(runtime.try_reload_credentials());
+            }
             if (publisher != nullptr) static_cast<void>(publisher->tick());
             for (auto& event : runtime.drain_events(max_events_per_frame)) {
-                if (event.client_session_id.has_value() &&
-                    event.kind == realm::network::TransportEventKind::SessionClosed) {
-                    authenticated.erase(*event.client_session_id);
+                if (event.kind ==
+                    realm::game::gateway::GatewayEventKind::ConnectionClosed) {
+                    pending_authenticated.erase(connection_key(
+                        event.transport_name, event.transport_session_id));
+                    if (event.client_session_id.has_value()) {
+                        authenticated.erase(*event.client_session_id);
+                    }
                     continue;
                 }
-                if (event.kind != realm::network::TransportEventKind::MessageReceived) {
+                if (event.kind ==
+                    realm::game::gateway::GatewayEventKind::ClientSessionOpened) {
+                    const auto pending = pending_authenticated.find(connection_key(
+                        event.transport_name, event.transport_session_id));
+                    if (pending != pending_authenticated.end() &&
+                        event.client_session_id.has_value()) {
+                        authenticated[*event.client_session_id] = pending->second;
+                        pending_authenticated.erase(pending);
+                    }
+                    continue;
+                }
+                if (event.kind != realm::game::gateway::GatewayEventKind::MessageReceived) {
                     continue;
                 }
 
-                if (event.client_session_id.has_value()) {
-                    const auto client = *event.client_session_id;
-                    if (!authenticated.contains(client)) {
-                        const auto request =
-                            realm::game::common::decode_enter_game(event.payload);
-                        const auto claims = request.has_value()
-                            ? tickets.validate(
-                                  realm::game::common::protobuf_bytes(
-                                      request->enter_game_ticket()),
-                                  realm::game::common::TicketPurpose::EnterGame)
-                            : std::nullopt;
-                        const auto request_id =
-                            realm::game::common::edge_request_id(event.payload)
-                                .value_or(0);
-                        std::vector<std::byte> response;
-                        if (!claims.has_value() || claims->realm_id != 1 ||
-                            claims->character_id == 0 ||
-                            !replay_guard.consume(*claims)) {
-                            realm::game::common::EdgeError error;
-                            error.set_code(3001);
-                            error.set_message(
-                                "invalid or replayed enter-game ticket");
-                            response = realm::game::common::encode(
-                                error, request_id);
-                        } else {
-                            authenticated.emplace(client, *claims);
-                            realm::game::common::EnterGameAccepted accepted;
-                            accepted.set_account_id(claims->account_id);
-                            accepted.set_character_id(claims->character_id);
-                            response = realm::game::common::encode(
-                                accepted, request_id);
-                        }
-                        static_cast<void>(runtime.try_send(client, response));
+                if (!event.client_session_id.has_value()) {
+                    const auto request =
+                        realm::game::common::decode_enter_game(event.payload);
+                    const auto claims = request.has_value()
+                        ? tickets.validate(
+                              realm::game::common::protobuf_bytes(
+                                  request->enter_game_ticket()),
+                              realm::game::common::TicketPurpose::EnterGame)
+                        : std::nullopt;
+                    const auto request_id =
+                        realm::game::common::edge_request_id(event.payload)
+                            .value_or(0);
+                    const bool accepted_ticket =
+                        claims.has_value() && claims->realm_id == 1 &&
+                        claims->character_id != 0 && replay_guard.consume(*claims);
+                    std::vector<std::byte> response;
+                    if (!accepted_ticket) {
+                        realm::game::common::EdgeError error;
+                        error.set_code(3001);
+                        error.set_message(
+                            "invalid or replayed enter-game ticket");
+                        response = realm::game::common::encode(error, request_id);
                     } else {
-                        static_cast<void>(runtime.try_send(
-                            client,
-                            event.payload,
-                            {.preferred = event.protocol}));
+                        pending_authenticated[connection_key(
+                            event.transport_name,
+                            event.transport_session_id)] = *claims;
+                        realm::game::common::EnterGameAccepted accepted;
+                        accepted.set_account_id(claims->account_id);
+                        accepted.set_character_id(claims->character_id);
+                        response = realm::game::common::encode(
+                            accepted, request_id);
+                    }
+                    if (accepted_ticket) {
+                        static_cast<void>(runtime.try_accept_connection(
+                            event.transport_name,
+                            event.transport_session_id,
+                            response));
+                    } else {
+                        static_cast<void>(runtime.try_send_channel(
+                            event.transport_name,
+                            event.transport_session_id,
+                            response));
+                        static_cast<void>(runtime.try_close_channel(
+                            event.transport_name,
+                            event.transport_session_id));
                     }
                 } else {
-                    realm::game::common::EdgeError error;
-                    error.set_code(3002);
-                    error.set_message(
-                        "enter game over TCP before binding another protocol");
-                    const auto response = realm::game::common::encode(error);
-                    static_cast<void>(runtime.try_send_channel(
-                        event.transport_name,
-                        event.transport_session_id,
-                        response));
+                    const auto client = *event.client_session_id;
+                    if (authenticated.contains(client)) {
+                        static_cast<void>(runtime.try_send(client, event.payload));
+                    } else {
+                        static_cast<void>(runtime.try_close_channel(
+                            event.transport_name,
+                            event.transport_session_id));
+                    }
                 }
             }
 
@@ -250,11 +291,10 @@ int main(int argc, char* argv[]) {
         runtime.stop();
 
         const auto stats = runtime.stats();
-        std::cout << "RealmMesh gateway I/O stats: udp_dropped="
-                  << stats.dropped_udp_messages
-                  << ", overload_disconnects=" << stats.overload_disconnects
+        std::cout << "RealmMesh gateway I/O stats: overload_disconnects="
+                  << stats.overload_disconnects
                   << ", outbound_rejected=" << stats.rejected_outbound_commands
-                  << ", tcp_fallback=" << stats.tcp_fallback_deliveries
+                  << ", delivered=" << stats.successful_deliveries
                   << ", delivery_failed=" << stats.failed_deliveries << '\n';
 
         std::cout << "RealmMesh gateway stopped\n";

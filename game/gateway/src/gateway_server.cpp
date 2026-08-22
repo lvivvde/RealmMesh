@@ -14,7 +14,7 @@ GatewayServer::GatewayServer(GatewayConfig config)
             "gateway must have at least one enabled transport");
     }
     for (const auto& transport : transports_) {
-        client_router_.register_transport(*transport);
+        client_registry_.register_transport(*transport);
     }
 }
 
@@ -52,33 +52,54 @@ std::size_t GatewayServer::connection_count() const noexcept {
     return count;
 }
 
+std::size_t GatewayServer::pending_connection_count() const noexcept {
+    std::size_t count = 0;
+    for (const auto& [transport_name, sessions] : pending_connections_) {
+        static_cast<void>(transport_name);
+        count += sessions.size();
+    }
+    return count;
+}
+
 std::size_t GatewayServer::client_count() const noexcept {
-    return client_router_.client_count();
+    return client_registry_.client_count();
 }
 
 std::vector<ClientSessionId> GatewayServer::client_ids() const {
-    return client_router_.client_ids();
+    return client_registry_.client_ids();
 }
 
 std::optional<ClientSessionId> GatewayServer::find_client(
     std::string_view transport_name,
     network::SessionId transport_session_id) const {
-    return client_router_.find_client(transport_name, transport_session_id);
+    return client_registry_.find_client(transport_name, transport_session_id);
 }
 
-bool GatewayServer::bind_channel(
-    ClientSessionId client_session_id,
+std::optional<ClientSessionId> GatewayServer::promote_connection(
     std::string_view transport_name,
     network::SessionId transport_session_id) {
-    return client_router_.bind_channel(
-        client_session_id, transport_name, transport_session_id);
+    const auto pending = pending_connections_.find(std::string(transport_name));
+    if (pending == pending_connections_.end() ||
+        !pending->second.contains(transport_session_id)) {
+        return std::nullopt;
+    }
+
+    const auto client_id = client_registry_.open_primary(
+        transport_name, transport_session_id);
+    if (client_id == invalid_client_session_id) {
+        return std::nullopt;
+    }
+    pending->second.erase(transport_session_id);
+    if (pending->second.empty()) {
+        pending_connections_.erase(pending);
+    }
+    return client_id;
 }
 
 SendResult GatewayServer::send(
     ClientSessionId client_session_id,
-    std::span<const std::byte> payload,
-    SendOptions options) {
-    return client_router_.send(client_session_id, payload, options);
+    std::span<const std::byte> payload) {
+    return client_registry_.send(client_session_id, payload);
 }
 
 bool GatewayServer::send_channel(
@@ -96,8 +117,22 @@ bool GatewayServer::close_channel(
     if (transport == nullptr || !transport->close(transport_session_id)) {
         return false;
     }
-    client_router_.close_channel(transport_name, transport_session_id);
+    static_cast<void>(client_registry_.close_primary(
+        transport_name, transport_session_id));
+    const auto pending = pending_connections_.find(std::string(transport_name));
+    if (pending != pending_connections_.end()) {
+        pending->second.erase(transport_session_id);
+        if (pending->second.empty()) {
+            pending_connections_.erase(pending);
+        }
+    }
     return true;
+}
+
+bool GatewayServer::reload_credentials() {
+    return std::ranges::all_of(
+        transports_,
+        [](const auto& transport) { return transport->reload_credentials(); });
 }
 
 std::vector<GatewayEvent> GatewayServer::poll_events(
@@ -112,25 +147,41 @@ std::vector<GatewayEvent> GatewayServer::poll_events(
         const auto events = transport->poll_once(per_transport_timeout);
         for (auto event : events) {
             std::optional<ClientSessionId> client_session_id;
+            GatewayEventKind gateway_kind{GatewayEventKind::MessageReceived};
             switch (event.kind) {
             case network::TransportEventKind::SessionOpened:
-                if (transport->protocol() == network::TransportProtocol::Tcp) {
-                    client_session_id = client_router_.open_tcp_session(
-                        transport->name(), event.session_id);
-                }
+                gateway_kind = GatewayEventKind::ConnectionOpened;
+                pending_connections_[std::string(transport->name())].insert(
+                    event.session_id);
                 break;
             case network::TransportEventKind::SessionClosed:
-                client_session_id = client_router_.find_client(
+                gateway_kind = GatewayEventKind::ConnectionClosed;
+                client_session_id = client_registry_.find_client(
                     transport->name(), event.session_id);
-                client_router_.close_channel(transport->name(), event.session_id);
+                static_cast<void>(client_registry_.close_primary(
+                    transport->name(), event.session_id));
+                if (const auto pending = pending_connections_.find(
+                        std::string(transport->name()));
+                    pending != pending_connections_.end()) {
+                    pending->second.erase(event.session_id);
+                    if (pending->second.empty()) {
+                        pending_connections_.erase(pending);
+                    }
+                }
                 break;
             case network::TransportEventKind::MessageReceived:
-                client_session_id = client_router_.find_client(
+                gateway_kind = GatewayEventKind::MessageReceived;
+                client_session_id = client_registry_.find_client(
+                    transport->name(), event.session_id);
+                break;
+            case network::TransportEventKind::PeerAddressChanged:
+                gateway_kind = GatewayEventKind::PeerAddressChanged;
+                client_session_id = client_registry_.find_client(
                     transport->name(), event.session_id);
                 break;
             }
             gateway_events.push_back({
-                .kind = event.kind,
+                .kind = gateway_kind,
                 .client_session_id = client_session_id,
                 .transport_name = std::string(transport->name()),
                 .protocol = transport->protocol(),
@@ -144,14 +195,12 @@ std::vector<GatewayEvent> GatewayServer::poll_events(
 
 void GatewayServer::poll_once(std::chrono::milliseconds timeout) {
     for (auto& event : poll_events(timeout)) {
-        if (event.kind != network::TransportEventKind::MessageReceived) {
+        if (event.kind != GatewayEventKind::MessageReceived) {
             continue;
         }
         if (event.client_session_id.has_value()) {
-            static_cast<void>(client_router_.send(
-                *event.client_session_id,
-                event.payload,
-                {.preferred = event.protocol}));
+            static_cast<void>(client_registry_.send(
+                *event.client_session_id, event.payload));
         } else {
             static_cast<void>(send_channel(
                 event.transport_name,

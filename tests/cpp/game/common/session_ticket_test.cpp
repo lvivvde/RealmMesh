@@ -8,6 +8,8 @@
 namespace realm::game::common {
 namespace {
 
+namespace edge_v1 = ::realmmesh::protocol::edge::v1;
+
 SessionTicketKey test_key() {
     SessionTicketKey key{};
     key.front() = std::byte{1};
@@ -53,14 +55,20 @@ TEST(EdgeProtocolTest, RoundTripsTheThreeStageHandshakeMessages) {
     LoginSucceeded success;
     success.set_account_id(7);
     success.set_login_ticket("\x01\x02", 2);
-    success.mutable_realm_endpoint()->set_address("127.0.0.1");
-    success.mutable_realm_endpoint()->set_port(7100);
+    auto* realm_endpoint = success.add_realm_endpoints();
+    realm_endpoint->set_protocol(edge_v1::TRANSPORT_PROTOCOL_TLS_TCP);
+    realm_endpoint->set_address("realm.example.com");
+    realm_endpoint->set_port(7100);
+    realm_endpoint->set_priority(0);
     const auto decoded_success = decode_login_succeeded(encode(success));
     ASSERT_TRUE(decoded_success.has_value());
     EXPECT_EQ(decoded_success->account_id(), 7);
     EXPECT_EQ(decoded_success->login_ticket(), std::string("\x01\x02", 2));
-    EXPECT_EQ(decoded_success->realm_endpoint().address(), "127.0.0.1");
-    EXPECT_EQ(decoded_success->realm_endpoint().port(), 7100);
+    ASSERT_EQ(decoded_success->realm_endpoints_size(), 1);
+    EXPECT_EQ(decoded_success->realm_endpoints(0).protocol(),
+              edge_v1::TRANSPORT_PROTOCOL_TLS_TCP);
+    EXPECT_EQ(decoded_success->realm_endpoints(0).address(), "realm.example.com");
+    EXPECT_EQ(decoded_success->realm_endpoints(0).port(), 7100);
 
     CharacterList characters;
     auto* knight = characters.add_characters();
@@ -77,12 +85,24 @@ TEST(EdgeProtocolTest, RoundTripsTheThreeStageHandshakeMessages) {
 
     EnterGameIssued issued;
     issued.set_enter_game_ticket("\x03", 1);
-    issued.mutable_gateway_endpoint()->set_address("127.0.0.1");
-    issued.mutable_gateway_endpoint()->set_port(8000);
+    auto* quic_endpoint = issued.add_gateway_endpoints();
+    quic_endpoint->set_protocol(edge_v1::TRANSPORT_PROTOCOL_QUIC);
+    quic_endpoint->set_address("gateway.example.com");
+    quic_endpoint->set_port(8000);
+    quic_endpoint->set_priority(0);
+    auto* tcp_endpoint = issued.add_gateway_endpoints();
+    tcp_endpoint->set_protocol(edge_v1::TRANSPORT_PROTOCOL_TLS_TCP);
+    tcp_endpoint->set_address("gateway.example.com");
+    tcp_endpoint->set_port(8000);
+    tcp_endpoint->set_priority(1);
     const auto decoded_issued = decode_enter_game_issued(encode(issued));
     ASSERT_TRUE(decoded_issued.has_value());
     EXPECT_EQ(decoded_issued->enter_game_ticket(), std::string("\x03", 1));
-    EXPECT_EQ(decoded_issued->gateway_endpoint().port(), 8000);
+    ASSERT_EQ(decoded_issued->gateway_endpoints_size(), 2);
+    EXPECT_EQ(decoded_issued->gateway_endpoints(0).protocol(),
+              edge_v1::TRANSPORT_PROTOCOL_QUIC);
+    EXPECT_EQ(decoded_issued->gateway_endpoints(1).protocol(),
+              edge_v1::TRANSPORT_PROTOCOL_TLS_TCP);
 
     EdgeError error;
     error.set_code(1999);

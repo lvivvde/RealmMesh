@@ -1,8 +1,7 @@
 #include "realmmesh/network/transport/transport_factory.hpp"
 
-#include "realmmesh/network/tcp/tcp_transport.hpp"
-#include "realmmesh/network/udp/udp_transport.hpp"
-#include "realmmesh/network/kcp/kcp_transport.hpp"
+#include "realmmesh/network/quic/quic_transport.hpp"
+#include "realmmesh/network/tls/tls_tcp_transport.hpp"
 
 #include <stdexcept>
 #include <string>
@@ -24,9 +23,23 @@ void validate(const TransportConfig& config) {
     if (config.max_payload_size == 0) {
         throw std::invalid_argument("transport max payload size must be positive");
     }
-    if (config.protocol == TransportProtocol::Tcp &&
-        config.max_pending_output_bytes == 0) {
-        throw std::invalid_argument("TCP output high watermark must be positive");
+    if (config.max_pending_output_bytes == 0) {
+        throw std::invalid_argument(
+            "secure transport output high watermark must be positive");
+    }
+    if ((config.protocol == TransportProtocol::Quic ||
+         config.protocol == TransportProtocol::TlsTcp)) {
+        if (!config.tls.has_value()) {
+            throw std::invalid_argument(
+                "secure transport requires a TLS server identity");
+        }
+        if (config.tls->alpn.empty()) {
+            throw std::invalid_argument("secure transport ALPN cannot be empty");
+        }
+        if (config.handshake_timeout <= std::chrono::milliseconds::zero()) {
+            throw std::invalid_argument(
+                "secure transport handshake timeout must be positive");
+        }
     }
 }
 
@@ -47,14 +60,11 @@ TransportFactory::create_enabled(std::span<const TransportConfig> configs) {
         }
 
         switch (config.protocol) {
-        case TransportProtocol::Tcp:
-            transports.push_back(std::make_unique<TcpTransport>(config));
+        case TransportProtocol::Quic:
+            transports.push_back(std::make_unique<QuicTransport>(config));
             break;
-        case TransportProtocol::Udp:
-            transports.push_back(std::make_unique<UdpTransport>(config));
-            break;
-        case TransportProtocol::Kcp:
-            transports.push_back(std::make_unique<KcpTransport>(config));
+        case TransportProtocol::TlsTcp:
+            transports.push_back(std::make_unique<TlsTcpTransport>(config));
             break;
         }
     }

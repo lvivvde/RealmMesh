@@ -108,16 +108,16 @@ ServiceInstance gateway_instance() {
         .zone = "development",
         .endpoints = {
             {
-                .name = "client_tcp",
-                .protocol = network::TransportProtocol::Tcp,
+                .name = "client_quic",
+                .protocol = network::TransportProtocol::Quic,
                 .address = "127.0.0.1",
                 .port = 8000,
             },
             {
-                .name = "client_kcp",
-                .protocol = network::TransportProtocol::Kcp,
+                .name = "client_tls_tcp",
+                .protocol = network::TransportProtocol::TlsTcp,
                 .address = "127.0.0.1",
-                .port = 8002,
+                .port = 8000,
             },
         },
         .weight = 100,
@@ -133,16 +133,16 @@ std::string encoded_gateway_value() {
         {"zone", "development"},
         {"endpoints", Json::array({
             {
-                {"name", "client_tcp"},
-                {"protocol", "tcp"},
+                {"name", "client_quic"},
+                {"protocol", "quic"},
                 {"address", "127.0.0.1"},
                 {"port", 8000},
             },
             {
-                {"name", "client_kcp"},
-                {"protocol", "kcp"},
+                {"name", "client_tls_tcp"},
+                {"protocol", "tls_tcp"},
                 {"address", "127.0.0.1"},
-                {"port", 8002},
+                {"port", 8000},
             },
         })},
         {"weight", 100},

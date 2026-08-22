@@ -24,14 +24,19 @@ return {
     },
     transports = {
         {
-            name = "realm_tcp",
-            protocol = "tcp",
+            name = "realm_tls_tcp",
+            protocol = "tls_tcp",
             enabled = true,
             listen_address = "0.0.0.0",
             listen_port = 7100,
             max_sessions = 10000,
             max_payload_size = 4096,
             max_pending_output_bytes = 1048576,
+            handshake_timeout_ms = 3000,
+            idle_timeout_ms = 30000,
+            alpn = "realmmesh-edge/1",
+            certificate_chain_file_environment = "REALMMESH_TLS_CERTIFICATE_FILE",
+            private_key_file_environment = "REALMMESH_TLS_PRIVATE_KEY_FILE",
         },
     },
 }
