@@ -5,6 +5,10 @@ FetchContent_Declare(
     URL https://codeload.github.com/ThePhD/sol2/tar.gz/refs/tags/v3.3.1
     URL_HASH SHA256=ad121461047d52b449aa84234a6b578fa3ed95d67d1a0703902eba72417f61bb
     DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+    # optional<T&>::emplace 调用了特化里不存在的 construct 成员,
+    # clang 17+ 严格两阶段查找在解析期报错(GCC 不触发);对齐上游 develop 的修复。
+    PATCH_COMMAND patch -p1 -i
+        ${CMAKE_CURRENT_LIST_DIR}/patches/fix-optional-ref-emplace-for-new-clang.patch
 )
 
 FetchContent_GetProperties(sol2_source)
