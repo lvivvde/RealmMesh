@@ -108,6 +108,42 @@ TEST(LoggerTest, WorkerMakesAcceptedEventsVisibleWithoutExplicitFlush) {
     EXPECT_GT(std::filesystem::file_size(file.path()), 0U);
 }
 
+TEST(LoggerTest, WorkerDrainsAndFlushesBatchedEventsWithoutExplicitFlush) {
+    TemporaryLogFile file;
+    LoggerConfig config;
+    config.file_path = file.path();
+    config.normal_queue_capacity = 1024;
+    config.priority_queue_capacity = 256;
+
+    Logger logger(config, ServiceIdentity{.service_name = "batch"});
+    constexpr int event_count = 200;
+    for (int index = 0; index < event_count; ++index) {
+        if (index % 10 == 0) {
+            ASSERT_EQ(logger.warn("batch_warning_event"), LogResult::Accepted);
+        } else {
+            ASSERT_EQ(logger.info("batch_info_event"), LogResult::Accepted);
+        }
+    }
+
+    const auto deadline =
+        std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    while (std::chrono::steady_clock::now() < deadline &&
+           logger.stats().emitted < static_cast<std::uint64_t>(event_count)) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    const auto snapshot = logger.stats();
+    EXPECT_EQ(snapshot.accepted, static_cast<std::uint64_t>(event_count));
+    EXPECT_EQ(snapshot.emitted, static_cast<std::uint64_t>(event_count));
+    EXPECT_EQ(snapshot.dropped, std::uint64_t{0});
+
+    std::ifstream input(file.path());
+    ASSERT_TRUE(input.is_open());
+    int lines = 0;
+    std::string line;
+    while (static_cast<bool>(std::getline(input, line))) ++lines;
+    EXPECT_EQ(lines, event_count);
+}
+
 TEST(LoggerTest, CallerCanAttachTrustedCorrelationContext) {
     TemporaryLogFile file;
     LoggerConfig config;

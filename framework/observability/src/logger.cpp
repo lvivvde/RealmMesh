@@ -420,8 +420,9 @@ public:
         if (event_truncated) {
             event["truncated"] = true;
             truncated_.fetch_add(1, std::memory_order_relaxed);
+            // 仅截断路径需要重序列化;未截断时首次 dump 结果仍然有效。
+            encoded = event.dump();
         }
-        encoded = event.dump();
         if (encoded.size() > config_.max_event_size) {
             rejected_.fetch_add(1, std::memory_order_relaxed);
             return LogResult::Rejected;
@@ -560,15 +561,16 @@ public:
     }
 
 private:
-    /// 后台消费循环:弹出事件 → 写 sink 并逐条 flush → 失败降级 stderr;
-    /// 队列空时在条件变量上等待,最长 20ms 醒来检查停止标志。
+    /// 后台消费循环:弹出事件 → 写 sink,队列排空时才 flush(积压时自然攒批)
+    /// → 失败降级 stderr;队列空时在条件变量上等待,最长 20ms 醒来检查停止标志。
     void consume(
         concurrency::BoundedQueue<std::string>& queue, std::stop_token stop) {
         while (true) {
             if (auto event = queue.try_pop(); event.has_value()) {
                 try {
                     sink_->info(*event);
-                    sink_->flush();
+                    // 排空即刷:积压时跳过 flush 自然攒批,队列见底才落盘。
+                    if (queue.size() == 0) sink_->flush();
                     emitted_.fetch_add(1, std::memory_order_relaxed);
                     last_success_timestamp_seconds_.store(
                         std::chrono::duration_cast<std::chrono::seconds>(
