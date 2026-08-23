@@ -196,6 +196,10 @@ GatewayConfig GatewayConfigLoader::load(const std::filesystem::path& path) {
             "failed to load gateway configuration: " + error);
     }
     const sol::table root = runtime.module("gateway_config");
+    return parse(root);
+}
+
+GatewayConfig GatewayConfigLoader::parse(const sol::table& root) {
     GatewayConfig config;
     config.tick_rate = optional_integer(root, "tick_rate", config.tick_rate);
     config.max_events_per_frame = optional_integer(
