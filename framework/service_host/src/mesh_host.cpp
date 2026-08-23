@@ -1,6 +1,9 @@
 #include "realmmesh/service_host/mesh_host.hpp"
 
+#include "realmmesh/observability/logger.hpp"
+
 #include <algorithm>
+#include <iostream>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -33,14 +36,26 @@ MeshHost::MeshHost(
 bool MeshHost::start_all() {
     for (const auto& wave : topology_.waves()) {
         for (const auto& name : wave) {
+            std::unique_ptr<ServiceHost> host;
             try {
-                auto host = std::make_unique<ServiceHost>(
+                host = std::make_unique<ServiceHost>(
                     config_root_, name, overrides_);
                 if (!host->start()) {
                     throw std::runtime_error(name + " not ready");
                 }
                 hosts_.emplace(name, std::move(host));
-            } catch (const std::exception&) {
+            } catch (const std::exception& error) {
+                // 启动失败诊断不能丢:name + what() 经该服务自身 logger 落盘
+                // (构造即失败无 logger 时退到 stderr);fail-fast 回收不变。
+                if (host != nullptr) {
+                    static_cast<void>(host->logger().error(
+                        "service_start_failed",
+                        name + " service failed",
+                        {observability::field("error_message", error.what())}));
+                } else {
+                    std::cerr << "realm_mesh: " << name
+                              << " failed to start: " << error.what() << '\n';
+                }
                 shutdown();  // 反序回收已启动者
                 return false;
             }

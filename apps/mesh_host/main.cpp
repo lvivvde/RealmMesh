@@ -1,3 +1,5 @@
+#include "realmmesh/game/gateway/gateway_runtime.hpp"
+#include "realmmesh/observability/logger.hpp"
 #include "realmmesh/scheduler/frame_scheduler.hpp"
 #include "realmmesh/scripting/lua_runtime.hpp"
 #include "realmmesh/service_host/mesh_host.hpp"
@@ -144,22 +146,51 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
+    std::vector<std::string> service_names;
+    service_names.reserve(specs.size());
+    for (const auto& spec : specs) {
+        service_names.push_back(spec.name);
+    }
+
     realm::service_host::MeshHost mesh(
         options->config_root, std::move(specs), options->overrides);
+    // 信号处理先于 start_all 安装,消除启动窗口内的非优雅终止。
+    std::signal(SIGINT, handle_stop_signal);
+    std::signal(SIGTERM, handle_stop_signal);
+    // SIGHUP 忽略而非默认终止:前台手动启动时终端关闭不再杀进程;
+    // 旧 main 的凭据热加载语义留待后续任务恢复。
+    std::signal(SIGHUP, SIG_IGN);
+
     if (!mesh.start_all()) {
         std::cerr << "realm_mesh: failed to start services\n";
         return 1;
     }
 
-    std::signal(SIGINT, handle_stop_signal);
-    std::signal(SIGTERM, handle_stop_signal);
-
     realm::scheduler::SteadyFrameClock clock;
     realm::scheduler::FrameScheduler scheduler(20, clock);
+    // 任一服务 runtime 死亡 → 记 runtime_io_failed 并以退出码 1 结束
+    // (对齐旧 main 的 runtime_failed 语义;优雅停止优先,退出码 0)。
+    std::string failed_service;
     static_cast<void>(scheduler.run([&](realm::scheduler::FrameContext) {
         mesh.tick();
-        return stop_requested == 0;
+        if (stop_requested != 0) return false;
+        for (const auto& name : service_names) {
+            if (!mesh.service(name).runtime().running()) {
+                failed_service = name;
+                return false;
+            }
+        }
+        return true;
     }));
+    if (!failed_service.empty()) {
+        auto& host = mesh.service(failed_service);
+        static_cast<void>(host.logger().error(
+            "runtime_io_failed",
+            failed_service + " I/O loop terminated unexpectedly",
+            {realm::observability::field(
+                "error_message",
+                host.runtime().terminal_error().value_or("unknown error"))}));
+    }
     mesh.shutdown();
-    return 0;
+    return failed_service.empty() ? 0 : 1;
 }

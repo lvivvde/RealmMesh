@@ -307,7 +307,10 @@ target_compile_definitions(service_host_test PRIVATE
 
 add_dependencies(service_host_test realmmesh_test_tls_identity)
 
-gtest_discover_tests(service_host_test)
+# E2E/Mode2 用例占用真实固定端口且依赖 setenv,须与其他测试串行。
+gtest_discover_tests(service_host_test
+    PROPERTIES RUN_SERIAL TRUE
+)
 
 add_test(
     NAME realmmesh_smoke
