@@ -66,9 +66,9 @@ int main(int argc, char* argv[]) {
         logger = std::make_unique<realm::observability::Logger>(
             config.logging, config.logging_identity);
         if (config.logging_metrics.port != 0) {
-            metrics = std::make_unique<
-                realm::observability::LoggerMetricsServer>(
-                *logger, config.logging_metrics);
+            metrics =
+                std::make_unique<realm::observability::LoggerMetricsServer>(
+                    *logger, config.logging_metrics);
         }
         const auto tick_rate = config.tick_rate;
         const auto max_events = config.max_events_per_frame;
@@ -76,7 +76,8 @@ int main(int argc, char* argv[]) {
         const auto fallback_gateway_port = config.downstream_port;
         const auto discovery_config = config.service_discovery;
         if (fallback_gateway_address.empty() || fallback_gateway_port == 0) {
-            throw std::invalid_argument("realm downstream gateway endpoint is required");
+            throw std::invalid_argument(
+                "realm downstream gateway endpoint is required");
         }
         realm::game::common::SessionTicketCodec tickets(load_key());
         realm::game::gateway::GatewayRuntime runtime(std::move(config));
@@ -105,22 +106,23 @@ int main(int argc, char* argv[]) {
                     "dependency_state_changed",
                     "service discovery unavailable; using Lua fallback",
                     {realm::observability::field("dependency", "etcd"),
-                     realm::observability::field(
-                         "state", "unavailable"),
+                     realm::observability::field("state", "unavailable"),
                      realm::observability::field(
                          "error_message", registry->last_error())}));
             }
-            gateway_resolver = std::make_unique<realm::cluster::ServiceResolver>(
-                *registry,
-                realm::cluster::ServiceType::Gateway,
-                realm::network::TransportProtocol::TlsTcp);
+            gateway_resolver =
+                std::make_unique<realm::cluster::ServiceResolver>(
+                    *registry,
+                    realm::cluster::ServiceType::Gateway,
+                    realm::network::TransportProtocol::TlsTcp);
         }
         std::unordered_map<
             realm::game::gateway::ClientSessionId,
-            realm::game::common::SessionTicketClaims> authenticated;
-        std::unordered_map<
-            std::string,
-            realm::game::common::SessionTicketClaims> pending_authenticated;
+            realm::game::common::SessionTicketClaims>
+            authenticated;
+        std::
+            unordered_map<std::string, realm::game::common::SessionTicketClaims>
+                pending_authenticated;
 
         std::signal(SIGINT, handle_stop_signal);
         std::signal(SIGTERM, handle_stop_signal);
@@ -130,7 +132,8 @@ int main(int argc, char* argv[]) {
             "service_started",
             "realm service started",
             {realm::observability::field("listen_address", "0.0.0.0"),
-             realm::observability::field("listen_port", runtime.local_port())}));
+             realm::observability::field(
+                 "listen_port", runtime.local_port())}));
 
         realm::scheduler::SteadyFrameClock clock;
         realm::scheduler::FrameScheduler scheduler(tick_rate, clock);
@@ -158,7 +161,8 @@ int main(int argc, char* argv[]) {
             }
             if (publisher != nullptr) static_cast<void>(publisher->tick());
             for (auto& event : runtime.drain_events(max_events)) {
-                if (event.kind == realm::game::gateway::GatewayEventKind::ConnectionClosed) {
+                if (event.kind ==
+                    realm::game::gateway::GatewayEventKind::ConnectionClosed) {
                     pending_authenticated.erase(connection_key(
                         event.transport_name, event.transport_session_id));
                     if (event.client_session_id.has_value()) {
@@ -166,26 +170,31 @@ int main(int argc, char* argv[]) {
                     }
                     continue;
                 }
-                if (event.kind ==
-                    realm::game::gateway::GatewayEventKind::ClientSessionOpened) {
-                    const auto pending = pending_authenticated.find(connection_key(
-                        event.transport_name, event.transport_session_id));
+                if (event.kind == realm::game::gateway::GatewayEventKind::
+                                      ClientSessionOpened) {
+                    const auto pending =
+                        pending_authenticated.find(connection_key(
+                            event.transport_name, event.transport_session_id));
                     if (pending != pending_authenticated.end() &&
                         event.client_session_id.has_value()) {
-                        authenticated[*event.client_session_id] = pending->second;
+                        authenticated[*event.client_session_id] =
+                            pending->second;
                         pending_authenticated.erase(pending);
                     }
                     continue;
                 }
-                if (event.kind != realm::game::gateway::GatewayEventKind::MessageReceived)
+                if (event.kind !=
+                    realm::game::gateway::GatewayEventKind::MessageReceived)
                     continue;
 
                 const auto request_id =
-                    realm::game::common::edge_request_id(event.payload).value_or(0);
+                    realm::game::common::edge_request_id(event.payload)
+                        .value_or(0);
                 std::vector<std::byte> response;
                 if (!event.client_session_id.has_value()) {
                     const auto request =
-                        realm::game::common::decode_realm_authenticate(event.payload);
+                        realm::game::common::decode_realm_authenticate(
+                            event.payload);
                     const auto claims = tickets.validate(
                         request.has_value()
                             ? realm::game::common::protobuf_bytes(
@@ -196,17 +205,18 @@ int main(int argc, char* argv[]) {
                         realm::game::common::EdgeError error;
                         error.set_code(2001);
                         error.set_message("invalid login ticket");
-                        response = realm::game::common::encode(error, request_id);
+                        response =
+                            realm::game::common::encode(error, request_id);
                     } else {
                         pending_authenticated[connection_key(
-                            event.transport_name,
-                            event.transport_session_id)] = *claims;
+                            event.transport_name, event.transport_session_id)] =
+                            *claims;
                         realm::game::common::CharacterList characters;
                         auto* character = characters.add_characters();
                         character->set_id(character_id(claims->account_id));
                         character->set_name("Development Hero");
-                        response = realm::game::common::encode(
-                            characters, request_id);
+                        response =
+                            realm::game::common::encode(characters, request_id);
                         realm::observability::EventContext context{
                             .correlation_id = std::nullopt,
                             .request_id = request_id,
@@ -236,8 +246,7 @@ int main(int argc, char* argv[]) {
                             event.transport_session_id,
                             response));
                         static_cast<void>(runtime.try_close_channel(
-                            event.transport_name,
-                            event.transport_session_id));
+                            event.transport_name, event.transport_session_id));
                     }
                     continue;
                 }
@@ -247,53 +256,55 @@ int main(int argc, char* argv[]) {
                         .has_value() &&
                     authenticated.contains(client)) {
                     realm::game::common::HeartbeatResponse heartbeat;
-                    response = realm::game::common::encode(
-                        heartbeat, request_id);
+                    response =
+                        realm::game::common::encode(heartbeat, request_id);
                     static_cast<void>(runtime.try_send(client, response));
                     continue;
                 }
                 if (const auto request =
-                               realm::game::common::decode_select_character(event.payload);
-                           request.has_value() && authenticated.contains(client) &&
-                           request->character_id() ==
-                               character_id(authenticated[client].account_id)) {
+                        realm::game::common::decode_select_character(
+                            event.payload);
+                    request.has_value() && authenticated.contains(client) &&
+                    request->character_id() ==
+                        character_id(authenticated[client].account_id)) {
                     const auto& session_claims = authenticated[client];
                     const auto account_id = session_claims.account_id;
                     const auto discovered = gateway_resolver != nullptr
-                        ? gateway_resolver->endpoint()
-                        : std::nullopt;
+                                                ? gateway_resolver->endpoint()
+                                                : std::nullopt;
                     const auto gateway_address = discovered.has_value()
-                        ? discovered->address
-                        : fallback_gateway_address;
+                                                     ? discovered->address
+                                                     : fallback_gateway_address;
                     const auto gateway_port = discovered.has_value()
-                        ? discovered->port
-                        : fallback_gateway_port;
-                    const auto ticket = session_claims.correlation_id.has_value()
-                        ? tickets.issue(
-                              realm::game::common::TicketPurpose::EnterGame,
-                              account_id,
-                              1,
-                              request->character_id(),
-                              *session_claims.correlation_id,
-                              std::chrono::seconds(30))
-                        : tickets.issue(
-                              realm::game::common::TicketPurpose::EnterGame,
-                              account_id,
-                              1,
-                              request->character_id(),
-                              std::chrono::seconds(30));
+                                                  ? discovered->port
+                                                  : fallback_gateway_port;
+                    const auto ticket =
+                        session_claims.correlation_id.has_value()
+                            ? tickets.issue(
+                                  realm::game::common::TicketPurpose::EnterGame,
+                                  account_id,
+                                  1,
+                                  request->character_id(),
+                                  *session_claims.correlation_id,
+                                  std::chrono::seconds(30))
+                            : tickets.issue(
+                                  realm::game::common::TicketPurpose::EnterGame,
+                                  account_id,
+                                  1,
+                                  request->character_id(),
+                                  std::chrono::seconds(30));
                     realm::game::common::EnterGameIssued issued;
                     issued.set_enter_game_ticket(ticket.data(), ticket.size());
                     auto* quic_endpoint = issued.add_gateway_endpoints();
                     quic_endpoint->set_protocol(
-                        ::realmmesh::protocol::edge::v1::TRANSPORT_PROTOCOL_QUIC);
+                        ::realmmesh::protocol::edge::v1::
+                            TRANSPORT_PROTOCOL_QUIC);
                     quic_endpoint->set_address(gateway_address);
                     quic_endpoint->set_port(gateway_port);
                     quic_endpoint->set_priority(0);
                     auto* tcp_endpoint = issued.add_gateway_endpoints();
-                    tcp_endpoint->set_protocol(
-                        ::realmmesh::protocol::edge::v1::
-                            TRANSPORT_PROTOCOL_TLS_TCP);
+                    tcp_endpoint->set_protocol(::realmmesh::protocol::edge::v1::
+                                                   TRANSPORT_PROTOCOL_TLS_TCP);
                     tcp_endpoint->set_address(gateway_address);
                     tcp_endpoint->set_port(gateway_port);
                     tcp_endpoint->set_priority(1);
@@ -317,8 +328,8 @@ int main(int argc, char* argv[]) {
                 {realm::observability::field("error_message", *error)}));
         }
         runtime.stop();
-        static_cast<void>(logger->info(
-            "service_stopped", "realm service stopped"));
+        static_cast<void>(
+            logger->info("service_stopped", "realm service stopped"));
         static_cast<void>(logger->flush(std::chrono::seconds(2)));
         return runtime_failed ? 1 : 0;
     } catch (const std::exception& error) {
@@ -326,8 +337,7 @@ int main(int argc, char* argv[]) {
             static_cast<void>(logger->error(
                 "service_start_failed",
                 "realm service failed",
-                {realm::observability::field(
-                    "error_message", error.what())}));
+                {realm::observability::field("error_message", error.what())}));
             static_cast<void>(logger->flush(std::chrono::seconds(2)));
         } else {
             std::cerr << "Realm/character failed: " << error.what() << '\n';

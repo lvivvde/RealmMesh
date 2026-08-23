@@ -25,13 +25,13 @@ bool ServiceLifecycle::transition_to(ServiceState next_state) noexcept {
 }
 
 bool ServiceLifecycle::is_valid_transition(
-    ServiceState current_state,
-    ServiceState next_state) noexcept {
+    ServiceState current_state, ServiceState next_state) noexcept {
     switch (current_state) {
     case ServiceState::Created:
         return next_state == ServiceState::Initializing;
     case ServiceState::Initializing:
-        return next_state == ServiceState::Ready || next_state == ServiceState::Stopping;
+        return next_state == ServiceState::Ready ||
+               next_state == ServiceState::Stopping;
     case ServiceState::Ready:
         return next_state == ServiceState::Stopping;
     case ServiceState::Stopping:

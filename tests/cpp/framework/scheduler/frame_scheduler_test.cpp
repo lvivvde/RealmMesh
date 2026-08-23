@@ -12,9 +12,7 @@ namespace {
 
 class FakeFrameClock final : public IFrameClock {
 public:
-    [[nodiscard]] TimePoint now() const noexcept override {
-        return now_;
-    }
+    [[nodiscard]] TimePoint now() const noexcept override { return now_; }
 
     void sleep_until(TimePoint deadline) override {
         deadlines_.push_back(deadline);

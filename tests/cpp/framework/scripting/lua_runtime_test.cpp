@@ -14,11 +14,13 @@ namespace {
 class TemporaryLuaFile final {
 public:
     TemporaryLuaFile()
-        : path_(std::filesystem::temp_directory_path() /
-                ("realmmesh_lua_runtime_" +
-                 std::to_string(
-                     std::chrono::steady_clock::now().time_since_epoch().count()) +
-                 ".lua")) {}
+        : path_(
+              std::filesystem::temp_directory_path() /
+              ("realmmesh_lua_runtime_" +
+               std::to_string(std::chrono::steady_clock::now()
+                                  .time_since_epoch()
+                                  .count()) +
+               ".lua")) {}
 
     ~TemporaryLuaFile() {
         std::error_code ignored;
@@ -40,13 +42,16 @@ private:
 
 TEST(LuaRuntimeTest, CallsLuaAndBoundCppFunctions) {
     LuaRuntime runtime;
-    runtime.set_function("cpp_double", [](int value) { return value * 2; });
+    runtime.set_function("cpp_double", [](int value) {
+        return value * 2;
+    });
     std::string error;
 
     ASSERT_TRUE(runtime.load_module_source(
         "combat",
         "return { damage = function(base) return cpp_double(base) + 1 end }",
-        &error)) << error;
+        &error))
+        << error;
 
     EXPECT_EQ(runtime.call<int>("combat", "damage", 20), 41);
 }
@@ -74,7 +79,8 @@ TEST(LuaRuntimeTest, ReloadsChangedFilesAndRollsBackInvalidChanges) {
     LuaRuntime runtime;
     std::string error;
     ASSERT_TRUE(runtime.load_module("rules", file.path(), &error)) << error;
-    const auto initial_write_time = std::filesystem::last_write_time(file.path());
+    const auto initial_write_time =
+        std::filesystem::last_write_time(file.path());
 
     file.write("return { value = function() return 2 end }");
     std::filesystem::last_write_time(
@@ -121,7 +127,8 @@ TEST(LuaRuntimeTest, DoesNotExposeFileLoadingLibraries) {
         "return { has_os = os ~= nil, has_io = io ~= nil, "
         "has_package = package ~= nil, has_dofile = dofile ~= nil, "
         "has_loadfile = loadfile ~= nil }",
-        &error)) << error;
+        &error))
+        << error;
     const auto exports = runtime.module("sandbox");
 
     EXPECT_FALSE(exports.get<bool>("has_os"));

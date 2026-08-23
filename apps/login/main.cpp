@@ -64,9 +64,9 @@ int main(int argc, char* argv[]) {
         logger = std::make_unique<realm::observability::Logger>(
             config.logging, config.logging_identity);
         if (config.logging_metrics.port != 0) {
-            metrics = std::make_unique<
-                realm::observability::LoggerMetricsServer>(
-                *logger, config.logging_metrics);
+            metrics =
+                std::make_unique<realm::observability::LoggerMetricsServer>(
+                    *logger, config.logging_metrics);
         }
         const auto tick_rate = config.tick_rate;
         const auto max_events = config.max_events_per_frame;
@@ -74,7 +74,8 @@ int main(int argc, char* argv[]) {
         const auto fallback_realm_port = config.downstream_port;
         const auto discovery_config = config.service_discovery;
         if (fallback_realm_address.empty() || fallback_realm_port == 0) {
-            throw std::invalid_argument("login downstream realm endpoint is required");
+            throw std::invalid_argument(
+                "login downstream realm endpoint is required");
         }
         realm::game::common::SessionTicketCodec tickets(load_key());
         realm::game::gateway::GatewayRuntime runtime(std::move(config));
@@ -103,8 +104,7 @@ int main(int argc, char* argv[]) {
                     "dependency_state_changed",
                     "service discovery unavailable; using Lua fallback",
                     {realm::observability::field("dependency", "etcd"),
-                     realm::observability::field(
-                         "state", "unavailable"),
+                     realm::observability::field("state", "unavailable"),
                      realm::observability::field(
                          "error_message", registry->last_error())}));
             }
@@ -122,7 +122,8 @@ int main(int argc, char* argv[]) {
             "service_started",
             "login service started",
             {realm::observability::field("listen_address", "0.0.0.0"),
-             realm::observability::field("listen_port", runtime.local_port())}));
+             realm::observability::field(
+                 "listen_port", runtime.local_port())}));
 
         realm::scheduler::SteadyFrameClock clock;
         realm::scheduler::FrameScheduler scheduler(tick_rate, clock);
@@ -150,38 +151,41 @@ int main(int argc, char* argv[]) {
             }
             if (publisher != nullptr) static_cast<void>(publisher->tick());
             for (auto& event : runtime.drain_events(max_events)) {
-                if (event.kind != realm::game::gateway::GatewayEventKind::MessageReceived) {
+                if (event.kind !=
+                    realm::game::gateway::GatewayEventKind::MessageReceived) {
                     continue;
                 }
 
                 const auto request =
                     realm::game::common::decode_login_request(event.payload);
                 const auto request_id =
-                    realm::game::common::edge_request_id(event.payload).value_or(0);
+                    realm::game::common::edge_request_id(event.payload)
+                        .value_or(0);
                 std::vector<std::byte> response;
-                const bool authenticated =
-                    request.has_value() && !request->account().empty() &&
-                    request->credential() == "dev";
+                const bool authenticated = request.has_value() &&
+                                           !request->account().empty() &&
+                                           request->credential() == "dev";
                 if (!authenticated) {
                     realm::game::common::EdgeError error;
                     error.set_code(1001);
                     error.set_message("invalid credentials");
                     response = realm::game::common::encode(error, request_id);
                 } else {
-                    const auto account_id = development_account_id(request->account());
+                    const auto account_id =
+                        development_account_id(request->account());
                     const auto correlation_id =
                         realm::game::common::make_correlation_id();
                     const auto correlation_text =
                         realm::game::common::correlation_id_hex(correlation_id);
                     const auto discovered = realm_resolver != nullptr
-                        ? realm_resolver->endpoint()
-                        : std::nullopt;
+                                                ? realm_resolver->endpoint()
+                                                : std::nullopt;
                     const auto realm_address = discovered.has_value()
-                        ? discovered->address
-                        : fallback_realm_address;
+                                                   ? discovered->address
+                                                   : fallback_realm_address;
                     const auto realm_port = discovered.has_value()
-                        ? discovered->port
-                        : fallback_realm_port;
+                                                ? discovered->port
+                                                : fallback_realm_port;
                     const auto ticket = tickets.issue(
                         realm::game::common::TicketPurpose::Login,
                         account_id,
@@ -193,9 +197,8 @@ int main(int argc, char* argv[]) {
                     success.set_account_id(account_id);
                     success.set_login_ticket(ticket.data(), ticket.size());
                     auto* endpoint = success.add_realm_endpoints();
-                    endpoint->set_protocol(
-                        ::realmmesh::protocol::edge::v1::
-                            TRANSPORT_PROTOCOL_TLS_TCP);
+                    endpoint->set_protocol(::realmmesh::protocol::edge::v1::
+                                               TRANSPORT_PROTOCOL_TLS_TCP);
                     endpoint->set_address(realm_address);
                     endpoint->set_port(realm_port);
                     endpoint->set_priority(0);
@@ -213,8 +216,8 @@ int main(int argc, char* argv[]) {
                         }));
                 }
                 if (event.client_session_id.has_value()) {
-                    static_cast<void>(runtime.try_send(
-                        *event.client_session_id, response));
+                    static_cast<void>(
+                        runtime.try_send(*event.client_session_id, response));
                 } else {
                     if (authenticated) {
                         static_cast<void>(runtime.try_accept_connection(
@@ -227,8 +230,7 @@ int main(int argc, char* argv[]) {
                             event.transport_session_id,
                             response));
                         static_cast<void>(runtime.try_close_channel(
-                            event.transport_name,
-                            event.transport_session_id));
+                            event.transport_name, event.transport_session_id));
                     }
                 }
             }
@@ -242,8 +244,8 @@ int main(int argc, char* argv[]) {
                 {realm::observability::field("error_message", *error)}));
         }
         runtime.stop();
-        static_cast<void>(logger->info(
-            "service_stopped", "login service stopped"));
+        static_cast<void>(
+            logger->info("service_stopped", "login service stopped"));
         static_cast<void>(logger->flush(std::chrono::seconds(2)));
         return runtime_failed ? 1 : 0;
     } catch (const std::exception& error) {
@@ -251,8 +253,7 @@ int main(int argc, char* argv[]) {
             static_cast<void>(logger->error(
                 "service_start_failed",
                 "login service failed",
-                {realm::observability::field(
-                    "error_message", error.what())}));
+                {realm::observability::field("error_message", error.what())}));
             static_cast<void>(logger->flush(std::chrono::seconds(2)));
         } else {
             std::cerr << "Login failed: " << error.what() << '\n';

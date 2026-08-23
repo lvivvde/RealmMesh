@@ -17,19 +17,25 @@ namespace {
 class FakeTransport final : public network::IMessageTransport {
 public:
     FakeTransport(std::string name, network::TransportProtocol protocol)
-        : name_(std::move(name)), protocol_(protocol) {}
+        : name_(std::move(name)),
+          protocol_(protocol) {}
 
     std::string_view name() const noexcept override { return name_; }
-    network::TransportProtocol protocol() const noexcept override { return protocol_; }
+    network::TransportProtocol protocol() const noexcept override {
+        return protocol_;
+    }
     network::TransportEndpoint local_endpoint() const override {
         return {.name = name_, .protocol = protocol_};
     }
-    std::size_t session_count() const noexcept override { return sessions_.size(); }
+    std::size_t session_count() const noexcept override {
+        return sessions_.size();
+    }
     std::vector<network::TransportEvent> poll_once(
-        std::chrono::milliseconds) override { return {}; }
-    bool send(
-        network::SessionId session_id,
-        std::span<const std::byte> payload) override {
+        std::chrono::milliseconds) override {
+        return {};
+    }
+    bool send(network::SessionId session_id, std::span<const std::byte> payload)
+        override {
         if (!sessions_.contains(session_id)) {
             return false;
         }
@@ -42,7 +48,9 @@ public:
     }
     bool reload_credentials() override { return true; }
 
-    void add_session(network::SessionId session_id) { sessions_.insert(session_id); }
+    void add_session(network::SessionId session_id) {
+        sessions_.insert(session_id);
+    }
 
     std::vector<network::SessionId> sent_sessions;
     std::vector<std::vector<std::byte>> sent_payloads;

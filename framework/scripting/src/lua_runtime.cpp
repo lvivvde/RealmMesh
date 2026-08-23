@@ -18,20 +18,21 @@ void assign_error(std::string* destination, std::string message) {
 }
 
 std::optional<std::string> read_file(
-    const std::filesystem::path& path,
-    std::string* error) {
+    const std::filesystem::path& path, std::string* error) {
     std::ifstream input(path, std::ios::binary);
     if (!input) {
         assign_error(error, "failed to open Lua file: " + path.string());
         return std::nullopt;
     }
     return std::string(
-        std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>());
+        std::istreambuf_iterator<char>(input),
+        std::istreambuf_iterator<char>());
 }
 
 }  // namespace
 
-LuaRuntime::LuaRuntime() : owner_thread_(std::this_thread::get_id()) {
+LuaRuntime::LuaRuntime()
+    : owner_thread_(std::this_thread::get_id()) {
     lua_.open_libraries(
         sol::lib::base,
         sol::lib::coroutine,
@@ -44,9 +45,7 @@ LuaRuntime::LuaRuntime() : owner_thread_(std::this_thread::get_id()) {
 }
 
 bool LuaRuntime::load_module(
-    std::string name,
-    const std::filesystem::path& path,
-    std::string* error) {
+    std::string name, const std::filesystem::path& path, std::string* error) {
     assert_owner_thread();
     auto source = read_file(path, error);
     if (!source.has_value()) return false;
@@ -62,9 +61,7 @@ bool LuaRuntime::load_module(
 }
 
 bool LuaRuntime::load_module_source(
-    std::string name,
-    std::string_view source,
-    std::string* error) {
+    std::string name, std::string_view source, std::string* error) {
     assert_owner_thread();
     auto candidate = compile_module(name, source, error);
     if (!candidate.has_value()) return false;
@@ -114,9 +111,7 @@ sol::table LuaRuntime::module(std::string_view name) const {
 }
 
 std::optional<LuaRuntime::Module> LuaRuntime::compile_module(
-    std::string_view chunk_name,
-    std::string_view source,
-    std::string* error) {
+    std::string_view chunk_name, std::string_view source, std::string* error) {
     const sol::load_result loaded = lua_.load(source, std::string(chunk_name));
     if (!loaded.valid()) {
         const sol::error load_error = loaded;
@@ -139,8 +134,11 @@ std::optional<LuaRuntime::Module> LuaRuntime::compile_module(
         assign_error(error, "Lua module must return a table");
         return std::nullopt;
     }
-    return Module{std::move(environment), exports.as<sol::table>(), std::nullopt,
-                  std::nullopt};
+    return Module{
+        std::move(environment),
+        exports.as<sol::table>(),
+        std::nullopt,
+        std::nullopt};
 }
 
 void LuaRuntime::assert_owner_thread() const {

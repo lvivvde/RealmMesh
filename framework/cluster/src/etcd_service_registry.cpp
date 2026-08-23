@@ -4,8 +4,8 @@
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
-#include <charconv>
 #include <cctype>
+#include <charconv>
 #include <condition_variable>
 #include <cstdint>
 #include <map>
@@ -24,16 +24,19 @@ using Clock = std::chrono::steady_clock;
 class EtcdHttpClient final : public IEtcdHttpClient {
 public:
     EtcdHttpClient(std::string endpoint, std::chrono::milliseconds timeout)
-        : endpoint_(std::move(endpoint)), timeout_(timeout) {}
+        : endpoint_(std::move(endpoint)),
+          timeout_(timeout) {}
 
     std::optional<std::string> post(
         std::string_view path,
         std::string_view json_body,
         std::string* error) override {
         httplib::Client client(endpoint_);
-        const auto seconds = std::chrono::duration_cast<std::chrono::seconds>(timeout_);
-        const auto microseconds = std::chrono::duration_cast<std::chrono::microseconds>(
-            timeout_ - seconds);
+        const auto seconds =
+            std::chrono::duration_cast<std::chrono::seconds>(timeout_);
+        const auto microseconds =
+            std::chrono::duration_cast<std::chrono::microseconds>(
+                timeout_ - seconds);
         client.set_connection_timeout(
             seconds.count(), static_cast<time_t>(microseconds.count()));
         client.set_read_timeout(
@@ -44,14 +47,16 @@ public:
             std::string(path), std::string(json_body), "application/json");
         if (!response) {
             if (error != nullptr) {
-                *error = "etcd request failed: " + httplib::to_string(response.error());
+                *error = "etcd request failed: " +
+                         httplib::to_string(response.error());
             }
             return std::nullopt;
         }
         if (response->status < 200 || response->status >= 300) {
             if (error != nullptr) {
-                *error = "etcd returned HTTP " + std::to_string(response->status) +
-                         ": " + response->body;
+                *error = "etcd returned HTTP " +
+                         std::to_string(response->status) + ": " +
+                         response->body;
             }
             return std::nullopt;
         }
@@ -71,23 +76,20 @@ std::string base64_encode(std::string_view input) {
     for (std::size_t offset = 0; offset < input.size(); offset += 3U) {
         const auto first = static_cast<unsigned char>(input[offset]);
         const auto second = offset + 1U < input.size()
-            ? static_cast<unsigned char>(input[offset + 1U])
-            : 0U;
+                                ? static_cast<unsigned char>(input[offset + 1U])
+                                : 0U;
         const auto third = offset + 2U < input.size()
-            ? static_cast<unsigned char>(input[offset + 2U])
-            : 0U;
-        const std::uint32_t value =
-            (static_cast<std::uint32_t>(first) << 16U) |
-            (static_cast<std::uint32_t>(second) << 8U) |
-            static_cast<std::uint32_t>(third);
+                               ? static_cast<unsigned char>(input[offset + 2U])
+                               : 0U;
+        const std::uint32_t value = (static_cast<std::uint32_t>(first) << 16U) |
+                                    (static_cast<std::uint32_t>(second) << 8U) |
+                                    static_cast<std::uint32_t>(third);
         output.push_back(alphabet[(value >> 18U) & 0x3FU]);
         output.push_back(alphabet[(value >> 12U) & 0x3FU]);
-        output.push_back(offset + 1U < input.size()
-                             ? alphabet[(value >> 6U) & 0x3FU]
-                             : '=');
-        output.push_back(offset + 2U < input.size()
-                             ? alphabet[value & 0x3FU]
-                             : '=');
+        output.push_back(
+            offset + 1U < input.size() ? alphabet[(value >> 6U) & 0x3FU] : '=');
+        output.push_back(
+            offset + 2U < input.size() ? alphabet[value & 0x3FU] : '=');
     }
     return output;
 }
@@ -107,16 +109,17 @@ std::optional<std::string> base64_decode(std::string_view input) {
     for (std::size_t offset = 0; offset < input.size(); offset += 4U) {
         const int first = decode(input[offset]);
         const int second = decode(input[offset + 1U]);
-        const int third = input[offset + 2U] == '=' ? 0 : decode(input[offset + 2U]);
-        const int fourth = input[offset + 3U] == '=' ? 0 : decode(input[offset + 3U]);
+        const int third =
+            input[offset + 2U] == '=' ? 0 : decode(input[offset + 2U]);
+        const int fourth =
+            input[offset + 3U] == '=' ? 0 : decode(input[offset + 3U]);
         if (first < 0 || second < 0 || third < 0 || fourth < 0) {
             return std::nullopt;
         }
-        const auto value =
-            (static_cast<std::uint32_t>(first) << 18U) |
-            (static_cast<std::uint32_t>(second) << 12U) |
-            (static_cast<std::uint32_t>(third) << 6U) |
-            static_cast<std::uint32_t>(fourth);
+        const auto value = (static_cast<std::uint32_t>(first) << 18U) |
+                           (static_cast<std::uint32_t>(second) << 12U) |
+                           (static_cast<std::uint32_t>(third) << 6U) |
+                           static_cast<std::uint32_t>(fourth);
         output.push_back(static_cast<char>((value >> 16U) & 0xFFU));
         if (input[offset + 2U] != '=') {
             output.push_back(static_cast<char>((value >> 8U) & 0xFFU));
@@ -130,15 +133,24 @@ std::optional<std::string> base64_decode(std::string_view input) {
 
 std::string_view service_type_name(ServiceType type) {
     switch (type) {
-        case ServiceType::Coordinator: return "coordinator";
-        case ServiceType::Gateway: return "gateway";
-        case ServiceType::Login: return "login";
-        case ServiceType::Realm: return "realm";
-        case ServiceType::Lobby: return "lobby";
-        case ServiceType::Scene: return "scene";
-        case ServiceType::Friend: return "friend";
-        case ServiceType::Chat: return "chat";
-        case ServiceType::Storage: return "storage";
+    case ServiceType::Coordinator:
+        return "coordinator";
+    case ServiceType::Gateway:
+        return "gateway";
+    case ServiceType::Login:
+        return "login";
+    case ServiceType::Realm:
+        return "realm";
+    case ServiceType::Lobby:
+        return "lobby";
+    case ServiceType::Scene:
+        return "scene";
+    case ServiceType::Friend:
+        return "friend";
+    case ServiceType::Chat:
+        return "chat";
+    case ServiceType::Storage:
+        return "storage";
     }
     throw std::invalid_argument("unknown service type");
 }
@@ -177,7 +189,8 @@ Json encode_instance(const ServiceInstance& instance) {
     };
 }
 
-std::optional<network::TransportProtocol> parse_protocol(std::string_view value) {
+std::optional<network::TransportProtocol> parse_protocol(
+    std::string_view value) {
     if (value == "quic") return network::TransportProtocol::Quic;
     if (value == "tls_tcp") return network::TransportProtocol::TlsTcp;
     return std::nullopt;
@@ -185,7 +198,8 @@ std::optional<network::TransportProtocol> parse_protocol(std::string_view value)
 
 std::optional<ServiceInstance> decode_instance(const Json& value) {
     try {
-        const auto type = parse_service_type(value.at("type").get<std::string>());
+        const auto type =
+            parse_service_type(value.at("type").get<std::string>());
         if (!type.has_value()) return std::nullopt;
         ServiceInstance instance{
             .type = *type,
@@ -249,7 +263,8 @@ bool valid_instance(const ServiceInstance& instance) {
 }
 
 std::string prefix_range_end(std::string prefix) {
-    for (auto iterator = prefix.rbegin(); iterator != prefix.rend(); ++iterator) {
+    for (auto iterator = prefix.rbegin(); iterator != prefix.rend();
+         ++iterator) {
         const auto value = static_cast<unsigned char>(*iterator);
         if (value != 0xFFU) {
             *iterator = static_cast<char>(value + 1U);
@@ -267,7 +282,8 @@ public:
     Impl(
         EtcdRegistryOptions options,
         std::shared_ptr<IEtcdHttpClient> http_client)
-        : options_(std::move(options)), http_client_(std::move(http_client)) {
+        : options_(std::move(options)),
+          http_client_(std::move(http_client)) {
         while (options_.key_prefix.size() > 1U &&
                options_.key_prefix.back() == '/') {
             options_.key_prefix.pop_back();
@@ -279,7 +295,9 @@ public:
             throw std::invalid_argument("invalid etcd registry options");
         }
         if (options_.background_maintenance) {
-            worker_ = std::jthread([this](std::stop_token stop) { run(stop); });
+            worker_ = std::jthread([this](std::stop_token stop) {
+                run(stop);
+            });
         }
     }
 
@@ -304,9 +322,9 @@ public:
     }
 
     RegistrationResult register_instance(
-        const ServiceInstance& instance,
-        std::chrono::seconds lease_ttl) {
-        if (!valid_instance(instance) || lease_ttl <= std::chrono::seconds::zero()) {
+        const ServiceInstance& instance, std::chrono::seconds lease_ttl) {
+        if (!valid_instance(instance) ||
+            lease_ttl <= std::chrono::seconds::zero()) {
             return {RegistryStatus::InvalidArgument};
         }
         const auto lease = grant_lease(lease_ttl);
@@ -315,19 +333,23 @@ public:
         const auto key = instance_key(instance);
         Json response;
         const Json request = {
-            {"compare", Json::array({{
-                {"key", base64_encode(key)},
-                {"target", "VERSION"},
-                {"result", "EQUAL"},
-                {"version", "0"},
-            }})},
-            {"success", Json::array({{
-                {"requestPut", {
-                    {"key", base64_encode(key)},
-                    {"value", base64_encode(encode_instance(instance).dump())},
-                    {"lease", std::to_string(*lease)},
-                }},
-            }})},
+            {"compare",
+             Json::array({{
+                 {"key", base64_encode(key)},
+                 {"target", "VERSION"},
+                 {"result", "EQUAL"},
+                 {"version", "0"},
+             }})},
+            {"success",
+             Json::array({{
+                 {"requestPut",
+                  {
+                      {"key", base64_encode(key)},
+                      {"value",
+                       base64_encode(encode_instance(instance).dump())},
+                      {"lease", std::to_string(*lease)},
+                  }},
+             }})},
         };
         if (!call("/v3/kv/txn", request, response)) {
             static_cast<void>(revoke_lease(*lease));
@@ -340,13 +362,15 @@ public:
 
         const std::scoped_lock lock(mutex_);
         const auto id = next_registration_id_++;
-        registrations_.emplace(id, Registration{
-            instance,
-            key,
-            *lease,
-            lease_ttl,
-            Clock::now() + refresh_delay(lease_ttl),
-        });
+        registrations_.emplace(
+            id,
+            Registration{
+                instance,
+                key,
+                *lease,
+                lease_ttl,
+                Clock::now() + refresh_delay(lease_ttl),
+            });
         return {RegistryStatus::Success, id};
     }
 
@@ -364,7 +388,8 @@ public:
         Json response;
         const Json request = {
             {"key", base64_encode(registration.key)},
-            {"value", base64_encode(encode_instance(registration.instance).dump())},
+            {"value",
+             base64_encode(encode_instance(registration.instance).dump())},
             {"lease", std::to_string(*new_lease)},
         };
         if (!call("/v3/kv/put", request, response)) {
@@ -416,7 +441,8 @@ public:
             Watch watch_value{type, handler, {}, initial.has_value()};
             if (initial.has_value()) {
                 for (const auto& instance : *initial) {
-                    watch_value.instances.emplace(instance.instance_id, instance);
+                    watch_value.instances.emplace(
+                        instance.instance_id, instance);
                 }
             }
             watches_.emplace(id, std::move(watch_value));
@@ -472,13 +498,16 @@ public:
                     for (const auto& [instance_id, instance] :
                          found->second.instances) {
                         const auto current = next.find(instance_id);
-                        if (current == next.end() || current->second != instance) {
-                            events.push_back({ServiceEventKind::Removed, instance});
+                        if (current == next.end() ||
+                            current->second != instance) {
+                            events.push_back(
+                                {ServiceEventKind::Removed, instance});
                         }
                     }
                 }
                 for (const auto& [instance_id, instance] : next) {
-                    const auto previous = found->second.instances.find(instance_id);
+                    const auto previous =
+                        found->second.instances.find(instance_id);
                     if (!found->second.initialized ||
                         previous == found->second.instances.end() ||
                         previous->second != instance) {
@@ -518,15 +547,16 @@ private:
     }
 
     std::string type_prefix(ServiceType type) const {
-        return options_.key_prefix + "/" + std::string(service_type_name(type)) +
-               "/";
+        return options_.key_prefix + "/" +
+               std::string(service_type_name(type)) + "/";
     }
 
     std::string instance_key(const ServiceInstance& instance) const {
         return type_prefix(instance.type) + instance.instance_id;
     }
 
-    bool call(std::string_view path, const Json& request, Json& response) const {
+    bool call(
+        std::string_view path, const Json& request, Json& response) const {
         std::string error;
         const auto body = http_client_->post(path, request.dump(), &error);
         if (!body.has_value()) {
@@ -537,7 +567,8 @@ private:
             response = Json::parse(*body);
             return true;
         } catch (const Json::exception& exception) {
-            set_error("invalid etcd JSON response: " + std::string(exception.what()));
+            set_error(
+                "invalid etcd JSON response: " + std::string(exception.what()));
             return false;
         }
     }
@@ -551,8 +582,8 @@ private:
             return std::nullopt;
         }
         const auto id = response.contains("ID")
-            ? json_integer(response.at("ID"))
-            : std::nullopt;
+                            ? json_integer(response.at("ID"))
+                            : std::nullopt;
         if (!id.has_value() || *id == 0) {
             set_error("etcd lease grant response did not contain a valid ID");
             return std::nullopt;
@@ -583,8 +614,8 @@ private:
         std::vector<ServiceInstance> instances;
         try {
             for (const auto& key_value : response.value("kvs", Json::array())) {
-                const auto decoded = base64_decode(
-                    key_value.at("value").get<std::string>());
+                const auto decoded =
+                    base64_decode(key_value.at("value").get<std::string>());
                 if (!decoded.has_value()) continue;
                 const auto instance = decode_instance(Json::parse(*decoded));
                 if (instance.has_value() && instance->type == type) {
@@ -592,7 +623,9 @@ private:
                 }
             }
         } catch (const Json::exception& exception) {
-            set_error("invalid etcd range response: " + std::string(exception.what()));
+            set_error(
+                "invalid etcd range response: " +
+                std::string(exception.what()));
             return std::nullopt;
         }
         std::ranges::sort(instances, {}, &ServiceInstance::instance_id);
@@ -648,15 +681,14 @@ EtcdServiceRegistry::EtcdServiceRegistry(EtcdRegistryOptions options)
               options.endpoint, options.request_timeout)) {}
 
 EtcdServiceRegistry::EtcdServiceRegistry(
-    EtcdRegistryOptions options,
-    std::shared_ptr<IEtcdHttpClient> http_client)
-    : impl_(std::make_unique<Impl>(std::move(options), std::move(http_client))) {}
+    EtcdRegistryOptions options, std::shared_ptr<IEtcdHttpClient> http_client)
+    : impl_(
+          std::make_unique<Impl>(std::move(options), std::move(http_client))) {}
 
 EtcdServiceRegistry::~EtcdServiceRegistry() = default;
 
 RegistrationResult EtcdServiceRegistry::register_instance(
-    const ServiceInstance& instance,
-    std::chrono::seconds lease_ttl) {
+    const ServiceInstance& instance, std::chrono::seconds lease_ttl) {
     return impl_->register_instance(instance, lease_ttl);
 }
 
@@ -674,8 +706,7 @@ std::vector<ServiceInstance> EtcdServiceRegistry::discover(
 }
 
 WatchId EtcdServiceRegistry::watch(
-    ServiceType type,
-    ServiceEventHandler handler) {
+    ServiceType type, ServiceEventHandler handler) {
     return impl_->watch(type, std::move(handler));
 }
 
@@ -685,6 +716,8 @@ bool EtcdServiceRegistry::cancel_watch(WatchId watch_id) {
 
 void EtcdServiceRegistry::poll_once() { impl_->poll_once(); }
 
-std::string EtcdServiceRegistry::last_error() const { return impl_->last_error(); }
+std::string EtcdServiceRegistry::last_error() const {
+    return impl_->last_error();
+}
 
 }  // namespace realm::cluster

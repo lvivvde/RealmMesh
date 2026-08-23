@@ -22,7 +22,8 @@ constexpr std::size_t ticket_size_v2 = signed_size_v2 + tag_size;
 
 void write_unsigned(std::span<std::byte> output, std::uint64_t value) {
     for (std::size_t index = 0; index < output.size(); ++index) {
-        const auto shift = static_cast<unsigned>((output.size() - index - 1) * 8);
+        const auto shift =
+            static_cast<unsigned>((output.size() - index - 1) * 8);
         output[index] = static_cast<std::byte>((value >> shift) & 0xffU);
     }
 }
@@ -52,10 +53,12 @@ std::vector<std::byte> issue_ticket(
     std::chrono::seconds ttl,
     std::chrono::system_clock::time_point now) {
     if (ttl <= std::chrono::seconds::zero() || account_id == 0) {
-        throw std::invalid_argument("ticket TTL and account id must be positive");
+        throw std::invalid_argument(
+            "ticket TTL and account id must be positive");
     }
     const auto expiry = std::chrono::duration_cast<std::chrono::milliseconds>(
-        (now + ttl).time_since_epoch()).count();
+                            (now + ttl).time_since_epoch())
+                            .count();
     if (expiry < 0) {
         throw std::invalid_argument("ticket expiry cannot precede Unix epoch");
     }
@@ -77,7 +80,8 @@ std::vector<std::byte> issue_ticket(
     offset += 8;
     write_unsigned(std::span<std::byte>(ticket.data() + offset, 4), realm_id);
     offset += 4;
-    write_unsigned(std::span<std::byte>(ticket.data() + offset, 8), character_id);
+    write_unsigned(
+        std::span<std::byte>(ticket.data() + offset, 8), character_id);
     offset += 8;
     write_unsigned(
         std::span<std::byte>(ticket.data() + offset, 8),
@@ -93,7 +97,8 @@ std::vector<std::byte> issue_ticket(
 
 }  // namespace
 
-SessionTicketCodec::SessionTicketCodec(SessionTicketKey key) : key_(key) {
+SessionTicketCodec::SessionTicketCodec(SessionTicketKey key)
+    : key_(key) {
     if (sodium_init() < 0) {
         throw std::runtime_error("failed to initialize libsodium");
     }
@@ -177,14 +182,14 @@ std::optional<SessionTicketClaims> SessionTicketCodec::validate(
     }
     claims.account_id = read_unsigned(ticket.subspan(offset, 8));
     offset += 8;
-    claims.realm_id = static_cast<std::uint32_t>(
-        read_unsigned(ticket.subspan(offset, 4)));
+    claims.realm_id =
+        static_cast<std::uint32_t>(read_unsigned(ticket.subspan(offset, 4)));
     offset += 4;
     claims.character_id = read_unsigned(ticket.subspan(offset, 8));
     offset += 8;
     const auto expiry_ms = read_unsigned(ticket.subspan(offset, 8));
-    if (expiry_ms > static_cast<std::uint64_t>(
-                        std::numeric_limits<std::int64_t>::max())) {
+    if (expiry_ms >
+        static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max())) {
         return std::nullopt;
     }
     claims.expires_at = std::chrono::system_clock::time_point(
@@ -215,14 +220,16 @@ bool TicketReplayGuard::consume(
 
 SessionTicketKey parse_ticket_key_hex(std::string_view value) {
     if (value.size() != session_ticket_key_size * 2) {
-        throw std::invalid_argument("session ticket key must contain 64 hex characters");
+        throw std::invalid_argument(
+            "session ticket key must contain 64 hex characters");
     }
     SessionTicketKey key{};
     for (std::size_t index = 0; index < key.size(); ++index) {
         const int high = hex_nibble(value[index * 2]);
         const int low = hex_nibble(value[index * 2 + 1]);
         if (high < 0 || low < 0) {
-            throw std::invalid_argument("session ticket key contains non-hex data");
+            throw std::invalid_argument(
+                "session ticket key contains non-hex data");
         }
         key[index] = static_cast<std::byte>((high << 4) | low);
     }

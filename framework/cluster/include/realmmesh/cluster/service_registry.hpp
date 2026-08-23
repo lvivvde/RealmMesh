@@ -73,17 +73,17 @@ public:
     virtual ~IServiceRegistry() = default;
 
     [[nodiscard]] virtual RegistrationResult register_instance(
-        const ServiceInstance& instance,
-        std::chrono::seconds lease_ttl) = 0;
-    [[nodiscard]] virtual bool refresh_registration(RegistrationId registration_id) = 0;
-    [[nodiscard]] virtual bool unregister_instance(RegistrationId registration_id) = 0;
+        const ServiceInstance& instance, std::chrono::seconds lease_ttl) = 0;
+    [[nodiscard]] virtual bool refresh_registration(
+        RegistrationId registration_id) = 0;
+    [[nodiscard]] virtual bool unregister_instance(
+        RegistrationId registration_id) = 0;
 
     [[nodiscard]] virtual std::vector<ServiceInstance> discover(
         ServiceType type) const = 0;
 
     [[nodiscard]] virtual WatchId watch(
-        ServiceType type,
-        ServiceEventHandler handler) = 0;
+        ServiceType type, ServiceEventHandler handler) = 0;
     [[nodiscard]] virtual bool cancel_watch(WatchId watch_id) = 0;
 };
 

@@ -19,8 +19,9 @@ public:
         : path_(
               std::filesystem::temp_directory_path() /
               ("realmmesh-observability-" +
-               std::to_string(
-                   std::chrono::steady_clock::now().time_since_epoch().count()) +
+               std::to_string(std::chrono::steady_clock::now()
+                                  .time_since_epoch()
+                                  .count()) +
                ".jsonl")) {}
 
     ~TemporaryLogFile() {
@@ -59,9 +60,7 @@ TEST(LoggerTest, CallerCanWriteAStructuredDiagnosticEvent) {
             "player_session_established",
             "player session established",
             {field(
-                 "account_id",
-                 std::uint64_t{10'001},
-                 DataClass::Pseudonymous),
+                 "account_id", std::uint64_t{10'001}, DataClass::Pseudonymous),
              field("request_id", std::uint64_t{42}),
              field("reconnected", false)}),
         LogResult::Accepted);
@@ -82,8 +81,7 @@ TEST(LoggerTest, CallerCanWriteAStructuredDiagnosticEvent) {
     EXPECT_EQ(event.at("service_instance"), "realm-test-1");
     EXPECT_EQ(event.at("attributes").at("account_id"), 10'001);
     EXPECT_EQ(
-        event.at("attribute_data_classes").at("account_id"),
-        "pseudonymous");
+        event.at("attribute_data_classes").at("account_id"), "pseudonymous");
     EXPECT_EQ(event.at("attributes").at("request_id"), 42);
     EXPECT_EQ(event.at("attributes").at("reconnected"), false);
     EXPECT_TRUE(event.at("sequence").is_number_unsigned());
@@ -133,9 +131,7 @@ TEST(LoggerTest, CallerCanAttachTrustedCorrelationContext) {
     std::string line;
     ASSERT_TRUE(static_cast<bool>(std::getline(input, line)));
     const auto event = nlohmann::json::parse(line);
-    EXPECT_EQ(
-        event.at("correlation_id"),
-        "1234567890abcdef1234567890abcdef");
+    EXPECT_EQ(event.at("correlation_id"), "1234567890abcdef1234567890abcdef");
     EXPECT_EQ(event.at("request_id"), 42);
 }
 
@@ -150,14 +146,10 @@ TEST(LoggerTest, MetricsExposeDeliveryAndValidationState) {
     };
     Logger logger(config, identity);
 
-    EXPECT_EQ(
-        logger.info("accepted_event", "message"),
-        LogResult::Accepted);
+    EXPECT_EQ(logger.info("accepted_event", "message"), LogResult::Accepted);
     EXPECT_EQ(
         logger.info(
-            "rejected_event",
-            {},
-            {field("token", "must-never-be-logged")}),
+            "rejected_event", {}, {field("token", "must-never-be-logged")}),
         LogResult::Rejected);
     ASSERT_TRUE(logger.flush(std::chrono::seconds(2)));
 
@@ -168,21 +160,17 @@ TEST(LoggerTest, MetricsExposeDeliveryAndValidationState) {
             "service_instance=\"login-test-1\"} 1"),
         std::string::npos);
     EXPECT_NE(
-        metrics.find("realmmesh_log_events_rejected_total"),
-        std::string::npos);
+        metrics.find("realmmesh_log_events_rejected_total"), std::string::npos);
     EXPECT_NE(metrics.find("} 1\n"), std::string::npos);
     EXPECT_NE(
         metrics.find("realmmesh_log_events_truncated_total"),
         std::string::npos);
     EXPECT_NE(
-        metrics.find("realmmesh_log_normal_queue_size"),
-        std::string::npos);
+        metrics.find("realmmesh_log_normal_queue_size"), std::string::npos);
     EXPECT_NE(
-        metrics.find("realmmesh_log_priority_queue_size"),
-        std::string::npos);
+        metrics.find("realmmesh_log_priority_queue_size"), std::string::npos);
     EXPECT_NE(
-        metrics.find("realmmesh_log_normal_queue_capacity"),
-        std::string::npos);
+        metrics.find("realmmesh_log_normal_queue_capacity"), std::string::npos);
     EXPECT_NE(
         metrics.find("realmmesh_log_priority_queue_capacity"),
         std::string::npos);
@@ -202,16 +190,15 @@ TEST(LoggerTest, MetricsServerPublishesPrometheusEndpoint) {
             .service_instance = "realm-test-1",
         });
     LoggerMetricsServer metrics(
-        logger,
-        MetricsServerConfig{.listen_address = "127.0.0.1", .port = 0});
+        logger, MetricsServerConfig{.listen_address = "127.0.0.1", .port = 0});
 
     ASSERT_GT(metrics.port(), 0);
     httplib::Client client("127.0.0.1", metrics.port());
     const auto response = client.Get("/metrics");
     ASSERT_TRUE(response);
     EXPECT_EQ(response->status, 200);
-    EXPECT_EQ(response->get_header_value("Content-Type").substr(0, 10),
-              "text/plain");
+    EXPECT_EQ(
+        response->get_header_value("Content-Type").substr(0, 10), "text/plain");
     EXPECT_NE(
         response->body.find("realmmesh_log_events_accepted_total"),
         std::string::npos);

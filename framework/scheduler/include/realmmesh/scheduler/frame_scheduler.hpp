@@ -38,7 +38,9 @@ public:
 
     template <typename Callback>
         requires std::invocable<Callback&, FrameContext> &&
-                 std::convertible_to<std::invoke_result_t<Callback&, FrameContext>, bool>
+                 std::convertible_to<
+                     std::invoke_result_t<Callback&, FrameContext>,
+                     bool>
     std::uint64_t run(Callback&& callback) {
         auto next_deadline = clock_.now();
         std::uint64_t frame_index = 0;

@@ -8,10 +8,8 @@ namespace realm::test_support {
 namespace {
 
 bool is_valid_instance(const cluster::ServiceInstance& instance) {
-    return !instance.instance_id.empty() &&
-           !instance.node_id.empty() &&
-           !instance.zone.empty() &&
-           !instance.endpoints.empty() &&
+    return !instance.instance_id.empty() && !instance.node_id.empty() &&
+           !instance.zone.empty() && !instance.endpoints.empty() &&
            !instance.endpoints.front().address.empty() &&
            instance.endpoints.front().port != 0;
 }
@@ -27,9 +25,9 @@ void publish_event(
 }  // namespace
 
 cluster::RegistrationResult FakeServiceRegistry::register_instance(
-    const cluster::ServiceInstance& instance,
-    std::chrono::seconds lease_ttl) {
-    if (!is_valid_instance(instance) || lease_ttl <= std::chrono::seconds::zero()) {
+    const cluster::ServiceInstance& instance, std::chrono::seconds lease_ttl) {
+    if (!is_valid_instance(instance) ||
+        lease_ttl <= std::chrono::seconds::zero()) {
         return {cluster::RegistryStatus::InvalidArgument};
     }
 
@@ -44,15 +42,12 @@ cluster::RegistrationResult FakeServiceRegistry::register_instance(
 
         registration_id = next_registration_id_++;
         registrations_.emplace(
-            registration_id,
-            Registration{instance, lease_ttl});
+            registration_id, Registration{instance, lease_ttl});
         service_keys_.emplace(key, registration_id);
         handlers = handlers_for_locked(instance.type);
     }
 
-    publish_event(
-        {cluster::ServiceEventKind::Added, instance},
-        handlers);
+    publish_event({cluster::ServiceEventKind::Added, instance}, handlers);
     return {cluster::RegistryStatus::Success, registration_id};
 }
 
@@ -85,8 +80,7 @@ std::vector<cluster::ServiceInstance> FakeServiceRegistry::discover(
 }
 
 cluster::WatchId FakeServiceRegistry::watch(
-    cluster::ServiceType type,
-    cluster::ServiceEventHandler handler) {
+    cluster::ServiceType type, cluster::ServiceEventHandler handler) {
     if (!handler) {
         return cluster::invalid_watch_id;
     }
@@ -138,9 +132,7 @@ bool FakeServiceRegistry::remove_registration(
         handlers = handlers_for_locked(instance.type);
     }
 
-    publish_event(
-        {cluster::ServiceEventKind::Removed, instance},
-        handlers);
+    publish_event({cluster::ServiceEventKind::Removed, instance}, handlers);
     return true;
 }
 

@@ -1,5 +1,5 @@
-#include "realmmesh/game/common/edge_protocol.hpp"
 #include "realmmesh/game/common/session_ticket.hpp"
+#include "realmmesh/game/common/edge_protocol.hpp"
 
 #include <gtest/gtest.h>
 
@@ -22,19 +22,22 @@ TEST(SessionTicketTest, ValidatesPurposeExpiryTamperingAndReplay) {
     SessionTicketCodec codec(test_key());
     auto ticket = codec.issue(TicketPurpose::EnterGame, 7, 3, 99, 30s, now);
 
-    const auto claims = codec.validate(ticket, TicketPurpose::EnterGame, now + 1s);
+    const auto claims =
+        codec.validate(ticket, TicketPurpose::EnterGame, now + 1s);
     ASSERT_TRUE(claims.has_value());
     EXPECT_EQ(claims->account_id, 7U);
     EXPECT_EQ(claims->realm_id, 3U);
     EXPECT_EQ(claims->character_id, 99U);
     EXPECT_FALSE(codec.validate(ticket, TicketPurpose::Login, now).has_value());
-    EXPECT_FALSE(codec.validate(ticket, TicketPurpose::EnterGame, now + 31s).has_value());
+    EXPECT_FALSE(codec.validate(ticket, TicketPurpose::EnterGame, now + 31s)
+                     .has_value());
 
     TicketReplayGuard replay;
     EXPECT_TRUE(replay.consume(*claims, now));
     EXPECT_FALSE(replay.consume(*claims, now));
     ticket[10] ^= std::byte{1};
-    EXPECT_FALSE(codec.validate(ticket, TicketPurpose::EnterGame, now).has_value());
+    EXPECT_FALSE(
+        codec.validate(ticket, TicketPurpose::EnterGame, now).has_value());
 }
 
 TEST(SessionTicketTest, V2CarriesASignedCorrelationIdAndStillAcceptsV1) {
@@ -46,14 +49,8 @@ TEST(SessionTicketTest, V2CarriesASignedCorrelationIdAndStillAcceptsV1) {
     correlation_id.back() = std::byte{0x34};
 
     const auto v1 = codec.issue(TicketPurpose::Login, 7, 3, 0, 30s, now);
-    auto v2 = codec.issue(
-        TicketPurpose::Login,
-        7,
-        3,
-        0,
-        correlation_id,
-        30s,
-        now);
+    auto v2 =
+        codec.issue(TicketPurpose::Login, 7, 3, 0, correlation_id, 30s, now);
 
     const auto v1_claims = codec.validate(v1, TicketPurpose::Login, now + 1s);
     const auto v2_claims = codec.validate(v2, TicketPurpose::Login, now + 1s);
@@ -97,9 +94,11 @@ TEST(EdgeProtocolTest, RoundTripsTheThreeStageHandshakeMessages) {
     EXPECT_EQ(decoded_success->account_id(), 7);
     EXPECT_EQ(decoded_success->login_ticket(), std::string("\x01\x02", 2));
     ASSERT_EQ(decoded_success->realm_endpoints_size(), 1);
-    EXPECT_EQ(decoded_success->realm_endpoints(0).protocol(),
-              edge_v1::TRANSPORT_PROTOCOL_TLS_TCP);
-    EXPECT_EQ(decoded_success->realm_endpoints(0).address(), "realm.example.com");
+    EXPECT_EQ(
+        decoded_success->realm_endpoints(0).protocol(),
+        edge_v1::TRANSPORT_PROTOCOL_TLS_TCP);
+    EXPECT_EQ(
+        decoded_success->realm_endpoints(0).address(), "realm.example.com");
     EXPECT_EQ(decoded_success->realm_endpoints(0).port(), 7100);
 
     CharacterList characters;
@@ -131,10 +130,12 @@ TEST(EdgeProtocolTest, RoundTripsTheThreeStageHandshakeMessages) {
     ASSERT_TRUE(decoded_issued.has_value());
     EXPECT_EQ(decoded_issued->enter_game_ticket(), std::string("\x03", 1));
     ASSERT_EQ(decoded_issued->gateway_endpoints_size(), 2);
-    EXPECT_EQ(decoded_issued->gateway_endpoints(0).protocol(),
-              edge_v1::TRANSPORT_PROTOCOL_QUIC);
-    EXPECT_EQ(decoded_issued->gateway_endpoints(1).protocol(),
-              edge_v1::TRANSPORT_PROTOCOL_TLS_TCP);
+    EXPECT_EQ(
+        decoded_issued->gateway_endpoints(0).protocol(),
+        edge_v1::TRANSPORT_PROTOCOL_QUIC);
+    EXPECT_EQ(
+        decoded_issued->gateway_endpoints(1).protocol(),
+        edge_v1::TRANSPORT_PROTOCOL_TLS_TCP);
 
     HeartbeatRequest heartbeat_request;
     const auto encoded_heartbeat_request = encode(heartbeat_request, 43);

@@ -2,8 +2,8 @@
 
 #include <gtest/gtest.h>
 
-#include <chrono>
 #include <algorithm>
+#include <chrono>
 #include <mutex>
 #include <thread>
 #include <unordered_map>
@@ -14,8 +14,10 @@ namespace {
 
 class FakeConnection final : public ISecureConnection {
 public:
-    explicit FakeConnection(TransportProtocol protocol) : protocol_(protocol) {}
+    explicit FakeConnection(TransportProtocol protocol)
+        : protocol_(protocol) {}
     TransportProtocol protocol() const noexcept override { return protocol_; }
+
 private:
     TransportProtocol protocol_;
 };
@@ -89,7 +91,8 @@ TEST(PreferredTransportConnectorTest, ReturnsQuicWithoutStartingTlsWhenFast) {
 
     const auto result = connector.connect(candidates, "wifi-a");
 
-    ASSERT_TRUE(std::holds_alternative<std::shared_ptr<ISecureConnection>>(result));
+    ASSERT_TRUE(
+        std::holds_alternative<std::shared_ptr<ISecureConnection>>(result));
     EXPECT_EQ(
         std::get<std::shared_ptr<ISecureConnection>>(result)->protocol(),
         TransportProtocol::Quic);
@@ -100,7 +103,9 @@ TEST(PreferredTransportConnectorTest, StartsTlsAfterDelayAndFirstSecureWins) {
     FakeDialer dialer;
     dialer.behaviors = {
         {TransportProtocol::Quic,
-         {std::chrono::milliseconds(100), ConnectFailure::HandshakeTimeout, false}},
+         {std::chrono::milliseconds(100),
+          ConnectFailure::HandshakeTimeout,
+          false}},
         {TransportProtocol::TlsTcp,
          {std::chrono::milliseconds(3), ConnectFailure::ProtocolError, true}},
     };
@@ -108,7 +113,8 @@ TEST(PreferredTransportConnectorTest, StartsTlsAfterDelayAndFirstSecureWins) {
 
     const auto result = connector.connect(candidates, "wifi-a");
 
-    ASSERT_TRUE(std::holds_alternative<std::shared_ptr<ISecureConnection>>(result));
+    ASSERT_TRUE(
+        std::holds_alternative<std::shared_ptr<ISecureConnection>>(result));
     EXPECT_EQ(
         std::get<std::shared_ptr<ISecureConnection>>(result)->protocol(),
         TransportProtocol::TlsTcp);
@@ -119,7 +125,9 @@ TEST(PreferredTransportConnectorTest, DoesNotFallbackOnCertificateFailure) {
     FakeDialer dialer;
     dialer.behaviors = {
         {TransportProtocol::Quic,
-         {std::chrono::milliseconds(2), ConnectFailure::CertificateRejected, false}},
+         {std::chrono::milliseconds(2),
+          ConnectFailure::CertificateRejected,
+          false}},
         {TransportProtocol::TlsTcp,
          {std::chrono::milliseconds(2), ConnectFailure::ProtocolError, true}},
     };
@@ -131,11 +139,15 @@ TEST(PreferredTransportConnectorTest, DoesNotFallbackOnCertificateFailure) {
     EXPECT_EQ(dialer.calls, std::vector{TransportProtocol::Quic});
 }
 
-TEST(PreferredTransportConnectorTest, CachesNetworkQuicFailureUntilNetworkChanges) {
+TEST(
+    PreferredTransportConnectorTest,
+    CachesNetworkQuicFailureUntilNetworkChanges) {
     FakeDialer dialer;
     dialer.behaviors = {
         {TransportProtocol::Quic,
-         {std::chrono::milliseconds(2), ConnectFailure::NetworkUnreachable, false}},
+         {std::chrono::milliseconds(2),
+          ConnectFailure::NetworkUnreachable,
+          false}},
         {TransportProtocol::TlsTcp,
          {std::chrono::milliseconds(2), ConnectFailure::ProtocolError, true}},
     };
@@ -146,12 +158,8 @@ TEST(PreferredTransportConnectorTest, CachesNetworkQuicFailureUntilNetworkChange
     connector.network_changed();
     static_cast<void>(connector.connect(candidates, "wifi-b"));
 
-    EXPECT_EQ(
-        std::ranges::count(dialer.calls, TransportProtocol::Quic),
-        2);
-    EXPECT_EQ(
-        std::ranges::count(dialer.calls, TransportProtocol::TlsTcp),
-        3);
+    EXPECT_EQ(std::ranges::count(dialer.calls, TransportProtocol::Quic), 2);
+    EXPECT_EQ(std::ranges::count(dialer.calls, TransportProtocol::TlsTcp), 3);
 }
 
 }  // namespace

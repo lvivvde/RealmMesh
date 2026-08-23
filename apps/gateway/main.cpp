@@ -12,8 +12,8 @@
 #include <charconv>
 #include <chrono>
 #include <csignal>
-#include <cstdlib>
 #include <cstdint>
+#include <cstdlib>
 #include <exception>
 #include <filesystem>
 #include <iostream>
@@ -29,22 +29,19 @@ namespace {
 volatile std::sig_atomic_t stop_requested = 0;
 volatile std::sig_atomic_t reload_requested = 0;
 
-void handle_stop_signal(int) {
-    stop_requested = 1;
-}
+void handle_stop_signal(int) { stop_requested = 1; }
 void handle_reload_signal(int) { reload_requested = 1; }
 
 void print_usage(std::string_view program) {
-    std::cout << "Usage: " << program
-              << " [--config <lua-file>] [--listen <IPv4-address>] [--port <port>]\n";
+    std::cout
+        << "Usage: " << program
+        << " [--config <lua-file>] [--listen <IPv4-address>] [--port <port>]\n";
 }
 
 bool parse_port(std::string_view text, std::uint16_t& port) {
     std::uint32_t value = 0;
-    const auto [position, error] = std::from_chars(
-        text.data(),
-        text.data() + text.size(),
-        value);
+    const auto [position, error] =
+        std::from_chars(text.data(), text.data() + text.size(), value);
     if (error != std::errc{} || position != text.data() + text.size() ||
         value > std::numeric_limits<std::uint16_t>::max()) {
         return false;
@@ -61,9 +58,7 @@ enum class ParseResult {
 };
 
 ParseResult parse_arguments(
-    int argc,
-    char* argv[],
-    realm::game::gateway::GatewayConfig& config) {
+    int argc, char* argv[], realm::game::gateway::GatewayConfig& config) {
     for (int index = 1; index < argc; ++index) {
         const std::string_view argument(argv[index]);
         if (argument == "--help" || argument == "-h") {
@@ -79,9 +74,10 @@ ParseResult parse_arguments(
         if (argument == "--config") {
             continue;
         }
-        const auto enabled_count = std::ranges::count_if(
-            config.transports,
-            [](const auto& transport) { return transport.enabled; });
+        const auto enabled_count =
+            std::ranges::count_if(config.transports, [](const auto& transport) {
+                return transport.enabled;
+            });
         if (enabled_count == 0) {
             std::cerr << "Address override requires an enabled transport\n";
             return ParseResult::ExitFailure;
@@ -148,9 +144,9 @@ int main(int argc, char* argv[]) {
             return parse_result == ParseResult::ExitSuccess ? 0 : 1;
         }
         if (config.logging_metrics.port != 0) {
-            metrics = std::make_unique<
-                realm::observability::LoggerMetricsServer>(
-                *logger, config.logging_metrics);
+            metrics =
+                std::make_unique<realm::observability::LoggerMetricsServer>(
+                    *logger, config.logging_metrics);
         }
 
         std::signal(SIGINT, handle_stop_signal);
@@ -165,10 +161,11 @@ int main(int argc, char* argv[]) {
         realm::game::common::TicketReplayGuard replay_guard;
         std::unordered_map<
             realm::game::gateway::ClientSessionId,
-            realm::game::common::SessionTicketClaims> authenticated;
-        std::unordered_map<
-            std::string,
-            realm::game::common::SessionTicketClaims> pending_authenticated;
+            realm::game::common::SessionTicketClaims>
+            authenticated;
+        std::
+            unordered_map<std::string, realm::game::common::SessionTicketClaims>
+                pending_authenticated;
         realm::game::gateway::GatewayRuntime runtime(std::move(config));
         std::unique_ptr<realm::cluster::EtcdServiceRegistry> registry;
         std::unique_ptr<realm::cluster::ServicePublisher> publisher;
@@ -194,8 +191,7 @@ int main(int argc, char* argv[]) {
                     "dependency_state_changed",
                     "service discovery unavailable; continuing without registration",
                     {realm::observability::field("dependency", "etcd"),
-                     realm::observability::field(
-                         "state", "unavailable"),
+                     realm::observability::field("state", "unavailable"),
                      realm::observability::field(
                          "error_message", registry->last_error())}));
             }
@@ -214,12 +210,14 @@ int main(int argc, char* argv[]) {
         }
 
         runtime.start();
-        static_cast<void>(logger->info(
-            "service_started", "gateway service started"));
+        static_cast<void>(
+            logger->info("service_started", "gateway service started"));
         realm::scheduler::SteadyFrameClock frame_clock;
-        realm::scheduler::FrameScheduler frame_scheduler(tick_rate, frame_clock);
+        realm::scheduler::FrameScheduler frame_scheduler(
+            tick_rate, frame_clock);
         bool runtime_failed = false;
-        static_cast<void>(frame_scheduler.run([&](realm::scheduler::FrameContext) {
+        static_cast<
+            void>(frame_scheduler.run([&](realm::scheduler::FrameContext) {
             if (reload_requested != 0) {
                 reload_requested = 0;
                 static_cast<void>(runtime.try_reload_credentials());
@@ -252,52 +250,58 @@ int main(int argc, char* argv[]) {
                     }
                     continue;
                 }
-                if (event.kind ==
-                    realm::game::gateway::GatewayEventKind::ClientSessionOpened) {
-                    const auto pending = pending_authenticated.find(connection_key(
-                        event.transport_name, event.transport_session_id));
+                if (event.kind == realm::game::gateway::GatewayEventKind::
+                                      ClientSessionOpened) {
+                    const auto pending =
+                        pending_authenticated.find(connection_key(
+                            event.transport_name, event.transport_session_id));
                     if (pending != pending_authenticated.end() &&
                         event.client_session_id.has_value()) {
-                        authenticated[*event.client_session_id] = pending->second;
+                        authenticated[*event.client_session_id] =
+                            pending->second;
                         pending_authenticated.erase(pending);
                     }
                     continue;
                 }
-                if (event.kind != realm::game::gateway::GatewayEventKind::MessageReceived) {
+                if (event.kind !=
+                    realm::game::gateway::GatewayEventKind::MessageReceived) {
                     continue;
                 }
 
                 if (!event.client_session_id.has_value()) {
                     const auto request =
                         realm::game::common::decode_enter_game(event.payload);
-                    const auto claims = request.has_value()
-                        ? tickets.validate(
-                              realm::game::common::protobuf_bytes(
-                                  request->enter_game_ticket()),
-                              realm::game::common::TicketPurpose::EnterGame)
-                        : std::nullopt;
+                    const auto claims =
+                        request.has_value()
+                            ? tickets.validate(
+                                  realm::game::common::protobuf_bytes(
+                                      request->enter_game_ticket()),
+                                  realm::game::common::TicketPurpose::EnterGame)
+                            : std::nullopt;
                     const auto request_id =
                         realm::game::common::edge_request_id(event.payload)
                             .value_or(0);
-                    const bool accepted_ticket =
-                        claims.has_value() && claims->realm_id == 1 &&
-                        claims->character_id != 0 && replay_guard.consume(*claims);
+                    const bool accepted_ticket = claims.has_value() &&
+                                                 claims->realm_id == 1 &&
+                                                 claims->character_id != 0 &&
+                                                 replay_guard.consume(*claims);
                     std::vector<std::byte> response;
                     if (!accepted_ticket) {
                         realm::game::common::EdgeError error;
                         error.set_code(3001);
                         error.set_message(
                             "invalid or replayed enter-game ticket");
-                        response = realm::game::common::encode(error, request_id);
+                        response =
+                            realm::game::common::encode(error, request_id);
                     } else {
                         pending_authenticated[connection_key(
-                            event.transport_name,
-                            event.transport_session_id)] = *claims;
+                            event.transport_name, event.transport_session_id)] =
+                            *claims;
                         realm::game::common::EnterGameAccepted accepted;
                         accepted.set_account_id(claims->account_id);
                         accepted.set_character_id(claims->character_id);
-                        response = realm::game::common::encode(
-                            accepted, request_id);
+                        response =
+                            realm::game::common::encode(accepted, request_id);
                         realm::observability::EventContext context{
                             .correlation_id = std::nullopt,
                             .request_id = request_id,
@@ -317,7 +321,8 @@ int main(int argc, char* argv[]) {
                              realm::observability::field(
                                  "character_id",
                                  claims->character_id,
-                                 realm::observability::DataClass::Pseudonymous)},
+                                 realm::observability::DataClass::
+                                     Pseudonymous)},
                             std::move(context)));
                     }
                     if (accepted_ticket) {
@@ -331,17 +336,16 @@ int main(int argc, char* argv[]) {
                             event.transport_session_id,
                             response));
                         static_cast<void>(runtime.try_close_channel(
-                            event.transport_name,
-                            event.transport_session_id));
+                            event.transport_name, event.transport_session_id));
                     }
                 } else {
                     const auto client = *event.client_session_id;
                     if (authenticated.contains(client)) {
-                        static_cast<void>(runtime.try_send(client, event.payload));
+                        static_cast<void>(
+                            runtime.try_send(client, event.payload));
                     } else {
                         static_cast<void>(runtime.try_close_channel(
-                            event.transport_name,
-                            event.transport_session_id));
+                            event.transport_name, event.transport_session_id));
                     }
                 }
             }
@@ -376,8 +380,7 @@ int main(int argc, char* argv[]) {
             static_cast<void>(logger->error(
                 "service_start_failed",
                 "gateway service failed",
-                {realm::observability::field(
-                    "error_message", error.what())}));
+                {realm::observability::field("error_message", error.what())}));
             static_cast<void>(logger->flush(std::chrono::seconds(2)));
         } else {
             std::cerr << "Gateway failed: " << error.what() << '\n';

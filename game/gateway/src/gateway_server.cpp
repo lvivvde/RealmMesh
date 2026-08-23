@@ -8,7 +8,8 @@
 namespace realm::game::gateway {
 
 GatewayServer::GatewayServer(GatewayConfig config)
-    : transports_(network::TransportFactory::create_enabled(config.transports)) {
+    : transports_(
+          network::TransportFactory::create_enabled(config.transports)) {
     if (transports_.empty()) {
         throw std::invalid_argument(
             "gateway must have at least one enabled transport");
@@ -25,8 +26,7 @@ std::uint16_t GatewayServer::local_port() const noexcept {
 std::optional<network::TransportEndpoint> GatewayServer::local_endpoint(
     std::string_view transport_name) const {
     const auto iterator = std::ranges::find_if(
-        transports_,
-        [transport_name](const auto& transport) {
+        transports_, [transport_name](const auto& transport) {
             return transport->name() == transport_name;
         });
     if (iterator == transports_.end()) {
@@ -76,16 +76,15 @@ std::optional<ClientSessionId> GatewayServer::find_client(
 }
 
 std::optional<ClientSessionId> GatewayServer::promote_connection(
-    std::string_view transport_name,
-    network::SessionId transport_session_id) {
+    std::string_view transport_name, network::SessionId transport_session_id) {
     const auto pending = pending_connections_.find(std::string(transport_name));
     if (pending == pending_connections_.end() ||
         !pending->second.contains(transport_session_id)) {
         return std::nullopt;
     }
 
-    const auto client_id = client_registry_.open_primary(
-        transport_name, transport_session_id);
+    const auto client_id =
+        client_registry_.open_primary(transport_name, transport_session_id);
     if (client_id == invalid_client_session_id) {
         return std::nullopt;
     }
@@ -97,8 +96,7 @@ std::optional<ClientSessionId> GatewayServer::promote_connection(
 }
 
 SendResult GatewayServer::send(
-    ClientSessionId client_session_id,
-    std::span<const std::byte> payload) {
+    ClientSessionId client_session_id, std::span<const std::byte> payload) {
     return client_registry_.send(client_session_id, payload);
 }
 
@@ -107,18 +105,18 @@ bool GatewayServer::send_channel(
     network::SessionId transport_session_id,
     std::span<const std::byte> payload) {
     auto* transport = find_transport(transport_name);
-    return transport != nullptr && transport->send(transport_session_id, payload);
+    return transport != nullptr &&
+           transport->send(transport_session_id, payload);
 }
 
 bool GatewayServer::close_channel(
-    std::string_view transport_name,
-    network::SessionId transport_session_id) {
+    std::string_view transport_name, network::SessionId transport_session_id) {
     auto* transport = find_transport(transport_name);
     if (transport == nullptr || !transport->close(transport_session_id)) {
         return false;
     }
-    static_cast<void>(client_registry_.close_primary(
-        transport_name, transport_session_id));
+    static_cast<void>(
+        client_registry_.close_primary(transport_name, transport_session_id));
     const auto pending = pending_connections_.find(std::string(transport_name));
     if (pending != pending_connections_.end()) {
         pending->second.erase(transport_session_id);
@@ -130,9 +128,9 @@ bool GatewayServer::close_channel(
 }
 
 bool GatewayServer::reload_credentials() {
-    return std::ranges::all_of(
-        transports_,
-        [](const auto& transport) { return transport->reload_credentials(); });
+    return std::ranges::all_of(transports_, [](const auto& transport) {
+        return transport->reload_credentials();
+    });
 }
 
 std::vector<GatewayEvent> GatewayServer::poll_events(
@@ -199,8 +197,8 @@ void GatewayServer::poll_once(std::chrono::milliseconds timeout) {
             continue;
         }
         if (event.client_session_id.has_value()) {
-            static_cast<void>(client_registry_.send(
-                *event.client_session_id, event.payload));
+            static_cast<void>(
+                client_registry_.send(*event.client_session_id, event.payload));
         } else {
             static_cast<void>(send_channel(
                 event.transport_name,
@@ -213,8 +211,7 @@ void GatewayServer::poll_once(std::chrono::milliseconds timeout) {
 network::IMessageTransport* GatewayServer::find_transport(
     std::string_view transport_name) const {
     const auto iterator = std::ranges::find_if(
-        transports_,
-        [transport_name](const auto& transport) {
+        transports_, [transport_name](const auto& transport) {
             return transport->name() == transport_name;
         });
     return iterator == transports_.end() ? nullptr : iterator->get();

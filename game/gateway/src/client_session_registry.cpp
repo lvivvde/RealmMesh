@@ -8,15 +8,15 @@ namespace realm::game::gateway {
 
 void ClientSessionRegistry::register_transport(
     network::IMessageTransport& transport) {
-    if (!transports_.emplace(std::string(transport.name()), &transport).second) {
+    if (!transports_.emplace(std::string(transport.name()), &transport)
+             .second) {
         throw std::invalid_argument(
             "transport is already registered in client registry");
     }
 }
 
 ClientSessionId ClientSessionRegistry::open_primary(
-    std::string_view transport_name,
-    network::SessionId transport_session_id) {
+    std::string_view transport_name, network::SessionId transport_session_id) {
     auto* transport = find_transport(transport_name);
     if (transport == nullptr ||
         transport_session_id == network::invalid_session_id) {
@@ -33,18 +33,19 @@ ClientSessionId ClientSessionRegistry::open_primary(
     }
 
     const ClientSessionId id = next_client_session_id_++;
-    primaries_.emplace(id, PrimaryTransport{
-        .transport_name = std::string(transport_name),
-        .protocol = transport->protocol(),
-        .transport_session_id = transport_session_id,
-    });
+    primaries_.emplace(
+        id,
+        PrimaryTransport{
+            .transport_name = std::string(transport_name),
+            .protocol = transport->protocol(),
+            .transport_session_id = transport_session_id,
+        });
     clients_by_primary_.emplace(std::move(key), id);
     return id;
 }
 
 std::optional<ClientSessionId> ClientSessionRegistry::close_primary(
-    std::string_view transport_name,
-    network::SessionId transport_session_id) {
+    std::string_view transport_name, network::SessionId transport_session_id) {
     PrimaryKey key{std::string(transport_name), transport_session_id};
     const auto owner = clients_by_primary_.find(key);
     if (owner == clients_by_primary_.end()) {
@@ -94,19 +95,16 @@ std::size_t ClientSessionRegistry::client_count() const noexcept {
 }
 
 SendResult ClientSessionRegistry::send(
-    ClientSessionId client_session_id,
-    std::span<const std::byte> payload) {
+    ClientSessionId client_session_id, std::span<const std::byte> payload) {
     const auto primary_transport = primaries_.find(client_session_id);
     if (primary_transport == primaries_.end()) {
         return SendResult::ClientNotFound;
     }
 
-    auto* transport = find_transport(
-        primary_transport->second.transport_name);
+    auto* transport = find_transport(primary_transport->second.transport_name);
     if (transport == nullptr ||
         !transport->send(
-            primary_transport->second.transport_session_id,
-            payload)) {
+            primary_transport->second.transport_session_id, payload)) {
         return SendResult::SendFailed;
     }
     return SendResult::Sent;

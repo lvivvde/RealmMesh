@@ -15,9 +15,7 @@ namespace realm::cluster {
 namespace {
 
 ServiceInstance make_instance(
-    ServiceType type,
-    std::string instance_id,
-    std::uint16_t port) {
+    ServiceType type, std::string instance_id, std::uint16_t port) {
     return {
         .type = type,
         .instance_id = std::move(instance_id),
@@ -38,7 +36,8 @@ TEST(ServiceRegistryTest, RegistersAndDiscoversByServiceType) {
     using namespace std::chrono_literals;
 
     test_support::FakeServiceRegistry registry;
-    const auto gateway = make_instance(ServiceType::Gateway, "gateway-01", 8100);
+    const auto gateway =
+        make_instance(ServiceType::Gateway, "gateway-01", 8100);
     const auto scene = make_instance(ServiceType::Scene, "scene-01", 8400);
 
     const auto gateway_registration = registry.register_instance(gateway, 10s);
@@ -56,7 +55,8 @@ TEST(ServiceRegistryTest, RejectsDuplicateServiceInstanceKey) {
     using namespace std::chrono_literals;
 
     test_support::FakeServiceRegistry registry;
-    const auto instance = make_instance(ServiceType::Gateway, "gateway-01", 8100);
+    const auto instance =
+        make_instance(ServiceType::Gateway, "gateway-01", 8100);
 
     ASSERT_EQ(
         registry.register_instance(instance, 10s).status,
@@ -73,9 +73,11 @@ TEST(ServiceRegistryTest, PublishesAddedAndRemovedWatchEvents) {
     test_support::FakeServiceRegistry registry;
     std::vector<ServiceEvent> events;
     const auto watch = registry.watch(
-        ServiceType::Gateway,
-        [&events](const ServiceEvent& event) { events.push_back(event); });
-    const auto instance = make_instance(ServiceType::Gateway, "gateway-01", 8100);
+        ServiceType::Gateway, [&events](const ServiceEvent& event) {
+            events.push_back(event);
+        });
+    const auto instance =
+        make_instance(ServiceType::Gateway, "gateway-01", 8100);
 
     const auto registration = registry.register_instance(instance, 10s);
     ASSERT_EQ(registration.status, RegistryStatus::Success);
@@ -105,9 +107,8 @@ TEST(ServiceRegistryTest, RejectsNonPositiveLeaseTtl) {
     test_support::FakeServiceRegistry registry;
     const auto instance = make_instance(ServiceType::Chat, "chat-01", 8600);
 
-    const auto registration = registry.register_instance(
-        instance,
-        std::chrono::seconds::zero());
+    const auto registration =
+        registry.register_instance(instance, std::chrono::seconds::zero());
 
     EXPECT_EQ(registration.status, RegistryStatus::InvalidArgument);
     EXPECT_EQ(registration.id, invalid_registration_id);
@@ -118,11 +119,9 @@ TEST(ServiceRegistryTest, ResolverTracksAddedAndRemovedEndpoints) {
 
     test_support::FakeServiceRegistry registry;
     ServiceResolver resolver(
-        registry,
-        ServiceType::Gateway,
-        network::TransportProtocol::TlsTcp);
-    const auto instance = make_instance(
-        ServiceType::Gateway, "gateway-01", 8100);
+        registry, ServiceType::Gateway, network::TransportProtocol::TlsTcp);
+    const auto instance =
+        make_instance(ServiceType::Gateway, "gateway-01", 8100);
     const auto registration = registry.register_instance(instance, 10s);
     ASSERT_EQ(registration.status, RegistryStatus::Success);
 
@@ -139,16 +138,14 @@ TEST(ServiceRegistryTest, ResolverReceivesInstancesPresentBeforeSubscription) {
     using namespace std::chrono_literals;
 
     test_support::FakeServiceRegistry registry;
-    const auto instance = make_instance(
-        ServiceType::Gateway, "gateway-01", 8100);
+    const auto instance =
+        make_instance(ServiceType::Gateway, "gateway-01", 8100);
     ASSERT_EQ(
         registry.register_instance(instance, 10s).status,
         RegistryStatus::Success);
 
     ServiceResolver resolver(
-        registry,
-        ServiceType::Gateway,
-        network::TransportProtocol::TlsTcp);
+        registry, ServiceType::Gateway, network::TransportProtocol::TlsTcp);
 
     ASSERT_TRUE(resolver.endpoint().has_value());
     EXPECT_EQ(resolver.endpoint()->port, 8100);

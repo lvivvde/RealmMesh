@@ -3,8 +3,8 @@
 #include <gtest/gtest.h>
 #include <msquic.h>
 
-#include <array>
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <condition_variable>
 #include <cstddef>
@@ -35,17 +35,17 @@ struct ClientSend {
     QUIC_BUFFER buffer{};
 };
 
-QUIC_STATUS QUIC_API client_stream_callback(
-    HQUIC stream,
-    void* context,
-    QUIC_STREAM_EVENT* event) {
+QUIC_STATUS QUIC_API
+client_stream_callback(HQUIC stream, void* context, QUIC_STREAM_EVENT* event) {
     auto* state = static_cast<ClientState*>(context);
     switch (event->Type) {
     case QUIC_STREAM_EVENT_RECEIVE: {
         std::lock_guard lock(state->mutex);
-        for (std::uint32_t index = 0; index < event->RECEIVE.BufferCount; ++index) {
+        for (std::uint32_t index = 0; index < event->RECEIVE.BufferCount;
+             ++index) {
             const auto& buffer = event->RECEIVE.Buffers[index];
-            const auto* begin = reinterpret_cast<const std::byte*>(buffer.Buffer);
+            const auto* begin =
+                reinterpret_cast<const std::byte*>(buffer.Buffer);
             state->received.insert(
                 state->received.end(), begin, begin + buffer.Length);
         }
@@ -66,10 +66,8 @@ QUIC_STATUS QUIC_API client_stream_callback(
     return QUIC_STATUS_SUCCESS;
 }
 
-QUIC_STATUS QUIC_API client_connection_callback(
-    HQUIC,
-    void* context,
-    QUIC_CONNECTION_EVENT* event) {
+QUIC_STATUS QUIC_API
+client_connection_callback(HQUIC, void* context, QUIC_CONNECTION_EVENT* event) {
     auto* state = static_cast<ClientState*>(context);
     switch (event->Type) {
     case QUIC_CONNECTION_EVENT_CONNECTED: {
@@ -89,19 +87,16 @@ QUIC_STATUS QUIC_API client_connection_callback(
         return state->api->StreamStart(
             state->stream, QUIC_STREAM_START_FLAG_IMMEDIATE);
     }
-    case QUIC_CONNECTION_EVENT_SHUTDOWN_COMPLETE:
-        {
-            std::lock_guard lock(state->mutex);
-            state->shutdown = true;
-        }
+    case QUIC_CONNECTION_EVENT_SHUTDOWN_COMPLETE: {
+        std::lock_guard lock(state->mutex);
+        state->shutdown = true;
+    }
         state->ready.notify_all();
         break;
-    case QUIC_CONNECTION_EVENT_SHUTDOWN_INITIATED_BY_TRANSPORT:
-        {
-            std::lock_guard lock(state->mutex);
-            state->transport_status =
-                event->SHUTDOWN_INITIATED_BY_TRANSPORT.Status;
-        }
+    case QUIC_CONNECTION_EVENT_SHUTDOWN_INITIATED_BY_TRANSPORT: {
+        std::lock_guard lock(state->mutex);
+        state->transport_status = event->SHUTDOWN_INITIATED_BY_TRANSPORT.Status;
+    }
         state->ready.notify_all();
         break;
     default:
@@ -134,10 +129,11 @@ TEST(QuicTransportTest, ExchangesAFramedMessageOverOneVerifiedStream) {
         .protocol = TransportProtocol::Quic,
         .listen_address = "127.0.0.1",
         .listen_port = 0,
-        .tls = TransportConfig::TlsServerIdentity{
-            .certificate_chain_file = REALMMESH_TEST_TLS_CERTIFICATE,
-            .private_key_file = REALMMESH_TEST_TLS_PRIVATE_KEY,
-        },
+        .tls =
+            TransportConfig::TlsServerIdentity{
+                .certificate_chain_file = REALMMESH_TEST_TLS_CERTIFICATE,
+                .private_key_file = REALMMESH_TEST_TLS_PRIVATE_KEY,
+            },
     }};
     auto transports = TransportFactory::create_enabled(configs);
     ASSERT_EQ(transports.size(), 1U);
@@ -146,12 +142,14 @@ TEST(QuicTransportTest, ExchangesAFramedMessageOverOneVerifiedStream) {
     EXPECT_NE(transport.local_endpoint().port, 0U);
 
     std::jthread server([&] {
-        const auto deadline = std::chrono::steady_clock::now() +
-                              std::chrono::seconds(5);
+        const auto deadline =
+            std::chrono::steady_clock::now() + std::chrono::seconds(5);
         while (std::chrono::steady_clock::now() < deadline) {
-            for (auto& event : transport.poll_once(std::chrono::milliseconds(20))) {
+            for (auto& event :
+                 transport.poll_once(std::chrono::milliseconds(20))) {
                 if (event.kind == TransportEventKind::MessageReceived) {
-                    EXPECT_TRUE(transport.send(event.session_id, event.payload));
+                    EXPECT_TRUE(
+                        transport.send(event.session_id, event.payload));
                     return;
                 }
             }
@@ -169,7 +167,22 @@ TEST(QuicTransportTest, ExchangesAFramedMessageOverOneVerifiedStream) {
     ASSERT_FALSE(QUIC_FAILED(
         api->RegistrationOpen(&registration_config, &registration)));
     const std::array<std::uint8_t, 16> alpn_bytes{
-        'r', 'e', 'a', 'l', 'm', 'm', 'e', 's', 'h', '-', 'e', 'd', 'g', 'e', '/', '1'};
+        'r',
+        'e',
+        'a',
+        'l',
+        'm',
+        'm',
+        'e',
+        's',
+        'h',
+        '-',
+        'e',
+        'd',
+        'g',
+        'e',
+        '/',
+        '1'};
     const QUIC_BUFFER alpn{
         .Length = static_cast<std::uint32_t>(alpn_bytes.size()),
         .Buffer = const_cast<std::uint8_t*>(alpn_bytes.data()),
@@ -178,7 +191,13 @@ TEST(QuicTransportTest, ExchangesAFramedMessageOverOneVerifiedStream) {
     settings.HandshakeIdleTimeoutMs = 3000;
     settings.IsSet.HandshakeIdleTimeoutMs = TRUE;
     ASSERT_FALSE(QUIC_FAILED(api->ConfigurationOpen(
-        registration, &alpn, 1, &settings, sizeof(settings), nullptr, &configuration)));
+        registration,
+        &alpn,
+        1,
+        &settings,
+        sizeof(settings),
+        nullptr,
+        &configuration)));
     QUIC_CREDENTIAL_CONFIG credential{};
     credential.Type = QUIC_CREDENTIAL_TYPE_NONE;
     credential.Flags = static_cast<QUIC_CREDENTIAL_FLAGS>(
@@ -208,7 +227,9 @@ TEST(QuicTransportTest, ExchangesAFramedMessageOverOneVerifiedStream) {
         ASSERT_TRUE(client.ready.wait_for(
             lock,
             std::chrono::seconds(5),
-            [&] { return client.connected || client.shutdown; }))
+            [&] {
+                return client.connected || client.shutdown;
+            }))
             << "MsQuic status=" << client.transport_status
             << " server sessions=" << transport.session_count();
         ASSERT_TRUE(client.connected)
@@ -218,19 +239,14 @@ TEST(QuicTransportTest, ExchangesAFramedMessageOverOneVerifiedStream) {
         std::byte{0x11}, std::byte{0x22}, std::byte{0x33}, std::byte{0x44}};
     auto frame = make_frame(payload);
     ASSERT_FALSE(QUIC_FAILED(api->StreamSend(
-        client.stream,
-        &frame->buffer,
-        1,
-        QUIC_SEND_FLAG_NONE,
-        frame.get())));
+        client.stream, &frame->buffer, 1, QUIC_SEND_FLAG_NONE, frame.get())));
     static_cast<void>(frame.release());
 
     {
         std::unique_lock lock(client.mutex);
-        ASSERT_TRUE(client.ready.wait_for(
-            lock, std::chrono::seconds(5), [&] {
-                return client.received.size() >= 8U;
-            }));
+        ASSERT_TRUE(client.ready.wait_for(lock, std::chrono::seconds(5), [&] {
+            return client.received.size() >= 8U;
+        }));
         ASSERT_GE(client.received.size(), 8U);
         EXPECT_TRUE(std::equal(
             payload.begin(), payload.end(), client.received.begin() + 4));
@@ -240,8 +256,9 @@ TEST(QuicTransportTest, ExchangesAFramedMessageOverOneVerifiedStream) {
         client.connection, QUIC_CONNECTION_SHUTDOWN_FLAG_NONE, 0);
     {
         std::unique_lock lock(client.mutex);
-        ASSERT_TRUE(client.ready.wait_for(
-            lock, std::chrono::seconds(5), [&] { return client.shutdown; }));
+        ASSERT_TRUE(client.ready.wait_for(lock, std::chrono::seconds(5), [&] {
+            return client.shutdown;
+        }));
     }
     api->ConnectionClose(client.connection);
     api->ConfigurationClose(configuration);

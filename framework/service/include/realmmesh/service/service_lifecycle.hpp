@@ -27,8 +27,7 @@ public:
 
 private:
     [[nodiscard]] static bool is_valid_transition(
-        ServiceState current_state,
-        ServiceState next_state) noexcept;
+        ServiceState current_state, ServiceState next_state) noexcept;
 
     std::atomic<ServiceState> state_{ServiceState::Created};
 };

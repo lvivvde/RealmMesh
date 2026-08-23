@@ -3,10 +3,10 @@
 #include "realmmesh/concurrency/bounded_queue.hpp"
 
 #include <httplib.h>
-#include <nlohmann/json.hpp>
 #include <spdlog/logger.h>
 #include <spdlog/sinks/rotating_file_sink.h>
 #include <spdlog/sinks/stdout_sinks.h>
+#include <nlohmann/json.hpp>
 
 #include <algorithm>
 #include <array>
@@ -37,17 +37,20 @@
 namespace realm::observability {
 namespace {
 
+/// 单条日志事件允许的最大属性字段数,超出直接拒绝。
 constexpr std::size_t max_attribute_count = 64;
 
+/// 取严重级别的序数值,数值越大越严重,用于级别比较。
 [[nodiscard]] int severity_rank(Severity severity) noexcept {
     return static_cast<int>(severity);
 }
 
+/// 生成纳秒精度的 UTC 时间戳,格式为 ISO 8601:2026-08-23T12:34:56.123456789Z
 [[nodiscard]] std::string utc_timestamp() {
     const auto now = std::chrono::system_clock::now();
     const auto seconds = std::chrono::floor<std::chrono::seconds>(now);
-    const auto nanoseconds = std::chrono::duration_cast<std::chrono::nanoseconds>(
-        now - seconds);
+    const auto nanoseconds =
+        std::chrono::duration_cast<std::chrono::nanoseconds>(now - seconds);
     const std::time_t time = std::chrono::system_clock::to_time_t(seconds);
     std::tm value{};
 #if defined(_WIN32)
@@ -64,6 +67,7 @@ constexpr std::size_t max_attribute_count = 64;
     return output.str();
 }
 
+/// 生成 16 字节随机数的 32 位小写 hex 串,用作进程启动实例 ID。
 [[nodiscard]] std::string random_hex_id() {
     std::array<unsigned char, 16> bytes{};
     std::random_device random;
@@ -80,6 +84,8 @@ constexpr std::size_t max_attribute_count = 64;
     return result;
 }
 
+/// 校验是否为合法 snake_case:小写字母/数字/单个下划线,不以 _ 开头或结尾,
+/// 长度 1~64。event_name 与字段名都必须满足此约束。
 [[nodiscard]] bool is_snake_case(std::string_view value) noexcept {
     if (value.empty() || value.size() > 64 || value.front() == '_' ||
         value.back() == '_') {
@@ -89,14 +95,15 @@ constexpr std::size_t max_attribute_count = 64;
     for (const char character : value) {
         const bool underscore = character == '_';
         const bool valid = underscore ||
-            (character >= 'a' && character <= 'z') ||
-            (character >= '0' && character <= '9');
+                           (character >= 'a' && character <= 'z') ||
+                           (character >= '0' && character <= '9');
         if (!valid || (underscore && previous_underscore)) return false;
         previous_underscore = underscore;
     }
     return true;
 }
 
+/// 敏感字段名黑名单:命中即拒绝整条日志,防止凭据类信息落盘。
 [[nodiscard]] bool is_forbidden_field(std::string_view name) {
     static const std::unordered_set<std::string_view> forbidden{
         "authorization",
@@ -110,14 +117,15 @@ constexpr std::size_t max_attribute_count = 64;
     return forbidden.contains(name);
 }
 
+/// 校验关联 ID 格式:恰好 32 位小写 hex(与 random_hex_id() 输出一致)。
 [[nodiscard]] bool is_correlation_id(std::string_view value) noexcept {
-    return value.size() == 32 &&
-        std::ranges::all_of(value, [](char character) {
-            return (character >= '0' && character <= '9') ||
-                (character >= 'a' && character <= 'f');
-        });
+    return value.size() == 32 && std::ranges::all_of(value, [](char character) {
+               return (character >= '0' && character <= '9') ||
+                      (character >= 'a' && character <= 'f');
+           });
 }
 
+/// DataClass 枚举转小写字符串,写入 attribute_data_classes。
 [[nodiscard]] std::string_view to_string(DataClass data_class) noexcept {
     switch (data_class) {
     case DataClass::Public:
@@ -130,6 +138,9 @@ constexpr std::size_t max_attribute_count = 64;
     return "unknown";
 }
 
+/// 从源码文件路径推导模块名:定位 /tests/ /apps/ /framework/ /game/ 标记,
+/// 取标记后两级目录并以 '.' 连接,如 "framework.observability"。
+/// 匹配失败返回 "unknown"。
 [[nodiscard]] std::string module_from_source(std::string_view source) {
     constexpr std::array markers{"/tests/", "/apps/", "/framework/", "/game/"};
     for (const std::string_view marker : markers) {
@@ -139,9 +150,8 @@ constexpr std::size_t max_attribute_count = 64;
         const auto first_slash = source.find('/', begin);
         if (first_slash == std::string_view::npos) break;
         const auto second_slash = source.find('/', first_slash + 1);
-        const auto end = second_slash == std::string_view::npos
-            ? source.size()
-            : second_slash;
+        const auto end = second_slash == std::string_view::npos ? source.size()
+                                                                : second_slash;
         std::string module(source.substr(begin, end - begin));
         std::ranges::replace(module, '/', '.');
         return module;
@@ -149,20 +159,22 @@ constexpr std::size_t max_attribute_count = 64;
     return "unknown";
 }
 
+/// 确定性采样判定:用事件名哈希异或序列号做伪随机,归一化后与采样率比较。
+/// rate <= 0 全部丢弃,rate >= 1 全部保留;同一事件按序列近似均匀采样。
 [[nodiscard]] bool retain_sample(
-    std::string_view event_name,
-    double rate,
-    std::uint64_t sequence) noexcept {
+    std::string_view event_name, double rate, std::uint64_t sequence) noexcept {
     if (rate <= 0.0) return false;
     if (rate >= 1.0) return true;
     const auto mixed =
         static_cast<std::uint64_t>(std::hash<std::string_view>{}(event_name)) ^
         (sequence * 0x9e3779b97f4a7c15ULL);
-    const auto normalized = static_cast<double>(mixed) /
+    const auto normalized =
+        static_cast<double>(mixed) /
         static_cast<double>(std::numeric_limits<std::uint64_t>::max());
     return normalized < rate;
 }
 
+/// 获取当前进程 ID,写入日志事件的 process_id 字段。
 [[nodiscard]] std::uint64_t process_id() noexcept {
 #if defined(_WIN32)
     return static_cast<std::uint64_t>(_getpid());
@@ -171,6 +183,7 @@ constexpr std::size_t max_attribute_count = 64;
 #endif
 }
 
+/// 转义 Prometheus 标签值中的 \ " 与换行,保证指标输出格式合法。
 [[nodiscard]] std::string prometheus_label(std::string_view value) {
     std::string escaped;
     escaped.reserve(value.size());
@@ -193,6 +206,8 @@ constexpr std::size_t max_attribute_count = 64;
     return escaped;
 }
 
+/// 将 Field 写入 JSON attributes;超长字符串截断到 max_string_size 并置
+/// truncated 标记。
 void set_json_value(
     nlohmann::json& attributes,
     const Field& field_value,
@@ -218,15 +233,18 @@ void set_json_value(
 
 }  // namespace
 
+/// Logger 的具体实现(Pimpl):持有双队列、spdlog sink 与后台写出线程。
 class Logger::Impl final {
 public:
+    /// 构造:校验配置 → 创建滚动文件 sink(可选 stdout)→ 启动两条消费线程。
+    /// development 环境下文件创建失败降级为 stderr sink,其他环境直接抛出。
     Impl(LoggerConfig config, ServiceIdentity identity)
         : config_(std::move(config)),
           identity_(std::move(identity)),
           normal_queue_(config_.normal_queue_capacity),
           priority_queue_(config_.priority_queue_capacity),
-          runtime_config_(std::make_shared<const LoggerRuntimeConfig>(
-              LoggerRuntimeConfig{
+          runtime_config_(
+              std::make_shared<const LoggerRuntimeConfig>(LoggerRuntimeConfig{
                   .min_severity = config_.min_severity,
                   .module_levels = config_.module_levels,
                   .sample_rates = config_.sample_rates,
@@ -262,8 +280,7 @@ public:
         } catch (const std::exception&) {
             if (identity_.environment != "development") throw;
             sinks.clear();
-            sinks.push_back(
-                std::make_shared<spdlog::sinks::stderr_sink_mt>());
+            sinks.push_back(std::make_shared<spdlog::sinks::stderr_sink_mt>());
             stderr_fallback = true;
         }
         sink_ = std::make_shared<spdlog::logger>(
@@ -275,16 +292,15 @@ public:
             write_errors_.store(1, std::memory_order_relaxed);
         }
 
-        normal_worker_ = std::jthread(
-            [this](std::stop_token stop) {
-                consume(normal_queue_, stop);
-            });
-        priority_worker_ = std::jthread(
-            [this](std::stop_token stop) {
-                consume(priority_queue_, stop);
-            });
+        normal_worker_ = std::jthread([this](std::stop_token stop) {
+            consume(normal_queue_, stop);
+        });
+        priority_worker_ = std::jthread([this](std::stop_token stop) {
+            consume(priority_queue_, stop);
+        });
     }
 
+    /// 析构:先冲刷(最多 2 秒),再请求停止并唤醒后台线程。
     ~Impl() {
         static_cast<void>(flush(std::chrono::seconds(2)));
         normal_worker_.request_stop();
@@ -292,6 +308,12 @@ public:
         work_ready_.notify_all();
     }
 
+    /// 日志提交主流程(调用方线程执行,线程安全):
+    /// 1. 按模块/全局级别过滤;
+    /// 2. 低于 Warn 的事件按事件名采样;
+    /// 3. 校验 event_name / 字段名 / correlation_id;
+    /// 4. 组装 JSON 并按 max_event_size 逐级裁剪(attributes → message);
+    /// 5. Warn 及以上入优先队列,其余入普通队列;队列满则丢弃并计数。
     [[nodiscard]] LogResult log(
         Severity severity,
         std::string_view event_name,
@@ -303,18 +325,20 @@ public:
         const auto module = module_from_source(location.file_name());
         const auto module_level = runtime->module_levels.find(module);
         const auto minimum = module_level == runtime->module_levels.end()
-            ? runtime->min_severity
-            : module_level->second;
+                                 ? runtime->min_severity
+                                 : module_level->second;
         if (severity_rank(severity) < severity_rank(minimum)) {
             return LogResult::Filtered;
         }
         if (severity_rank(severity) < severity_rank(Severity::Warn)) {
-            const auto sample = runtime->sample_rates.find(std::string(event_name));
+            const auto sample =
+                runtime->sample_rates.find(std::string(event_name));
             if (sample != runtime->sample_rates.end() &&
                 !retain_sample(
                     event_name,
                     sample->second,
-                    sample_sequence_.fetch_add(1, std::memory_order_relaxed) + 1)) {
+                    sample_sequence_.fetch_add(1, std::memory_order_relaxed) +
+                        1)) {
                 sampled_out_.fetch_add(1, std::memory_order_relaxed);
                 return LogResult::Filtered;
             }
@@ -356,8 +380,8 @@ public:
             {"zone", identity_.zone},
             {"process_start_id", process_start_id_},
             {"process_id", process_id()},
-            {"thread_id", std::hash<std::thread::id>{}(
-                              std::this_thread::get_id())},
+            {"thread_id",
+             std::hash<std::thread::id>{}(std::this_thread::get_id())},
             {"sequence", sequence_.fetch_add(1, std::memory_order_relaxed) + 1},
             {"source_file", location.file_name()},
             {"source_line", location.line()},
@@ -423,6 +447,7 @@ public:
         return LogResult::Accepted;
     }
 
+    /// 运行时配置通过 shared_ptr 原子替换,实现无锁热更新。
     void set_min_severity(Severity severity) noexcept {
         auto updated = *runtime_config_.load(std::memory_order_acquire);
         updated.min_severity = severity;
@@ -431,6 +456,7 @@ public:
             std::memory_order_release);
     }
 
+    /// 整体替换运行时过滤配置;采样率名称或取值非法时抛 std::invalid_argument。
     void reconfigure(LoggerRuntimeConfig config) {
         for (const auto& [event_name, rate] : config.sample_rates) {
             if (!is_snake_case(event_name) || rate < 0.0 || rate > 1.0) {
@@ -443,6 +469,7 @@ public:
             std::memory_order_release);
     }
 
+    /// 等待 pending_ 归零(所有入队事件已写出)后冲刷底层 sink;超时返回 false。
     [[nodiscard]] bool flush(std::chrono::milliseconds timeout) {
         const auto deadline = std::chrono::steady_clock::now() + timeout;
         std::unique_lock lock(flush_mutex_);
@@ -460,6 +487,7 @@ public:
         }
     }
 
+    /// 汇总各原子计数与队列长度,生成统计快照。
     [[nodiscard]] LogStats stats() const noexcept {
         return LogStats{
             .accepted = accepted_.load(std::memory_order_relaxed),
@@ -482,6 +510,8 @@ public:
         };
     }
 
+    /// 输出 Prometheus 文本格式指标:计数器(accepted/emitted/dropped/…)、
+    /// 按队列维度的丢弃数、队列水位 gauge 与最近成功写出时间戳。
     [[nodiscard]] std::string prometheus_metrics() const {
         const auto snapshot = stats();
         const std::string labels =
@@ -490,12 +520,12 @@ public:
             prometheus_label(identity_.service_instance) + "\"}";
         std::ostringstream output;
         const auto counter = [&](std::string_view name, std::uint64_t value) {
-            output << "# TYPE " << name << " counter\n" << name << labels
-                   << ' ' << value << '\n';
+            output << "# TYPE " << name << " counter\n"
+                   << name << labels << ' ' << value << '\n';
         };
         const auto gauge = [&](std::string_view name, std::size_t value) {
-            output << "# TYPE " << name << " gauge\n" << name << labels
-                   << ' ' << value << '\n';
+            output << "# TYPE " << name << " gauge\n"
+                   << name << labels << ' ' << value << '\n';
         };
         counter("realmmesh_log_events_accepted_total", snapshot.accepted);
         counter("realmmesh_log_events_emitted_total", snapshot.emitted);
@@ -506,19 +536,17 @@ public:
         counter("realmmesh_log_events_sampled_out_total", snapshot.sampled_out);
         const auto queue_labels = [&](std::string_view queue) {
             return labels.substr(0, labels.size() - 1) + ",queue=\"" +
-                std::string(queue) + "\",reason=\"full\"}";
+                   std::string(queue) + "\",reason=\"full\"}";
         };
         output << "# TYPE realmmesh_log_queue_dropped_total counter\n"
-               << "realmmesh_log_queue_dropped_total"
-               << queue_labels("normal") << ' '
-               << snapshot.normal_queue_dropped << '\n'
+               << "realmmesh_log_queue_dropped_total" << queue_labels("normal")
+               << ' ' << snapshot.normal_queue_dropped << '\n'
                << "realmmesh_log_queue_dropped_total"
                << queue_labels("priority") << ' '
                << snapshot.priority_queue_dropped << '\n';
         gauge("realmmesh_log_normal_queue_size", snapshot.normal_queue_size);
         gauge(
-            "realmmesh_log_priority_queue_size",
-            snapshot.priority_queue_size);
+            "realmmesh_log_priority_queue_size", snapshot.priority_queue_size);
         gauge(
             "realmmesh_log_normal_queue_capacity",
             snapshot.normal_queue_capacity);
@@ -532,9 +560,10 @@ public:
     }
 
 private:
+    /// 后台消费循环:弹出事件 → 写 sink 并逐条 flush → 失败降级 stderr;
+    /// 队列空时在条件变量上等待,最长 20ms 醒来检查停止标志。
     void consume(
-        concurrency::BoundedQueue<std::string>& queue,
-        std::stop_token stop) {
+        concurrency::BoundedQueue<std::string>& queue, std::stop_token stop) {
         while (true) {
             if (auto event = queue.try_pop(); event.has_value()) {
                 try {
@@ -591,19 +620,25 @@ private:
     std::jthread priority_worker_;
 };
 
+/// LoggerMetricsServer 的具体实现:注册 /metrics 路由,绑定端口并启动监听线程。
 class LoggerMetricsServer::Impl final {
 public:
-    Impl(Logger& logger, MetricsServerConfig config) : logger_(logger) {
-        server_.Get("/metrics", [this](const httplib::Request&, httplib::Response& response) {
-            response.set_content(
-                logger_.prometheus_metrics(),
-                "text/plain; version=0.0.4; charset=utf-8");
-        });
-        const int bound_port = config.port == 0
-            ? server_.bind_to_any_port(config.listen_address)
-            : (server_.bind_to_port(config.listen_address, config.port)
-                   ? static_cast<int>(config.port)
-                   : -1);
+    /// port 为 0 时随机分配可用端口;绑定失败抛 std::runtime_error。
+    Impl(Logger& logger, MetricsServerConfig config)
+        : logger_(logger) {
+        server_.Get(
+            "/metrics",
+            [this](const httplib::Request&, httplib::Response& response) {
+                response.set_content(
+                    logger_.prometheus_metrics(),
+                    "text/plain; version=0.0.4; charset=utf-8");
+            });
+        const int bound_port =
+            config.port == 0
+                ? server_.bind_to_any_port(config.listen_address)
+                : (server_.bind_to_port(config.listen_address, config.port)
+                       ? static_cast<int>(config.port)
+                       : -1);
         if (bound_port <= 0 || bound_port > 65'535) {
             throw std::runtime_error(
                 "failed to bind logger metrics endpoint at " +
@@ -645,12 +680,7 @@ LogResult Logger::log(
     EventContext context,
     const std::source_location& location) {
     return impl_->log(
-        severity,
-        event_name,
-        message,
-        fields,
-        std::move(context),
-        location);
+        severity, event_name, message, fields, std::move(context), location);
 }
 
 void Logger::set_min_severity(Severity severity) noexcept {
@@ -665,17 +695,14 @@ bool Logger::flush(std::chrono::milliseconds timeout) {
     return impl_->flush(timeout);
 }
 
-LogStats Logger::stats() const noexcept {
-    return impl_->stats();
-}
+LogStats Logger::stats() const noexcept { return impl_->stats(); }
 
 std::string Logger::prometheus_metrics() const {
     return impl_->prometheus_metrics();
 }
 
 LoggerMetricsServer::LoggerMetricsServer(
-    Logger& logger,
-    MetricsServerConfig config)
+    Logger& logger, MetricsServerConfig config)
     : impl_(std::make_unique<Impl>(logger, std::move(config))) {}
 
 LoggerMetricsServer::~LoggerMetricsServer() = default;
@@ -686,18 +713,18 @@ std::uint16_t LoggerMetricsServer::port() const noexcept {
 
 std::string_view to_string(Severity severity) noexcept {
     switch (severity) {
-        case Severity::Trace:
-            return "TRACE";
-        case Severity::Debug:
-            return "DEBUG";
-        case Severity::Info:
-            return "INFO";
-        case Severity::Warn:
-            return "WARN";
-        case Severity::Error:
-            return "ERROR";
-        case Severity::Fatal:
-            return "FATAL";
+    case Severity::Trace:
+        return "TRACE";
+    case Severity::Debug:
+        return "DEBUG";
+    case Severity::Info:
+        return "INFO";
+    case Severity::Warn:
+        return "WARN";
+    case Severity::Error:
+        return "ERROR";
+    case Severity::Fatal:
+        return "FATAL";
     }
     return "UNKNOWN";
 }

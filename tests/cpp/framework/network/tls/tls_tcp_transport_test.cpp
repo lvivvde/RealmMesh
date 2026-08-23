@@ -4,8 +4,10 @@
 #include <openssl/ssl.h>
 
 #include <arpa/inet.h>
-#include <array>
+#include <sys/socket.h>
+#include <unistd.h>
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <cstddef>
@@ -14,9 +16,7 @@
 #include <span>
 #include <stdexcept>
 #include <string>
-#include <sys/socket.h>
 #include <thread>
-#include <unistd.h>
 #include <vector>
 
 namespace realm::network {
@@ -24,11 +24,15 @@ namespace {
 
 class Descriptor final {
 public:
-    explicit Descriptor(int value) : value_(value) {}
-    ~Descriptor() { if (value_ >= 0) ::close(value_); }
+    explicit Descriptor(int value)
+        : value_(value) {}
+    ~Descriptor() {
+        if (value_ >= 0) ::close(value_);
+    }
     Descriptor(const Descriptor&) = delete;
     Descriptor& operator=(const Descriptor&) = delete;
     [[nodiscard]] int get() const noexcept { return value_; }
+
 private:
     int value_;
 };
@@ -80,11 +84,12 @@ TEST(TlsTcpTransportTest, NegotiatesTls13AndAlpnBeforeExchangingFrames) {
         .protocol = TransportProtocol::TlsTcp,
         .listen_address = "127.0.0.1",
         .listen_port = 0,
-        .tls = TransportConfig::TlsServerIdentity{
-            .certificate_chain_file = REALMMESH_TEST_TLS_CERTIFICATE,
-            .private_key_file = REALMMESH_TEST_TLS_PRIVATE_KEY,
-            .alpn = "realmmesh-edge/1",
-        },
+        .tls =
+            TransportConfig::TlsServerIdentity{
+                .certificate_chain_file = REALMMESH_TEST_TLS_CERTIFICATE,
+                .private_key_file = REALMMESH_TEST_TLS_PRIVATE_KEY,
+                .alpn = "realmmesh-edge/1",
+            },
     }};
     auto transports = TransportFactory::create_enabled(configs);
     ASSERT_EQ(transports.size(), 1U);
@@ -92,13 +97,15 @@ TEST(TlsTcpTransportTest, NegotiatesTls13AndAlpnBeforeExchangingFrames) {
 
     std::atomic<bool> received{false};
     std::jthread server([&] {
-        const auto deadline = std::chrono::steady_clock::now() +
-                              std::chrono::seconds(5);
+        const auto deadline =
+            std::chrono::steady_clock::now() + std::chrono::seconds(5);
         while (std::chrono::steady_clock::now() < deadline) {
-            for (auto& event : transport.poll_once(std::chrono::milliseconds(20))) {
+            for (auto& event :
+                 transport.poll_once(std::chrono::milliseconds(20))) {
                 if (event.kind == TransportEventKind::MessageReceived) {
                     received = true;
-                    EXPECT_TRUE(transport.send(event.session_id, event.payload));
+                    EXPECT_TRUE(
+                        transport.send(event.session_id, event.payload));
                     return;
                 }
             }
@@ -135,7 +142,23 @@ TEST(TlsTcpTransportTest, NegotiatesTls13AndAlpnBeforeExchangingFrames) {
     ASSERT_EQ(SSL_set_tlsext_host_name(ssl.get(), "localhost"), 1);
     ASSERT_EQ(SSL_set1_host(ssl.get(), "localhost"), 1);
     const std::array<unsigned char, 17> alpn{
-        16, 'r', 'e', 'a', 'l', 'm', 'm', 'e', 's', 'h', '-', 'e', 'd', 'g', 'e', '/', '1'};
+        16,
+        'r',
+        'e',
+        'a',
+        'l',
+        'm',
+        'm',
+        'e',
+        's',
+        'h',
+        '-',
+        'e',
+        'd',
+        'g',
+        'e',
+        '/',
+        '1'};
     ASSERT_EQ(SSL_set_alpn_protos(ssl.get(), alpn.data(), alpn.size()), 0);
     ASSERT_EQ(SSL_connect(ssl.get()), 1);
     EXPECT_EQ(SSL_version(ssl.get()), TLS1_3_VERSION);
@@ -155,7 +178,8 @@ TEST(TlsTcpTransportTest, NegotiatesTls13AndAlpnBeforeExchangingFrames) {
 
     std::array<std::byte, 8> response{};
     read_all(ssl.get(), response);
-    EXPECT_TRUE(std::equal(payload.begin(), payload.end(), response.begin() + 4));
+    EXPECT_TRUE(
+        std::equal(payload.begin(), payload.end(), response.begin() + 4));
 
     server.join();
     EXPECT_TRUE(received.load());
@@ -167,17 +191,19 @@ TEST(TlsTcpTransportTest, DoesNotOpenASessionWithoutRequiredAlpn) {
         .protocol = TransportProtocol::TlsTcp,
         .listen_address = "127.0.0.1",
         .listen_port = 0,
-        .tls = TransportConfig::TlsServerIdentity{
-            .certificate_chain_file = REALMMESH_TEST_TLS_CERTIFICATE,
-            .private_key_file = REALMMESH_TEST_TLS_PRIVATE_KEY,
-        },
+        .tls =
+            TransportConfig::TlsServerIdentity{
+                .certificate_chain_file = REALMMESH_TEST_TLS_CERTIFICATE,
+                .private_key_file = REALMMESH_TEST_TLS_PRIVATE_KEY,
+            },
     }};
     auto transports = TransportFactory::create_enabled(configs);
     auto& transport = *transports.front();
 
     std::jthread server([&] {
         for (int attempt = 0; attempt < 100; ++attempt) {
-            static_cast<void>(transport.poll_once(std::chrono::milliseconds(10)));
+            static_cast<void>(
+                transport.poll_once(std::chrono::milliseconds(10)));
         }
     });
 
@@ -187,7 +213,12 @@ TEST(TlsTcpTransportTest, DoesNotOpenASessionWithoutRequiredAlpn) {
     address.sin_family = AF_INET;
     address.sin_port = htons(transport.local_endpoint().port);
     ASSERT_EQ(::inet_pton(AF_INET, "127.0.0.1", &address.sin_addr), 1);
-    ASSERT_EQ(::connect(socket.get(), reinterpret_cast<const sockaddr*>(&address), sizeof(address)), 0);
+    ASSERT_EQ(
+        ::connect(
+            socket.get(),
+            reinterpret_cast<const sockaddr*>(&address),
+            sizeof(address)),
+        0);
 
     std::unique_ptr<SSL_CTX, SslContextDeleter> context(
         SSL_CTX_new(TLS_client_method()));

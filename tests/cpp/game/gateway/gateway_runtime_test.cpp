@@ -6,6 +6,8 @@
 #include <openssl/ssl.h>
 
 #include <arpa/inet.h>
+#include <sys/socket.h>
+#include <unistd.h>
 #include <algorithm>
 #include <array>
 #include <chrono>
@@ -16,9 +18,7 @@
 #include <span>
 #include <stdexcept>
 #include <string_view>
-#include <sys/socket.h>
 #include <thread>
-#include <unistd.h>
 #include <vector>
 
 namespace realm::game::gateway {
@@ -56,7 +56,23 @@ public:
         SSL_CTX_set_verify(context_.get(), SSL_VERIFY_PEER, nullptr);
         ssl_.reset(SSL_new(context_.get()));
         const std::array<unsigned char, 17> alpn{
-            16, 'r', 'e', 'a', 'l', 'm', 'm', 'e', 's', 'h', '-', 'e', 'd', 'g', 'e', '/', '1'};
+            16,
+            'r',
+            'e',
+            'a',
+            'l',
+            'm',
+            'm',
+            'e',
+            's',
+            'h',
+            '-',
+            'e',
+            'd',
+            'g',
+            'e',
+            '/',
+            '1'};
         if (!ssl_ || SSL_set_fd(ssl_.get(), descriptor_) != 1 ||
             SSL_set_tlsext_host_name(ssl_.get(), "localhost") != 1 ||
             SSL_set1_host(ssl_.get(), "localhost") != 1 ||
@@ -66,7 +82,9 @@ public:
         }
     }
 
-    ~TlsClient() { if (descriptor_ >= 0) ::close(descriptor_); }
+    ~TlsClient() {
+        if (descriptor_ >= 0) ::close(descriptor_);
+    }
     TlsClient(const TlsClient&) = delete;
     TlsClient& operator=(const TlsClient&) = delete;
 
@@ -124,10 +142,11 @@ network::TransportConfig tls_transport() {
         .listen_port = 0,
         .max_sessions = 16,
         .max_payload_size = 1024,
-        .tls = network::TransportConfig::TlsServerIdentity{
-            .certificate_chain_file = REALMMESH_TEST_TLS_CERTIFICATE,
-            .private_key_file = REALMMESH_TEST_TLS_PRIVATE_KEY,
-        },
+        .tls =
+            network::TransportConfig::TlsServerIdentity{
+                .certificate_chain_file = REALMMESH_TEST_TLS_CERTIFICATE,
+                .private_key_file = REALMMESH_TEST_TLS_PRIVATE_KEY,
+            },
     };
 }
 
@@ -162,11 +181,10 @@ TEST(GatewayRuntimeTest, AtomicallyRespondsAndPromotesAPendingConnection) {
     const auto accepted = bytes("accepted");
     EXPECT_EQ(
         runtime.try_accept_connection(
-            message->transport_name,
-            message->transport_session_id,
-            accepted),
+            message->transport_name, message->transport_session_id, accepted),
         QueueResult::Queued);
-    EXPECT_EQ(client.receive(codec.encode(accepted).size()), codec.encode(accepted));
+    EXPECT_EQ(
+        client.receive(codec.encode(accepted).size()), codec.encode(accepted));
 
     std::optional<GatewayEvent> promoted;
     while (std::chrono::steady_clock::now() < deadline && !promoted) {
@@ -182,7 +200,8 @@ TEST(GatewayRuntimeTest, AtomicallyRespondsAndPromotesAPendingConnection) {
     EXPECT_EQ(
         runtime.try_send(*promoted->client_session_id, payload),
         QueueResult::Queued);
-    EXPECT_EQ(client.receive(codec.encode(payload).size()), codec.encode(payload));
+    EXPECT_EQ(
+        client.receive(codec.encode(payload).size()), codec.encode(payload));
     EXPECT_EQ(runtime.stats().successful_deliveries, 2U);
     runtime.stop();
 }

@@ -10,8 +10,7 @@ GatewayRuntime::GatewayRuntime(GatewayConfig config)
     : GatewayRuntime(config, config.runtime) {}
 
 GatewayRuntime::GatewayRuntime(
-    GatewayConfig config,
-    GatewayRuntimeOptions options)
+    GatewayConfig config, GatewayRuntimeOptions options)
     : server_(std::move(config)),
       options_(options),
       local_port_(server_.local_port()),
@@ -19,16 +18,15 @@ GatewayRuntime::GatewayRuntime(
       inbound_(options_.inbound_capacity),
       outbound_(options_.outbound_capacity) {
     if (options_.max_commands_per_cycle == 0) {
-        throw std::invalid_argument("max commands per I/O cycle must be positive");
+        throw std::invalid_argument(
+            "max commands per I/O cycle must be positive");
     }
     if (options_.io_poll_interval <= std::chrono::milliseconds::zero()) {
         throw std::invalid_argument("I/O poll interval must be positive");
     }
 }
 
-GatewayRuntime::~GatewayRuntime() {
-    stop();
-}
+GatewayRuntime::~GatewayRuntime() { stop(); }
 
 void GatewayRuntime::start() {
     bool expected = false;
@@ -53,9 +51,7 @@ void GatewayRuntime::stop() noexcept {
     }
 }
 
-bool GatewayRuntime::running() const noexcept {
-    return running_.load();
-}
+bool GatewayRuntime::running() const noexcept { return running_.load(); }
 
 std::uint16_t GatewayRuntime::local_port() const noexcept {
     return local_port_;
@@ -64,8 +60,7 @@ std::uint16_t GatewayRuntime::local_port() const noexcept {
 std::optional<network::TransportEndpoint> GatewayRuntime::local_endpoint(
     std::string_view transport_name) const {
     const auto iterator = std::ranges::find_if(
-        local_endpoints_,
-        [transport_name](const auto& endpoint) {
+        local_endpoints_, [transport_name](const auto& endpoint) {
             return endpoint.name == transport_name;
         });
     if (iterator == local_endpoints_.end()) {
@@ -88,8 +83,7 @@ std::vector<GatewayEvent> GatewayRuntime::drain_events(std::size_t max_events) {
 }
 
 QueueResult GatewayRuntime::try_send(
-    ClientSessionId client_session_id,
-    std::span<const std::byte> payload) {
+    ClientSessionId client_session_id, std::span<const std::byte> payload) {
     return enqueue({
         .kind = CommandKind::SendClient,
         .client_session_id = client_session_id,
@@ -126,8 +120,7 @@ QueueResult GatewayRuntime::try_accept_connection(
 }
 
 QueueResult GatewayRuntime::try_close_channel(
-    std::string_view transport_name,
-    network::SessionId transport_session_id) {
+    std::string_view transport_name, network::SessionId transport_session_id) {
     return enqueue({
         .kind = CommandKind::CloseChannel,
         .client_session_id = invalid_client_session_id,
@@ -206,8 +199,8 @@ void GatewayRuntime::process_outbound_commands() {
 void GatewayRuntime::process_command(OutboundCommand command) {
     switch (command.kind) {
     case CommandKind::SendClient: {
-        const auto result = server_.send(
-            command.client_session_id, command.payload);
+        const auto result =
+            server_.send(command.client_session_id, command.payload);
         if (result == SendResult::Sent) {
             successful_deliveries_.fetch_add(1);
         } else {
@@ -236,8 +229,7 @@ void GatewayRuntime::process_command(OutboundCommand command) {
             break;
         }
         const auto client_id = server_.promote_connection(
-            command.transport_name,
-            command.transport_session_id);
+            command.transport_name, command.transport_session_id);
         const auto endpoint = server_.local_endpoint(command.transport_name);
         if (!client_id.has_value() || !endpoint.has_value()) {
             failed_deliveries_.fetch_add(1);
@@ -258,8 +250,7 @@ void GatewayRuntime::process_command(OutboundCommand command) {
     }
     case CommandKind::CloseChannel:
         if (!server_.close_channel(
-                command.transport_name,
-                command.transport_session_id)) {
+                command.transport_name, command.transport_session_id)) {
             failed_deliveries_.fetch_add(1);
         }
         break;
@@ -281,8 +272,8 @@ void GatewayRuntime::publish_event(GatewayEvent event) {
 
     if (kind != GatewayEventKind::ConnectionClosed) {
         overload_disconnects_.fetch_add(1);
-        static_cast<void>(server_.close_channel(
-            transport_name, transport_session_id));
+        static_cast<void>(
+            server_.close_channel(transport_name, transport_session_id));
     }
 }
 

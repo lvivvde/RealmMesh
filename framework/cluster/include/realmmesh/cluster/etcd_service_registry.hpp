@@ -49,8 +49,7 @@ public:
     [[nodiscard]] std::vector<ServiceInstance> discover(
         ServiceType type) const override;
     [[nodiscard]] WatchId watch(
-        ServiceType type,
-        ServiceEventHandler handler) override;
+        ServiceType type, ServiceEventHandler handler) override;
     [[nodiscard]] bool cancel_watch(WatchId watch_id) override;
 
     void poll_once();

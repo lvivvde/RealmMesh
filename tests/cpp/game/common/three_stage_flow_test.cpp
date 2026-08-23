@@ -2,8 +2,8 @@
 #include "realmmesh/network/codec/length_field_codec.hpp"
 
 #include <gtest/gtest.h>
-#include <nlohmann/json.hpp>
 #include <openssl/ssl.h>
+#include <nlohmann/json.hpp>
 
 #include <arpa/inet.h>
 #include <signal.h>
@@ -12,15 +12,15 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
-#include <chrono>
 #include <array>
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
-#include <optional>
 #include <memory>
+#include <optional>
 #include <span>
 #include <sstream>
 #include <stdexcept>
@@ -74,8 +74,9 @@ public:
         : path_(
               std::filesystem::temp_directory_path() /
               ("realmmesh-three-stage-" +
-               std::to_string(
-                   std::chrono::steady_clock::now().time_since_epoch().count()))) {
+               std::to_string(std::chrono::steady_clock::now()
+                                  .time_since_epoch()
+                                  .count()))) {
         std::filesystem::create_directories(path_);
     }
 
@@ -100,8 +101,7 @@ private:
 }
 
 [[nodiscard]] std::optional<std::string> correlation_for_event(
-    std::string_view contents,
-    std::string_view event_name) {
+    std::string_view contents, std::string_view event_name) {
     std::istringstream input{std::string(contents)};
     std::string line;
     while (std::getline(input, line)) {
@@ -130,9 +130,7 @@ private:
     }
     socklen_t size = sizeof(address);
     if (::getsockname(
-            descriptor,
-            reinterpret_cast<sockaddr*>(&address),
-            &size) != 0) {
+            descriptor, reinterpret_cast<sockaddr*>(&address), &size) != 0) {
         ::close(descriptor);
         throw std::runtime_error("getsockname failed");
     }
@@ -145,7 +143,8 @@ void replace_all(
     std::string_view original,
     std::string_view replacement) {
     std::size_t position = 0;
-    while ((position = contents.find(original, position)) != std::string::npos) {
+    while ((position = contents.find(original, position)) !=
+           std::string::npos) {
         contents.replace(position, original.size(), replacement);
         position += replacement.size();
     }
@@ -154,9 +153,10 @@ void replace_all(
 [[nodiscard]] std::filesystem::path write_test_config(
     const std::filesystem::path& directory,
     std::string_view name,
-    std::initializer_list<std::pair<std::string_view, std::string>> replacements) {
+    std::initializer_list<std::pair<std::string_view, std::string>>
+        replacements) {
     const auto source = std::filesystem::path(REALMMESH_TEST_SOURCE_DIR) /
-        "lua/config/services" / (std::string(name) + ".lua");
+                        "lua/config/services" / (std::string(name) + ".lua");
     auto contents = read_file(source);
     if (contents.empty()) throw std::runtime_error("test config is empty");
     for (const auto& [original, replacement] : replacements) {
@@ -179,7 +179,9 @@ struct SslDeleter {
 class TlsSocket final {
 public:
     TlsSocket(int descriptor, SSL_CTX* context, SSL* ssl)
-        : descriptor_(descriptor), context_(context), ssl_(ssl) {}
+        : descriptor_(descriptor),
+          context_(context),
+          ssl_(ssl) {}
     ~TlsSocket() {
         ssl_.reset();
         context_.reset();
@@ -206,8 +208,10 @@ std::optional<TlsSocket> try_connect(std::uint16_t port) {
     address.sin_family = AF_INET;
     address.sin_port = htons(port);
     address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-    if (::connect(descriptor, reinterpret_cast<const sockaddr*>(&address),
-                  sizeof(address)) < 0) {
+    if (::connect(
+            descriptor,
+            reinterpret_cast<const sockaddr*>(&address),
+            sizeof(address)) < 0) {
         ::close(descriptor);
         return std::nullopt;
     }
@@ -226,7 +230,23 @@ std::optional<TlsSocket> try_connect(std::uint16_t port) {
     SSL_CTX_set_verify(context, SSL_VERIFY_PEER, nullptr);
     auto* ssl = SSL_new(context);
     const std::array<unsigned char, 17> alpn{
-        16, 'r', 'e', 'a', 'l', 'm', 'm', 'e', 's', 'h', '-', 'e', 'd', 'g', 'e', '/', '1'};
+        16,
+        'r',
+        'e',
+        'a',
+        'l',
+        'm',
+        'm',
+        'e',
+        's',
+        'h',
+        '-',
+        'e',
+        'd',
+        'g',
+        'e',
+        '/',
+        '1'};
     if (ssl == nullptr || SSL_set_fd(ssl, descriptor) != 1 ||
         SSL_set_tlsext_host_name(ssl, "localhost") != 1 ||
         SSL_set1_host(ssl, "localhost") != 1 ||
@@ -256,7 +276,8 @@ void send_all(SSL* ssl, std::span<const std::byte> bytes) {
     while (offset < bytes.size()) {
         std::size_t sent = 0;
         if (SSL_write_ex(
-                ssl, bytes.data() + offset, bytes.size() - offset, &sent) != 1) {
+                ssl, bytes.data() + offset, bytes.size() - offset, &sent) !=
+            1) {
             throw std::runtime_error("TLS send failed");
         }
         offset += sent;
@@ -324,27 +345,25 @@ TEST(ThreeStageFlowTest, LogsInSelectsACharacterAndEntersTheGateway) {
         "0102030405060708090a0b0c0d0e0f10"
         "1112131415161718191a1b1c1d1e1f20";
     ASSERT_EQ(::setenv("REALMMESH_SESSION_TICKET_KEY", key, 1), 0);
-    ASSERT_EQ(::setenv(
-        "REALMMESH_TLS_CERTIFICATE_FILE",
-        REALMMESH_TEST_TLS_CERTIFICATE,
-        1), 0);
-    ASSERT_EQ(::setenv(
-        "REALMMESH_TLS_PRIVATE_KEY_FILE",
-        REALMMESH_TEST_TLS_PRIVATE_KEY,
-        1), 0);
+    ASSERT_EQ(
+        ::setenv(
+            "REALMMESH_TLS_CERTIFICATE_FILE",
+            REALMMESH_TEST_TLS_CERTIFICATE,
+            1),
+        0);
+    ASSERT_EQ(
+        ::setenv(
+            "REALMMESH_TLS_PRIVATE_KEY_FILE",
+            REALMMESH_TEST_TLS_PRIVATE_KEY,
+            1),
+        0);
 
     ChildProcess gateway(
-        REALMMESH_GATEWAY_EXECUTABLE,
-        working_directory.path(),
-        gateway_config);
+        REALMMESH_GATEWAY_EXECUTABLE, working_directory.path(), gateway_config);
     ChildProcess realm(
-        REALMMESH_REALM_EXECUTABLE,
-        working_directory.path(),
-        realm_config);
+        REALMMESH_REALM_EXECUTABLE, working_directory.path(), realm_config);
     ChildProcess login(
-        REALMMESH_LOGIN_EXECUTABLE,
-        working_directory.path(),
-        login_config);
+        REALMMESH_LOGIN_EXECUTABLE, working_directory.path(), login_config);
 
     auto login_socket = connect_when_ready(login_port);
     LoginRequest login_request;
@@ -384,12 +403,13 @@ TEST(ThreeStageFlowTest, LogsInSelectsACharacterAndEntersTheGateway) {
     ASSERT_TRUE(enter.has_value());
     ASSERT_EQ(enter->gateway_endpoints_size(), 2);
     const auto& tcp_gateway = enter->gateway_endpoints(1);
-    EXPECT_EQ(tcp_gateway.protocol(),
-              ::realmmesh::protocol::edge::v1::TRANSPORT_PROTOCOL_TLS_TCP);
+    EXPECT_EQ(
+        tcp_gateway.protocol(),
+        ::realmmesh::protocol::edge::v1::TRANSPORT_PROTOCOL_TLS_TCP);
     EXPECT_EQ(tcp_gateway.port(), gateway_port);
 
-    auto gateway_socket = connect_when_ready(
-        static_cast<std::uint16_t>(tcp_gateway.port()));
+    auto gateway_socket =
+        connect_when_ready(static_cast<std::uint16_t>(tcp_gateway.port()));
     EnterGame enter_game;
     enter_game.set_enter_game_ticket(enter->enter_game_ticket());
     send_message(gateway_socket, encode(enter_game, 4));
@@ -405,28 +425,30 @@ TEST(ThreeStageFlowTest, LogsInSelectsACharacterAndEntersTheGateway) {
     gateway.stop();
 
     const auto login_log = read_file(
-        working_directory.path() /
-        ".runtime/logs/login/login-dev-01.jsonl");
+        working_directory.path() / ".runtime/logs/login/login-dev-01.jsonl");
     const auto realm_log = read_file(
-        working_directory.path() /
-        ".runtime/logs/realm/realm-dev-01.jsonl");
+        working_directory.path() / ".runtime/logs/realm/realm-dev-01.jsonl");
     const auto gateway_log = read_file(
         working_directory.path() /
         ".runtime/logs/gateway/gateway-dev-01.jsonl");
-    EXPECT_NE(login_log.find("\"event_name\":\"service_started\""),
-              std::string::npos);
-    EXPECT_NE(login_log.find("\"event_name\":\"service_stopped\""),
-              std::string::npos);
-    EXPECT_NE(realm_log.find("\"event_name\":\"service_started\""),
-              std::string::npos);
-    EXPECT_NE(gateway_log.find("\"event_name\":\"service_started\""),
-              std::string::npos);
-    const auto login_correlation = correlation_for_event(
-        login_log, "player_session_established");
-    const auto realm_correlation = correlation_for_event(
-        realm_log, "player_session_established");
-    const auto gateway_correlation = correlation_for_event(
-        gateway_log, "player_session_established");
+    EXPECT_NE(
+        login_log.find("\"event_name\":\"service_started\""),
+        std::string::npos);
+    EXPECT_NE(
+        login_log.find("\"event_name\":\"service_stopped\""),
+        std::string::npos);
+    EXPECT_NE(
+        realm_log.find("\"event_name\":\"service_started\""),
+        std::string::npos);
+    EXPECT_NE(
+        gateway_log.find("\"event_name\":\"service_started\""),
+        std::string::npos);
+    const auto login_correlation =
+        correlation_for_event(login_log, "player_session_established");
+    const auto realm_correlation =
+        correlation_for_event(realm_log, "player_session_established");
+    const auto gateway_correlation =
+        correlation_for_event(gateway_log, "player_session_established");
     ASSERT_TRUE(login_correlation.has_value());
     ASSERT_TRUE(realm_correlation.has_value());
     ASSERT_TRUE(gateway_correlation.has_value());

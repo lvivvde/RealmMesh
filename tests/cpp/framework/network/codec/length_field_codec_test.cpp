@@ -1,5 +1,5 @@
-#include "realmmesh/network/core/byte_buffer.hpp"
 #include "realmmesh/network/codec/length_field_codec.hpp"
+#include "realmmesh/network/core/byte_buffer.hpp"
 
 #include <gtest/gtest.h>
 
@@ -27,9 +27,10 @@ std::vector<std::byte> bytes(std::string_view text) {
 std::string text(std::span<const std::byte> data) {
     std::string result;
     result.reserve(data.size());
-    std::ranges::transform(data, std::back_inserter(result), [](std::byte value) {
-        return static_cast<char>(value);
-    });
+    std::ranges::transform(
+        data, std::back_inserter(result), [](std::byte value) {
+            return static_cast<char>(value);
+        });
     return result;
 }
 
@@ -38,8 +39,13 @@ TEST(LengthFieldCodecTest, EncodesFourByteBigEndianLength) {
     const auto encoded = codec.encode(bytes("abc"));
 
     const std::vector<std::byte> expected{
-        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x03},
-        std::byte{'a'}, std::byte{'b'}, std::byte{'c'},
+        std::byte{0x00},
+        std::byte{0x00},
+        std::byte{0x00},
+        std::byte{0x03},
+        std::byte{'a'},
+        std::byte{'b'},
+        std::byte{'c'},
     };
     EXPECT_EQ(encoded, expected);
 }
@@ -98,7 +104,10 @@ TEST(LengthFieldCodecTest, ReportsOversizedFrameWithoutAllocatingPayload) {
     const LengthFieldCodec codec(4);
     ByteBuffer buffer;
     const std::vector<std::byte> oversized_header{
-        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x05},
+        std::byte{0x00},
+        std::byte{0x00},
+        std::byte{0x00},
+        std::byte{0x05},
     };
     buffer.append(oversized_header);
 

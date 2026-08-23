@@ -1,0 +1,43 @@
+# RealmMesh C++ 格式化配置
+# 风格基准:Google + 4 空格缩进,基于现有代码实测校准。
+# 需要 clang-format >= 14(AlignAfterOpenBracket: AlwaysBreak 起始版本)。
+---
+BasedOnStyle: Google
+Standard: c++20
+
+# 缩进
+IndentWidth: 4
+AccessModifierOffset: -4
+IndentCaseLabels: false
+ConstructorInitializerIndentWidth: 4
+NamespaceIndentation: None
+IndentPPDirectives: None
+
+# 行宽
+ColumnLimit: 80
+
+# 大括号:同行开始;短函数可单行;lambda 一律多行
+BreakBeforeBraces: Attach
+AllowShortFunctionsOnASingleLine: All
+AllowShortIfStatementsOnASingleLine: WithoutElse
+AllowShortLambdasOnASingleLine: None
+
+# 参数与实参:每行一个,不打包;括号内放不下时在 ( 后断行悬挂缩进
+AlignAfterOpenBracket: AlwaysBreak
+BinPackParameters: false
+BinPackArguments: false
+PackConstructorInitializers: Never
+
+# 指针/引用均左对齐(int* p、T& r)
+DerivePointerAlignment: false
+PointerAlignment: Left
+ReferenceAlignment: Left
+
+# 头文件:保留空行分块,块内按大小写敏感排序
+IncludeBlocks: Preserve
+SortIncludes: CaseSensitive
+
+# 其他
+FixNamespaceComments: true
+InsertBraces: false
+BreakStringLiterals: false

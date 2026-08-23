@@ -1,5 +1,5 @@
-#include "realmmesh/network/reactor/epoll_event_loop.hpp"
 #include "realmmesh/network/tcp/tcp_listener.hpp"
+#include "realmmesh/network/reactor/epoll_event_loop.hpp"
 
 #include <gtest/gtest.h>
 
@@ -19,7 +19,8 @@ namespace {
 
 class SocketGuard final {
 public:
-    explicit SocketGuard(int descriptor) : descriptor_(descriptor) {}
+    explicit SocketGuard(int descriptor)
+        : descriptor_(descriptor) {}
     ~SocketGuard() {
         if (descriptor_ >= 0) {
             ::close(descriptor_);
@@ -85,9 +86,10 @@ TEST(EpollEventLoopTest, ReportsListenerAsReadableWhenClientConnects) {
     const SocketGuard client(connect_to_loopback(listener.local_port()));
     const auto events = event_loop.wait(500ms);
 
-    const auto event = std::ranges::find_if(events, [&listener](const ReadyEvent& value) {
-        return value.descriptor == listener.native_handle();
-    });
+    const auto event =
+        std::ranges::find_if(events, [&listener](const ReadyEvent& value) {
+            return value.descriptor == listener.native_handle();
+        });
     ASSERT_NE(event, events.end());
     EXPECT_TRUE(event->readable);
     EXPECT_FALSE(event->writable);

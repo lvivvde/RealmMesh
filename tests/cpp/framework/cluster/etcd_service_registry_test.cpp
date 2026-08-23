@@ -69,23 +69,20 @@ std::string base64(std::string_view input) {
     for (std::size_t offset = 0; offset < input.size(); offset += 3U) {
         const auto first = static_cast<unsigned char>(input[offset]);
         const auto second = offset + 1U < input.size()
-            ? static_cast<unsigned char>(input[offset + 1U])
-            : 0U;
+                                ? static_cast<unsigned char>(input[offset + 1U])
+                                : 0U;
         const auto third = offset + 2U < input.size()
-            ? static_cast<unsigned char>(input[offset + 2U])
-            : 0U;
-        const auto value =
-            (static_cast<std::uint32_t>(first) << 16U) |
-            (static_cast<std::uint32_t>(second) << 8U) |
-            static_cast<std::uint32_t>(third);
+                               ? static_cast<unsigned char>(input[offset + 2U])
+                               : 0U;
+        const auto value = (static_cast<std::uint32_t>(first) << 16U) |
+                           (static_cast<std::uint32_t>(second) << 8U) |
+                           static_cast<std::uint32_t>(third);
         output.push_back(alphabet[(value >> 18U) & 0x3FU]);
         output.push_back(alphabet[(value >> 12U) & 0x3FU]);
-        output.push_back(offset + 1U < input.size()
-                             ? alphabet[(value >> 6U) & 0x3FU]
-                             : '=');
-        output.push_back(offset + 2U < input.size()
-                             ? alphabet[value & 0x3FU]
-                             : '=');
+        output.push_back(
+            offset + 1U < input.size() ? alphabet[(value >> 6U) & 0x3FU] : '=');
+        output.push_back(
+            offset + 2U < input.size() ? alphabet[value & 0x3FU] : '=');
     }
     return output;
 }
@@ -106,20 +103,21 @@ ServiceInstance gateway_instance() {
         .instance_id = "gateway-01",
         .node_id = "node-01",
         .zone = "development",
-        .endpoints = {
+        .endpoints =
             {
-                .name = "client_quic",
-                .protocol = network::TransportProtocol::Quic,
-                .address = "127.0.0.1",
-                .port = 8000,
+                {
+                    .name = "client_quic",
+                    .protocol = network::TransportProtocol::Quic,
+                    .address = "127.0.0.1",
+                    .port = 8000,
+                },
+                {
+                    .name = "client_tls_tcp",
+                    .protocol = network::TransportProtocol::TlsTcp,
+                    .address = "127.0.0.1",
+                    .port = 8000,
+                },
             },
-            {
-                .name = "client_tls_tcp",
-                .protocol = network::TransportProtocol::TlsTcp,
-                .address = "127.0.0.1",
-                .port = 8000,
-            },
-        },
         .weight = 100,
         .version = "0.1.0",
     };
@@ -127,27 +125,29 @@ ServiceInstance gateway_instance() {
 
 std::string encoded_gateway_value() {
     return base64(Json({
-        {"type", "gateway"},
-        {"instance_id", "gateway-01"},
-        {"node_id", "node-01"},
-        {"zone", "development"},
-        {"endpoints", Json::array({
-            {
-                {"name", "client_quic"},
-                {"protocol", "quic"},
-                {"address", "127.0.0.1"},
-                {"port", 8000},
-            },
-            {
-                {"name", "client_tls_tcp"},
-                {"protocol", "tls_tcp"},
-                {"address", "127.0.0.1"},
-                {"port", 8000},
-            },
-        })},
-        {"weight", 100},
-        {"version", "0.1.0"},
-    }).dump());
+                           {"type", "gateway"},
+                           {"instance_id", "gateway-01"},
+                           {"node_id", "node-01"},
+                           {"zone", "development"},
+                           {"endpoints",
+                            Json::array({
+                                {
+                                    {"name", "client_quic"},
+                                    {"protocol", "quic"},
+                                    {"address", "127.0.0.1"},
+                                    {"port", 8000},
+                                },
+                                {
+                                    {"name", "client_tls_tcp"},
+                                    {"protocol", "tls_tcp"},
+                                    {"address", "127.0.0.1"},
+                                    {"port", 8000},
+                                },
+                            })},
+                           {"weight", 100},
+                           {"version", "0.1.0"},
+                       })
+                      .dump());
 }
 
 TEST(EtcdServiceRegistryTest, RegistersRefreshesAndRevokesLeasedInstance) {
@@ -174,8 +174,7 @@ TEST(EtcdServiceRegistryTest, RegistersRefreshesAndRevokesLeasedInstance) {
     ASSERT_EQ(requests.size(), 6U);
     EXPECT_EQ(requests[0].at("TTL"), "9");
     EXPECT_EQ(
-        requests[1].at("success").at(0).at("requestPut").at("lease"),
-        "11");
+        requests[1].at("success").at(0).at("requestPut").at("lease"), "11");
     EXPECT_EQ(requests[3].at("lease"), "12");
     EXPECT_EQ(requests[4].at("ID"), "11");
     EXPECT_EQ(requests[5].at("ID"), "12");
@@ -190,8 +189,8 @@ TEST(EtcdServiceRegistryTest, RejectsDuplicateInstanceAtomically) {
     });
     EtcdServiceRegistry registry(test_options(), http);
 
-    const auto result =
-        registry.register_instance(gateway_instance(), std::chrono::seconds(10));
+    const auto result = registry.register_instance(
+        gateway_instance(), std::chrono::seconds(10));
 
     EXPECT_EQ(result.status, RegistryStatus::AlreadyExists);
     EXPECT_EQ(result.id, invalid_registration_id);
@@ -200,9 +199,11 @@ TEST(EtcdServiceRegistryTest, RejectsDuplicateInstanceAtomically) {
 
 TEST(EtcdServiceRegistryTest, DiscoversAndDecodesMultiProtocolEndpoints) {
     using Step = ScriptedEtcdHttpClient::Step;
-    const auto response = Json({
-        {"kvs", Json::array({{{"value", encoded_gateway_value()}}})},
-    }).dump();
+    const auto response =
+        Json({
+                 {"kvs", Json::array({{{"value", encoded_gateway_value()}}})},
+             })
+            .dump();
     auto http = std::make_shared<ScriptedEtcdHttpClient>(std::vector<Step>{
         {"/v3/kv/range", response, {}},
     });
@@ -216,9 +217,11 @@ TEST(EtcdServiceRegistryTest, DiscoversAndDecodesMultiProtocolEndpoints) {
 
 TEST(EtcdServiceRegistryTest, PublishesSnapshotChangesToWatchers) {
     using Step = ScriptedEtcdHttpClient::Step;
-    const auto populated = Json({
-        {"kvs", Json::array({{{"value", encoded_gateway_value()}}})},
-    }).dump();
+    const auto populated =
+        Json({
+                 {"kvs", Json::array({{{"value", encoded_gateway_value()}}})},
+             })
+            .dump();
     auto http = std::make_shared<ScriptedEtcdHttpClient>(std::vector<Step>{
         {"/v3/kv/range", R"({"kvs":[]})", {}},
         {"/v3/kv/range", populated, {}},
@@ -227,15 +230,19 @@ TEST(EtcdServiceRegistryTest, PublishesSnapshotChangesToWatchers) {
     EtcdServiceRegistry registry(test_options(), http);
     std::vector<ServiceEvent> events;
     const auto watch = registry.watch(
-        ServiceType::Gateway,
-        [&events](const ServiceEvent& event) { events.push_back(event); });
+        ServiceType::Gateway, [&events](const ServiceEvent& event) {
+            events.push_back(event);
+        });
 
     registry.poll_once();
     registry.poll_once();
 
     ASSERT_EQ(events.size(), 2U);
-    EXPECT_EQ(events[0], (ServiceEvent{ServiceEventKind::Added, gateway_instance()}));
-    EXPECT_EQ(events[1], (ServiceEvent{ServiceEventKind::Removed, gateway_instance()}));
+    EXPECT_EQ(
+        events[0], (ServiceEvent{ServiceEventKind::Added, gateway_instance()}));
+    EXPECT_EQ(
+        events[1],
+        (ServiceEvent{ServiceEventKind::Removed, gateway_instance()}));
     EXPECT_TRUE(registry.cancel_watch(watch));
     EXPECT_TRUE(http->complete());
 }

@@ -37,9 +37,7 @@ FrameScheduler::FrameScheduler(std::uint32_t tick_rate, IFrameClock& clock)
       frame_duration_(calculate_frame_duration(tick_rate)),
       clock_(clock) {}
 
-std::uint32_t FrameScheduler::tick_rate() const noexcept {
-    return tick_rate_;
-}
+std::uint32_t FrameScheduler::tick_rate() const noexcept { return tick_rate_; }
 
 std::chrono::nanoseconds FrameScheduler::frame_duration() const noexcept {
     return frame_duration_;

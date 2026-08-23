@@ -12,14 +12,18 @@ namespace {
 class ScopedTlsEnvironment final {
 public:
     ScopedTlsEnvironment() {
-        EXPECT_EQ(::setenv(
-            "REALMMESH_TLS_CERTIFICATE_FILE",
-            REALMMESH_TEST_TLS_CERTIFICATE,
-            1), 0);
-        EXPECT_EQ(::setenv(
-            "REALMMESH_TLS_PRIVATE_KEY_FILE",
-            REALMMESH_TEST_TLS_PRIVATE_KEY,
-            1), 0);
+        EXPECT_EQ(
+            ::setenv(
+                "REALMMESH_TLS_CERTIFICATE_FILE",
+                REALMMESH_TEST_TLS_CERTIFICATE,
+                1),
+            0);
+        EXPECT_EQ(
+            ::setenv(
+                "REALMMESH_TLS_PRIVATE_KEY_FILE",
+                REALMMESH_TEST_TLS_PRIVATE_KEY,
+                1),
+            0);
     }
     ~ScopedTlsEnvironment() {
         static_cast<void>(::unsetenv("REALMMESH_TLS_CERTIFICATE_FILE"));
@@ -48,8 +52,7 @@ TEST(GatewayConfigLoaderTest, LoadsQuicPrimaryAndTlsTcpFallbackFromLua) {
         config.logging.module_levels.at("framework.network"),
         observability::Severity::Warn);
     ASSERT_EQ(config.logging.sample_rates.size(), 1U);
-    EXPECT_DOUBLE_EQ(
-        config.logging.sample_rates.at("malformed_request"), 0.1);
+    EXPECT_DOUBLE_EQ(config.logging.sample_rates.at("malformed_request"), 0.1);
     EXPECT_EQ(config.logging_metrics.listen_address, "127.0.0.1");
     EXPECT_EQ(config.logging_metrics.port, 9103U);
     EXPECT_EQ(config.logging_identity.environment, "development");
@@ -73,10 +76,8 @@ TEST(GatewayConfigLoaderTest, LoadsQuicPrimaryAndTlsTcpFallbackFromLua) {
     ASSERT_TRUE(quic.tls.has_value());
     ASSERT_TRUE(tls_tcp.tls.has_value());
     EXPECT_EQ(quic.tls->alpn, "realmmesh-edge/1");
-    EXPECT_EQ(quic.tls->certificate_chain_file,
-              REALMMESH_TEST_TLS_CERTIFICATE);
-    EXPECT_EQ(tls_tcp.tls->private_key_file,
-              REALMMESH_TEST_TLS_PRIVATE_KEY);
+    EXPECT_EQ(quic.tls->certificate_chain_file, REALMMESH_TEST_TLS_CERTIFICATE);
+    EXPECT_EQ(tls_tcp.tls->private_key_file, REALMMESH_TEST_TLS_PRIVATE_KEY);
 }
 
 }  // namespace

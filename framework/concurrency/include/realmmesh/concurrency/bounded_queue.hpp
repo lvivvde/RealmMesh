@@ -14,9 +14,11 @@ namespace realm::concurrency {
 template <typename T>
 class BoundedQueue final {
 public:
-    explicit BoundedQueue(std::size_t capacity) : capacity_(capacity) {
+    explicit BoundedQueue(std::size_t capacity)
+        : capacity_(capacity) {
         if (capacity_ == 0) {
-            throw std::invalid_argument("bounded queue capacity must be positive");
+            throw std::invalid_argument(
+                "bounded queue capacity must be positive");
         }
     }
 

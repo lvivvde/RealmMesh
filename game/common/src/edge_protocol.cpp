@@ -34,7 +34,8 @@ bool is_known_message_id(std::uint32_t value) {
 
 std::optional<common_v1::Envelope> parse_envelope(
     std::span<const std::byte> payload) {
-    if (payload.size() > static_cast<std::size_t>(std::numeric_limits<int>::max())) {
+    if (payload.size() >
+        static_cast<std::size_t>(std::numeric_limits<int>::max())) {
         return std::nullopt;
     }
 
@@ -68,15 +69,14 @@ std::vector<std::byte> encode_message(
     if (!envelope.SerializeToString(&serialized_envelope)) {
         throw std::runtime_error("failed to serialize edge protobuf envelope");
     }
-    const auto* begin = reinterpret_cast<const std::byte*>(
-        serialized_envelope.data());
+    const auto* begin =
+        reinterpret_cast<const std::byte*>(serialized_envelope.data());
     return {begin, begin + serialized_envelope.size()};
 }
 
 template <typename Message>
 std::optional<Message> decode_message(
-    std::span<const std::byte> payload,
-    EdgeMessageId expected_message_id) {
+    std::span<const std::byte> payload, EdgeMessageId expected_message_id) {
     const auto envelope = parse_envelope(payload);
     if (!envelope.has_value() ||
         envelope->message_id() !=
@@ -161,7 +161,8 @@ std::vector<std::byte> encode(
 
 std::vector<std::byte> encode(
     const EnterGame& message, std::uint64_t request_id) {
-    return encode_message(message, edge_v1::MESSAGE_ID_C2S_ENTER_GAME, request_id);
+    return encode_message(
+        message, edge_v1::MESSAGE_ID_C2S_ENTER_GAME, request_id);
 }
 
 std::vector<std::byte> encode(
@@ -223,8 +224,7 @@ std::optional<HeartbeatResponse> decode_heartbeat_response(
         payload, edge_v1::MESSAGE_ID_S2C_HEARTBEAT_RESPONSE);
 }
 
-std::optional<EnterGame> decode_enter_game(
-    std::span<const std::byte> payload) {
+std::optional<EnterGame> decode_enter_game(std::span<const std::byte> payload) {
     return decode_message<EnterGame>(
         payload, edge_v1::MESSAGE_ID_C2S_ENTER_GAME);
 }
@@ -235,8 +235,7 @@ std::optional<EnterGameAccepted> decode_enter_game_accepted(
         payload, edge_v1::MESSAGE_ID_S2C_ENTER_GAME_ACCEPTED);
 }
 
-std::optional<EdgeError> decode_edge_error(
-    std::span<const std::byte> payload) {
+std::optional<EdgeError> decode_edge_error(std::span<const std::byte> payload) {
     return decode_message<EdgeError>(payload, edge_v1::MESSAGE_ID_S2C_ERROR);
 }
 

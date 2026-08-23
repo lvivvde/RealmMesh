@@ -21,10 +21,11 @@ TEST(TransportFactoryTest, CreatesOnlyEnabledSecureTransports) {
             .protocol = TransportProtocol::TlsTcp,
             .listen_address = "127.0.0.1",
             .listen_port = 0,
-            .tls = TransportConfig::TlsServerIdentity{
-                .certificate_chain_file = REALMMESH_TEST_TLS_CERTIFICATE,
-                .private_key_file = REALMMESH_TEST_TLS_PRIVATE_KEY,
-            },
+            .tls =
+                TransportConfig::TlsServerIdentity{
+                    .certificate_chain_file = REALMMESH_TEST_TLS_CERTIFICATE,
+                    .private_key_file = REALMMESH_TEST_TLS_PRIVATE_KEY,
+                },
         },
         {
             .name = "client_quic",
@@ -83,11 +84,12 @@ TEST(TransportFactoryTest, RejectsEmptyTlsAlpn) {
         .protocol = TransportProtocol::TlsTcp,
         .listen_address = "127.0.0.1",
         .listen_port = 0,
-        .tls = TransportConfig::TlsServerIdentity{
-            .certificate_chain_file = REALMMESH_TEST_TLS_CERTIFICATE,
-            .private_key_file = REALMMESH_TEST_TLS_PRIVATE_KEY,
-            .alpn = "",
-        },
+        .tls =
+            TransportConfig::TlsServerIdentity{
+                .certificate_chain_file = REALMMESH_TEST_TLS_CERTIFICATE,
+                .private_key_file = REALMMESH_TEST_TLS_PRIVATE_KEY,
+                .alpn = "",
+            },
     }};
     EXPECT_THROW(
         static_cast<void>(TransportFactory::create_enabled(configs)),
