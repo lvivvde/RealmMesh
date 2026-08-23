@@ -30,3 +30,4 @@ compile_commands.json
 *.log
 *.pid
 .superpowers/
+/configs/logs/

@@ -27,6 +27,7 @@ public:
     /// 波次启动;任一失败 → 已启动者反序回收后返回 false。
     /// 波内顺序构造:ServiceHost::start() 非阻塞(runtime 自持 IO 线程),
     /// 语义等同并行,不引入额外线程。
+    /// 一次性语义:成功后二次调用会因端口重复 bind 失败并触发整体 shutdown。
     [[nodiscard]] bool start_all();
 
     /// entry 服务是否允许放行:specs 全部服务均已启动且 ready;

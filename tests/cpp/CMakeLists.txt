@@ -289,6 +289,7 @@ gtest_discover_tests(service_registry_test)
 
 add_executable(service_host_test
     framework/service_host/layered_config_loader_test.cpp
+    framework/service_host/mesh_host_e2e_test.cpp
     framework/service_host/mesh_host_test.cpp
     framework/service_host/service_host_test.cpp
     framework/service_host/startup_topology_test.cpp
@@ -302,6 +303,7 @@ target_link_libraries(service_host_test PRIVATE
 target_compile_features(service_host_test PRIVATE cxx_std_20)
 
 target_compile_definitions(service_host_test PRIVATE
+    REALMMESH_SOURCE_DIR="${PROJECT_SOURCE_DIR}"
     REALMMESH_TEST_TLS_CERTIFICATE="${REALMMESH_TEST_TLS_CERTIFICATE}"
     REALMMESH_TEST_TLS_PRIVATE_KEY="${REALMMESH_TEST_TLS_PRIVATE_KEY}"
 )

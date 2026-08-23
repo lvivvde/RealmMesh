@@ -1,0 +1,40 @@
+return {
+    logging = {
+        service_name = "realm",
+        metrics_listen_address = "127.0.0.1",
+        metrics_port = 9102,
+    },
+    service_discovery = {
+        instance_id = "realm-dev-01",
+        node_id = "development-node",
+        zone = "development",
+        advertise_address = "127.0.0.1",
+    },
+    tick_rate = 20,
+    max_events_per_frame = 4096,
+    downstream_address = "127.0.0.1",
+    downstream_port = 8000,
+    runtime = {
+        inbound_capacity = 16384,
+        outbound_capacity = 16384,
+        max_commands_per_cycle = 4096,
+        io_poll_interval_ms = 2,
+    },
+    transports = {
+        {
+            name = "realm_tls_tcp",
+            protocol = "tls_tcp",
+            enabled = true,
+            listen_address = "0.0.0.0",
+            listen_port = 7100,
+            max_sessions = 10000,
+            max_payload_size = 4096,
+            max_pending_output_bytes = 1048576,
+            handshake_timeout_ms = 3000,
+            idle_timeout_ms = 30000,
+            alpn = "realmmesh-edge/1",
+            certificate_chain_file_environment = "REALMMESH_TLS_CERTIFICATE_FILE",
+            private_key_file_environment = "REALMMESH_TLS_PRIVATE_KEY_FILE",
+        },
+    },
+}

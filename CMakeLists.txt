@@ -29,6 +29,7 @@ add_subdirectory(game/gateway)
 add_subdirectory(apps/login)
 add_subdirectory(apps/realm)
 add_subdirectory(apps/gateway)
+add_subdirectory(apps/mesh_host)
 
 add_executable(realmmesh
     src/main.cpp
