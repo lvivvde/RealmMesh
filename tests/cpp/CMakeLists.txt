@@ -287,6 +287,19 @@ target_compile_features(service_registry_test PRIVATE cxx_std_20)
 
 gtest_discover_tests(service_registry_test)
 
+add_executable(service_host_test
+    framework/service_host/startup_topology_test.cpp
+)
+
+target_link_libraries(service_host_test PRIVATE
+    GTest::gtest_main
+    realm_service_host
+)
+
+target_compile_features(service_host_test PRIVATE cxx_std_20)
+
+gtest_discover_tests(service_host_test)
+
 add_test(
     NAME realmmesh_smoke
     COMMAND realmmesh --frames 2 --tick-rate 1000
