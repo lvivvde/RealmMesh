@@ -1,5 +1,6 @@
 add_library(realm_service_host
     src/layered_config_loader.cpp
+    src/mesh_host.cpp
     src/service_host.cpp
     src/startup_topology.cpp
 )
