@@ -91,11 +91,11 @@ private:
         std::istreambuf_iterator<char>());
 }
 
-/// 拷贝真实 configs 到临时目录后关闭服务发现:
+/// 拷贝真实 configs 到临时目录后确保服务发现关闭:
 /// - LayeredConfigLoader 会把日志写进 <root>/logs/,拷贝避免污染源码树;
 /// - 本环境无 etcd,而发现开启时 ServiceHost 的 ready 语义要求注册成功
-///   (Task 4 契约),start_all 会整体失败,故在拷贝里仅改 discovery.enabled,
-///   其余配置(含全部端口)保持真实值。
+///   (Task 4 契约),start_all 会整体失败;源配置默认 enabled = false,
+///   替换仅为幂等兜底,其余配置(含全部端口)保持真实值。
 [[nodiscard]] bool copy_configs_with_discovery_disabled(
     const std::filesystem::path& source, const std::filesystem::path& target) {
     std::error_code error;
@@ -121,9 +121,12 @@ private:
 
     auto contents = read_file(target / "common" / "discovery.lua");
     constexpr std::string_view enabled_true = "enabled = true";
-    const auto position = contents.find(enabled_true);
-    if (position == std::string::npos) return false;
-    contents.replace(position, enabled_true.size(), "enabled = false");
+    for (auto position = contents.find(enabled_true);
+         position != std::string::npos;
+         position = contents.find(enabled_true)) {
+        contents.replace(position, enabled_true.size(), "enabled = false");
+    }
+    if (contents.find("enabled = false") == std::string::npos) return false;
     std::ofstream output(target / "common" / "discovery.lua", std::ios::trunc);
     output << contents;
     return static_cast<bool>(output);
