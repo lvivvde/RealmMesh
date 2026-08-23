@@ -4,7 +4,7 @@ return {
         metrics_listen_address = "127.0.0.1",
         metrics_port = 9103,
         module_levels = {
-            ["framework.network"] = "warn",
+            ["framework.network"] = "info",
         },
         sample_rates = {
             malformed_request = 0.1,

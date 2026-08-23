@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 
+# 用途：以分布式开发模式分别管理 realm、login、gateway 三个服务进程。
+# 用法：./scripts/dev-services.sh [start|stop|restart|status]（默认 restart）
+
 set -euo pipefail
 
 realmmesh_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

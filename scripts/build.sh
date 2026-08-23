@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 
+# 用途：配置并构建 dev preset，随后运行完整 CTest 测试集。
+# 用法：./scripts/build.sh
+
 set -euo pipefail
 
 project_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

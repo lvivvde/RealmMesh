@@ -186,7 +186,9 @@ add_executable(tls_tcp_transport_test
 )
 target_link_libraries(tls_tcp_transport_test PRIVATE
     GTest::gtest_main
+    nlohmann_json::nlohmann_json
     realm_network
+    RealmMesh::Observability
 )
 target_compile_features(tls_tcp_transport_test PRIVATE cxx_std_20)
 target_compile_definitions(tls_tcp_transport_test PRIVATE
@@ -201,7 +203,9 @@ add_executable(quic_transport_test
 )
 target_link_libraries(quic_transport_test PRIVATE
     GTest::gtest_main
+    nlohmann_json::nlohmann_json
     realm_network
+    RealmMesh::Observability
 )
 target_compile_features(quic_transport_test PRIVATE cxx_std_20)
 target_compile_definitions(quic_transport_test PRIVATE

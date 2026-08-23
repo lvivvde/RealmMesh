@@ -87,8 +87,8 @@ ServiceHost::ServiceHost(
         config.downstream_address,
         config.downstream_port,
         config.max_events_per_frame);
-    runtime_ =
-        std::make_unique<game::gateway::GatewayRuntime>(std::move(config));
+    runtime_ = std::make_unique<game::gateway::GatewayRuntime>(
+        std::move(config), logger_.get());
 }
 
 ServiceHost::~ServiceHost() { stop(); }

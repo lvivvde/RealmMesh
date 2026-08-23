@@ -32,10 +32,12 @@ struct GatewayRuntimeStats {
 
 class GatewayRuntime final {
 public:
-    explicit GatewayRuntime(GatewayConfig config);
+    explicit GatewayRuntime(
+        GatewayConfig config, observability::Logger* logger = nullptr);
     explicit GatewayRuntime(
         GatewayConfig config,
-        GatewayRuntimeOptions options);
+        GatewayRuntimeOptions options,
+        observability::Logger* logger = nullptr);
     ~GatewayRuntime();
 
     GatewayRuntime(const GatewayRuntime&) = delete;
@@ -48,15 +50,15 @@ public:
     [[nodiscard]] std::uint16_t local_port() const noexcept;
     [[nodiscard]] std::optional<network::TransportEndpoint> local_endpoint(
         std::string_view transport_name) const;
-    [[nodiscard]] const std::vector<network::TransportEndpoint>& local_endpoints()
-        const noexcept;
+    [[nodiscard]] const std::vector<network::TransportEndpoint>&
+    local_endpoints() const noexcept;
 
     [[nodiscard]] std::optional<GatewayEvent> try_receive();
-    [[nodiscard]] std::vector<GatewayEvent> drain_events(std::size_t max_events);
+    [[nodiscard]] std::vector<GatewayEvent> drain_events(
+        std::size_t max_events);
 
     [[nodiscard]] QueueResult try_send(
-        ClientSessionId client_session_id,
-        std::span<const std::byte> payload);
+        ClientSessionId client_session_id, std::span<const std::byte> payload);
     [[nodiscard]] QueueResult try_send_channel(
         std::string_view transport_name,
         network::SessionId transport_session_id,

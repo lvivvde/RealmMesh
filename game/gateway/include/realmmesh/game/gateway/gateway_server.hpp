@@ -1,7 +1,7 @@
 #pragma once
 
-#include "realmmesh/game/gateway/client_session_registry.hpp"
 #include "realmmesh/cluster/service_discovery_config.hpp"
+#include "realmmesh/game/gateway/client_session_registry.hpp"
 #include "realmmesh/network/transport/transport_config.hpp"
 #include "realmmesh/observability/logger.hpp"
 
@@ -57,7 +57,8 @@ struct GatewayEvent {
 
 class GatewayServer final {
 public:
-    explicit GatewayServer(GatewayConfig config);
+    explicit GatewayServer(
+        GatewayConfig config, observability::Logger* logger = nullptr);
 
     GatewayServer(const GatewayServer&) = delete;
     GatewayServer& operator=(const GatewayServer&) = delete;
@@ -65,7 +66,8 @@ public:
     [[nodiscard]] std::uint16_t local_port() const noexcept;
     [[nodiscard]] std::optional<network::TransportEndpoint> local_endpoint(
         std::string_view transport_name) const;
-    [[nodiscard]] std::vector<network::TransportEndpoint> local_endpoints() const;
+    [[nodiscard]] std::vector<network::TransportEndpoint> local_endpoints()
+        const;
     [[nodiscard]] std::size_t connection_count() const noexcept;
     [[nodiscard]] std::size_t pending_connection_count() const noexcept;
     [[nodiscard]] std::size_t client_count() const noexcept;
@@ -78,8 +80,7 @@ public:
         network::SessionId transport_session_id);
 
     [[nodiscard]] SendResult send(
-        ClientSessionId client_session_id,
-        std::span<const std::byte> payload);
+        ClientSessionId client_session_id, std::span<const std::byte> payload);
     [[nodiscard]] bool send_channel(
         std::string_view transport_name,
         network::SessionId transport_session_id,

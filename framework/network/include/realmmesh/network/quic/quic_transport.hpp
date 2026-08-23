@@ -4,11 +4,16 @@
 
 #include <memory>
 
+namespace realm::observability {
+class Logger;
+}
+
 namespace realm::network {
 
 class QuicTransport final : public IMessageTransport {
 public:
-    explicit QuicTransport(TransportConfig config);
+    explicit QuicTransport(
+        TransportConfig config, observability::Logger* logger = nullptr);
     ~QuicTransport() override;
 
     QuicTransport(const QuicTransport&) = delete;
@@ -21,8 +26,7 @@ public:
     [[nodiscard]] std::vector<TransportEvent> poll_once(
         std::chrono::milliseconds timeout) override;
     [[nodiscard]] bool send(
-        SessionId session_id,
-        std::span<const std::byte> payload) override;
+        SessionId session_id, std::span<const std::byte> payload) override;
     [[nodiscard]] bool close(SessionId session_id) override;
     [[nodiscard]] bool reload_credentials() override;
 

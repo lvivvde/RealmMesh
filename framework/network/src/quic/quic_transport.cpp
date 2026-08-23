@@ -2,8 +2,11 @@
 
 #include "realmmesh/network/codec/length_field_codec.hpp"
 #include "realmmesh/network/core/byte_buffer.hpp"
+#include "realmmesh/observability/logger.hpp"
 
 #include <msquic.h>
+
+#include <arpa/inet.h>
 
 #include <algorithm>
 #include <atomic>
@@ -28,13 +31,45 @@ void require_success(QUIC_STATUS status, const char* operation) {
     }
 }
 
+struct PeerEndpoint {
+    std::string address;
+    std::uint16_t port{0};
+};
+
+[[nodiscard]] PeerEndpoint peer_endpoint(const QUIC_ADDR* address) noexcept {
+    PeerEndpoint endpoint;
+    if (address == nullptr) {
+        return endpoint;
+    }
+
+    char buffer[INET6_ADDRSTRLEN]{};
+    const auto family = QuicAddrGetFamily(address);
+    const void* source = nullptr;
+    int native_family = AF_UNSPEC;
+    if (family == QUIC_ADDRESS_FAMILY_INET) {
+        native_family = AF_INET;
+        source = &address->Ipv4.sin_addr;
+    } else if (family == QUIC_ADDRESS_FAMILY_INET6) {
+        native_family = AF_INET6;
+        source = &address->Ipv6.sin6_addr;
+    }
+    if (source != nullptr &&
+        ::inet_ntop(native_family, source, buffer, sizeof(buffer)) != nullptr) {
+        endpoint.address = buffer;
+    }
+    endpoint.port = QuicAddrGetPort(address);
+    return endpoint;
+}
+
 }  // namespace
 
 class QuicTransport::Impl final {
 public:
-    explicit Impl(TransportConfig config)
+    explicit Impl(TransportConfig config, observability::Logger* logger)
         : config_(std::move(config)),
-          event_capacity_(std::max<std::size_t>(config_.max_sessions * 4U, 64U)) {
+          logger_(logger),
+          event_capacity_(
+              std::max<std::size_t>(config_.max_sessions * 4U, 64U)) {
         require_success(MsQuicOpen2(&api_), "MsQuicOpen2");
         try {
             open_registration();
@@ -48,7 +83,9 @@ public:
 
     ~Impl() { close_handles(); }
 
-    [[nodiscard]] std::string_view name() const noexcept { return config_.name; }
+    [[nodiscard]] std::string_view name() const noexcept {
+        return config_.name;
+    }
     [[nodiscard]] TransportEndpoint local_endpoint() const {
         return {
             .name = config_.name,
@@ -66,7 +103,9 @@ public:
         std::chrono::milliseconds timeout) {
         std::unique_lock lock(events_mutex_);
         if (events_.empty() && timeout > std::chrono::milliseconds::zero()) {
-            events_ready_.wait_for(lock, timeout, [this] { return !events_.empty(); });
+            events_ready_.wait_for(lock, timeout, [this] {
+                return !events_.empty();
+            });
         }
         std::vector<TransportEvent> result;
         result.reserve(events_.size());
@@ -78,8 +117,7 @@ public:
     }
 
     [[nodiscard]] bool send(
-        SessionId session_id,
-        std::span<const std::byte> payload) {
+        SessionId session_id, std::span<const std::byte> payload) {
         const auto state = find_connection(session_id);
         if (!state) {
             return false;
@@ -99,11 +137,10 @@ public:
 
         std::lock_guard state_lock(state->mutex);
         if (!state->connected || state->stream == nullptr || state->closing ||
-            context->bytes.size() >
-                config_.max_pending_output_bytes -
-                    std::min(
-                        config_.max_pending_output_bytes,
-                        state->pending_output_bytes)) {
+            context->bytes.size() > config_.max_pending_output_bytes -
+                                        std::min(
+                                            config_.max_pending_output_bytes,
+                                            state->pending_output_bytes)) {
             return false;
         }
         state->pending_output_bytes += context->bytes.size();
@@ -132,6 +169,7 @@ public:
                 return false;
             }
             state->closing = true;
+            state->close_reason = "application_requested";
         }
         api_->ConnectionShutdown(
             state->connection, QUIC_CONNECTION_SHUTDOWN_FLAG_NONE, 0);
@@ -176,6 +214,7 @@ private:
         std::size_t pending_output_bytes{0};
         bool connected{false};
         bool closing{false};
+        std::string_view close_reason{"unknown"};
     };
 
     struct SendContext {
@@ -251,9 +290,7 @@ private:
         return configuration;
     }
 
-    void open_configuration() {
-        configuration_ = create_configuration();
-    }
+    void open_configuration() { configuration_ = create_configuration(); }
 
     void open_listener() {
         require_success(
@@ -262,7 +299,9 @@ private:
             "ListenerOpen");
         QUIC_ADDR address{};
         if (!QuicAddrFromString(
-                config_.listen_address.c_str(), config_.listen_port, &address)) {
+                config_.listen_address.c_str(),
+                config_.listen_port,
+                &address)) {
             throw std::invalid_argument("invalid QUIC listen address");
         }
         const QUIC_BUFFER alpn{
@@ -336,12 +375,14 @@ private:
                 return;
             }
             state->closing = true;
+            state->close_reason = "overloaded";
         }
         api_->ConnectionShutdown(
             state->connection, QUIC_CONNECTION_SHUTDOWN_FLAG_SILENT, 1);
     }
 
-    QUIC_STATUS on_new_connection(HQUIC connection) {
+    QUIC_STATUS on_new_connection(
+        HQUIC connection, const QUIC_NEW_CONNECTION_INFO* info) {
         std::shared_ptr<ConnectionState> state;
         {
             std::lock_guard lock(connections_mutex_);
@@ -357,16 +398,38 @@ private:
                 state.get());
             connections_.emplace(session_id, state);
         }
+        if (logger_ != nullptr) {
+            const auto peer =
+                peer_endpoint(info == nullptr ? nullptr : info->RemoteAddress);
+            static_cast<void>(logger_->info(
+                "connection_accepted",
+                "quic transport accepted incoming connection",
+                {observability::field("transport_name", config_.name),
+                 observability::field("protocol", "quic"),
+                 observability::field("peer_address", peer.address),
+                 observability::field("peer_port", peer.port),
+                 observability::field("session_id", state->session_id)}));
+        }
         QUIC_STATUS status = QUIC_STATUS_INVALID_STATE;
         {
             std::lock_guard lock(configuration_mutex_);
-            status = api_->ConnectionSetConfiguration(
-                connection, configuration_);
+            status =
+                api_->ConnectionSetConfiguration(connection, configuration_);
         }
         if (QUIC_FAILED(status)) {
+            if (logger_ != nullptr) {
+                static_cast<void>(logger_->info(
+                    "connection_closed",
+                    "quic transport closed session",
+                    {observability::field("transport_name", config_.name),
+                     observability::field("protocol", "quic"),
+                     observability::field("session_id", state->session_id),
+                     observability::field("reason", "configuration_failed")}));
+            }
             std::lock_guard lock(connections_mutex_);
             for (auto iterator = connections_.begin();
-                 iterator != connections_.end(); ++iterator) {
+                 iterator != connections_.end();
+                 ++iterator) {
                 if (iterator->second->connection == connection) {
                     connections_.erase(iterator);
                     break;
@@ -390,6 +453,19 @@ private:
                 std::lock_guard lock(state->mutex);
                 state->connected = true;
             }
+            if (logger_ != nullptr) {
+                const auto alpn = std::string_view(
+                    reinterpret_cast<const char*>(
+                        event->CONNECTED.NegotiatedAlpn),
+                    event->CONNECTED.NegotiatedAlpnLength);
+                static_cast<void>(logger_->info(
+                    "tls_handshake_completed",
+                    "quic transport completed tls handshake",
+                    {observability::field("transport_name", config_.name),
+                     observability::field("protocol", "quic"),
+                     observability::field("session_id", state->session_id),
+                     observability::field("alpn", alpn)}));
+            }
             if (!push_event({
                     .kind = TransportEventKind::SessionOpened,
                     .session_id = state->session_id,
@@ -399,6 +475,14 @@ private:
             }
             break;
         }
+        case QUIC_CONNECTION_EVENT_SHUTDOWN_INITIATED_BY_TRANSPORT: {
+            std::lock_guard lock(state->mutex);
+            state->close_reason = "transport_error";
+        } break;
+        case QUIC_CONNECTION_EVENT_SHUTDOWN_INITIATED_BY_PEER: {
+            std::lock_guard lock(state->mutex);
+            state->close_reason = "peer_requested";
+        } break;
         case QUIC_CONNECTION_EVENT_PEER_STREAM_STARTED: {
             const bool unidirectional =
                 (event->PEER_STREAM_STARTED.Flags &
@@ -432,10 +516,17 @@ private:
             break;
         case QUIC_CONNECTION_EVENT_SHUTDOWN_COMPLETE: {
             bool was_connected = false;
+            std::string_view close_reason;
             {
                 std::lock_guard lock(state->mutex);
                 was_connected = state->connected;
                 state->closing = true;
+                if (state->close_reason == "unknown") {
+                    state->close_reason = was_connected
+                                              ? "connection_shutdown"
+                                              : "tls_handshake_failed";
+                }
+                close_reason = state->close_reason;
             }
             if (was_connected) {
                 static_cast<void>(push_event({
@@ -445,6 +536,15 @@ private:
                 }));
             }
             const SessionId session_id = state->session_id;
+            if (logger_ != nullptr) {
+                static_cast<void>(logger_->info(
+                    "connection_closed",
+                    "quic transport closed session",
+                    {observability::field("transport_name", config_.name),
+                     observability::field("protocol", "quic"),
+                     observability::field("session_id", session_id),
+                     observability::field("reason", close_reason)}));
+            }
             api_->ConnectionClose(connection);
             std::lock_guard lock(connections_mutex_);
             connections_.erase(session_id);
@@ -457,17 +557,15 @@ private:
     }
 
     QUIC_STATUS on_stream_event(
-        ConnectionState* state,
-        HQUIC stream,
-        QUIC_STREAM_EVENT* event) {
+        ConnectionState* state, HQUIC stream, QUIC_STREAM_EVENT* event) {
         const auto state_guard = find_connection(state->session_id);
         if (!state_guard) {
             return QUIC_STATUS_INVALID_STATE;
         }
         switch (event->Type) {
         case QUIC_STREAM_EVENT_RECEIVE:
-            for (std::uint32_t index = 0;
-                 index < event->RECEIVE.BufferCount; ++index) {
+            for (std::uint32_t index = 0; index < event->RECEIVE.BufferCount;
+                 ++index) {
                 const auto& buffer = event->RECEIVE.Buffers[index];
                 state->input.append(std::span<const std::byte>{
                     reinterpret_cast<const std::byte*>(buffer.Buffer),
@@ -507,13 +605,12 @@ private:
         case QUIC_STREAM_EVENT_PEER_RECEIVE_ABORTED:
             reject_overloaded(state);
             break;
-        case QUIC_STREAM_EVENT_SHUTDOWN_COMPLETE:
-            {
-                std::lock_guard lock(state->mutex);
-                if (state->stream == stream) {
-                    state->stream = nullptr;
-                }
+        case QUIC_STREAM_EVENT_SHUTDOWN_COMPLETE: {
+            std::lock_guard lock(state->mutex);
+            if (state->stream == stream) {
+                state->stream = nullptr;
             }
+        }
             if (!event->SHUTDOWN_COMPLETE.AppCloseInProgress) {
                 api_->StreamClose(stream);
             }
@@ -524,34 +621,30 @@ private:
         return QUIC_STATUS_SUCCESS;
     }
 
-    static QUIC_STATUS QUIC_API listener_callback(
-        HQUIC,
-        void* context,
-        QUIC_LISTENER_EVENT* event) {
+    static QUIC_STATUS QUIC_API
+    listener_callback(HQUIC, void* context, QUIC_LISTENER_EVENT* event) {
         auto* self = static_cast<Impl*>(context);
         if (event->Type != QUIC_LISTENER_EVENT_NEW_CONNECTION) {
             return QUIC_STATUS_NOT_SUPPORTED;
         }
-        return self->on_new_connection(event->NEW_CONNECTION.Connection);
+        return self->on_new_connection(
+            event->NEW_CONNECTION.Connection, event->NEW_CONNECTION.Info);
     }
 
     static QUIC_STATUS QUIC_API connection_callback(
-        HQUIC connection,
-        void* context,
-        QUIC_CONNECTION_EVENT* event) {
+        HQUIC connection, void* context, QUIC_CONNECTION_EVENT* event) {
         auto* state = static_cast<ConnectionState*>(context);
         return state->owner->on_connection_event(state, connection, event);
     }
 
-    static QUIC_STATUS QUIC_API stream_callback(
-        HQUIC stream,
-        void* context,
-        QUIC_STREAM_EVENT* event) {
+    static QUIC_STATUS QUIC_API
+    stream_callback(HQUIC stream, void* context, QUIC_STREAM_EVENT* event) {
         auto* state = static_cast<ConnectionState*>(context);
         return state->owner->on_stream_event(state, stream, event);
     }
 
     TransportConfig config_;
+    observability::Logger* logger_{nullptr};
     const QUIC_API_TABLE* api_{nullptr};
     HQUIC registration_{nullptr};
     HQUIC configuration_{nullptr};
@@ -562,7 +655,8 @@ private:
     std::atomic<SessionId> next_session_id_{1};
 
     mutable std::mutex connections_mutex_;
-    std::unordered_map<SessionId, std::shared_ptr<ConnectionState>> connections_;
+    std::unordered_map<SessionId, std::shared_ptr<ConnectionState>>
+        connections_;
 
     const std::size_t event_capacity_;
     std::mutex events_mutex_;
@@ -570,8 +664,9 @@ private:
     std::deque<TransportEvent> events_;
 };
 
-QuicTransport::QuicTransport(TransportConfig config)
-    : impl_(std::make_unique<Impl>(std::move(config))) {}
+QuicTransport::QuicTransport(
+    TransportConfig config, observability::Logger* logger)
+    : impl_(std::make_unique<Impl>(std::move(config), logger)) {}
 QuicTransport::~QuicTransport() = default;
 std::string_view QuicTransport::name() const noexcept { return impl_->name(); }
 TransportProtocol QuicTransport::protocol() const noexcept {
@@ -588,15 +683,12 @@ std::vector<TransportEvent> QuicTransport::poll_once(
     return impl_->poll_once(timeout);
 }
 bool QuicTransport::send(
-    SessionId session_id,
-    std::span<const std::byte> payload) {
+    SessionId session_id, std::span<const std::byte> payload) {
     return impl_->send(session_id, payload);
 }
 bool QuicTransport::close(SessionId session_id) {
     return impl_->close(session_id);
 }
-bool QuicTransport::reload_credentials() {
-    return impl_->reload_credentials();
-}
+bool QuicTransport::reload_credentials() { return impl_->reload_credentials(); }
 
 }  // namespace realm::network

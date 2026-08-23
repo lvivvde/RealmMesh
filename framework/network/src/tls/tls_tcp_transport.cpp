@@ -1,12 +1,16 @@
 #include "realmmesh/network/tls/tls_tcp_transport.hpp"
 
+#include "realmmesh/observability/logger.hpp"
+
 #include <stdexcept>
 #include <utility>
 
 namespace realm::network {
 
-TlsTcpTransport::TlsTcpTransport(TransportConfig config)
+TlsTcpTransport::TlsTcpTransport(
+    TransportConfig config, observability::Logger* logger)
     : config_(std::move(config)),
+      logger_(logger),
       tls_context_(std::make_unique<TlsServerContext>(config_.tls.value())),
       listener_(config_.listen_address, config_.listen_port) {
     event_loop_.add(listener_.native_handle(), EventInterest::Read);
@@ -32,7 +36,7 @@ std::vector<TransportEvent> TlsTcpTransport::poll_once(
     std::chrono::milliseconds timeout) {
     const auto ready_events = event_loop_.wait(timeout);
     std::vector<TransportEvent> events;
-    std::vector<int> connections_to_close;
+    std::vector<PendingClose> connections_to_close;
     for (const auto& ready : ready_events) {
         if (ready.descriptor == listener_.native_handle()) {
             if (ready.readable) {
@@ -49,28 +53,31 @@ std::vector<TransportEvent> TlsTcpTransport::poll_once(
 
     const auto now = std::chrono::steady_clock::now();
     for (const auto& [descriptor, entry] : connections_) {
-        if ((!entry.handshake_complete &&
-             now - entry.accepted_at >= config_.handshake_timeout) ||
-            (entry.handshake_complete &&
-             now - entry.last_activity >= config_.idle_timeout)) {
-            connections_to_close.push_back(descriptor);
+        if (!entry.handshake_complete &&
+            now - entry.accepted_at >= config_.handshake_timeout) {
+            connections_to_close.emplace_back(
+                descriptor, "tls_handshake_timeout");
+        } else if (
+            entry.handshake_complete &&
+            now - entry.last_activity >= config_.idle_timeout) {
+            connections_to_close.emplace_back(descriptor, "idle_timeout");
         }
     }
-    for (const int descriptor : connections_to_close) {
-        close_descriptor(descriptor, &events);
+    for (const auto& [descriptor, reason] : connections_to_close) {
+        close_descriptor(descriptor, &events, reason);
     }
     return events;
 }
 
 bool TlsTcpTransport::send(
-    SessionId session_id,
-    std::span<const std::byte> payload) {
+    SessionId session_id, std::span<const std::byte> payload) {
     const auto descriptor = descriptors_.find(session_id);
     if (descriptor == descriptors_.end()) {
         return false;
     }
     auto iterator = connections_.find(descriptor->second);
-    if (iterator == connections_.end() || !iterator->second.handshake_complete) {
+    if (iterator == connections_.end() ||
+        !iterator->second.handshake_complete) {
         return false;
     }
     auto& entry = iterator->second;
@@ -81,7 +88,7 @@ bool TlsTcpTransport::send(
     entry.last_activity = std::chrono::steady_clock::now();
     if (entry.io_need == TlsIoState::Failed ||
         entry.io_need == TlsIoState::Closed) {
-        close_descriptor(descriptor->second);
+        close_descriptor(descriptor->second, nullptr, "send_failed");
         return false;
     }
     update_interest(entry);
@@ -121,6 +128,7 @@ void TlsTcpTransport::accept_connections() {
         const SessionId session_id = next_session_id_++;
         event_loop_.add(descriptor, EventInterest::Read);
         const auto accepted_at = std::chrono::steady_clock::now();
+        const auto peer = socket->peer_endpoint();
         connections_.try_emplace(
             descriptor,
             ConnectionEntry{
@@ -134,6 +142,16 @@ void TlsTcpTransport::accept_connections() {
                 .last_activity = accepted_at,
             });
         descriptors_.emplace(session_id, descriptor);
+        if (logger_ != nullptr) {
+            static_cast<void>(logger_->info(
+                "connection_accepted",
+                "tls transport accepted incoming connection",
+                {observability::field("transport_name", config_.name),
+                 observability::field("protocol", "tls_tcp"),
+                 observability::field("peer_address", peer.host),
+                 observability::field("peer_port", peer.port),
+                 observability::field("session_id", session_id)}));
+        }
     }
 }
 
@@ -141,9 +159,12 @@ void TlsTcpTransport::service_connection(
     ConnectionEntry& entry,
     const ReadyEvent& ready,
     std::vector<TransportEvent>& events,
-    std::vector<int>& connections_to_close) {
+    std::vector<PendingClose>& connections_to_close) {
     bool close_now = ready.error;
     bool received_messages = false;
+    if (ready.error) {
+        entry.close_reason = "transport_error";
+    }
 
     if (!close_now && !entry.handshake_complete) {
         entry.io_need = entry.connection.accept_handshake();
@@ -155,18 +176,34 @@ void TlsTcpTransport::service_connection(
                 .session_id = entry.session_id,
                 .payload = {},
             });
-        } else if (entry.io_need == TlsIoState::Closed ||
-                   entry.io_need == TlsIoState::Failed) {
+            if (logger_ != nullptr) {
+                static_cast<void>(logger_->info(
+                    "tls_handshake_completed",
+                    "tls transport completed handshake",
+                    {observability::field("transport_name", config_.name),
+                     observability::field("protocol", "tls_tcp"),
+                     observability::field("session_id", entry.session_id),
+                     observability::field("alpn", config_.tls->alpn)}));
+            }
+        } else if (
+            entry.io_need == TlsIoState::Closed ||
+            entry.io_need == TlsIoState::Failed) {
             close_now = true;
+            entry.close_reason = entry.io_need == TlsIoState::Closed
+                                     ? "peer_closed_during_handshake"
+                                     : "tls_handshake_failed";
         }
     }
 
     if (!close_now && entry.handshake_complete && ready.readable) {
         auto received = entry.connection.receive_frames();
         entry.io_need = received.state;
-        if (received.batch.status == ReceiveStatus::FrameTooLarge ||
-            received.state == TlsIoState::Failed) {
+        if (received.batch.status == ReceiveStatus::FrameTooLarge) {
             close_now = true;
+            entry.close_reason = "frame_too_large";
+        } else if (received.state == TlsIoState::Failed) {
+            close_now = true;
+            entry.close_reason = "receive_failed";
         } else {
             received_messages = !received.batch.frames.empty();
             if (received_messages) {
@@ -181,10 +218,12 @@ void TlsTcpTransport::service_connection(
             }
             if (received.batch.status == ReceiveStatus::PeerClosed) {
                 entry.close_after_flush = true;
+                entry.close_reason = "peer_closed";
             }
         }
     } else if (ready.peer_closed) {
         entry.close_after_flush = true;
+        entry.close_reason = "peer_closed";
     }
 
     if (!close_now && entry.handshake_complete &&
@@ -193,14 +232,15 @@ void TlsTcpTransport::service_connection(
         if (entry.io_need == TlsIoState::Closed ||
             entry.io_need == TlsIoState::Failed) {
             close_now = true;
+            entry.close_reason = "flush_failed";
         }
     }
 
     if (close_now ||
-        (entry.close_after_flush &&
-         !entry.connection.has_pending_output() &&
+        (entry.close_after_flush && !entry.connection.has_pending_output() &&
          !received_messages)) {
-        connections_to_close.push_back(entry.connection.native_handle());
+        connections_to_close.emplace_back(
+            entry.connection.native_handle(), entry.close_reason);
     } else {
         update_interest(entry);
     }
@@ -208,7 +248,8 @@ void TlsTcpTransport::service_connection(
 
 void TlsTcpTransport::close_descriptor(
     int descriptor,
-    std::vector<TransportEvent>* events) {
+    std::vector<TransportEvent>* events,
+    std::string_view reason) {
     const auto iterator = connections_.find(descriptor);
     if (iterator == connections_.end()) {
         return;
@@ -224,6 +265,15 @@ void TlsTcpTransport::close_descriptor(
             .session_id = session_id,
             .payload = {},
         });
+    }
+    if (logger_ != nullptr) {
+        static_cast<void>(logger_->info(
+            "connection_closed",
+            "tls transport closed session",
+            {observability::field("transport_name", config_.name),
+             observability::field("protocol", "tls_tcp"),
+             observability::field("session_id", session_id),
+             observability::field("reason", reason)}));
     }
 }
 

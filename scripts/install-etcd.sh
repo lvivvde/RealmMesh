@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
+
+# 用途：下载并校验固定版本的 etcd，将其安装到项目本地 .tools/ 目录。
+# 用法：./scripts/install-etcd.sh
+
 set -euo pipefail
 
 project_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

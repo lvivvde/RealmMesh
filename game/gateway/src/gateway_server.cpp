@@ -7,9 +7,10 @@
 
 namespace realm::game::gateway {
 
-GatewayServer::GatewayServer(GatewayConfig config)
-    : transports_(
-          network::TransportFactory::create_enabled(config.transports)) {
+GatewayServer::GatewayServer(
+    GatewayConfig config, observability::Logger* logger)
+    : transports_(network::TransportFactory::create_enabled(
+          config.transports, logger)) {
     if (transports_.empty()) {
         throw std::invalid_argument(
             "gateway must have at least one enabled transport");

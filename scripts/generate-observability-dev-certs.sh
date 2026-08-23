@@ -1,4 +1,9 @@
 #!/usr/bin/env bash
+
+# 用途：生成仅供本地开发使用的可观测性 CA、Vector Agent 和日志网关 mTLS 证书。
+# 用法：./scripts/generate-observability-dev-certs.sh
+# 输出：.runtime/observability/certs/（再次执行会更新同名证书）
+
 set -euo pipefail
 
 realmmesh_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

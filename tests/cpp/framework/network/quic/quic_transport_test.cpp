@@ -1,7 +1,9 @@
 #include "realmmesh/network/transport/transport_factory.hpp"
+#include "realmmesh/observability/logger.hpp"
 
 #include <gtest/gtest.h>
 #include <msquic.h>
+#include <nlohmann/json.hpp>
 
 #include <algorithm>
 #include <array>
@@ -9,6 +11,8 @@
 #include <condition_variable>
 #include <cstddef>
 #include <cstdint>
+#include <filesystem>
+#include <fstream>
 #include <memory>
 #include <mutex>
 #include <span>
@@ -17,6 +21,50 @@
 
 namespace realm::network {
 namespace {
+
+class TemporaryLogFile final {
+public:
+    TemporaryLogFile()
+        : path_(
+              std::filesystem::temp_directory_path() /
+              ("realmmesh-quic-transport-" +
+               std::to_string(std::chrono::steady_clock::now()
+                                  .time_since_epoch()
+                                  .count()) +
+               ".jsonl")) {}
+
+    ~TemporaryLogFile() {
+        std::error_code error;
+        std::filesystem::remove(path_, error);
+    }
+
+    [[nodiscard]] const std::filesystem::path& path() const noexcept {
+        return path_;
+    }
+
+private:
+    std::filesystem::path path_;
+};
+
+[[nodiscard]] std::vector<nlohmann::json> read_log_events(
+    const std::filesystem::path& path) {
+    std::ifstream input(path);
+    std::vector<nlohmann::json> events;
+    std::string line;
+    while (std::getline(input, line)) {
+        events.push_back(nlohmann::json::parse(line));
+    }
+    return events;
+}
+
+[[nodiscard]] const nlohmann::json* find_log_event(
+    const std::vector<nlohmann::json>& events, std::string_view event_name) {
+    const auto iterator =
+        std::ranges::find_if(events, [event_name](const auto& event) {
+            return event.at("event_name") == event_name;
+        });
+    return iterator == events.end() ? nullptr : &*iterator;
+}
 
 struct ClientState {
     const QUIC_API_TABLE* api{nullptr};
@@ -124,6 +172,12 @@ client_connection_callback(HQUIC, void* context, QUIC_CONNECTION_EVENT* event) {
 }
 
 TEST(QuicTransportTest, ExchangesAFramedMessageOverOneVerifiedStream) {
+    TemporaryLogFile log_file;
+    observability::LoggerConfig logger_config;
+    logger_config.file_path = log_file.path();
+    observability::Logger logger(
+        logger_config,
+        observability::ServiceIdentity{.service_name = "gateway"});
     const std::vector<TransportConfig> configs{{
         .name = "client_quic",
         .protocol = TransportProtocol::Quic,
@@ -135,7 +189,7 @@ TEST(QuicTransportTest, ExchangesAFramedMessageOverOneVerifiedStream) {
                 .private_key_file = REALMMESH_TEST_TLS_PRIVATE_KEY,
             },
     }};
-    auto transports = TransportFactory::create_enabled(configs);
+    auto transports = TransportFactory::create_enabled(configs, &logger);
     ASSERT_EQ(transports.size(), 1U);
     auto& transport = *transports.front();
     EXPECT_EQ(transport.protocol(), TransportProtocol::Quic);
@@ -260,6 +314,32 @@ TEST(QuicTransportTest, ExchangesAFramedMessageOverOneVerifiedStream) {
             return client.shutdown;
         }));
     }
+    server.join();
+    const auto close_deadline =
+        std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    while (transport.session_count() != 0U &&
+           std::chrono::steady_clock::now() < close_deadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    ASSERT_EQ(transport.session_count(), 0U);
+    ASSERT_TRUE(logger.flush(std::chrono::seconds(2)));
+
+    const auto log_events = read_log_events(log_file.path());
+    const auto* accepted = find_log_event(log_events, "connection_accepted");
+    ASSERT_NE(accepted, nullptr);
+    EXPECT_EQ(accepted->at("attributes").at("protocol"), "quic");
+    EXPECT_EQ(accepted->at("attributes").at("peer_address"), "127.0.0.1");
+    EXPECT_GT(accepted->at("attributes").at("peer_port").get<int>(), 0);
+
+    const auto* handshake =
+        find_log_event(log_events, "tls_handshake_completed");
+    ASSERT_NE(handshake, nullptr);
+    EXPECT_EQ(handshake->at("attributes").at("alpn"), "realmmesh-edge/1");
+
+    const auto* closed = find_log_event(log_events, "connection_closed");
+    ASSERT_NE(closed, nullptr);
+    EXPECT_EQ(closed->at("attributes").at("reason"), "peer_requested");
+
     api->ConnectionClose(client.connection);
     api->ConfigurationClose(configuration);
     api->RegistrationClose(registration);

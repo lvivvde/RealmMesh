@@ -1,4 +1,9 @@
 #!/usr/bin/env bash
+
+# 用途：以前台单节点模式启动本地 etcd，供 RealmMesh 服务发现开发与测试使用。
+# 用法：./scripts/run-etcd-dev.sh（Ctrl-C 停止）
+# 可选：REALMMESH_ETCD_DATA_DIR=/path/to/data ./scripts/run-etcd-dev.sh
+
 set -euo pipefail
 
 project_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

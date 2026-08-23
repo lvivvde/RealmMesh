@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
 
+# 用途：为 Linux x86_64 开发环境下载并校验固定版本的 MsQuic 库与头文件。
+# 用法：./scripts/install-msquic-dev.sh
+# 输出：.tools/msquic/；系统运行依赖仍需按脚本末尾提示安装。
+
 set -euo pipefail
 
 project_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

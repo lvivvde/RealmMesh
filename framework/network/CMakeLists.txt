@@ -6,6 +6,7 @@ add_library(realm_network
     src/quic/quic_transport.cpp
     src/transport/transport_factory.cpp
     src/tcp/tcp_listener.cpp
+    src/tcp/tcp_socket.cpp
     src/tls/tls_connection.cpp
     src/tls/tls_server_context.cpp
     src/tls/tls_tcp_transport.cpp
@@ -38,6 +39,9 @@ target_link_libraries(realm_network PUBLIC
     OpenSSL::SSL
     OpenSSL::Crypto
     MsQuic::MsQuic
+)
+target_link_libraries(realm_network PRIVATE
+    RealmMesh::Observability
 )
 set_target_properties(realm_network PROPERTIES
     CXX_EXTENSIONS OFF

@@ -1,7 +1,9 @@
 #include "realmmesh/network/transport/transport_factory.hpp"
+#include "realmmesh/observability/logger.hpp"
 
 #include <gtest/gtest.h>
 #include <openssl/ssl.h>
+#include <nlohmann/json.hpp>
 
 #include <arpa/inet.h>
 #include <sys/socket.h>
@@ -12,6 +14,8 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <filesystem>
+#include <fstream>
 #include <memory>
 #include <span>
 #include <stdexcept>
@@ -21,6 +25,50 @@
 
 namespace realm::network {
 namespace {
+
+class TemporaryLogFile final {
+public:
+    TemporaryLogFile()
+        : path_(
+              std::filesystem::temp_directory_path() /
+              ("realmmesh-transport-" +
+               std::to_string(std::chrono::steady_clock::now()
+                                  .time_since_epoch()
+                                  .count()) +
+               ".jsonl")) {}
+
+    ~TemporaryLogFile() {
+        std::error_code error;
+        std::filesystem::remove(path_, error);
+    }
+
+    [[nodiscard]] const std::filesystem::path& path() const noexcept {
+        return path_;
+    }
+
+private:
+    std::filesystem::path path_;
+};
+
+[[nodiscard]] std::vector<nlohmann::json> read_log_events(
+    const std::filesystem::path& path) {
+    std::ifstream input(path);
+    std::vector<nlohmann::json> events;
+    std::string line;
+    while (std::getline(input, line)) {
+        events.push_back(nlohmann::json::parse(line));
+    }
+    return events;
+}
+
+[[nodiscard]] const nlohmann::json* find_log_event(
+    const std::vector<nlohmann::json>& events, std::string_view event_name) {
+    const auto iterator =
+        std::ranges::find_if(events, [event_name](const auto& event) {
+            return event.at("event_name") == event_name;
+        });
+    return iterator == events.end() ? nullptr : &*iterator;
+}
 
 class Descriptor final {
 public:
@@ -79,6 +127,12 @@ void read_all(SSL* ssl, std::span<std::byte> bytes) {
 }
 
 TEST(TlsTcpTransportTest, NegotiatesTls13AndAlpnBeforeExchangingFrames) {
+    TemporaryLogFile log_file;
+    observability::LoggerConfig logger_config;
+    logger_config.file_path = log_file.path();
+    observability::Logger logger(
+        logger_config,
+        observability::ServiceIdentity{.service_name = "gateway"});
     const std::vector<TransportConfig> configs{{
         .name = "client_tls",
         .protocol = TransportProtocol::TlsTcp,
@@ -91,11 +145,12 @@ TEST(TlsTcpTransportTest, NegotiatesTls13AndAlpnBeforeExchangingFrames) {
                 .alpn = "realmmesh-edge/1",
             },
     }};
-    auto transports = TransportFactory::create_enabled(configs);
+    auto transports = TransportFactory::create_enabled(configs, &logger);
     ASSERT_EQ(transports.size(), 1U);
     auto& transport = *transports.front();
 
     std::atomic<bool> received{false};
+    std::atomic<SessionId> session_id{invalid_session_id};
     std::jthread server([&] {
         const auto deadline =
             std::chrono::steady_clock::now() + std::chrono::seconds(5);
@@ -103,6 +158,7 @@ TEST(TlsTcpTransportTest, NegotiatesTls13AndAlpnBeforeExchangingFrames) {
             for (auto& event :
                  transport.poll_once(std::chrono::milliseconds(20))) {
                 if (event.kind == TransportEventKind::MessageReceived) {
+                    session_id = event.session_id;
                     received = true;
                     EXPECT_TRUE(
                         transport.send(event.session_id, event.payload));
@@ -183,6 +239,25 @@ TEST(TlsTcpTransportTest, NegotiatesTls13AndAlpnBeforeExchangingFrames) {
 
     server.join();
     EXPECT_TRUE(received.load());
+    ASSERT_NE(session_id.load(), invalid_session_id);
+    ASSERT_TRUE(transport.close(session_id.load()));
+    ASSERT_TRUE(logger.flush(std::chrono::seconds(2)));
+
+    const auto log_events = read_log_events(log_file.path());
+    const auto* accepted = find_log_event(log_events, "connection_accepted");
+    ASSERT_NE(accepted, nullptr);
+    EXPECT_EQ(accepted->at("attributes").at("protocol"), "tls_tcp");
+    EXPECT_EQ(accepted->at("attributes").at("peer_address"), "127.0.0.1");
+    EXPECT_GT(accepted->at("attributes").at("peer_port").get<int>(), 0);
+
+    const auto* handshake =
+        find_log_event(log_events, "tls_handshake_completed");
+    ASSERT_NE(handshake, nullptr);
+    EXPECT_EQ(handshake->at("attributes").at("alpn"), "realmmesh-edge/1");
+
+    const auto* closed = find_log_event(log_events, "connection_closed");
+    ASSERT_NE(closed, nullptr);
+    EXPECT_EQ(closed->at("attributes").at("reason"), "application_requested");
 }
 
 TEST(TlsTcpTransportTest, DoesNotOpenASessionWithoutRequiredAlpn) {

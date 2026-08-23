@@ -6,12 +6,15 @@
 
 namespace realm::game::gateway {
 
-GatewayRuntime::GatewayRuntime(GatewayConfig config)
-    : GatewayRuntime(config, config.runtime) {}
+GatewayRuntime::GatewayRuntime(
+    GatewayConfig config, observability::Logger* logger)
+    : GatewayRuntime(config, config.runtime, logger) {}
 
 GatewayRuntime::GatewayRuntime(
-    GatewayConfig config, GatewayRuntimeOptions options)
-    : server_(std::move(config)),
+    GatewayConfig config,
+    GatewayRuntimeOptions options,
+    observability::Logger* logger)
+    : server_(std::move(config), logger),
       options_(options),
       local_port_(server_.local_port()),
       local_endpoints_(server_.local_endpoints()),

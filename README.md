@@ -68,13 +68,20 @@ TLS 上下文。加载失败时保留上一份可用身份。
 开发环境可使用管理脚本一键启动或重启全部服务：
 
 ```bash
+# all-in-one：单进程承载完整拓扑
+./scripts/dev-all-in-one.sh          # 默认 restart
+./scripts/dev-all-in-one.sh status
+./scripts/dev-all-in-one.sh stop
+
+# 分布式：每个服务一个进程
 ./scripts/dev-services.sh          # 默认 restart
 ./scripts/dev-services.sh status
 ./scripts/dev-services.sh stop
 ```
 
-脚本默认使用 `.runtime/tls/` 中的开发证书，将 PID 写入 `.runtime/pids/`，并把控制台
-输出追加到 `.runtime/logs/<service>/console.log`。首次运行前需要完成构建和开发证书生成。
+脚本默认使用 `.runtime/tls/` 中的开发证书，将 PID 写入 `.runtime/pids/`。all-in-one
+控制台输出追加到 `.runtime/logs/all-in-one/console.log`；分布式控制台输出追加到
+`.runtime/logs/<service>/console.log`。首次运行前需要完成构建和开发证书生成。
 
 也可以手动启动：
 

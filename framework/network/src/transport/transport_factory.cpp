@@ -21,7 +21,8 @@ void validate(const TransportConfig& config) {
         throw std::invalid_argument("transport max sessions must be positive");
     }
     if (config.max_payload_size == 0) {
-        throw std::invalid_argument("transport max payload size must be positive");
+        throw std::invalid_argument(
+            "transport max payload size must be positive");
     }
     if (config.max_pending_output_bytes == 0) {
         throw std::invalid_argument(
@@ -34,7 +35,8 @@ void validate(const TransportConfig& config) {
                 "secure transport requires a TLS server identity");
         }
         if (config.tls->alpn.empty()) {
-            throw std::invalid_argument("secure transport ALPN cannot be empty");
+            throw std::invalid_argument(
+                "secure transport ALPN cannot be empty");
         }
         if (config.handshake_timeout <= std::chrono::milliseconds::zero()) {
             throw std::invalid_argument(
@@ -46,7 +48,8 @@ void validate(const TransportConfig& config) {
 }  // namespace
 
 std::vector<std::unique_ptr<IMessageTransport>>
-TransportFactory::create_enabled(std::span<const TransportConfig> configs) {
+TransportFactory::create_enabled(
+    std::span<const TransportConfig> configs, observability::Logger* logger) {
     std::vector<std::unique_ptr<IMessageTransport>> transports;
     std::unordered_set<std::string> names;
 
@@ -56,15 +59,18 @@ TransportFactory::create_enabled(std::span<const TransportConfig> configs) {
         }
         validate(config);
         if (!names.emplace(config.name).second) {
-            throw std::invalid_argument("enabled transport names must be unique");
+            throw std::invalid_argument(
+                "enabled transport names must be unique");
         }
 
         switch (config.protocol) {
         case TransportProtocol::Quic:
-            transports.push_back(std::make_unique<QuicTransport>(config));
+            transports.push_back(
+                std::make_unique<QuicTransport>(config, logger));
             break;
         case TransportProtocol::TlsTcp:
-            transports.push_back(std::make_unique<TlsTcpTransport>(config));
+            transports.push_back(
+                std::make_unique<TlsTcpTransport>(config, logger));
             break;
         }
     }
