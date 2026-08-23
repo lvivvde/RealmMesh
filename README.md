@@ -65,6 +65,19 @@ TLS 上下文。加载失败时保留上一份可用身份。
 
 ## 运行三段服务
 
+开发环境可使用管理脚本一键启动或重启全部服务：
+
+```bash
+./scripts/dev-services.sh          # 默认 restart
+./scripts/dev-services.sh status
+./scripts/dev-services.sh stop
+```
+
+脚本默认使用 `.runtime/tls/` 中的开发证书，将 PID 写入 `.runtime/pids/`，并把控制台
+输出追加到 `.runtime/logs/<service>/console.log`。首次运行前需要完成构建和开发证书生成。
+
+也可以手动启动：
+
 ```bash
 ./build/dev/bin/realm_gateway &
 ./build/dev/bin/realm_character &
