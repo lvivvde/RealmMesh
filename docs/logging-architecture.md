@@ -42,9 +42,9 @@ RealmMesh 是 20 FPS 帧驱动服务。日志调用不得执行网络 I/O 或磁
 
 ```mermaid
 flowchart LR
-    Login[realm_login]
-    Realm[realm_character]
-    Gateway[realm_gateway]
+    Login[realm_mesh<br/>login]
+    Realm[realm_mesh<br/>realm]
+    Gateway[realm_mesh<br/>gateway]
     Logging[framework/observability<br/>有界异步队列]
     Jsonl[本地轮转 JSONL]
     Agent[每节点 Vector Agent<br/>checkpoint + disk buffer]
@@ -197,7 +197,7 @@ logging = {
   "request_id": 42,
   "process_start_id": "128-bit-hex",
   "sequence": 9182,
-  "source_file": "apps/realm/main.cpp",
+  "source_file": "framework/service_host/src/service_host.cpp",
   "source_line": 171,
   "attributes": {
     "account_id": 10001
@@ -465,9 +465,9 @@ Loki 大规模生产采用 distributed 模式和对象存储：
 - `framework/observability/`：日志门面、实现、schema、指标和测试 seam。
 - `third_party/` 与根 CMake：固定并校验日志依赖版本。
 - `game/gateway/src/gateway_config_loader.cpp`：解析 logging 配置。
-- `lua/config/services/`：各服务日志配置。
+- `configs/`：分层服务日志配置（`common/logging.lua` 与 `services/*.lua`）。
 - `game/common/session_ticket.*`：票据 v2 和 `correlation_id`。
-- `apps/login/main.cpp`、`apps/realm/main.cpp`、`apps/gateway/main.cpp`：初始化、上下文和调用点。
+- `apps/mesh_host/main.cpp`：初始化、上下文和调用点。
 - `game/gateway/src/gateway_runtime.cpp`：记录当前被吞掉的 I/O 异常。
 - `tests/cpp/`：日志、票据、过载、故障和三段流程测试。
 - 新的部署目录：本地 Compose、Vector、Loki、Grafana 和 Prometheus 配置。

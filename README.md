@@ -79,9 +79,7 @@ TLS 上下文。加载失败时保留上一份可用身份。
 也可以手动启动：
 
 ```bash
-./build/dev/bin/realm_gateway &
-./build/dev/bin/realm_character &
-./build/dev/bin/realm_login
+./build/dev/bin/realm_mesh --config configs
 ```
 
 默认入口：
@@ -97,7 +95,7 @@ Gateway 会把两个候选端点一并下发，候选项包含 `protocol/address
 
 ## 配置
 
-启动配置位于 `lua/config/services/`。安全传输示例：
+启动配置位于 `configs/`。安全传输示例：
 
 ```lua
 {

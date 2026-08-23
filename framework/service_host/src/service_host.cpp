@@ -82,6 +82,11 @@ ServiceHost::ServiceHost(
         metrics_ = std::make_unique<observability::LoggerMetricsServer>(
             *logger_, config.logging_metrics);
     }
+    frame_ = std::make_unique<ServiceFrame>(
+        service_name_,
+        config.downstream_address,
+        config.downstream_port,
+        config.max_events_per_frame);
     runtime_ =
         std::make_unique<game::gateway::GatewayRuntime>(std::move(config));
 }
@@ -127,6 +132,7 @@ bool ServiceHost::start() {
     }
     runtime_->start();
     if (!runtime_->running()) return false;
+    frame_->started(*logger_, *runtime_);
     if (!discovery_config_.enabled ||
         (publisher_ != nullptr && publisher_->registered())) {
         ready_.store(true);
@@ -138,6 +144,9 @@ bool ServiceHost::ready() const noexcept { return ready_.load(); }
 
 void ServiceHost::stop() {
     if (runtime_ != nullptr) runtime_->stop();
+    if (runtime_ != nullptr && logger_ != nullptr && frame_ != nullptr) {
+        frame_->stopped(*logger_, *runtime_);
+    }
     // 注销发现:publisher/resolver 持有 registry 引用,须先行析构。
     resolver_.reset();
     publisher_.reset();
@@ -159,6 +168,9 @@ cluster::ServiceResolver* ServiceHost::resolver() noexcept {
 }
 
 void ServiceHost::tick() {
+    if (frame_ != nullptr && runtime_ != nullptr) {
+        frame_->tick(*logger_, *runtime_, resolver_.get());
+    }
     if (publisher_ == nullptr) return;
     if (!publisher_->tick()) return;
     // required=false 时首注册可能失败,续约成功后补齐 ready。

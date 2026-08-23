@@ -1,6 +1,7 @@
 add_library(realm_service_host
     src/layered_config_loader.cpp
     src/mesh_host.cpp
+    src/service_frame.cpp
     src/service_host.cpp
     src/startup_topology.cpp
 )
@@ -15,6 +16,7 @@ target_include_directories(realm_service_host
 
 target_link_libraries(realm_service_host PUBLIC
     realm_cluster
+    realm_game_common
     realm_gateway_service
     realm_observability
     realm_scripting

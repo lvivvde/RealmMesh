@@ -16,7 +16,8 @@
 namespace realm::service_host {
 namespace {
 
-/// TLS 证书环境变量守护:指向 CMake 预生成的自签证书,析构时还原。
+/// TLS 证书/会话票据环境变量守护:指向 CMake 预生成的自签证书与固定
+/// 测试密钥,析构时还原。
 class ScopedTlsEnvironment final {
 public:
     ScopedTlsEnvironment() {
@@ -32,10 +33,18 @@ public:
                 REALMMESH_TEST_TLS_PRIVATE_KEY,
                 1),
             0);
+        EXPECT_EQ(
+            ::setenv(
+                "REALMMESH_SESSION_TICKET_KEY",
+                "0102030405060708090a0b0c0d0e0f10"
+                "1112131415161718191a1b1c1d1e1f20",
+                1),
+            0);
     }
     ~ScopedTlsEnvironment() {
         static_cast<void>(::unsetenv("REALMMESH_TLS_CERTIFICATE_FILE"));
         static_cast<void>(::unsetenv("REALMMESH_TLS_PRIVATE_KEY_FILE"));
+        static_cast<void>(::unsetenv("REALMMESH_SESSION_TICKET_KEY"));
     }
 };
 
@@ -126,7 +135,8 @@ TEST_F(ServiceHostTest, RequiredRegistrationFailureThrows) {
     write(
         root_ / "services" / "login.lua",
         "return { " + transport_lua() +
-            ", service_discovery = { enabled = true, required = true, "
+            ", downstream_address = \"127.0.0.1\", downstream_port = 7100, "
+            "service_discovery = { enabled = true, required = true, "
             "instance_id = \"login-test-01\", endpoint = "
             "\"http://127.0.0.1:1\", request_timeout_ms = 200, "
             "watch_interval_ms = 200 } }");

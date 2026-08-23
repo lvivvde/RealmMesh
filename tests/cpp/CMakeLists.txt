@@ -113,16 +113,12 @@ target_link_libraries(three_stage_flow_test PRIVATE
 target_compile_features(three_stage_flow_test PRIVATE cxx_std_20)
 target_compile_definitions(three_stage_flow_test PRIVATE
     REALMMESH_TEST_SOURCE_DIR="${PROJECT_SOURCE_DIR}"
-    REALMMESH_LOGIN_EXECUTABLE="$<TARGET_FILE:realm_login>"
-    REALMMESH_REALM_EXECUTABLE="$<TARGET_FILE:realm_character>"
-    REALMMESH_GATEWAY_EXECUTABLE="$<TARGET_FILE:realm_gateway>"
+    REALMMESH_MESH_EXECUTABLE="$<TARGET_FILE:realm_mesh>"
     REALMMESH_TEST_TLS_CERTIFICATE="${REALMMESH_TEST_TLS_CERTIFICATE}"
     REALMMESH_TEST_TLS_PRIVATE_KEY="${REALMMESH_TEST_TLS_PRIVATE_KEY}"
 )
 add_dependencies(three_stage_flow_test
-    realm_login
-    realm_character
-    realm_gateway
+    realm_mesh
     realmmesh_test_tls_identity
 )
 

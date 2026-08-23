@@ -36,18 +36,15 @@ namespace {
 class ChildProcess final {
 public:
     ChildProcess(
-        const char* executable,
-        const std::filesystem::path& working_directory,
-        const std::filesystem::path& config_path) {
+        const char* executable, const std::filesystem::path& config_root) {
         pid_ = ::fork();
         if (pid_ < 0) throw std::runtime_error("fork failed");
         if (pid_ == 0) {
-            if (::chdir(working_directory.c_str()) != 0) _exit(126);
             ::execl(
                 executable,
                 executable,
                 "--config",
-                config_path.c_str(),
+                config_root.c_str(),
                 static_cast<char*>(nullptr));
             _exit(127);
         }
@@ -66,31 +63,6 @@ public:
 
 private:
     pid_t pid_{-1};
-};
-
-class TemporaryDirectory final {
-public:
-    TemporaryDirectory()
-        : path_(
-              std::filesystem::temp_directory_path() /
-              ("realmmesh-three-stage-" +
-               std::to_string(std::chrono::steady_clock::now()
-                                  .time_since_epoch()
-                                  .count()))) {
-        std::filesystem::create_directories(path_);
-    }
-
-    ~TemporaryDirectory() {
-        std::error_code error;
-        std::filesystem::remove_all(path_, error);
-    }
-
-    [[nodiscard]] const std::filesystem::path& path() const noexcept {
-        return path_;
-    }
-
-private:
-    std::filesystem::path path_;
 };
 
 [[nodiscard]] std::string read_file(const std::filesystem::path& path) {
@@ -114,59 +86,11 @@ private:
     return std::nullopt;
 }
 
-[[nodiscard]] std::uint16_t unused_tcp_port() {
-    const int descriptor = ::socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
-    if (descriptor < 0) throw std::runtime_error("socket failed");
-    sockaddr_in address{};
-    address.sin_family = AF_INET;
-    address.sin_port = 0;
-    address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-    if (::bind(
-            descriptor,
-            reinterpret_cast<const sockaddr*>(&address),
-            sizeof(address)) != 0) {
-        ::close(descriptor);
-        throw std::runtime_error("ephemeral port bind failed");
-    }
-    socklen_t size = sizeof(address);
-    if (::getsockname(
-            descriptor, reinterpret_cast<sockaddr*>(&address), &size) != 0) {
-        ::close(descriptor);
-        throw std::runtime_error("getsockname failed");
-    }
-    ::close(descriptor);
-    return ntohs(address.sin_port);
-}
-
-void replace_all(
-    std::string& contents,
-    std::string_view original,
-    std::string_view replacement) {
-    std::size_t position = 0;
-    while ((position = contents.find(original, position)) !=
-           std::string::npos) {
-        contents.replace(position, original.size(), replacement);
-        position += replacement.size();
-    }
-}
-
-[[nodiscard]] std::filesystem::path write_test_config(
-    const std::filesystem::path& directory,
-    std::string_view name,
-    std::initializer_list<std::pair<std::string_view, std::string>>
-        replacements) {
-    const auto source = std::filesystem::path(REALMMESH_TEST_SOURCE_DIR) /
-                        "lua/config/services" / (std::string(name) + ".lua");
-    auto contents = read_file(source);
-    if (contents.empty()) throw std::runtime_error("test config is empty");
-    for (const auto& [original, replacement] : replacements) {
-        replace_all(contents, original, replacement);
-    }
-    const auto destination = directory / (std::string(name) + ".lua");
-    std::ofstream output(destination);
-    output << contents;
-    if (!output) throw std::runtime_error("failed to write test config");
-    return destination;
+/// 分层加载器生成的日志文件:<config_root>/logs/<service>/<service>-<instance>.jsonl。
+[[nodiscard]] std::filesystem::path service_log_path(
+    const std::filesystem::path& config_root, std::string_view service) {
+    const std::string name(service);
+    return config_root / "logs" / name / (name + "-" + name + "-dev-01.jsonl");
 }
 
 struct ContextDeleter {
@@ -271,6 +195,30 @@ TlsSocket connect_when_ready(std::uint16_t port) {
     throw std::runtime_error("service did not open expected port");
 }
 
+/// TCP 探活:裸 connect 确认端口已被监听,用于等待 realm_mesh 全链路就绪。
+void wait_for_tcp_ready(std::uint16_t port) {
+    using namespace std::chrono_literals;
+    for (int attempt = 0; attempt < 500; ++attempt) {
+        const int descriptor = ::socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
+        if (descriptor >= 0) {
+            sockaddr_in address{};
+            address.sin_family = AF_INET;
+            address.sin_port = htons(port);
+            address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+            if (::connect(
+                    descriptor,
+                    reinterpret_cast<const sockaddr*>(&address),
+                    sizeof(address)) == 0) {
+                ::close(descriptor);
+                return;
+            }
+            ::close(descriptor);
+        }
+        std::this_thread::sleep_for(10ms);
+    }
+    throw std::runtime_error("realm_mesh did not open expected port");
+}
+
 void send_all(SSL* ssl, std::span<const std::byte> bytes) {
     std::size_t offset = 0;
     while (offset < bytes.size()) {
@@ -317,30 +265,17 @@ std::vector<std::byte> receive_message(TlsSocket& socket) {
 }
 
 TEST(ThreeStageFlowTest, LogsInSelectsACharacterAndEntersTheGateway) {
-    const TemporaryDirectory working_directory;
-    const auto login_port = unused_tcp_port();
-    const auto realm_port = unused_tcp_port();
-    const auto gateway_port = unused_tcp_port();
-    const auto login_config = write_test_config(
-        working_directory.path(),
-        "login",
-        {{"7000", std::to_string(login_port)},
-         {"7100", std::to_string(realm_port)},
-         {"metrics_port = 9101", "metrics_port = 0"},
-         {"console = true", "console = false"}});
-    const auto realm_config = write_test_config(
-        working_directory.path(),
-        "realm",
-        {{"7100", std::to_string(realm_port)},
-         {"8000", std::to_string(gateway_port)},
-         {"metrics_port = 9102", "metrics_port = 0"},
-         {"console = true", "console = false"}});
-    const auto gateway_config = write_test_config(
-        working_directory.path(),
-        "gateway",
-        {{"8000", std::to_string(gateway_port)},
-         {"metrics_port = 9103", "metrics_port = 0"},
-         {"console = true", "console = false"}});
+    constexpr std::uint16_t login_port = 7000;
+    constexpr std::uint16_t realm_port = 7100;
+    constexpr std::uint16_t gateway_port = 8000;
+    const auto config_root =
+        std::filesystem::path(REALMMESH_TEST_SOURCE_DIR) / "configs";
+    // configs/logs/ 为被忽略的运行产物;移除上次运行留下的日志,
+    // 保证 correlation_id 断言读取的是本次进程写出的记录。
+    for (const std::string_view service : {"login", "realm", "gateway"}) {
+        std::error_code error;
+        std::filesystem::remove(service_log_path(config_root, service), error);
+    }
     constexpr auto key =
         "0102030405060708090a0b0c0d0e0f10"
         "1112131415161718191a1b1c1d1e1f20";
@@ -358,12 +293,10 @@ TEST(ThreeStageFlowTest, LogsInSelectsACharacterAndEntersTheGateway) {
             1),
         0);
 
-    ChildProcess gateway(
-        REALMMESH_GATEWAY_EXECUTABLE, working_directory.path(), gateway_config);
-    ChildProcess realm(
-        REALMMESH_REALM_EXECUTABLE, working_directory.path(), realm_config);
-    ChildProcess login(
-        REALMMESH_LOGIN_EXECUTABLE, working_directory.path(), login_config);
+    ChildProcess mesh(REALMMESH_MESH_EXECUTABLE, config_root);
+    wait_for_tcp_ready(login_port);
+    wait_for_tcp_ready(realm_port);
+    wait_for_tcp_ready(gateway_port);
 
     auto login_socket = connect_when_ready(login_port);
     LoginRequest login_request;
@@ -420,17 +353,12 @@ TEST(ThreeStageFlowTest, LogsInSelectsACharacterAndEntersTheGateway) {
     EXPECT_EQ(accepted->account_id(), login_response->account_id());
     EXPECT_EQ(accepted->character_id(), characters->characters(0).id());
 
-    login.stop();
-    realm.stop();
-    gateway.stop();
+    mesh.stop();
 
-    const auto login_log = read_file(
-        working_directory.path() / ".runtime/logs/login/login-dev-01.jsonl");
-    const auto realm_log = read_file(
-        working_directory.path() / ".runtime/logs/realm/realm-dev-01.jsonl");
-    const auto gateway_log = read_file(
-        working_directory.path() /
-        ".runtime/logs/gateway/gateway-dev-01.jsonl");
+    const auto login_log = read_file(service_log_path(config_root, "login"));
+    const auto realm_log = read_file(service_log_path(config_root, "realm"));
+    const auto gateway_log =
+        read_file(service_log_path(config_root, "gateway"));
     EXPECT_NE(
         login_log.find("\"event_name\":\"service_started\""),
         std::string::npos);
