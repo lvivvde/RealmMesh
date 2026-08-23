@@ -288,6 +288,7 @@ target_compile_features(service_registry_test PRIVATE cxx_std_20)
 gtest_discover_tests(service_registry_test)
 
 add_executable(service_host_test
+    framework/service_host/layered_config_loader_test.cpp
     framework/service_host/startup_topology_test.cpp
 )
 

@@ -1,4 +1,5 @@
 add_library(realm_service_host
+    src/layered_config_loader.cpp
     src/startup_topology.cpp
 )
 
@@ -8,6 +9,11 @@ target_include_directories(realm_service_host
     PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
         $<INSTALL_INTERFACE:include>
+)
+
+target_link_libraries(realm_service_host PUBLIC
+    realm_gateway_service
+    realm_scripting
 )
 
 target_compile_features(realm_service_host PUBLIC cxx_std_20)
