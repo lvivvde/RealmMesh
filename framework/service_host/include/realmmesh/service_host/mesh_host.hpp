@@ -19,6 +19,11 @@ namespace realm::service_host {
 /// ServiceSpec。
 class MeshHost final {
 public:
+    /// 模式 2:拓扑收窄为仅 <name> 单服务(depends_on 清空);
+    /// 名字未在 specs 声明时抛 std::invalid_argument。
+    [[nodiscard]] static std::vector<ServiceSpec> narrow_single_service(
+        std::vector<ServiceSpec> specs, std::string_view name);
+
     MeshHost(
         std::filesystem::path config_root,
         std::vector<ServiceSpec> specs,

@@ -4,7 +4,6 @@
 
 #include <sol/sol.hpp>
 
-#include <algorithm>
 #include <csignal>
 #include <exception>
 #include <filesystem>
@@ -123,27 +122,6 @@ struct Options {
     return specs;
 }
 
-/// 模式 2:拓扑收窄为仅 <name> 单服务(depends_on 清空);
-/// 名字未在 main.config 声明时抛 invalid_argument。
-[[nodiscard]] std::vector<realm::service_host::ServiceSpec>
-select_single_service(
-    std::vector<realm::service_host::ServiceSpec> specs,
-    const std::string& name) {
-    const auto match = std::find_if(
-        specs.begin(),
-        specs.end(),
-        [&name](const realm::service_host::ServiceSpec& spec) {
-            return spec.name == name;
-        });
-    if (match == specs.end()) {
-        throw std::invalid_argument(
-            "service is not declared in main.config: " + name);
-    }
-    realm::service_host::ServiceSpec single = std::move(*match);
-    single.depends_on.clear();
-    return {std::move(single)};
-}
-
 }  // namespace
 
 int main(int argc, char* argv[]) {
@@ -158,7 +136,8 @@ int main(int argc, char* argv[]) {
     try {
         specs = load_topology(options->config_root);
         if (!options->service.empty()) {
-            specs = select_single_service(std::move(specs), options->service);
+            specs = realm::service_host::MeshHost::narrow_single_service(
+                std::move(specs), options->service);
         }
     } catch (const std::exception& error) {
         std::cerr << "realm_mesh: " << error.what() << '\n';

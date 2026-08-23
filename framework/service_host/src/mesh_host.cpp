@@ -1,10 +1,26 @@
 #include "realmmesh/service_host/mesh_host.hpp"
 
+#include <algorithm>
 #include <stdexcept>
 #include <string>
 #include <utility>
 
 namespace realm::service_host {
+
+std::vector<ServiceSpec> MeshHost::narrow_single_service(
+    std::vector<ServiceSpec> specs, std::string_view name) {
+    const auto match = std::find_if(
+        specs.begin(), specs.end(), [&name](const ServiceSpec& spec) {
+            return spec.name == name;
+        });
+    if (match == specs.end()) {
+        throw std::invalid_argument(
+            "service is not declared in main.config: " + std::string(name));
+    }
+    ServiceSpec single = std::move(*match);
+    single.depends_on.clear();
+    return {std::move(single)};
+}
 
 MeshHost::MeshHost(
     std::filesystem::path config_root,

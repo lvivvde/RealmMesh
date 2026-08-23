@@ -6,19 +6,11 @@ realmmesh_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 realmmesh_runtime_dir="${realmmesh_root}/.runtime"
 realmmesh_pid_dir="${realmmesh_runtime_dir}/pids"
 realmmesh_action="${1:-restart}"
+# 停止/状态顺序(启动序的反转);启动按 realmmesh_start_services 依赖序。
 realmmesh_services=(gateway realm login)
-
-service_binary() {
-    case "$1" in
-        gateway) printf '%s\n' "${realmmesh_root}/build/dev/bin/realm_gateway" ;;
-        realm) printf '%s\n' "${realmmesh_root}/build/dev/bin/realm_character" ;;
-        login) printf '%s\n' "${realmmesh_root}/build/dev/bin/realm_login" ;;
-    esac
-}
-
-service_config() {
-    printf '%s\n' "${realmmesh_root}/lua/config/services/$1.lua"
-}
+realmmesh_start_services=(realm login gateway)
+realmmesh_mesh_binary="${realmmesh_root}/build/dev/bin/realm_mesh"
+realmmesh_config_root="${realmmesh_root}/configs"
 
 service_pid_file() {
     printf '%s\n' "${realmmesh_pid_dir}/$1.pid"
@@ -45,12 +37,24 @@ is_expected_service_process() {
     kill -0 "${realmmesh_pid}" 2>/dev/null || return 1
     [[ -r "/proc/${realmmesh_pid}/cmdline" ]] || return 1
 
-    local realmmesh_executable
-    IFS= read -r -d '' realmmesh_executable \
-        < "/proc/${realmmesh_pid}/cmdline" || true
-    [[ "${realmmesh_executable##*/}" == "$(basename "$(service_binary "${realmmesh_service}")")" ]] ||
+    local -a realmmesh_arguments=()
+    mapfile -d '' realmmesh_arguments < "/proc/${realmmesh_pid}/cmdline"
+    local realmmesh_executable="${realmmesh_arguments[0]:-}"
+    [[ "${realmmesh_executable##*/}" == \
+        "$(basename "${realmmesh_mesh_binary}")" ]] || return 1
+    [[ "$(readlink -f "/proc/${realmmesh_pid}/cwd")" == "${realmmesh_root}" ]] ||
         return 1
-    [[ "$(readlink -f "/proc/${realmmesh_pid}/cwd")" == "${realmmesh_root}" ]]
+
+    # 三个服务共用 realm_mesh 二进制,以 --service <name> 参数区分。
+    local realmmesh_index
+    for realmmesh_index in "${!realmmesh_arguments[@]}"; do
+        if [[ "${realmmesh_arguments[realmmesh_index]}" == "--service" ]] &&
+            [[ "${realmmesh_arguments[realmmesh_index + 1]:-}" == \
+                "${realmmesh_service}" ]]; then
+            return 0
+        fi
+    done
+    return 1
 }
 
 show_status() {
@@ -155,21 +159,25 @@ start_services() {
         fi
     done
 
+    if [[ ! -x "${realmmesh_mesh_binary}" ]]; then
+        printf 'Service binary is missing: %s\nRun ./scripts/build.sh first.\n' \
+            "${realmmesh_mesh_binary}" >&2
+        return 1
+    fi
+
     mkdir -p "${realmmesh_pid_dir}"
     local -a realmmesh_started_pids=()
-    for realmmesh_service in "${realmmesh_services[@]}"; do
-        local realmmesh_binary realmmesh_config realmmesh_log realmmesh_pid
-        realmmesh_binary="$(service_binary "${realmmesh_service}")"
-        realmmesh_config="$(service_config "${realmmesh_service}")"
+    # 模式 2 单服务进程:以依赖序 realm → login → gateway 依次拉起,
+    # cwd 固定为仓库根(is_expected_service_process 的 cwd 校验依赖它)。
+    cd "${realmmesh_root}"
+    for realmmesh_service in "${realmmesh_start_services[@]}"; do
+        local realmmesh_log realmmesh_pid
         realmmesh_log="$(service_log_file "${realmmesh_service}")"
-        if [[ ! -x "${realmmesh_binary}" ]]; then
-            printf 'Service binary is missing: %s\nRun ./scripts/build.sh first.\n' \
-                "${realmmesh_binary}" >&2
-            return 1
-        fi
 
         mkdir -p "$(dirname "${realmmesh_log}")"
-        nohup setsid "${realmmesh_binary}" --config "${realmmesh_config}" \
+        nohup setsid "${realmmesh_mesh_binary}" \
+            --service "${realmmesh_service}" \
+            --config "${realmmesh_config_root}" \
             >> "${realmmesh_log}" 2>&1 </dev/null &
         realmmesh_pid=$!
         printf '%s\n' "${realmmesh_pid}" \
