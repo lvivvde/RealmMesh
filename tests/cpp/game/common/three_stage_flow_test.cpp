@@ -86,6 +86,20 @@ private:
     return std::nullopt;
 }
 
+/// 统计日志内容中某事件名的出现条数(每行一条 JSON 事件)。
+[[nodiscard]] std::size_t count_events(
+    const std::string& contents, std::string_view event_name) {
+    const std::string needle =
+        "\"event_name\":\"" + std::string(event_name) + "\"";
+    std::size_t count = 0;
+    for (std::size_t position = contents.find(needle);
+         position != std::string::npos;
+         position = contents.find(needle, position + needle.size())) {
+        ++count;
+    }
+    return count;
+}
+
 /// 分层加载器生成的日志文件:<config_root>/logs/<service>/<service>-<instance>.jsonl。
 [[nodiscard]] std::filesystem::path service_log_path(
     const std::filesystem::path& config_root, std::string_view service) {
@@ -359,18 +373,14 @@ TEST(ThreeStageFlowTest, LogsInSelectsACharacterAndEntersTheGateway) {
     const auto realm_log = read_file(service_log_path(config_root, "realm"));
     const auto gateway_log =
         read_file(service_log_path(config_root, "gateway"));
-    EXPECT_NE(
-        login_log.find("\"event_name\":\"service_started\""),
-        std::string::npos);
-    EXPECT_NE(
-        login_log.find("\"event_name\":\"service_stopped\""),
-        std::string::npos);
-    EXPECT_NE(
-        realm_log.find("\"event_name\":\"service_started\""),
-        std::string::npos);
-    EXPECT_NE(
-        gateway_log.find("\"event_name\":\"service_started\""),
-        std::string::npos);
+    // 关停幂等:MeshHost::shutdown() 与 ServiceHost 析构双停只生效首次,
+    // 每服务恰好一条 service_started 配对一条 service_stopped。
+    EXPECT_EQ(count_events(login_log, "service_started"), 1);
+    EXPECT_EQ(count_events(login_log, "service_stopped"), 1);
+    EXPECT_EQ(count_events(realm_log, "service_started"), 1);
+    EXPECT_EQ(count_events(realm_log, "service_stopped"), 1);
+    EXPECT_EQ(count_events(gateway_log, "service_started"), 1);
+    EXPECT_EQ(count_events(gateway_log, "service_stopped"), 1);
     const auto login_correlation =
         correlation_for_event(login_log, "player_session_established");
     const auto realm_correlation =

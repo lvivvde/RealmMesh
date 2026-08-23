@@ -133,6 +133,9 @@ bool ServiceHost::start() {
     runtime_->start();
     if (!runtime_->running()) return false;
     frame_->started(*logger_, *runtime_);
+    // 重启场景:成功启动后复位停机标志,允许再次 stop() 写出事件。
+    started_ = true;
+    stopped_ = false;
     if (!discovery_config_.enabled ||
         (publisher_ != nullptr && publisher_->registered())) {
         ready_.store(true);
@@ -143,8 +146,13 @@ bool ServiceHost::start() {
 bool ServiceHost::ready() const noexcept { return ready_.load(); }
 
 void ServiceHost::stop() {
+    // 幂等:MeshHost::shutdown() 与 ServiceHost 析构双停只生效首次;
+    // 未写过 service_started 的失败启动不补写无配对的 service_stopped。
+    if (stopped_) return;
+    stopped_ = true;
     if (runtime_ != nullptr) runtime_->stop();
-    if (runtime_ != nullptr && logger_ != nullptr && frame_ != nullptr) {
+    if (started_ && runtime_ != nullptr && logger_ != nullptr &&
+        frame_ != nullptr) {
         frame_->stopped(*logger_, *runtime_);
     }
     // 注销发现:publisher/resolver 持有 registry 引用,须先行析构。

@@ -65,6 +65,10 @@ private:
     std::string instance_;
     cluster::ServiceDiscoveryConfig discovery_config_;
     std::atomic_bool ready_{false};
+    // started_:service_started 已写(失败启动不补写 service_stopped);
+    // stopped_:停机幂等标志,MeshHost::shutdown() 与析构双停只生效首次。
+    bool started_{false};
+    bool stopped_{false};
     // 声明序即析构序:resolver → publisher → registry(引用链),
     // 再到 frame → runtime → metrics → logger。
     std::unique_ptr<observability::Logger> logger_;

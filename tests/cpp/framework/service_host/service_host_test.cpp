@@ -16,6 +16,13 @@
 namespace realm::service_host {
 namespace {
 
+[[nodiscard]] std::string read_file(const std::filesystem::path& path) {
+    std::ifstream input(path);
+    return std::string(
+        std::istreambuf_iterator<char>(input),
+        std::istreambuf_iterator<char>());
+}
+
 /// TLS 证书/会话票据环境变量守护:指向 CMake 预生成的自签证书与固定
 /// 测试密钥,析构时还原。
 class ScopedTlsEnvironment final {
@@ -144,6 +151,13 @@ TEST_F(ServiceHostTest, RequiredRegistrationFailureThrows) {
     EXPECT_THROW(static_cast<void>(host.start()), std::runtime_error);
     EXPECT_FALSE(host.ready());
     host.stop();  // 抛出后仍可安全关停。
+    // 失败启动未写 service_started,关停不得补写无配对的 service_stopped。
+    const auto log =
+        read_file(root_ / "logs" / "login" / "login-login-test-01.jsonl");
+    EXPECT_EQ(
+        log.find("\"event_name\":\"service_stopped\""), std::string::npos);
+    EXPECT_EQ(
+        log.find("\"event_name\":\"service_started\""), std::string::npos);
 }
 
 TEST_F(ServiceHostTest, EscapesGaugeLabelSpecialCharacters) {
