@@ -136,5 +136,28 @@ TEST_F(ServiceHostTest, RequiredRegistrationFailureThrows) {
     host.stop();  // 抛出后仍可安全关停。
 }
 
+TEST_F(ServiceHostTest, EscapesGaugeLabelSpecialCharacters) {
+    const ScopedTlsEnvironment tls_environment;
+    // instance_id 含引号与反斜杠(Lua 转义后为 we"ird\name)。
+    write(
+        root_ / "services" / "host_test.lua",
+        "return { " + transport_lua() +
+            ", service_discovery = { enabled = false, instance_id = "
+            "\"we\\\"ird\\\\name\" } }");
+    ServiceHost host(root_, "host_test");
+
+    EXPECT_TRUE(host.start());
+    // 标签值特殊字符转义为 \" 与 \\,保证 Prometheus 文本合法且值为 1。
+    const auto metrics = host.prometheus_metrics();
+    EXPECT_NE(metrics.find("\\\""), std::string::npos);
+    EXPECT_NE(metrics.find("\\\\"), std::string::npos);
+    EXPECT_NE(
+        metrics.find("realmmesh_service_ready{service_name=\"host_test\","
+                     "service_instance=\"we\\\"ird\\\\name\"} 1"),
+        std::string::npos);
+
+    host.stop();
+}
+
 }  // namespace
 }  // namespace realm::service_host

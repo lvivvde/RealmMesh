@@ -28,7 +28,8 @@ namespace realm::service_host {
 
 /// 单服务装配:封装原三个 main 的公共链。
 /// 发现关闭时 ready() = runtime 监听成功;发现开启时还需注册 tick 成功
-/// (required=true 注册失败 → start() 抛出)。
+/// (required=true 注册失败 → start() 抛出);
+/// 发现开启且服务名非 gateway/realm/login 时 start() 抛 std::invalid_argument。
 class ServiceHost final {
 public:
     /// service_name/instance_id 驱动 LayeredConfigLoader;构造失败抛异常。

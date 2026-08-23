@@ -38,6 +38,30 @@ constexpr std::string_view service_version = "0.1.0";
         "unsupported service name: " + std::string(service_name));
 }
 
+/// 转义 Prometheus 标签值中的 \ " 与换行,保证指标输出格式合法
+/// (与 observability 内部 prometheus_label 逻辑一致,该助手未导出)。
+[[nodiscard]] std::string prometheus_label(std::string_view value) {
+    std::string escaped;
+    escaped.reserve(value.size());
+    for (const char character : value) {
+        switch (character) {
+        case '\\':
+            escaped += "\\\\";
+            break;
+        case '"':
+            escaped += "\\\"";
+            break;
+        case '\n':
+            escaped += "\\n";
+            break;
+        default:
+            escaped.push_back(character);
+            break;
+        }
+    }
+    return escaped;
+}
+
 }  // namespace
 
 ServiceHost::ServiceHost(
@@ -147,9 +171,9 @@ std::string ServiceHost::prometheus_metrics() const {
     std::string output = logger_->prometheus_metrics();
     output += "# TYPE realmmesh_service_ready gauge\n";
     output += "realmmesh_service_ready{service_name=\"";
-    output += service_name_;
+    output += prometheus_label(service_name_);
     output += "\",service_instance=\"";
-    output += instance_;
+    output += prometheus_label(instance_);
     output += "\"} ";
     output += ready_.load() ? "1" : "0";
     output += '\n';
