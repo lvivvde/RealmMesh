@@ -19,6 +19,7 @@ compile_commands.json
 # Editors and local tools
 .idea/
 .vscode/
+.trae/
 .agents/
 .codex/
 .realmmesh-git/
