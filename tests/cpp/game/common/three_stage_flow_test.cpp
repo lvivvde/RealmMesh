@@ -72,6 +72,17 @@ private:
         std::istreambuf_iterator<char>());
 }
 
+[[nodiscard]] std::uint16_t environment_port(
+    const char* name, std::uint16_t fallback) {
+    const char* value = std::getenv(name);
+    if (value == nullptr) return fallback;
+    const auto parsed = std::stoul(value);
+    if (parsed == 0 || parsed > 65535) {
+        throw std::invalid_argument(std::string(name) + " is not a valid port");
+    }
+    return static_cast<std::uint16_t>(parsed);
+}
+
 [[nodiscard]] std::optional<std::string> correlation_for_event(
     std::string_view contents, std::string_view event_name) {
     std::istringstream input{std::string(contents)};
@@ -98,6 +109,17 @@ private:
         ++count;
     }
     return count;
+}
+
+void wait_for_event(
+    const std::filesystem::path& path, std::string_view event_name) {
+    using namespace std::chrono_literals;
+    for (int attempt = 0; attempt < 200; ++attempt) {
+        if (count_events(read_file(path), event_name) != 0) return;
+        std::this_thread::sleep_for(10ms);
+    }
+    throw std::runtime_error(
+        "event was not written before timeout: " + std::string(event_name));
 }
 
 /// 分层加载器生成的日志文件:<config_root>/logs/<service>/<service>-<instance>.jsonl。
@@ -279,16 +301,28 @@ std::vector<std::byte> receive_message(TlsSocket& socket) {
 }
 
 TEST(ThreeStageFlowTest, LogsInSelectsACharacterAndEntersTheGateway) {
-    constexpr std::uint16_t login_port = 7000;
-    constexpr std::uint16_t realm_port = 7100;
-    constexpr std::uint16_t gateway_port = 8000;
+    const bool external_service_group =
+        std::getenv("REALMMESH_THREE_STAGE_EXTERNAL") != nullptr;
+    const std::uint16_t login_port =
+        environment_port("REALMMESH_THREE_STAGE_LOGIN_PORT", 7000);
+    const std::uint16_t realm_port =
+        environment_port("REALMMESH_THREE_STAGE_REALM_PORT", 7100);
+    const std::uint16_t gateway_port =
+        environment_port("REALMMESH_THREE_STAGE_GATEWAY_PORT", 8000);
+    const char* external_config_root =
+        std::getenv("REALMMESH_THREE_STAGE_CONFIG_ROOT");
     const auto config_root =
-        std::filesystem::path(REALMMESH_TEST_SOURCE_DIR) / "configs";
-    // configs/logs/ 为被忽略的运行产物;移除上次运行留下的日志,
-    // 保证 correlation_id 断言读取的是本次进程写出的记录。
-    for (const std::string_view service : {"login", "realm", "gateway"}) {
-        std::error_code error;
-        std::filesystem::remove(service_log_path(config_root, service), error);
+        external_config_root == nullptr
+            ? std::filesystem::path(REALMMESH_TEST_SOURCE_DIR) / "configs"
+            : std::filesystem::path(external_config_root);
+    // 自行启动进程时先清理上次日志;外部服务组已经打开当前日志文件,
+    // 此时 unlink 会让后续事件只写入已删除的 inode。
+    if (!external_service_group) {
+        for (const std::string_view service : {"login", "realm", "gateway"}) {
+            std::error_code error;
+            std::filesystem::remove(
+                service_log_path(config_root, service), error);
+        }
     }
     constexpr auto key =
         "0102030405060708090a0b0c0d0e0f10"
@@ -307,7 +341,11 @@ TEST(ThreeStageFlowTest, LogsInSelectsACharacterAndEntersTheGateway) {
             1),
         0);
 
-    ChildProcess mesh(REALMMESH_MESH_EXECUTABLE, config_root);
+    std::unique_ptr<ChildProcess> mesh;
+    if (!external_service_group) {
+        mesh = std::make_unique<ChildProcess>(
+            REALMMESH_MESH_EXECUTABLE, config_root);
+    }
     wait_for_tcp_ready(login_port);
     wait_for_tcp_ready(realm_port);
     wait_for_tcp_ready(gateway_port);
@@ -367,7 +405,15 @@ TEST(ThreeStageFlowTest, LogsInSelectsACharacterAndEntersTheGateway) {
     EXPECT_EQ(accepted->account_id(), login_response->account_id());
     EXPECT_EQ(accepted->character_id(), characters->characters(0).id());
 
-    mesh.stop();
+    if (mesh != nullptr) mesh->stop();
+
+    if (external_service_group) {
+        for (const std::string_view service : {"login", "realm", "gateway"}) {
+            wait_for_event(
+                service_log_path(config_root, service),
+                "player_session_established");
+        }
+    }
 
     const auto login_log = read_file(service_log_path(config_root, "login"));
     const auto realm_log = read_file(service_log_path(config_root, "realm"));
@@ -376,11 +422,17 @@ TEST(ThreeStageFlowTest, LogsInSelectsACharacterAndEntersTheGateway) {
     // 关停幂等:MeshHost::shutdown() 与 ServiceHost 析构双停只生效首次,
     // 每服务恰好一条 service_started 配对一条 service_stopped。
     EXPECT_EQ(count_events(login_log, "service_started"), 1);
-    EXPECT_EQ(count_events(login_log, "service_stopped"), 1);
+    EXPECT_EQ(
+        count_events(login_log, "service_stopped"),
+        external_service_group ? 0 : 1);
     EXPECT_EQ(count_events(realm_log, "service_started"), 1);
-    EXPECT_EQ(count_events(realm_log, "service_stopped"), 1);
+    EXPECT_EQ(
+        count_events(realm_log, "service_stopped"),
+        external_service_group ? 0 : 1);
     EXPECT_EQ(count_events(gateway_log, "service_started"), 1);
-    EXPECT_EQ(count_events(gateway_log, "service_stopped"), 1);
+    EXPECT_EQ(
+        count_events(gateway_log, "service_stopped"),
+        external_service_group ? 0 : 1);
     const auto login_correlation =
         correlation_for_event(login_log, "player_session_established");
     const auto realm_correlation =

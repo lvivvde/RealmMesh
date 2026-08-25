@@ -119,6 +119,24 @@ TEST_F(MeshHostTest, FailureRecyclesStartedServicesInReverse) {
     EXPECT_THROW(static_cast<void>(mesh.service("b")), std::out_of_range);
 }
 
+TEST_F(MeshHostTest, FailureBeforeFinalWaveNeverConstructsEntry) {
+    const ScopedTlsEnvironment tls_environment;
+    write(
+        root_ / "services" / "b.lua",
+        "return { " + transport_lua() + ", tick_rate = \"broken\" }");
+    write(
+        root_ / "services" / "entry.lua", "return { " + transport_lua() + " }");
+    const std::vector<ServiceSpec> specs{
+        {"a", {}, false},
+        {"entry", {}, true},
+        {"b", {"a"}, false},
+    };
+
+    MeshHost mesh(root_, specs);
+    EXPECT_FALSE(mesh.start_all());
+    EXPECT_THROW(static_cast<void>(mesh.service("entry")), std::out_of_range);
+}
+
 TEST_F(MeshHostTest, ServiceLookupThrowsForUnknownName) {
     const ScopedTlsEnvironment tls_environment;
     MeshHost mesh(root_, std::vector<ServiceSpec>{{"a", {}, false}});

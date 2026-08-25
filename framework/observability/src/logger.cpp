@@ -626,13 +626,18 @@ private:
 class LoggerMetricsServer::Impl final {
 public:
     /// port 为 0 时随机分配可用端口;绑定失败抛 std::runtime_error。
-    Impl(Logger& logger, MetricsServerConfig config)
-        : logger_(logger) {
+    Impl(
+        std::function<std::string()> metrics_provider,
+        MetricsServerConfig config)
+        : metrics_provider_(std::move(metrics_provider)) {
+        if (!metrics_provider_) {
+            throw std::invalid_argument("metrics provider is required");
+        }
         server_.Get(
             "/metrics",
             [this](const httplib::Request&, httplib::Response& response) {
                 response.set_content(
-                    logger_.prometheus_metrics(),
+                    metrics_provider_(),
                     "text/plain; version=0.0.4; charset=utf-8");
             });
         const int bound_port =
@@ -661,7 +666,7 @@ public:
     [[nodiscard]] std::uint16_t port() const noexcept { return port_; }
 
 private:
-    Logger& logger_;
+    std::function<std::string()> metrics_provider_;
     httplib::Server server_;
     std::jthread thread_;
     std::uint16_t port_{0};
@@ -705,7 +710,16 @@ std::string Logger::prometheus_metrics() const {
 
 LoggerMetricsServer::LoggerMetricsServer(
     Logger& logger, MetricsServerConfig config)
-    : impl_(std::make_unique<Impl>(logger, std::move(config))) {}
+    : LoggerMetricsServer(
+          [&logger] {
+              return logger.prometheus_metrics();
+          },
+          std::move(config)) {}
+
+LoggerMetricsServer::LoggerMetricsServer(
+    std::function<std::string()> metrics_provider, MetricsServerConfig config)
+    : impl_(std::make_unique<Impl>(
+          std::move(metrics_provider), std::move(config))) {}
 
 LoggerMetricsServer::~LoggerMetricsServer() = default;
 

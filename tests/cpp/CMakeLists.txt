@@ -298,6 +298,7 @@ add_executable(service_host_test
 
 target_link_libraries(service_host_test PRIVATE
     GTest::gtest_main
+    httplib::httplib
     realm_service_host
 )
 
@@ -319,4 +320,35 @@ gtest_discover_tests(service_host_test
 add_test(
     NAME realmmesh_smoke
     COMMAND realmmesh --frames 2 --tick-rate 1000
+)
+
+function(add_dev_services_test name test_case timeout)
+    add_test(
+        NAME "DevServicesScriptTest.${name}"
+        COMMAND bash
+            "${PROJECT_SOURCE_DIR}/tests/scripts/dev_services_test.sh"
+            "${test_case}"
+            "${PROJECT_SOURCE_DIR}"
+            "$<TARGET_FILE:realm_mesh>"
+            "${REALMMESH_TEST_TLS_CERTIFICATE}"
+            "${REALMMESH_TEST_TLS_PRIVATE_KEY}"
+            ${ARGN}
+    )
+    set_tests_properties("DevServicesScriptTest.${name}" PROPERTIES
+        RUN_SERIAL TRUE
+        TIMEOUT "${timeout}"
+    )
+endfunction()
+
+add_dev_services_test(StartUsesSupervisor start_uses_supervisor 20)
+add_dev_services_test(
+    UnreadyRealmBlocksDependents unready_realm_blocks_dependents 20)
+add_dev_services_test(ChildFailureStopsGroup child_failure_stops_group 20)
+add_dev_services_test(StopIsReverseOrdered stop_is_reverse_ordered 20)
+add_dev_services_test(CommandsManageServiceGroup commands_manage_service_group 30)
+add_dev_services_test(
+    ThreeStageFlowUsesServiceGroup
+    three_stage_flow_uses_service_group
+    30
+    "$<TARGET_FILE:three_stage_flow_test>"
 )

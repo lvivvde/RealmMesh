@@ -31,6 +31,31 @@ TEST(StartupTopologyTest, ChainSplitsIntoWaves) {
     EXPECT_EQ(topology.waves().at(2), std::vector<std::string>{"gateway"});
 }
 
+TEST(StartupTopologyTest, EntryServiceIsAlwaysInTheFinalWave) {
+    const StartupTopology topology(std::vector<ServiceSpec>{
+        {"realm", {}, false},
+        {"login", {"realm"}, false},
+        {"gateway", {"login"}, true},
+        {"a", {}, false},
+        {"b", {"a"}, false},
+        {"c", {"b"}, false},
+        {"d", {"c"}, false},
+    });
+
+    ASSERT_EQ(topology.waves().size(), std::size_t{5});
+    EXPECT_EQ(topology.waves().back(), std::vector<std::string>{"gateway"});
+    EXPECT_EQ(topology.waves().at(3), std::vector<std::string>{"d"});
+}
+
+TEST(StartupTopologyTest, RejectsServicesDependingOnAnEntry) {
+    EXPECT_THROW(
+        StartupTopology(std::vector<ServiceSpec>{
+            {"gateway", {}, true},
+            {"late", {"gateway"}, false},
+        }),
+        std::invalid_argument);
+}
+
 TEST(StartupTopologyTest, CycleThrows) {
     EXPECT_THROW(
         StartupTopology(

@@ -14,17 +14,23 @@ namespace {
 /// 校验服务名非空且唯一,依赖均在集合内。
 void validate(const std::vector<ServiceSpec>& specs) {
     std::unordered_set<std::string> names;
+    std::unordered_set<std::string> entries;
     for (const auto& spec : specs) {
         if (spec.name.empty() || !names.insert(spec.name).second) {
             throw std::invalid_argument(
                 "service names must be non-empty and unique");
         }
+        if (spec.entry) entries.insert(spec.name);
     }
     for (const auto& spec : specs) {
         for (const auto& dependency : spec.depends_on) {
             if (!names.contains(dependency)) {
                 throw std::invalid_argument(
                     "unknown dependency: " + dependency);
+            }
+            if (entries.contains(dependency)) {
+                throw std::invalid_argument(
+                    "entry service cannot have dependents: " + dependency);
             }
         }
     }
@@ -88,14 +94,22 @@ StartupTopology::StartupTopology(std::vector<ServiceSpec> specs) {
     // 波次装配:同深度节点归入同一波,波内保持声明序。
     std::size_t wave_count = 0;
     for (std::size_t i = 0; i < count; ++i) {
-        wave_count = std::max(wave_count, depth[i] + 1);
+        if (!specs[i].entry) {
+            wave_count = std::max(wave_count, depth[i] + 1);
+        }
     }
     waves_.assign(wave_count, {});
+    std::vector<std::string> entry_wave;
     all_names_.reserve(count);
     for (std::size_t i = 0; i < count; ++i) {
-        waves_[depth[i]].push_back(specs[i].name);
+        if (specs[i].entry) {
+            entry_wave.push_back(specs[i].name);
+        } else {
+            waves_[depth[i]].push_back(specs[i].name);
+        }
         all_names_.push_back(specs[i].name);
     }
+    if (!entry_wave.empty()) waves_.push_back(std::move(entry_wave));
 }
 
 const std::vector<std::vector<std::string>>& StartupTopology::waves()

@@ -49,6 +49,8 @@ public:
     [[nodiscard]] ServiceHost& service(std::string_view name);
 
 private:
+    [[nodiscard]] bool mode2_gateway_dependencies_ready() const;
+
     std::filesystem::path config_root_;
     CliOverrides overrides_;
     StartupTopology topology_;

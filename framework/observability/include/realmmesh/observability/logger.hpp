@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <initializer_list>
 #include <memory>
 #include <optional>
@@ -283,6 +284,10 @@ class LoggerMetricsServer final {
 public:
     /// 构造并启动服务;端口绑定失败时抛出 std::runtime_error。
     LoggerMetricsServer(Logger& logger, MetricsServerConfig config = {});
+    /// 使用调用方提供的完整指标快照,供组合 Logger 与服务级指标。
+    LoggerMetricsServer(
+        std::function<std::string()> metrics_provider,
+        MetricsServerConfig config = {});
     /// 停止 HTTP 服务并回收线程。
     ~LoggerMetricsServer();
 

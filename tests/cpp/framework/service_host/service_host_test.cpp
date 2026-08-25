@@ -1,8 +1,10 @@
 #include "realmmesh/service_host/service_host.hpp"
 
 #include "realmmesh/game/gateway/gateway_runtime.hpp"
+#include "realmmesh/network/tcp/tcp_listener.hpp"
 
 #include <gtest/gtest.h>
+#include <httplib.h>
 
 #include <cstdint>
 #include <cstdlib>
@@ -180,6 +182,34 @@ TEST_F(ServiceHostTest, EscapesGaugeLabelSpecialCharacters) {
                      "service_instance=\"we\\\"ird\\\\name\"} 1"),
         std::string::npos);
 
+    host.stop();
+}
+
+TEST_F(ServiceHostTest, HttpMetricsExposeServiceReadiness) {
+    const ScopedTlsEnvironment tls_environment;
+    std::uint16_t metrics_port = 0;
+    {
+        const network::TcpListener reservation("127.0.0.1", 0);
+        metrics_port = reservation.local_port();
+    }
+    write(
+        root_ / "services" / "host_test.lua",
+        "return { " + transport_lua() +
+            ", logging = { metrics_listen_address = \"127.0.0.1\", "
+            "metrics_port = " +
+            std::to_string(metrics_port) + " } }");
+
+    ServiceHost host(root_, "host_test");
+    ASSERT_TRUE(host.start());
+    httplib::Client client("127.0.0.1", metrics_port);
+    const auto response = client.Get("/metrics");
+    ASSERT_TRUE(response);
+    ASSERT_EQ(response->status, 200);
+    EXPECT_NE(
+        response->body.find(
+            "realmmesh_service_ready{service_name=\"host_test\","
+            "service_instance=\"host-test-01\"} 1"),
+        std::string::npos);
     host.stop();
 }
 

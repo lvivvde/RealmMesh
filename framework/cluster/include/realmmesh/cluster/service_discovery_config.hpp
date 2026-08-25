@@ -17,6 +17,7 @@ struct ServiceDiscoveryConfig {
     std::chrono::seconds lease_ttl{15};
     std::chrono::milliseconds request_timeout{500};
     std::chrono::milliseconds watch_interval{500};
+    std::chrono::milliseconds startup_timeout{5'000};
 };
 
 }  // namespace realm::cluster

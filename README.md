@@ -60,8 +60,8 @@ export REALMMESH_TLS_PRIVATE_KEY_FILE="$PWD/.local/tls/private-key.pem"
 export REALMMESH_SESSION_TICKET_KEY="$(openssl rand -hex 32)"
 ```
 
-服务收到 `SIGHUP` 后会重新读取证书和私钥；新身份只用于新连接，已有连接继续使用原
-TLS 上下文。加载失败时保留上一份可用身份。
+统一入口当前会忽略 `SIGHUP`，证书和私钥只在进程启动时加载。轮换开发或生产凭据
+后，需要重启对应进程。
 
 ## 运行三段服务
 
@@ -73,15 +73,24 @@ TLS 上下文。加载失败时保留上一份可用身份。
 ./scripts/dev-all-in-one.sh status
 ./scripts/dev-all-in-one.sh stop
 
-# 分布式：每个服务一个进程
+# 同机多进程开发模式：每个服务一个进程
 ./scripts/dev-services.sh          # 默认 restart
 ./scripts/dev-services.sh status
 ./scripts/dev-services.sh stop
 ```
 
 脚本默认使用 `.runtime/tls/` 中的开发证书，将 PID 写入 `.runtime/pids/`。all-in-one
-控制台输出追加到 `.runtime/logs/all-in-one/console.log`；分布式控制台输出追加到
+控制台输出追加到 `.runtime/logs/all-in-one/console.log`；多进程模式的 supervisor
+日志写入 `.runtime/logs/supervisor/console.log`，各服务输出追加到
 `.runtime/logs/<service>/console.log`。首次运行前需要完成构建和开发证书生成。
+
+多进程脚本由后台 supervisor 按 `Realm → Login → Gateway` 启动，每个服务的
+`realmmesh_service_ready` 指标变为 `1` 后才启动下一个服务。默认每项最多等待
+10 秒，可用 `REALMMESH_STARTUP_TIMEOUT_SECONDS` 调整。任一服务启动失败或运行中
+退出时，supervisor 会按 `Gateway → Login → Realm` 回收整组进程。
+
+这里的“多进程”只表示同一开发机上的三个独立服务进程，仍使用 Lua 中的环回地址，
+不代表已经支持跨机器生产部署、服务多副本或高可用。
 
 也可以手动启动：
 
@@ -122,8 +131,11 @@ Gateway 会把两个候选端点一并下发，候选项包含 `protocol/address
 }
 ```
 
-服务通过 etcd v3 Lease 发布端点并 Watch 下游服务。`required = false` 时 etcd 不可用
-会使用 Lua 固定下游地址并持续重试；生产环境可设为 `true`。
+服务发现默认关闭，此时使用 Lua 中的固定下游地址。开启后，服务会在运行时监听器就绪后
+通过 etcd v3 Lease 发布端点并 Watch 下游；首次注册成功才会进入 ready。
+`required = true` 会将注册失败显式报错；`false` 会记录告警并保持 not-ready，统一启动器
+不会放行未就绪服务。`startup_timeout_ms` 控制单独启动 Gateway 时对 Login 和 Realm
+的启动前探测时限，默认为 5000ms。
 
 ## 会话与线程模型
 
@@ -143,7 +155,8 @@ ctest --preset dev
 
 测试覆盖真实 TLS 1.3/ALPN 往返、真实 MsQuic 往返、无 ALPN 不创建业务连接、QUIC
 竞速与安全降级分类、IPv6 双栈、端点序列化、pending→session 原子晋升，以及完整的
-Login→Realm→Gateway TLS 链路。测试证书和私钥只生成在 `build/` 中。
+Login→Realm→Gateway TLS 链路。同时覆盖 all-in-one 和同机三进程启动、就绪门禁、
+失败整组回收与反序停机。测试证书和私钥只生成在 `build/` 中。
 
 ## License
 

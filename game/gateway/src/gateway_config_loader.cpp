@@ -280,6 +280,11 @@ GatewayConfig GatewayConfigLoader::parse(const sol::table& root) {
                 discovery,
                 "watch_interval_ms",
                 config.service_discovery.watch_interval.count()));
+        config.service_discovery.startup_timeout =
+            std::chrono::milliseconds(optional_integer<std::int64_t>(
+                discovery,
+                "startup_timeout_ms",
+                config.service_discovery.startup_timeout.count()));
     }
 
     const sol::object logging_value = root.raw_get<sol::object>("logging");
@@ -348,6 +353,11 @@ GatewayConfig GatewayConfigLoader::parse(const sol::table& root) {
         config.logging_metrics.listen_address.empty()) {
         throw std::invalid_argument(
             "logging metrics listen address cannot be empty");
+    }
+    if (config.service_discovery.startup_timeout <=
+        std::chrono::milliseconds::zero()) {
+        throw std::invalid_argument(
+            "service discovery startup timeout must be positive");
     }
     if (config.service_discovery.enabled &&
         (config.service_discovery.endpoint.empty() ||

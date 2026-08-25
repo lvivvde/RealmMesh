@@ -12,5 +12,6 @@ return {
         lease_ttl_seconds = 15,
         request_timeout_ms = 500,
         watch_interval_ms = 500,
+        startup_timeout_ms = 5000,
     },
 }

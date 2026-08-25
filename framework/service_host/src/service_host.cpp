@@ -8,6 +8,7 @@
 #include "realmmesh/observability/logger.hpp"
 
 #include <chrono>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -80,7 +81,10 @@ ServiceHost::ServiceHost(
         config.logging, config.logging_identity);
     if (config.logging_metrics.port != 0) {
         metrics_ = std::make_unique<observability::LoggerMetricsServer>(
-            *logger_, config.logging_metrics);
+            [this] {
+                return prometheus_metrics();
+            },
+            config.logging_metrics);
     }
     frame_ = std::make_unique<ServiceFrame>(
         service_name_,
@@ -94,53 +98,68 @@ ServiceHost::ServiceHost(
 ServiceHost::~ServiceHost() { stop(); }
 
 bool ServiceHost::start() {
+    std::optional<cluster::ServiceType> self_type;
+    std::optional<cluster::ServiceType> dependency_type;
     if (discovery_config_.enabled) {
-        // 名字映射先行:未知服务名在触碰 etcd 前即失败。
-        const auto self_type = self_service_type(service_name_);
-        const auto dependency_type = dependency_service_type(service_name_);
-        // 重启场景按引用链反序清理旧装配,避免 publisher 悬挂 registry。
-        resolver_.reset();
-        publisher_.reset();
-        registry_.reset();
-        registry_ = std::make_unique<cluster::EtcdServiceRegistry>(
-            cluster::make_etcd_registry_options(discovery_config_));
-        publisher_ = std::make_unique<cluster::ServicePublisher>(
-            *registry_,
-            cluster::make_service_instance(
-                self_type,
-                discovery_config_,
-                runtime_->local_endpoints(),
-                service_version),
-            discovery_config_.lease_ttl);
-        const bool registered = publisher_->tick();
-        if (!registered && discovery_config_.required) {
-            throw std::runtime_error(
-                service_name_ +
-                " service registration failed: " + registry_->last_error());
-        }
-        if (!registered) {
-            static_cast<void>(logger_->warn(
-                "dependency_state_changed",
-                "service discovery unavailable; using Lua fallback",
-                {observability::field("dependency", "etcd"),
-                 observability::field("state", "unavailable"),
-                 observability::field(
-                     "error_message", registry_->last_error())}));
-        }
-        resolver_ = std::make_unique<cluster::ServiceResolver>(
-            *registry_, dependency_type, network::TransportProtocol::TlsTcp);
+        // 纯配置校验先行:未知服务名在启动 I/O 或触碰 etcd 前即失败。
+        self_type = self_service_type(service_name_);
+        dependency_type = dependency_service_type(service_name_);
     }
     runtime_->start();
     if (!runtime_->running()) return false;
-    frame_->started(*logger_, *runtime_);
-    // 重启场景:成功启动后复位停机标志,允许再次 stop() 写出事件。
-    started_ = true;
-    stopped_ = false;
-    if (!discovery_config_.enabled ||
-        (publisher_ != nullptr && publisher_->registered())) {
-        ready_.store(true);
+    try {
+        if (discovery_config_.enabled) {
+            // 重启场景按引用链反序清理旧装配,避免 publisher 悬挂 registry。
+            resolver_.reset();
+            publisher_.reset();
+            registry_.reset();
+            registry_ = std::make_unique<cluster::EtcdServiceRegistry>(
+                cluster::make_etcd_registry_options(discovery_config_));
+            publisher_ = std::make_unique<cluster::ServicePublisher>(
+                *registry_,
+                cluster::make_service_instance(
+                    *self_type,
+                    discovery_config_,
+                    runtime_->local_endpoints(),
+                    service_version),
+                discovery_config_.lease_ttl);
+            const bool registered = publisher_->tick();
+            if (!registered && discovery_config_.required) {
+                throw std::runtime_error(
+                    service_name_ +
+                    " service registration failed: " + registry_->last_error());
+            }
+            if (!registered) {
+                static_cast<void>(logger_->warn(
+                    "dependency_state_changed",
+                    "service discovery unavailable; using Lua fallback",
+                    {observability::field("dependency", "etcd"),
+                     observability::field("state", "unavailable"),
+                     observability::field(
+                         "error_message", registry_->last_error())}));
+            }
+            resolver_ = std::make_unique<cluster::ServiceResolver>(
+                *registry_,
+                *dependency_type,
+                network::TransportProtocol::TlsTcp);
+        }
+        frame_->started(*logger_, *runtime_);
+        // 重启场景:成功启动后复位停机标志,允许再次 stop() 写出事件。
+        started_ = true;
+        stopped_ = false;
+        if (!discovery_config_.enabled ||
+            (publisher_ != nullptr && publisher_->registered())) {
+            ready_.store(true);
+        }
+        return ready_.load();
+    } catch (...) {
+        runtime_->stop();
+        resolver_.reset();
+        publisher_.reset();
+        registry_.reset();
+        ready_.store(false);
+        throw;
     }
-    return ready_.load();
 }
 
 bool ServiceHost::ready() const noexcept { return ready_.load(); }

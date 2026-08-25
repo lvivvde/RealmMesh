@@ -12,7 +12,8 @@ struct ServiceSpec {
     bool entry{false};  ///< 入口服务(全部 ready 后才放行)
 };
 
-/// 拓扑解析:环、未知依赖、重名 → 抛 std::invalid_argument。
+/// 拓扑解析:环、未知依赖、重名、entry 被其他服务依赖 →
+/// 抛 std::invalid_argument;entry 服务统一放在全图最终波次。
 class StartupTopology final {
 public:
     explicit StartupTopology(std::vector<ServiceSpec> specs);

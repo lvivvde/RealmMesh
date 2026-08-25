@@ -1,6 +1,7 @@
 #include "realmmesh/service_host/mesh_host.hpp"
 
 #include "realmmesh/game/gateway/gateway_runtime.hpp"
+#include "realmmesh/network/tcp/tcp_listener.hpp"
 
 #include <gtest/gtest.h>
 
@@ -80,6 +81,58 @@ private:
         std::istreambuf_iterator<char>());
 }
 
+void replace_text(
+    const std::filesystem::path& path,
+    std::string_view from,
+    std::string_view to) {
+    auto contents = read_file(path);
+    const auto position = contents.find(from);
+    ASSERT_NE(position, std::string::npos);
+    contents.replace(position, from.size(), to);
+    std::ofstream output(path, std::ios::trunc);
+    output << contents;
+    ASSERT_TRUE(output);
+}
+
+void use_test_ports(
+    const std::filesystem::path& root,
+    std::uint16_t login_port,
+    std::uint16_t realm_port) {
+    replace_text(
+        root / "services" / "login.lua",
+        "listen_port = 7000",
+        "listen_port = " + std::to_string(login_port));
+    replace_text(
+        root / "services" / "realm.lua",
+        "listen_port = 7100",
+        "listen_port = " + std::to_string(realm_port));
+    replace_text(
+        root / "services" / "gateway.lua",
+        "metrics_port = 9103",
+        "metrics_port = 0");
+    replace_text(
+        root / "common" / "discovery.lua",
+        "startup_timeout_ms = 5000",
+        "startup_timeout_ms = 50");
+    auto gateway = read_file(root / "services" / "gateway.lua");
+    for (auto position = gateway.find("listen_port = 8000");
+         position != std::string::npos;
+         position = gateway.find("listen_port = 8000")) {
+        gateway.replace(
+            position,
+            std::string_view("listen_port = 8000").size(),
+            "listen_port = 0");
+    }
+    std::ofstream output(root / "services" / "gateway.lua", std::ios::trunc);
+    output << gateway;
+    ASSERT_TRUE(output);
+}
+
+[[nodiscard]] std::uint16_t unused_tcp_port() {
+    const network::TcpListener listener("127.0.0.1", 0);
+    return listener.local_port();
+}
+
 /// 拷贝真实 configs 到临时目录后确保服务发现关闭(与 E2E 同模式):
 /// 本环境无 etcd,而发现开启时 ServiceHost 的 ready 语义要求注册成功,
 /// start_all 会整体失败;源配置默认 enabled = false,替换仅为幂等兜底,
@@ -151,6 +204,10 @@ TEST(Mode2Test, SingleServiceMeshStartsAndRuns) {
     const std::filesystem::path source = REALMMESH_SOURCE_DIR "/configs";
     const TemporaryDirectory scratch;
     ASSERT_TRUE(copy_configs_with_discovery_disabled(source, scratch.path()));
+    replace_text(
+        scratch.path() / "services" / "login.lua",
+        "metrics_port = 9101",
+        "metrics_port = 0");
 
     CliOverrides overrides;
     overrides.instance_id = "login-mode2-77";
@@ -167,6 +224,37 @@ TEST(Mode2Test, SingleServiceMeshStartsAndRuns) {
         std::string::npos);
     mesh.shutdown();
     EXPECT_FALSE(mesh.service("login").runtime().running());
+}
+
+TEST(Mode2Test, GatewayDoesNotStartWithoutLoginAndRealm) {
+    const ScopedTlsEnvironment tls_environment;
+    const std::filesystem::path source = REALMMESH_SOURCE_DIR "/configs";
+    const TemporaryDirectory scratch;
+    ASSERT_TRUE(copy_configs_with_discovery_disabled(source, scratch.path()));
+    use_test_ports(scratch.path(), unused_tcp_port(), unused_tcp_port());
+
+    MeshHost mesh(
+        scratch.path(),
+        MeshHost::narrow_single_service(full_topology(), "gateway"));
+    EXPECT_FALSE(mesh.start_all());
+    EXPECT_THROW(static_cast<void>(mesh.service("gateway")), std::out_of_range);
+}
+
+TEST(Mode2Test, GatewayStartsAfterFallbackDependenciesAreReachable) {
+    const ScopedTlsEnvironment tls_environment;
+    const std::filesystem::path source = REALMMESH_SOURCE_DIR "/configs";
+    const TemporaryDirectory scratch;
+    ASSERT_TRUE(copy_configs_with_discovery_disabled(source, scratch.path()));
+    const network::TcpListener login("127.0.0.1", 0);
+    const network::TcpListener realm("127.0.0.1", 0);
+    use_test_ports(scratch.path(), login.local_port(), realm.local_port());
+
+    MeshHost mesh(
+        scratch.path(),
+        MeshHost::narrow_single_service(full_topology(), "gateway"));
+    ASSERT_TRUE(mesh.start_all());
+    EXPECT_TRUE(mesh.entry_ready());
+    mesh.shutdown();
 }
 
 }  // namespace
