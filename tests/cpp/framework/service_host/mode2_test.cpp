@@ -208,6 +208,12 @@ TEST(Mode2Test, SingleServiceMeshStartsAndRuns) {
         scratch.path() / "services" / "login.lua",
         "metrics_port = 9101",
         "metrics_port = 0");
+    // 7000 is routinely occupied on macOS (ControlCenter's AirPlay Receiver
+    // listens there), so use a port the host actually has free.
+    replace_text(
+        scratch.path() / "services" / "login.lua",
+        "listen_port = 7000",
+        "listen_port = " + std::to_string(unused_tcp_port()));
 
     CliOverrides overrides;
     overrides.instance_id = "login-mode2-77";
