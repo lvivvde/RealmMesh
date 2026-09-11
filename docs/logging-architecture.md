@@ -146,9 +146,12 @@ log.info(
 - 单进程最大占用约 1 GiB。
 - 开发模式可额外启用人类可读 console sink；Vector 只读取 JSONL。
 
-启动配置位于 `lua/config/services/`：
+启动配置位于 `configs/`,按层拆分:公共字段在 `configs/common/logging.lua`,
+服务差异化字段在 `configs/services/<service>.lua`(例如 gateway 的 metrics 端口与
+`module_levels`),`file_path` 由分层加载器按实例身份生成,不手工配置。
 
 ```lua
+-- 合并后的 logging 视图(实际由 configs/common + configs/services 两层合成)
 logging = {
     level = "info",
     module_levels = {},
@@ -162,8 +165,8 @@ logging = {
 }
 ```
 
-`SIGHUP` 原子更新默认级别、模块级别和采样率。更新失败时继续使用上一份配置并记录
-错误；队列和文件容量等结构性配置只在启动时生效。
+`SIGHUP` 当前被忽略（前台运行时终端关闭不再终止进程），因此级别、模块级别和采样率
+的变更需要重启进程才能生效；队列和文件容量等结构性配置同样只在启动时读取。
 
 故障策略：
 

@@ -1,3 +1,7 @@
+-- 测试夹具:GatewayConfigLoader 单文件解析路径。
+-- 运行时配置位于 configs/(分层加载,见 docs/agents/domain.md);
+-- 此处刻意保持单文件形态,因为分层后的 services 层缺少 file_path、
+-- 队列容量等字段,无法通过单文件加载器的完整性校验。
 return {
     logging = {
         level = "info",

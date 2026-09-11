@@ -35,7 +35,7 @@ TEST(GatewayConfigLoaderTest, LoadsQuicPrimaryAndTlsTcpFallbackFromLua) {
     const ScopedTlsEnvironment tls_environment;
     const auto config = GatewayConfigLoader::load(
         std::filesystem::path(REALMMESH_TEST_SOURCE_DIR) /
-        "lua/config/services/gateway.lua");
+        "tests/cpp/game/gateway/fixtures/gateway_single_file.lua");
 
     ASSERT_EQ(config.transports.size(), 2U);
     EXPECT_EQ(config.tick_rate, 20U);
