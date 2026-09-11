@@ -1,7 +1,6 @@
 #include "tcp_platform.hpp"
 
 #include <cerrno>
-#include <csignal>
 #include <fcntl.h>
 #include <sys/socket.h>
 #include <system_error>
@@ -10,15 +9,7 @@
 namespace realm::network::detail {
 namespace {
 
-// 兜底:进程启动阶段忽略 SIGPIPE。写入已关闭/被 RST 的对端时,内核默认
-// 以 SIGPIPE 终止进程(而非让 write 返回 EPIPE);忽略后写操作才会回落到
-// 错误码,由传输层作为 I/O 失败处理。静态初始化在 main 之前执行,且 TCP
-// 平台后端只编译一个,所以每个进程至多安装一次。
-struct IgnoreSigpipeOnStartup {
-    IgnoreSigpipeOnStartup() noexcept {
-        static_cast<void>(std::signal(SIGPIPE, SIG_IGN));
-    }
-};
+// 进程级兜底,语义见 tcp_platform.hpp;静态初始化在 main 之前执行。
 [[maybe_unused]] const IgnoreSigpipeOnStartup ignore_sigpipe_on_startup{};
 
 // macOS 没有 MSG_NOSIGNAL,无法在每次 send 时声明"不产生 SIGPIPE";改为在

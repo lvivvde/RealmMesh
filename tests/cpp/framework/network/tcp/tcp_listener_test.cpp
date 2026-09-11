@@ -93,6 +93,10 @@ TEST(TcpListenerTest, AcceptsIpv4ThroughAnIpv6DualStackListener) {
 /// 进程级兜底:TCP 平台后端在静态初始化阶段(早于 main)把 SIGPIPE 置为
 /// 忽略,因此这里读回的"旧处置"必须是 SIG_IGN。这一层独立于
 /// SO_NOSIGPIPE/MSG_NOSIGNAL,覆盖未经传输层创建的原生套接字。
+///
+/// 放在本文件是刻意的:静态库只在用到其符号时才被拉进二进制,本可执行文件
+/// 因为用 TcpListener(→ create_stream_socket)才会链入平台后端 TU,这份初始化
+/// 才会真的执行;单独拆一个文件反而需要人为制造引用。
 TEST(TcpPlatformTest, IgnoresSigpipeProcessWide) {
     const auto previous = std::signal(SIGPIPE, SIG_IGN);
     ASSERT_NE(previous, SIG_ERR);
