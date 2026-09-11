@@ -60,10 +60,12 @@ cleanup() {
 }
 trap cleanup EXIT
 
-mkdir -p "${realmmesh_test_root}/scripts" \
+mkdir -p "${realmmesh_test_root}/scripts/lib" \
     "${realmmesh_test_root}/build/dev/bin" \
     "${realmmesh_test_root}/configs"
 cp "${realmmesh_source_root}/scripts/dev-services.sh" "${realmmesh_script}"
+cp "${realmmesh_source_root}/scripts/lib/dev-process.sh" \
+    "${realmmesh_test_root}/scripts/lib/dev-process.sh"
 cp -R "${realmmesh_source_root}/configs/common" \
     "${realmmesh_test_root}/configs/common"
 cp -R "${realmmesh_source_root}/configs/services" \
@@ -72,6 +74,19 @@ cp "${realmmesh_source_root}/configs/main.config" \
     "${realmmesh_test_root}/configs/main.config"
 ln -s "${realmmesh_mesh_binary}" \
     "${realmmesh_test_root}/build/dev/bin/realm_mesh"
+
+# 没有 setsid 的开发平台(macOS)由 realm_detach 承担新会话隔离,它在
+# build/dev/bin 中与 realm_mesh 同目录。
+if ! command -v setsid >/dev/null 2>&1; then
+    realmmesh_detach_binary="$(dirname "${realmmesh_mesh_binary}")/realm_detach"
+    if [[ ! -x "${realmmesh_detach_binary}" ]]; then
+        printf 'realm_detach is required when setsid is unavailable: %s\n' \
+            "${realmmesh_detach_binary}" >&2
+        exit 2
+    fi
+    ln -s "${realmmesh_detach_binary}" \
+        "${realmmesh_test_root}/build/dev/bin/realm_detach"
+fi
 
 # macOS 自带 bash 3.2,没有 mapfile;用逐行读取保持同一行为。
 realmmesh_ports=()

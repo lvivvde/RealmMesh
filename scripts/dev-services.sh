@@ -5,8 +5,12 @@
 
 set -euo pipefail
 
-realmmesh_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-realmmesh_script_path="$(readlink -f "${BASH_SOURCE[0]}")"
+# pwd -P:macOS 上 /var 是 /private/var 的符号链接,进程 cwd 校验用 lsof
+# 取到的是物理路径,这里必须同样物理化,否则同一目录会被判为不匹配。
+realmmesh_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+# shellcheck source=lib/dev-process.sh
+source "${realmmesh_root}/scripts/lib/dev-process.sh"
+realmmesh_script_path="$(realmmesh_realpath "${BASH_SOURCE[0]}")"
 realmmesh_runtime_dir="${realmmesh_root}/.runtime"
 realmmesh_pid_dir="${realmmesh_runtime_dir}/pids"
 realmmesh_action="${1:-restart}"
@@ -47,63 +51,33 @@ read_supervisor_pid() {
     printf '%s\n' "${realmmesh_pid}"
 }
 
-is_zombie_process() {
-    local realmmesh_pid="$1"
-    [[ -r "/proc/${realmmesh_pid}/stat" ]] || return 1
-    local realmmesh_stat realmmesh_after_name realmmesh_state
-    realmmesh_stat="$(<"/proc/${realmmesh_pid}/stat")"
-    realmmesh_after_name="${realmmesh_stat##*) }"
-    realmmesh_state="${realmmesh_after_name%% *}"
-    [[ "${realmmesh_state}" == "Z" ]]
-}
-
 is_expected_supervisor_process() {
     local realmmesh_pid="$1"
     kill -0 "${realmmesh_pid}" 2>/dev/null || return 1
-    is_zombie_process "${realmmesh_pid}" && return 1
-    [[ -r "/proc/${realmmesh_pid}/cmdline" ]] || return 1
-    [[ "$(readlink -f "/proc/${realmmesh_pid}/cwd")" == "${realmmesh_root}" ]] ||
+    realmmesh_is_zombie_process "${realmmesh_pid}" && return 1
+    [[ "$(realmmesh_process_cwd "${realmmesh_pid}")" == "${realmmesh_root}" ]] ||
         return 1
-
-    local -a realmmesh_arguments=()
-    mapfile -d '' realmmesh_arguments < "/proc/${realmmesh_pid}/cmdline"
-    local realmmesh_index
-    for realmmesh_index in "${!realmmesh_arguments[@]}"; do
-        if [[ "${realmmesh_arguments[realmmesh_index]}" == \
-            "${realmmesh_script_path}" ]] &&
-            [[ "${realmmesh_arguments[realmmesh_index + 1]:-}" == \
-                "supervise" ]]; then
-            return 0
-        fi
-    done
-    return 1
+    realmmesh_process_has_arguments \
+        "${realmmesh_pid}" "${realmmesh_script_path}" supervise
 }
 
 is_expected_service_process() {
     local realmmesh_service="$1"
     local realmmesh_pid="$2"
     kill -0 "${realmmesh_pid}" 2>/dev/null || return 1
-    is_zombie_process "${realmmesh_pid}" && return 1
-    [[ -r "/proc/${realmmesh_pid}/cmdline" ]] || return 1
+    realmmesh_is_zombie_process "${realmmesh_pid}" && return 1
 
-    local -a realmmesh_arguments=()
-    mapfile -d '' realmmesh_arguments < "/proc/${realmmesh_pid}/cmdline"
-    local realmmesh_executable="${realmmesh_arguments[0]:-}"
+    local realmmesh_executable
+    realmmesh_executable="$(realmmesh_process_executable "${realmmesh_pid}")" ||
+        return 1
     [[ "${realmmesh_executable##*/}" == \
         "$(basename "${realmmesh_mesh_binary}")" ]] || return 1
-    [[ "$(readlink -f "/proc/${realmmesh_pid}/cwd")" == "${realmmesh_root}" ]] ||
+    [[ "$(realmmesh_process_cwd "${realmmesh_pid}")" == "${realmmesh_root}" ]] ||
         return 1
 
     # 三个服务共用 realm_mesh 二进制,以 --service <name> 参数区分。
-    local realmmesh_index
-    for realmmesh_index in "${!realmmesh_arguments[@]}"; do
-        if [[ "${realmmesh_arguments[realmmesh_index]}" == "--service" ]] &&
-            [[ "${realmmesh_arguments[realmmesh_index + 1]:-}" == \
-                "${realmmesh_service}" ]]; then
-            return 0
-        fi
-    done
-    return 1
+    realmmesh_process_has_arguments \
+        "${realmmesh_pid}" --service "${realmmesh_service}"
 }
 
 show_status() {
@@ -197,12 +171,7 @@ stop_services() {
         fi
         if ! is_expected_service_process "${realmmesh_service}" "${realmmesh_pid}"; then
             if kill -0 "${realmmesh_pid}" 2>/dev/null; then
-                local -a realmmesh_arguments=()
-                if [[ -r "/proc/${realmmesh_pid}/cmdline" ]]; then
-                    mapfile -d '' realmmesh_arguments < \
-                        "/proc/${realmmesh_pid}/cmdline"
-                fi
-                if [[ "${#realmmesh_arguments[@]}" -ne 0 ]]; then
+                if [[ -n "$(realmmesh_process_command_line "${realmmesh_pid}")" ]]; then
                     printf 'Refusing to stop stale %s PID %s.\n' \
                         "${realmmesh_service}" "${realmmesh_pid}" >&2
                     realmmesh_failed=1
@@ -279,15 +248,15 @@ start_supervisor() {
         rm -f -- "${realmmesh_supervisor_pid_file}"
     fi
     rm -f -- "${realmmesh_supervisor_state_file}"
-    if ! command -v setsid >/dev/null 2>&1; then
-        printf 'setsid is required to supervise development services.\n' >&2
+    local realmmesh_detach
+    if ! realmmesh_detach="$(realmmesh_detach_command)"; then
         return 1
     fi
 
     mkdir -p "${realmmesh_pid_dir}" \
         "$(dirname "${realmmesh_supervisor_log_file}")"
     cd "${realmmesh_root}"
-    nohup setsid bash "${realmmesh_script_path}" supervise \
+    nohup "${realmmesh_detach}" bash "${realmmesh_script_path}" supervise \
         >> "${realmmesh_supervisor_log_file}" 2>&1 </dev/null &
     realmmesh_pid=$!
     printf '%s\n' "${realmmesh_pid}" > "${realmmesh_supervisor_pid_file}"
@@ -377,8 +346,8 @@ start_services() {
         show_status || true
         return 1
     fi
-    if ! command -v setsid >/dev/null 2>&1; then
-        printf 'setsid is required to detach development services.\n' >&2
+    local realmmesh_detach
+    if ! realmmesh_detach="$(realmmesh_detach_command)"; then
         return 1
     fi
     if ! command -v curl >/dev/null 2>&1; then
@@ -420,7 +389,7 @@ start_services() {
         realmmesh_log="$(service_log_file "${realmmesh_service}")"
 
         mkdir -p "$(dirname "${realmmesh_log}")"
-        nohup setsid "${realmmesh_mesh_binary}" \
+        nohup "${realmmesh_detach}" "${realmmesh_mesh_binary}" \
             --service "${realmmesh_service}" \
             --config "${realmmesh_config_root}" \
             >> "${realmmesh_log}" 2>&1 </dev/null &

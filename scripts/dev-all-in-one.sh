@@ -5,7 +5,11 @@
 
 set -euo pipefail
 
-realmmesh_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# pwd -P:macOS 上 /var 是 /private/var 的符号链接,进程 cwd 校验用 lsof
+# 取到的是物理路径,这里必须同样物理化,否则同一目录会被判为不匹配。
+realmmesh_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+# shellcheck source=lib/dev-process.sh
+source "${realmmesh_root}/scripts/lib/dev-process.sh"
 realmmesh_runtime_dir="${realmmesh_root}/.runtime"
 realmmesh_pid_file="${realmmesh_runtime_dir}/pids/all-in-one.pid"
 realmmesh_log_file="${realmmesh_runtime_dir}/logs/all-in-one/console.log"
@@ -26,21 +30,18 @@ read_pid() {
 is_expected_process() {
     local realmmesh_pid="$1"
     kill -0 "${realmmesh_pid}" 2>/dev/null || return 1
-    [[ -r "/proc/${realmmesh_pid}/cmdline" ]] || return 1
-    [[ "$(readlink -f "/proc/${realmmesh_pid}/cwd")" == \
-        "${realmmesh_root}" ]] || return 1
+    realmmesh_is_zombie_process "${realmmesh_pid}" && return 1
 
-    local -a realmmesh_arguments=()
-    mapfile -d '' realmmesh_arguments < "/proc/${realmmesh_pid}/cmdline"
-    [[ "${realmmesh_arguments[0]##*/}" == \
+    local realmmesh_executable
+    realmmesh_executable="$(realmmesh_process_executable "${realmmesh_pid}")" ||
+        return 1
+    [[ "${realmmesh_executable##*/}" == \
         "$(basename "${realmmesh_mesh_binary}")" ]] || return 1
+    [[ "$(realmmesh_process_cwd "${realmmesh_pid}")" == "${realmmesh_root}" ]] ||
+        return 1
 
-    local realmmesh_index
-    for realmmesh_index in "${!realmmesh_arguments[@]}"; do
-        [[ "${realmmesh_arguments[realmmesh_index]}" != "--service" ]] ||
-            return 1
-    done
-    return 0
+    # all-in-one 不带 --service;带了说明这份 PID 属于单服务进程。
+    ! realmmesh_process_has_arguments "${realmmesh_pid}" --service
 }
 
 show_status() {
@@ -135,8 +136,8 @@ start_service() {
         rm -f -- "${realmmesh_pid_file}"
     fi
 
-    if ! command -v setsid >/dev/null 2>&1; then
-        printf 'setsid is required to detach all-in-one.\n' >&2
+    local realmmesh_detach
+    if ! realmmesh_detach="$(realmmesh_detach_command)"; then
         return 1
     fi
     if [[ ! -x "${realmmesh_mesh_binary}" ]]; then
@@ -149,7 +150,7 @@ start_service() {
     mkdir -p "$(dirname "${realmmesh_pid_file}")" \
         "$(dirname "${realmmesh_log_file}")"
     cd "${realmmesh_root}"
-    nohup setsid "${realmmesh_mesh_binary}" \
+    nohup "${realmmesh_detach}" "${realmmesh_mesh_binary}" \
         --config "${realmmesh_config_root}" \
         >> "${realmmesh_log_file}" 2>&1 </dev/null &
     realmmesh_pid=$!

@@ -27,6 +27,7 @@ add_subdirectory(framework/service_host)
 add_subdirectory(game/common)
 add_subdirectory(game/gateway)
 add_subdirectory(apps/mesh_host)
+add_subdirectory(tools/detach)
 
 add_executable(realmmesh
     src/main.cpp
