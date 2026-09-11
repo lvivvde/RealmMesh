@@ -2,6 +2,7 @@
 
 #include "realmmesh/game/gateway/gateway_runtime.hpp"
 #include "realmmesh/network/tcp/tcp_listener.hpp"
+#include "realmmesh/test_support/temporary_directory.hpp"
 
 #include <gtest/gtest.h>
 
@@ -52,31 +53,6 @@ public:
         static_cast<void>(::unsetenv("REALMMESH_TLS_PRIVATE_KEY_FILE"));
         static_cast<void>(::unsetenv("REALMMESH_SESSION_TICKET_KEY"));
     }
-};
-
-/// 临时目录:进程内唯一名,析构时递归清理。
-class TemporaryDirectory final {
-public:
-    TemporaryDirectory()
-        : path_(
-              std::filesystem::temp_directory_path() /
-              ("mesh-host-e2e-" +
-               std::to_string(static_cast<long long>(::getpid())))) {
-        std::filesystem::create_directories(path_);
-    }
-    ~TemporaryDirectory() {
-        std::error_code error;
-        std::filesystem::remove_all(path_, error);
-    }
-    TemporaryDirectory(const TemporaryDirectory&) = delete;
-    TemporaryDirectory& operator=(const TemporaryDirectory&) = delete;
-
-    [[nodiscard]] const std::filesystem::path& path() const noexcept {
-        return path_;
-    }
-
-private:
-    std::filesystem::path path_;
 };
 
 /// TCP 探活:能连上 127.0.0.1:<port> 即视为监听中。
@@ -214,7 +190,7 @@ void use_free_ports(
 TEST(MeshHostE2ETest, AllInOneStartsAndStopsCleanly) {
     const ScopedTlsEnvironment tls_environment;
     const std::filesystem::path source = REALMMESH_SOURCE_DIR "/configs";
-    const TemporaryDirectory scratch;
+    const test_support::TemporaryDirectory scratch("mesh-host-e2e-");
     ASSERT_TRUE(copy_configs_with_discovery_disabled(source, scratch.path()));
 
     // 7000/7100/8000 在本机常被占用(macOS ControlCenter 的 AirPlay Receiver

@@ -242,6 +242,10 @@ target_link_libraries(gateway_server_test PRIVATE
     realm_service_host
 )
 
+target_include_directories(gateway_server_test PRIVATE
+    ${PROJECT_SOURCE_DIR}/tests/cpp/support/include
+)
+
 target_compile_features(gateway_server_test PRIVATE cxx_std_20)
 
 target_compile_definitions(gateway_server_test PRIVATE
@@ -318,6 +322,10 @@ target_link_libraries(service_host_test PRIVATE
     GTest::gtest_main
     httplib::httplib
     realm_service_host
+)
+
+target_include_directories(service_host_test PRIVATE
+    ${PROJECT_SOURCE_DIR}/tests/cpp/support/include
 )
 
 target_compile_features(service_host_test PRIVATE cxx_std_20)

@@ -2,6 +2,7 @@
 
 #include "realmmesh/game/gateway/gateway_runtime.hpp"
 #include "realmmesh/network/tcp/tcp_listener.hpp"
+#include "realmmesh/test_support/temporary_directory.hpp"
 
 #include <gtest/gtest.h>
 
@@ -47,31 +48,6 @@ public:
         static_cast<void>(::unsetenv("REALMMESH_TLS_PRIVATE_KEY_FILE"));
         static_cast<void>(::unsetenv("REALMMESH_SESSION_TICKET_KEY"));
     }
-};
-
-/// 临时目录:进程内唯一名,析构时递归清理。
-class TemporaryDirectory final {
-public:
-    TemporaryDirectory()
-        : path_(
-              std::filesystem::temp_directory_path() /
-              ("mode2-test-" +
-               std::to_string(static_cast<long long>(::getpid())))) {
-        std::filesystem::create_directories(path_);
-    }
-    ~TemporaryDirectory() {
-        std::error_code error;
-        std::filesystem::remove_all(path_, error);
-    }
-    TemporaryDirectory(const TemporaryDirectory&) = delete;
-    TemporaryDirectory& operator=(const TemporaryDirectory&) = delete;
-
-    [[nodiscard]] const std::filesystem::path& path() const noexcept {
-        return path_;
-    }
-
-private:
-    std::filesystem::path path_;
 };
 
 [[nodiscard]] std::string read_file(const std::filesystem::path& path) {
@@ -202,7 +178,7 @@ TEST(Mode2Test, SingleServiceNarrowsTopologyAndAppliesOverrides) {
 TEST(Mode2Test, SingleServiceMeshStartsAndRuns) {
     const ScopedTlsEnvironment tls_environment;
     const std::filesystem::path source = REALMMESH_SOURCE_DIR "/configs";
-    const TemporaryDirectory scratch;
+    const test_support::TemporaryDirectory scratch("mode2-test-");
     ASSERT_TRUE(copy_configs_with_discovery_disabled(source, scratch.path()));
     replace_text(
         scratch.path() / "services" / "login.lua",
@@ -235,7 +211,7 @@ TEST(Mode2Test, SingleServiceMeshStartsAndRuns) {
 TEST(Mode2Test, GatewayDoesNotStartWithoutLoginAndRealm) {
     const ScopedTlsEnvironment tls_environment;
     const std::filesystem::path source = REALMMESH_SOURCE_DIR "/configs";
-    const TemporaryDirectory scratch;
+    const test_support::TemporaryDirectory scratch("mode2-test-");
     ASSERT_TRUE(copy_configs_with_discovery_disabled(source, scratch.path()));
     use_test_ports(scratch.path(), unused_tcp_port(), unused_tcp_port());
 
@@ -249,7 +225,7 @@ TEST(Mode2Test, GatewayDoesNotStartWithoutLoginAndRealm) {
 TEST(Mode2Test, GatewayStartsAfterFallbackDependenciesAreReachable) {
     const ScopedTlsEnvironment tls_environment;
     const std::filesystem::path source = REALMMESH_SOURCE_DIR "/configs";
-    const TemporaryDirectory scratch;
+    const test_support::TemporaryDirectory scratch("mode2-test-");
     ASSERT_TRUE(copy_configs_with_discovery_disabled(source, scratch.path()));
     const network::TcpListener login("127.0.0.1", 0);
     const network::TcpListener realm("127.0.0.1", 0);

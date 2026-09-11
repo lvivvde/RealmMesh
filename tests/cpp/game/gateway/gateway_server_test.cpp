@@ -1,11 +1,9 @@
 #include "realmmesh/game/gateway/gateway_config_loader.hpp"
 #include "realmmesh/service_host/layered_config_loader.hpp"
+#include "realmmesh/test_support/temporary_directory.hpp"
 
 #include <gtest/gtest.h>
 
-#include <unistd.h>
-
-#include <atomic>
 #include <chrono>
 #include <cstdlib>
 #include <filesystem>
@@ -36,35 +34,6 @@ public:
         static_cast<void>(::unsetenv("REALMMESH_TLS_PRIVATE_KEY_FILE"));
     }
 };
-
-/// 临时目录:进程内唯一名,析构时递归清理。
-class TemporaryDirectory final {
-public:
-    TemporaryDirectory()
-        : path_(
-              std::filesystem::temp_directory_path() /
-              ("realmmesh-gateway-config-" +
-               std::to_string(static_cast<long long>(::getpid())) + "-" +
-               std::to_string(counter_.fetch_add(1)))) {
-        std::filesystem::create_directories(path_);
-    }
-    ~TemporaryDirectory() {
-        std::error_code error;
-        std::filesystem::remove_all(path_, error);
-    }
-    TemporaryDirectory(const TemporaryDirectory&) = delete;
-    TemporaryDirectory& operator=(const TemporaryDirectory&) = delete;
-
-    [[nodiscard]] const std::filesystem::path& path() const noexcept {
-        return path_;
-    }
-
-private:
-    static std::atomic<unsigned> counter_;
-    std::filesystem::path path_;
-};
-
-std::atomic<unsigned> TemporaryDirectory::counter_{0};
 
 /// 拷贝权威 configs/ 的两层输入(common/ 与 services/)到临时目录:
 /// LayeredConfigLoader 会把日志写进 <root>/logs/,拷贝避免污染源码树。
@@ -141,7 +110,7 @@ TEST(GatewayConfigLoaderTest, LoadsQuicPrimaryAndTlsTcpFallbackFromLua) {
 /// 固化过的旧值——服务层覆盖公共层(network 模块 info、发现 enabled=false)。
 TEST(LayeredConfigLoaderTest, MergesAuthoritativeGatewayTreeFieldByField) {
     const ScopedTlsEnvironment tls_environment;
-    const TemporaryDirectory configs;
+    const test_support::TemporaryDirectory configs("realmmesh-gateway-config-");
     copy_layered_configs(
         std::filesystem::path(REALMMESH_TEST_SOURCE_DIR) / "configs",
         configs.path());
@@ -239,7 +208,7 @@ TEST(LayeredConfigLoaderTest, MergesAuthoritativeGatewayTreeFieldByField) {
 /// CLI 覆盖优先级最高,并参与日志文件名的实例身份。
 TEST(LayeredConfigLoaderTest, CliOverrideWinsAndNamesTheLogFile) {
     const ScopedTlsEnvironment tls_environment;
-    const TemporaryDirectory configs;
+    const test_support::TemporaryDirectory configs("realmmesh-gateway-config-");
     copy_layered_configs(
         std::filesystem::path(REALMMESH_TEST_SOURCE_DIR) / "configs",
         configs.path());
