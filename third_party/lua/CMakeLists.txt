@@ -61,6 +61,17 @@ target_include_directories(realm_lua SYSTEM PUBLIC
     ${lua_source_SOURCE_DIR}/src
 )
 
-target_compile_definitions(realm_lua PRIVATE LUA_USE_LINUX)
-target_link_libraries(realm_lua PUBLIC ${CMAKE_DL_LIBS} m)
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    target_compile_definitions(realm_lua PRIVATE LUA_USE_LINUX)
+    target_link_libraries(realm_lua PUBLIC ${CMAKE_DL_LIBS} m)
+elseif(APPLE)
+    target_compile_definitions(realm_lua PRIVATE LUA_USE_POSIX)
+    target_link_libraries(realm_lua PUBLIC ${CMAKE_DL_LIBS})
+elseif(WIN32)
+    # luaconf.h selects the Windows configuration by default.
+    target_link_libraries(realm_lua PUBLIC ${CMAKE_DL_LIBS})
+else()
+    target_compile_definitions(realm_lua PRIVATE LUA_USE_POSIX)
+    target_link_libraries(realm_lua PUBLIC ${CMAKE_DL_LIBS})
+endif()
 set_target_properties(realm_lua PROPERTIES POSITION_INDEPENDENT_CODE ON)

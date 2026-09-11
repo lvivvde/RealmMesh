@@ -2,6 +2,7 @@
 
 #include "realmmesh/network/quic/quic_transport.hpp"
 #include "realmmesh/network/tls/tls_tcp_transport.hpp"
+#include "realmmesh/observability/logger.hpp"
 
 #include <stdexcept>
 #include <string>
@@ -45,11 +46,25 @@ void validate(const TransportConfig& config) {
     }
 }
 
+void report_unsupported_transport(
+    const TransportConfig& config, observability::Logger* logger) {
+    if (logger == nullptr) {
+        return;
+    }
+    static_cast<void>(logger->warn(
+        "transport_skipped_unsupported_protocol",
+        "transport disabled on this platform, serving the TLS/TCP fallback",
+        {observability::field("transport_name", config.name),
+         observability::field("protocol", to_string(config.protocol))}));
+}
+
 }  // namespace
 
 std::vector<std::unique_ptr<IMessageTransport>>
 TransportFactory::create_enabled(
-    std::span<const TransportConfig> configs, observability::Logger* logger) {
+    std::span<const TransportConfig> configs,
+    observability::Logger* logger,
+    TransportCapabilities capabilities) {
     std::vector<std::unique_ptr<IMessageTransport>> transports;
     std::unordered_set<std::string> names;
 
@@ -65,9 +80,19 @@ TransportFactory::create_enabled(
 
         switch (config.protocol) {
         case TransportProtocol::Quic:
+            if (!capabilities.quic) {
+                report_unsupported_transport(config, logger);
+                break;
+            }
+#if defined(REALM_NETWORK_HAS_QUIC)
             transports.push_back(
                 std::make_unique<QuicTransport>(config, logger));
             break;
+#else
+            throw std::logic_error(
+                "QUIC capability was reported but MsQuic was not available "
+                "at build time");
+#endif
         case TransportProtocol::TlsTcp:
             transports.push_back(
                 std::make_unique<TlsTcpTransport>(config, logger));

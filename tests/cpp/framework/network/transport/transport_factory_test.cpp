@@ -1,3 +1,4 @@
+#include "realmmesh/network/transport/transport_capabilities.hpp"
 #include "realmmesh/network/transport/transport_factory.hpp"
 
 #include <gtest/gtest.h>
@@ -94,6 +95,42 @@ TEST(TransportFactoryTest, RejectsEmptyTlsAlpn) {
     EXPECT_THROW(
         static_cast<void>(TransportFactory::create_enabled(configs)),
         std::invalid_argument);
+}
+
+TEST(TransportCapabilitiesTest, AlwaysServesSecureTlsTcp) {
+    EXPECT_TRUE(platform_transport_capabilities().tls_tcp);
+}
+
+// ADR-0002: platforms without MsQuic (macOS, Windows) serve the TLS/TCP
+// fallback and silently drop QUIC entries instead of failing to start.
+TEST(TransportFactoryTest, ServesOnlyTlsFallbackWithoutQuicCapability) {
+    const auto identity = TransportConfig::TlsServerIdentity{
+        .certificate_chain_file = REALMMESH_TEST_TLS_CERTIFICATE,
+        .private_key_file = REALMMESH_TEST_TLS_PRIVATE_KEY,
+    };
+    const std::vector<TransportConfig> configs{
+        {
+            .name = "client_quic",
+            .protocol = TransportProtocol::Quic,
+            .listen_address = "127.0.0.1",
+            .listen_port = 0,
+            .tls = identity,
+        },
+        {
+            .name = "client_tls_tcp",
+            .protocol = TransportProtocol::TlsTcp,
+            .listen_address = "127.0.0.1",
+            .listen_port = 0,
+            .tls = identity,
+        },
+    };
+    auto transports = TransportFactory::create_enabled(
+        configs,
+        nullptr,
+        TransportCapabilities{.quic = false, .tls_tcp = true});
+    ASSERT_EQ(transports.size(), 1U);
+    EXPECT_EQ(transports.front()->name(), "client_tls_tcp");
+    EXPECT_EQ(transports.front()->protocol(), TransportProtocol::TlsTcp);
 }
 
 }  // namespace

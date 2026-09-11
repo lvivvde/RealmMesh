@@ -211,6 +211,8 @@ target_compile_definitions(tls_tcp_transport_test PRIVATE
 add_dependencies(tls_tcp_transport_test realmmesh_test_tls_identity)
 gtest_discover_tests(tls_tcp_transport_test)
 
+# QUIC is Linux-only (ADR-0002); its tests exist only where MsQuic was found.
+if(REALM_MESH_MSQUIC_FOUND)
 add_executable(quic_transport_test
     framework/network/quic/quic_transport_test.cpp
 )
@@ -227,6 +229,7 @@ target_compile_definitions(quic_transport_test PRIVATE
 )
 add_dependencies(quic_transport_test realmmesh_test_tls_identity)
 gtest_discover_tests(quic_transport_test)
+endif()
 
 add_executable(gateway_server_test
     game/gateway/gateway_server_test.cpp

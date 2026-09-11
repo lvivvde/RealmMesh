@@ -1,3 +1,12 @@
+# MsQuic discovery is Linux-only: the package layout, runtime dependencies
+# (libxdp/libnl/libnuma) and linker flags are all Linux-specific, and the
+# macOS/Windows port deliberately serves TLS/TCP only (ADR-0002).
+if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    set(REALM_MESH_MSQUIC_FOUND FALSE PARENT_SCOPE)
+    message(STATUS "MsQuic: skipped on ${CMAKE_SYSTEM_NAME} (Linux-only, see ADR-0002)")
+    return()
+endif()
+
 find_path(MSQUIC_INCLUDE_DIR
     NAMES msquic.h
     HINTS
@@ -57,3 +66,5 @@ set_target_properties(MsQuic::MsQuic PROPERTIES
     INTERFACE_LINK_OPTIONS
         "-Wl,--no-as-needed;-Wl,-rpath,$<SHELL_PATH:${MSQUIC_ROOT}/lib/x86_64-linux-gnu>;-Wl,-rpath,$<SHELL_PATH:${CMAKE_LIBRARY_PATH}>"
 )
+
+set(REALM_MESH_MSQUIC_FOUND TRUE PARENT_SCOPE)
