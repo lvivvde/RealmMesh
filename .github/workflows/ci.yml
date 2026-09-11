@@ -21,7 +21,7 @@ jobs:
     timeout-minutes: 120
     steps:
       - name: Check out
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       # openssl@3 is keg-only on Homebrew, so CMake's find_package(OpenSSL)
       # cannot see it without an explicit root; the CLI is put first on PATH
