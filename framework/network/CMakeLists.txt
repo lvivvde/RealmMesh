@@ -2,7 +2,6 @@ add_library(realm_network
     src/core/byte_buffer.cpp
     src/codec/length_field_codec.cpp
     src/client/preferred_transport_connector.cpp
-    src/reactor/event_loop_epoll.cpp
     src/reactor/event_loop_factory.cpp
     src/transport/transport_capabilities.cpp
     src/transport/transport_factory.cpp
@@ -23,13 +22,20 @@ else()
     message(STATUS "realm_network: QUIC transport disabled (no MsQuic, ADR-0002)")
 endif()
 
-# Platform Event Loop backend (ADR-0001): exactly one is compiled in. kqueue
-# and iocp are recognized here but their backends are not implemented yet
-# (ADR-0002), so the factory rejects them with a pointer back to the ADR.
+# Platform Event Loop backend (ADR-0001): exactly one backend implementation is
+# compiled in, and the TCP layer's POSIX differences live in a per-platform TU.
+# iocp is recognized but not implemented (ADR-0002), so Windows selects no
+# source and the factory rejects it with a pointer back to the ADR.
+set(REALM_NETWORK_EVENT_LOOP_SOURCES)
+set(REALM_NETWORK_TCP_PLATFORM_SOURCES)
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     set(REALM_NETWORK_EVENT_LOOP_BACKEND epoll)
+    set(REALM_NETWORK_EVENT_LOOP_SOURCES src/reactor/event_loop_epoll.cpp)
+    set(REALM_NETWORK_TCP_PLATFORM_SOURCES src/tcp/tcp_platform_linux.cpp)
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
     set(REALM_NETWORK_EVENT_LOOP_BACKEND kqueue)
+    set(REALM_NETWORK_EVENT_LOOP_SOURCES src/reactor/event_loop_kqueue.cpp)
+    set(REALM_NETWORK_TCP_PLATFORM_SOURCES src/tcp/tcp_platform_darwin.cpp)
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Windows")
     set(REALM_NETWORK_EVENT_LOOP_BACKEND iocp)
 else()
@@ -39,6 +45,10 @@ else()
 endif()
 string(TOUPPER "${REALM_NETWORK_EVENT_LOOP_BACKEND}" REALM_NETWORK_EVENT_LOOP_BACKEND_UPPER)
 message(STATUS "realm_network Event Loop backend: ${REALM_NETWORK_EVENT_LOOP_BACKEND}")
+target_sources(realm_network PRIVATE
+    ${REALM_NETWORK_EVENT_LOOP_SOURCES}
+    ${REALM_NETWORK_TCP_PLATFORM_SOURCES}
+)
 target_compile_definitions(realm_network PRIVATE
     REALM_NETWORK_EVENT_LOOP_BACKEND_${REALM_NETWORK_EVENT_LOOP_BACKEND_UPPER}
 )

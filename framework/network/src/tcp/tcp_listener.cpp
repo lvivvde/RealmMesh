@@ -1,5 +1,7 @@
 #include "realmmesh/network/tcp/tcp_listener.hpp"
 
+#include "tcp_platform.hpp"
+
 #include <arpa/inet.h>
 #include <cerrno>
 #include <netinet/in.h>
@@ -12,13 +14,6 @@
 #include <utility>
 
 namespace realm::network {
-namespace {
-
-[[noreturn]] void throw_socket_error(const char* operation) {
-    throw std::system_error(errno, std::generic_category(), operation);
-}
-
-}  // namespace
 
 TcpSocket::TcpSocket(int descriptor) noexcept : descriptor_(descriptor) {}
 
@@ -54,13 +49,7 @@ void TcpSocket::close() noexcept {
 
 TcpListener::TcpListener(std::string_view address, std::uint16_t port, int backlog) {
     const bool ipv6 = address.find(':') != std::string_view::npos;
-    const int descriptor = ::socket(
-        ipv6 ? AF_INET6 : AF_INET,
-        SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC,
-        0);
-    if (descriptor < 0) {
-        throw_socket_error("socket");
-    }
+    const int descriptor = detail::create_stream_socket(ipv6);
 
     descriptor_ = descriptor;
 
@@ -172,24 +161,11 @@ std::uint16_t TcpListener::local_port() const noexcept {
 }
 
 std::optional<TcpSocket> TcpListener::accept() {
-    while (true) {
-        const int client = ::accept4(
-            descriptor_,
-            nullptr,
-            nullptr,
-            SOCK_NONBLOCK | SOCK_CLOEXEC);
-        if (client >= 0) {
-            return TcpSocket(client);
-        }
-
-        if (errno == EINTR) {
-            continue;
-        }
-        if (errno == EAGAIN || errno == EWOULDBLOCK) {
-            return std::nullopt;
-        }
-        throw_socket_error("accept4");
+    const int client = detail::accept_nonblocking(descriptor_);
+    if (client < 0) {
+        return std::nullopt;
     }
+    return TcpSocket(client);
 }
 
 void TcpListener::close() noexcept {

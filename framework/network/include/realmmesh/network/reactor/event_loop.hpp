@@ -22,8 +22,6 @@ enum class EventInterest : std::uint8_t {
 // Platform-neutral registration key for an IEventLoop. POSIX backends carry a
 // file descriptor; Windows backends will carry a SOCKET. Both widen losslessly.
 using EventLoopHandle = std::uintptr_t;
-inline constexpr EventLoopHandle invalid_event_loop_handle =
-    static_cast<EventLoopHandle>(-1);
 
 [[nodiscard]] constexpr EventLoopHandle to_event_loop_handle(
     int descriptor) noexcept {
