@@ -76,8 +76,18 @@ FetchContent_Declare(
 )
 
 # Protobuf v35 explicitly selects CMP0141 OLD for MSVC compatibility, which
-# CMake 4.x reports as deprecated even on non-MSVC builds. Suppress only the
-# dependency's deprecation diagnostics and restore the project setting below.
+# CMake reports as a deprecation message on some platforms. Suppress it for the
+# dependency only, then restore the project's setting.
+#
+# CMAKE_WARN_DEPRECATED still governs those messages under CMP0218's OLD
+# behavior, but CMake 4.4 warns merely for touching the variable while that
+# policy is unset. Selecting OLD explicitly (the pre-4.4 default) keeps the
+# suppression effective and silences that warning. CMD_POLICY diagnostics
+# cannot suppress the message, so this is the mechanism that works. CMake < 4.4
+# has no CMP0218, hence the guard.
+if(POLICY CMP0218)
+    cmake_policy(SET CMP0218 OLD)
+endif()
 set(realmmesh_warn_deprecated_was_defined FALSE)
 if(DEFINED CMAKE_WARN_DEPRECATED)
     set(realmmesh_warn_deprecated_was_defined TRUE)
