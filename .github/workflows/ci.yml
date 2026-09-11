@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Linux is not in the matrix yet: Linux behaviour is the production baseline
+  # (ADR-0002) but is verified by hand for now. Add an `ubuntu` job alongside
+  # this one when Linux work resumes; the steps are platform-neutral apart from
+  # the OpenSSL prefix.
+  macos:
+    name: macOS (clang, kqueue backend)
+    runs-on: macos-latest
+    timeout-minutes: 120
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      # openssl@3 is keg-only on Homebrew, so CMake's find_package(OpenSSL)
+      # cannot see it without an explicit root; the CLI is put first on PATH
+      # because the TLS test identity is generated with `openssl req -addext`.
+      - name: Install dependencies
+        run: |
+          brew install openssl@3
+          echo "OPENSSL_ROOT_DIR=$(brew --prefix openssl@3)" >> "$GITHUB_ENV"
+          echo "$(brew --prefix openssl@3)/bin" >> "$GITHUB_PATH"
+
+      - name: Show toolchain
+        run: |
+          cmake --version
+          c++ --version
+
+      - name: Configure
+        run: cmake --preset dev
+
+      - name: Build
+        run: cmake --build --preset dev
+
+      - name: Test
+        run: ctest --preset dev
