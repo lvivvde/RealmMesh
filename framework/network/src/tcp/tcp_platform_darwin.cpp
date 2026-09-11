@@ -1,6 +1,7 @@
 #include "tcp_platform.hpp"
 
 #include <cerrno>
+#include <csignal>
 #include <fcntl.h>
 #include <sys/socket.h>
 #include <system_error>
@@ -8,6 +9,30 @@
 
 namespace realm::network::detail {
 namespace {
+
+// 兜底:进程启动阶段忽略 SIGPIPE。写入已关闭/被 RST 的对端时,内核默认
+// 以 SIGPIPE 终止进程(而非让 write 返回 EPIPE);忽略后写操作才会回落到
+// 错误码,由传输层作为 I/O 失败处理。静态初始化在 main 之前执行,且 TCP
+// 平台后端只编译一个,所以每个进程至多安装一次。
+struct IgnoreSigpipeOnStartup {
+    IgnoreSigpipeOnStartup() noexcept {
+        static_cast<void>(std::signal(SIGPIPE, SIG_IGN));
+    }
+};
+[[maybe_unused]] const IgnoreSigpipeOnStartup ignore_sigpipe_on_startup{};
+
+// macOS 没有 MSG_NOSIGNAL,无法在每次 send 时声明"不产生 SIGPIPE";改为在
+// 套接字上置 SO_NOSIGPIPE。OpenSSL 最终写的是同一个 fd,因此同样受保护,
+// 即使上面的进程级兜底被替换掉,TLS/TCP 传输也不会被 SIGPIPE 打掉。
+void disable_sigpipe_on_socket(int descriptor) {
+    const int enabled = 1;
+    if (::setsockopt(
+            descriptor, SOL_SOCKET, SO_NOSIGPIPE, &enabled, sizeof(enabled)) <
+        0) {
+        throw std::system_error(
+            errno, std::generic_category(), "setsockopt(SO_NOSIGPIPE)");
+    }
+}
 
 // macOS 的 socket() 不接受 SOCK_NONBLOCK / SOCK_CLOEXEC,也没有 accept4,
 // 只能在创建后补 fcntl;accept() 同样不继承 close-on-exec。
@@ -37,6 +62,7 @@ int create_stream_socket(bool ipv6) {
 
     try {
         make_nonblocking_and_cloexec(descriptor);
+        disable_sigpipe_on_socket(descriptor);
     } catch (...) {
         ::close(descriptor);
         throw;
@@ -50,6 +76,7 @@ int accept_nonblocking(int listener) {
         if (client >= 0) {
             try {
                 make_nonblocking_and_cloexec(client);
+                disable_sigpipe_on_socket(client);
             } catch (...) {
                 ::close(client);
                 throw;

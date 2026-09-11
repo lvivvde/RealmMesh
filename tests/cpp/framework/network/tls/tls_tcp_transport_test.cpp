@@ -80,6 +80,12 @@ public:
     Descriptor(const Descriptor&) = delete;
     Descriptor& operator=(const Descriptor&) = delete;
     [[nodiscard]] int get() const noexcept { return value_; }
+    void reset() noexcept {
+        if (value_ >= 0) {
+            ::close(value_);
+            value_ = -1;
+        }
+    }
 
 private:
     int value_;
@@ -304,6 +310,119 @@ TEST(TlsTcpTransportTest, DoesNotOpenASessionWithoutRequiredAlpn) {
     ASSERT_EQ(SSL_set_fd(ssl.get(), socket.get()), 1);
     EXPECT_EQ(SSL_connect(ssl.get()), 1);
     server.join();
+    EXPECT_EQ(transport.session_count(), 0U);
+}
+
+/// 对端 RST 后再次写入,内核默认以 SIGPIPE 终止进程。此处断言传输层把这次
+/// 写入当作 I/O 失败返回 false,而非整个进程被信号杀掉——若防护缺失,测试
+/// 二进制会被信号终止,用例失败。
+TEST(TlsTcpTransportTest, WritingToAResetPeerFailsWithoutTerminatingProcess) {
+    const std::vector<TransportConfig> configs{{
+        .name = "client_tls",
+        .protocol = TransportProtocol::TlsTcp,
+        .listen_address = "127.0.0.1",
+        .listen_port = 0,
+        .tls =
+            TransportConfig::TlsServerIdentity{
+                .certificate_chain_file = REALMMESH_TEST_TLS_CERTIFICATE,
+                .private_key_file = REALMMESH_TEST_TLS_PRIVATE_KEY,
+                .alpn = "realmmesh-edge/1",
+            },
+    }};
+    auto transports = TransportFactory::create_enabled(configs);
+    ASSERT_EQ(transports.size(), 1U);
+    auto& transport = *transports.front();
+
+    std::atomic<SessionId> session_id{invalid_session_id};
+    std::atomic<bool> session_ready{false};
+    std::atomic<bool> peer_reset{false};
+    std::atomic<bool> write_failed{false};
+
+    std::jthread server([&] {
+        const auto deadline =
+            std::chrono::steady_clock::now() + std::chrono::seconds(5);
+        while (std::chrono::steady_clock::now() < deadline &&
+               session_id.load() == invalid_session_id) {
+            for (auto& event :
+                 transport.poll_once(std::chrono::milliseconds(20))) {
+                if (event.kind == TransportEventKind::MessageReceived) {
+                    session_id = event.session_id;
+                }
+            }
+        }
+        if (session_id.load() == invalid_session_id) {
+            return;
+        }
+        session_ready = true;
+
+        // 等客户端把连接重置掉,再在"未通过事件循环观察到关闭"的状态下直接
+        // 写入——这正是生产路径上会触发 SIGPIPE 的时刻。
+        while (!peer_reset.load() &&
+               std::chrono::steady_clock::now() < deadline) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+
+        const std::array<std::byte, 16> payload{};
+        while (std::chrono::steady_clock::now() < deadline) {
+            if (!transport.send(session_id.load(), payload)) {
+                write_failed = true;
+                return;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+    });
+
+    Descriptor socket(::socket(AF_INET, SOCK_STREAM, 0));
+    ASSERT_GE(socket.get(), 0);
+    sockaddr_in address{};
+    address.sin_family = AF_INET;
+    address.sin_port = htons(transport.local_endpoint().port);
+    ASSERT_EQ(::inet_pton(AF_INET, "127.0.0.1", &address.sin_addr), 1);
+    ASSERT_EQ(
+        ::connect(
+            socket.get(),
+            reinterpret_cast<const sockaddr*>(&address),
+            sizeof(address)),
+        0);
+
+    std::unique_ptr<SSL_CTX, SslContextDeleter> context(
+        SSL_CTX_new(TLS_client_method()));
+    ASSERT_NE(context, nullptr);
+    SSL_CTX_set_verify(context.get(), SSL_VERIFY_NONE, nullptr);
+    std::unique_ptr<SSL, SslDeleter> ssl(SSL_new(context.get()));
+    ASSERT_NE(ssl, nullptr);
+    ASSERT_EQ(SSL_set_fd(ssl.get(), socket.get()), 1);
+    const std::array<unsigned char, 17> alpn{
+        16, 'r', 'e', 'a', 'l', 'm', 'm', 'e', 's', 'h', '-', 'e', 'd', 'g', 'e', '/', '1'};
+    ASSERT_EQ(SSL_set_alpn_protos(ssl.get(), alpn.data(), alpn.size()), 0);
+    ASSERT_EQ(SSL_connect(ssl.get()), 1);
+
+    const std::array<std::byte, 4> payload{
+        std::byte{0x01}, std::byte{0x02}, std::byte{0x03}, std::byte{0x04}};
+    write_all(ssl.get(), frame_header(payload.size()));
+    write_all(ssl.get(), payload);
+
+    for (int attempt = 0; attempt < 500 && !session_ready.load(); ++attempt) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    ASSERT_TRUE(session_ready.load());
+
+    // SO_LINGER 的 l_linger = 0 让 close() 直接发 RST,而不是正常的 FIN。
+    const linger reset_linger{.l_onoff = 1, .l_linger = 0};
+    ASSERT_EQ(
+        ::setsockopt(
+            socket.get(),
+            SOL_SOCKET,
+            SO_LINGER,
+            &reset_linger,
+            sizeof(reset_linger)),
+        0);
+    ssl.reset();
+    socket.reset();
+    peer_reset = true;
+
+    server.join();
+    EXPECT_TRUE(write_failed.load());
     EXPECT_EQ(transport.session_count(), 0U);
 }
 
