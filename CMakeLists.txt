@@ -46,5 +46,26 @@ if(BUILD_TESTING)
     )
     FetchContent_MakeAvailable(googletest)
 
+    # 纯 Lua 测试基座(luaunit,单文件零依赖):只要源码树,不要其构建目标;
+    # 套件经 tests/cmake/test_helpers.cmake 的 realm_add_lua_test 注册。
+    FetchContent_Declare(
+        luaunit
+        URL https://github.com/bluebird75/luaunit/archive/refs/tags/LUAUNIT_V3_5.tar.gz
+        URL_HASH SHA256=bd0085dc35c847afab0dbafc3669490ddc81b85623068ee0debe7667ffc03454
+        DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+    )
+    if(POLICY CMP0169)
+        cmake_policy(PUSH)
+        cmake_policy(SET CMP0169 OLD)
+    endif()
+    FetchContent_GetProperties(luaunit)
+    if(NOT luaunit_POPULATED)
+        FetchContent_Populate(luaunit)
+    endif()
+    if(POLICY CMP0169)
+        cmake_policy(POP)
+    endif()
+
     add_subdirectory(tests/cpp)
+    add_subdirectory(tests/lua)
 endif()

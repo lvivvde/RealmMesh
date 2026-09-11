@@ -75,3 +75,14 @@ else()
     target_link_libraries(realm_lua PUBLIC ${CMAKE_DL_LIBS})
 endif()
 set_target_properties(realm_lua PROPERTIES POSITION_INDEPENDENT_CODE ON)
+
+# 测试基座用的最小解释器:纯 Lua 测试套件经 CTest 由它驱动(见 tests/lua)。
+# 只编 lua.c,不要 luac.c(它自带 main);dl/m 与 include 目录经 realm_lua 的
+# PUBLIC 属性自动继承。
+add_executable(realm_lua_cli ${lua_source_SOURCE_DIR}/src/lua.c)
+target_link_libraries(realm_lua_cli PRIVATE realm_lua)
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    target_compile_definitions(realm_lua_cli PRIVATE LUA_USE_LINUX)
+elseif(APPLE)
+    target_compile_definitions(realm_lua_cli PRIVATE LUA_USE_POSIX)
+endif()

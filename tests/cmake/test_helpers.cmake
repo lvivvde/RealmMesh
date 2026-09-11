@@ -59,3 +59,28 @@ function(realm_add_gtest name)
         )
     endif()
 endfunction()
+
+# Lua 测试套件的注册入口:一套件一 add_test;套件文件以 os.exit(lu.LuaUnit.run())
+# 结尾,退出码 = 失败+错误数(0 即通过),正是 add_test 的成败约定。
+# luaunit 单文件源码由根 CMakeLists 的 FetchContent 提供,经 LUA_PATH 注入
+# require 路径(转义分号是 Lua 的「追加默认路径」语法)。
+#
+#   realm_add_lua_test(<name> <script 绝对路径>
+#       [LABELS <label> ...]   # 缺省 unit lua:进快速子集,亦可单独 -L lua 筛选
+#   )
+#
+# 用例的工作目录是调用处的二进制目录,套件里的相对路径以此为基准。
+function(realm_add_lua_test name script)
+    cmake_parse_arguments(PARSE_ARGV 2 ARG "" "" "LABELS")
+
+    if(NOT ARG_LABELS)
+        set(ARG_LABELS unit lua)
+    endif()
+
+    add_test(NAME ${name}
+        COMMAND "$<TARGET_FILE:realm_lua_cli>" "${script}")
+    set_tests_properties(${name} PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
+        ENVIRONMENT "LUA_PATH=${luaunit_SOURCE_DIR}/?.lua\;\;"
+        LABELS "${ARG_LABELS}")
+endfunction()
