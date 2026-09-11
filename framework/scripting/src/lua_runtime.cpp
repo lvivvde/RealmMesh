@@ -40,8 +40,10 @@ LuaRuntime::LuaRuntime()
         sol::lib::string,
         sol::lib::math,
         sol::lib::utf8);
-    lua_["dofile"] = sol::nil;
-    lua_["loadfile"] = sol::nil;
+    // sol::lua_nil 而非 sol::nil:sol2 在 macOS 上按 nil 宏是否已定义关闭
+    // sol::nil(version.hpp),同一工程不同翻译单元会时有时无。
+    lua_["dofile"] = sol::lua_nil;
+    lua_["loadfile"] = sol::lua_nil;
 }
 
 bool LuaRuntime::load_module(

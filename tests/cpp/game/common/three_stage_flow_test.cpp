@@ -162,7 +162,7 @@ private:
 };
 
 std::optional<TlsSocket> try_connect(std::uint16_t port) {
-    const int descriptor = ::socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
+    const int descriptor = ::socket(AF_INET, SOCK_STREAM, 0);
     if (descriptor < 0) return std::nullopt;
     sockaddr_in address{};
     address.sin_family = AF_INET;
@@ -235,7 +235,7 @@ TlsSocket connect_when_ready(std::uint16_t port) {
 void wait_for_tcp_ready(std::uint16_t port) {
     using namespace std::chrono_literals;
     for (int attempt = 0; attempt < 500; ++attempt) {
-        const int descriptor = ::socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
+        const int descriptor = ::socket(AF_INET, SOCK_STREAM, 0);
         if (descriptor >= 0) {
             sockaddr_in address{};
             address.sin_family = AF_INET;

@@ -79,7 +79,7 @@ private:
 
 /// TCP 探活:能连上 127.0.0.1:<port> 即视为监听中。
 [[nodiscard]] bool tcp_port_accepts_connections(std::uint16_t port) {
-    const int descriptor = ::socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
+    const int descriptor = ::socket(AF_INET, SOCK_STREAM, 0);
     if (descriptor < 0) return false;
     sockaddr_in address{};
     address.sin_family = AF_INET;

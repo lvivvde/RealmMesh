@@ -13,12 +13,39 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(absl)
 
+# RealmMesh only needs protoc for code generation, never libprotoc. Pointing
+# WITH_PROTOC at a release binary makes protobuf create an imported
+# protobuf::protoc target and skip building libprotoc -- which on macOS fails to
+# compile upb's bootstrap reflection headers (google/protobuf/descriptor.upb.h
+# is only generated for the normal, non-bootstrap build). Hosts without a
+# prebuilt binary still build protoc from source.
+set(realmmesh_protoc_url "")
+set(realmmesh_protoc_sha256 "")
 if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux" AND
    CMAKE_HOST_SYSTEM_PROCESSOR MATCHES "^(x86_64|amd64|AMD64)$")
+    set(realmmesh_protoc_url
+        "https://github.com/protocolbuffers/protobuf/releases/download/v35.0/protoc-35.0-linux-x86_64.zip")
+    set(realmmesh_protoc_sha256
+        a45cda0989c17dd950db55f6fbe1e5814c50fda08e87aa422980ac1f89dddbbc)
+elseif(CMAKE_HOST_SYSTEM_NAME STREQUAL "Darwin" AND
+       CMAKE_HOST_SYSTEM_PROCESSOR MATCHES "^(arm64|aarch64)$")
+    set(realmmesh_protoc_url
+        "https://github.com/protocolbuffers/protobuf/releases/download/v35.0/protoc-35.0-osx-aarch_64.zip")
+    set(realmmesh_protoc_sha256
+        45444963204757fd3e2fbe304bc1fdadfb488d8556ff099c4cc06575eab88976)
+elseif(CMAKE_HOST_SYSTEM_NAME STREQUAL "Darwin" AND
+       CMAKE_HOST_SYSTEM_PROCESSOR MATCHES "^(x86_64|amd64|AMD64)$")
+    set(realmmesh_protoc_url
+        "https://github.com/protocolbuffers/protobuf/releases/download/v35.0/protoc-35.0-osx-x86_64.zip")
+    set(realmmesh_protoc_sha256
+        3580c2d115fccb5b0239960c8f70f8da14787b1973a46b2f39c315ad71c11e01)
+endif()
+
+if(realmmesh_protoc_url)
     FetchContent_Declare(
         realmmesh_protoc
-        URL https://github.com/protocolbuffers/protobuf/releases/download/v35.0/protoc-35.0-linux-x86_64.zip
-        URL_HASH SHA256=a45cda0989c17dd950db55f6fbe1e5814c50fda08e87aa422980ac1f89dddbbc
+        URL "${realmmesh_protoc_url}"
+        URL_HASH SHA256=${realmmesh_protoc_sha256}
         DOWNLOAD_EXTRACT_TIMESTAMP TRUE
     )
     FetchContent_MakeAvailable(realmmesh_protoc)

@@ -24,7 +24,9 @@ namespace {
 
 [[nodiscard]] bool endpoint_is_reachable(
     const network::TransportEndpoint& endpoint) noexcept {
-    const int descriptor = ::socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
+    // 探测用套接字在同一次调用内关闭,无需 close-on-exec;
+    // SOCK_CLOEXEC 在 macOS 上不存在。
+    const int descriptor = ::socket(AF_INET, SOCK_STREAM, 0);
     if (descriptor < 0) return false;
     sockaddr_in address{};
     address.sin_family = AF_INET;

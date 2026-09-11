@@ -34,7 +34,7 @@ struct SslDeleter {
 class TlsClient final {
 public:
     explicit TlsClient(std::uint16_t port)
-        : descriptor_(::socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0)),
+        : descriptor_(::socket(AF_INET, SOCK_STREAM, 0)),
           context_(SSL_CTX_new(TLS_client_method())) {
         if (descriptor_ < 0 || !context_) {
             throw std::runtime_error("failed to create TLS test client");

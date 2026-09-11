@@ -321,7 +321,8 @@ public:
         std::initializer_list<Field> fields,
         EventContext context,
         const std::source_location& location) {
-        const auto runtime = runtime_config_.load(std::memory_order_acquire);
+        const auto runtime =
+            std::atomic_load_explicit(&runtime_config_, std::memory_order_acquire);
         const auto module = module_from_source(location.file_name());
         const auto module_level = runtime->module_levels.find(module);
         const auto minimum = module_level == runtime->module_levels.end()
@@ -449,10 +450,14 @@ public:
     }
 
     /// 运行时配置通过 shared_ptr 原子替换,实现无锁热更新。
+    /// 使用 std::atomic_load/store 自由函数而非 std::atomic<std::shared_ptr>:
+    /// 后者要求类型可平凡复制,libc++(Apple 工具链)尚未提供该特化。
     void set_min_severity(Severity severity) noexcept {
-        auto updated = *runtime_config_.load(std::memory_order_acquire);
+        auto updated = *std::atomic_load_explicit(
+            &runtime_config_, std::memory_order_acquire);
         updated.min_severity = severity;
-        runtime_config_.store(
+        std::atomic_store_explicit(
+            &runtime_config_,
             std::make_shared<const LoggerRuntimeConfig>(std::move(updated)),
             std::memory_order_release);
     }
@@ -465,7 +470,8 @@ public:
                     "logger sample rates require snake_case names and values in [0, 1]");
             }
         }
-        runtime_config_.store(
+        std::atomic_store_explicit(
+            &runtime_config_,
             std::make_shared<const LoggerRuntimeConfig>(std::move(config)),
             std::memory_order_release);
     }
@@ -599,7 +605,8 @@ private:
     concurrency::BoundedQueue<std::string> normal_queue_;
     concurrency::BoundedQueue<std::string> priority_queue_;
     std::shared_ptr<spdlog::logger> sink_;
-    std::atomic<std::shared_ptr<const LoggerRuntimeConfig>> runtime_config_;
+    // 通过 std::atomic_load/store 自由函数原子替换,见 set_min_severity()。
+    std::shared_ptr<const LoggerRuntimeConfig> runtime_config_;
     const std::string process_start_id_;
     std::atomic<std::uint64_t> sequence_{0};
     std::atomic<std::uint64_t> sample_sequence_{0};

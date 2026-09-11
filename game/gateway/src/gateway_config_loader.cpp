@@ -9,6 +9,11 @@
 #include <string_view>
 #include <utility>
 
+// 统一使用 sol::lua_nil 而非 sol::nil:sol2 在 macOS 上会因 nil 宏已定义
+// (Objective-C)或 __MAC_OS_X_VERSION_MAX_ALLOWED 而把 SOL_NIL 置为关闭
+// (version.hpp),导致 sol::nil 在同一工程的不同翻译单元里时有时无。
+// 两者是同一个 lua_nil_t 值。
+
 namespace realm::game::gateway {
 namespace {
 
@@ -25,7 +30,7 @@ namespace {
 [[nodiscard]] std::string optional_string(
     const sol::table& table, std::string_view field, std::string fallback) {
     const sol::object value = table.raw_get<sol::object>(std::string(field));
-    if (value == sol::nil) return fallback;
+    if (value == sol::lua_nil) return fallback;
     if (!value.is<std::string>()) {
         throw std::invalid_argument(
             "configuration field " + std::string(field) + " must be a string");
@@ -37,7 +42,7 @@ template <typename Integer>
 [[nodiscard]] Integer optional_integer(
     const sol::table& table, std::string_view field, Integer fallback) {
     const sol::object object = table.raw_get<sol::object>(std::string(field));
-    if (object == sol::nil) return fallback;
+    if (object == sol::lua_nil) return fallback;
     if (!object.is<lua_Integer>()) {
         throw std::invalid_argument(
             "configuration field " + std::string(field) +
@@ -56,7 +61,7 @@ template <typename Integer>
 [[nodiscard]] bool optional_boolean(
     const sol::table& table, std::string_view field, bool fallback) {
     const sol::object value = table.raw_get<sol::object>(std::string(field));
-    if (value == sol::nil) return fallback;
+    if (value == sol::lua_nil) return fallback;
     if (!value.is<bool>()) {
         throw std::invalid_argument(
             "configuration field " + std::string(field) + " must be boolean");
@@ -93,7 +98,7 @@ void read_logging_runtime_policy(
     const sol::table& logging, observability::LoggerConfig& config) {
     const sol::object module_levels_value =
         logging.raw_get<sol::object>("module_levels");
-    if (module_levels_value != sol::nil) {
+    if (module_levels_value != sol::lua_nil) {
         if (!module_levels_value.is<sol::table>()) {
             throw std::invalid_argument(
                 "logging module_levels must be a table");
@@ -110,7 +115,7 @@ void read_logging_runtime_policy(
 
     const sol::object sample_rates_value =
         logging.raw_get<sol::object>("sample_rates");
-    if (sample_rates_value == sol::nil) return;
+    if (sample_rates_value == sol::lua_nil) return;
     if (!sample_rates_value.is<sol::table>()) {
         throw std::invalid_argument("logging sample_rates must be a table");
     }
@@ -210,7 +215,7 @@ GatewayConfig GatewayConfigLoader::parse(const sol::table& root) {
         optional_integer(root, "downstream_port", config.downstream_port);
 
     const sol::object runtime_value = root.raw_get<sol::object>("runtime");
-    if (runtime_value != sol::nil) {
+    if (runtime_value != sol::lua_nil) {
         if (!runtime_value.is<sol::table>()) {
             throw std::invalid_argument(
                 "gateway config runtime must be a table");
@@ -235,7 +240,7 @@ GatewayConfig GatewayConfigLoader::parse(const sol::table& root) {
 
     const sol::object discovery_value =
         root.raw_get<sol::object>("service_discovery");
-    if (discovery_value != sol::nil) {
+    if (discovery_value != sol::lua_nil) {
         if (!discovery_value.is<sol::table>()) {
             throw std::invalid_argument(
                 "gateway config service_discovery must be a table");
@@ -288,7 +293,7 @@ GatewayConfig GatewayConfigLoader::parse(const sol::table& root) {
     }
 
     const sol::object logging_value = root.raw_get<sol::object>("logging");
-    if (logging_value != sol::nil) {
+    if (logging_value != sol::lua_nil) {
         if (!logging_value.is<sol::table>()) {
             throw std::invalid_argument(
                 "gateway config logging must be a table");

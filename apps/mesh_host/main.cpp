@@ -89,7 +89,7 @@ struct Options {
 
         const sol::object dependencies =
             entry.raw_get<sol::object>("depends_on");
-        if (dependencies != sol::nil) {
+        if (dependencies != sol::lua_nil) {
             if (!dependencies.is<sol::table>()) {
                 throw std::invalid_argument(
                     "main.config depends_on must be a table");
@@ -109,7 +109,7 @@ struct Options {
         }
 
         const sol::object entry_flag = entry.raw_get<sol::object>("entry");
-        if (entry_flag != sol::nil) {
+        if (entry_flag != sol::lua_nil) {
             if (!entry_flag.is<bool>()) {
                 throw std::invalid_argument(
                     "main.config entry must be a boolean");
