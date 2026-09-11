@@ -133,38 +133,20 @@ std::optional<std::string> base64_decode(std::string_view input) {
 
 std::string_view service_type_name(ServiceType type) {
     switch (type) {
-    case ServiceType::Coordinator:
-        return "coordinator";
     case ServiceType::Gateway:
         return "gateway";
     case ServiceType::Login:
         return "login";
     case ServiceType::Realm:
         return "realm";
-    case ServiceType::Lobby:
-        return "lobby";
-    case ServiceType::Scene:
-        return "scene";
-    case ServiceType::Friend:
-        return "friend";
-    case ServiceType::Chat:
-        return "chat";
-    case ServiceType::Storage:
-        return "storage";
     }
     throw std::invalid_argument("unknown service type");
 }
 
 std::optional<ServiceType> parse_service_type(std::string_view value) {
-    if (value == "coordinator") return ServiceType::Coordinator;
     if (value == "gateway") return ServiceType::Gateway;
     if (value == "login") return ServiceType::Login;
     if (value == "realm") return ServiceType::Realm;
-    if (value == "lobby") return ServiceType::Lobby;
-    if (value == "scene") return ServiceType::Scene;
-    if (value == "friend") return ServiceType::Friend;
-    if (value == "chat") return ServiceType::Chat;
-    if (value == "storage") return ServiceType::Storage;
     return std::nullopt;
 }
 

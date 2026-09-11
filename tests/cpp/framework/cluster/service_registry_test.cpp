@@ -38,16 +38,16 @@ TEST(ServiceRegistryTest, RegistersAndDiscoversByServiceType) {
     test_support::FakeServiceRegistry registry;
     const auto gateway =
         make_instance(ServiceType::Gateway, "gateway-01", 8100);
-    const auto scene = make_instance(ServiceType::Scene, "scene-01", 8400);
+    const auto realm = make_instance(ServiceType::Realm, "realm-01", 8200);
 
     const auto gateway_registration = registry.register_instance(gateway, 10s);
-    const auto scene_registration = registry.register_instance(scene, 10s);
+    const auto realm_registration = registry.register_instance(realm, 10s);
 
     ASSERT_EQ(gateway_registration.status, RegistryStatus::Success);
-    ASSERT_EQ(scene_registration.status, RegistryStatus::Success);
-    EXPECT_NE(gateway_registration.id, scene_registration.id);
+    ASSERT_EQ(realm_registration.status, RegistryStatus::Success);
+    EXPECT_NE(gateway_registration.id, realm_registration.id);
     EXPECT_EQ(registry.discover(ServiceType::Gateway), std::vector{gateway});
-    EXPECT_EQ(registry.discover(ServiceType::Scene), std::vector{scene});
+    EXPECT_EQ(registry.discover(ServiceType::Realm), std::vector{realm});
     EXPECT_TRUE(registry.discover(ServiceType::Login).empty());
 }
 
@@ -93,19 +93,19 @@ TEST(ServiceRegistryTest, ExpiredRegistrationDisappearsAndCannotRefresh) {
     using namespace std::chrono_literals;
 
     test_support::FakeServiceRegistry registry;
-    const auto instance = make_instance(ServiceType::Scene, "scene-01", 8400);
+    const auto instance = make_instance(ServiceType::Realm, "realm-01", 8200);
     const auto registration = registry.register_instance(instance, 10s);
     ASSERT_EQ(registration.status, RegistryStatus::Success);
 
     EXPECT_TRUE(registry.refresh_registration(registration.id));
     EXPECT_TRUE(registry.expire_registration(registration.id));
     EXPECT_FALSE(registry.refresh_registration(registration.id));
-    EXPECT_TRUE(registry.discover(ServiceType::Scene).empty());
+    EXPECT_TRUE(registry.discover(ServiceType::Realm).empty());
 }
 
 TEST(ServiceRegistryTest, RejectsNonPositiveLeaseTtl) {
     test_support::FakeServiceRegistry registry;
-    const auto instance = make_instance(ServiceType::Chat, "chat-01", 8600);
+    const auto instance = make_instance(ServiceType::Realm, "realm-01", 8200);
 
     const auto registration =
         registry.register_instance(instance, std::chrono::seconds::zero());

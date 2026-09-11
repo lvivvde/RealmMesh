@@ -12,15 +12,9 @@
 namespace realm::cluster {
 
 enum class ServiceType : std::uint8_t {
-    Coordinator,
     Gateway,
     Login,
     Realm,
-    Lobby,
-    Scene,
-    Friend,
-    Chat,
-    Storage,
 };
 
 struct ServiceInstance {

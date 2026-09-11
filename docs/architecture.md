@@ -106,7 +106,7 @@ MsQuic 自有调度不会直接调用业务逻辑。回调只完成长度帧组�
 
 服务身份的权威列表在 `realm::cluster::ServiceType`
 (`framework/cluster/include/realmmesh/cluster/service_registry.hpp`),线名映射在
-`service_type_name` / `parse_service_type`。枚举共有 9 个身份,其中只有 3 个已接线:
+`service_type_name` / `parse_service_type`。枚举只包含已接线的 3 个身份:
 
 | ServiceType | 线名 | 状态 |
 |---|---|---|
@@ -117,10 +117,9 @@ MsQuic 自有调度不会直接调用业务逻辑。回调只完成长度帧组�
 `login` 与 `realm` 没有独立的业务库:三者在 `framework/service_host` 中共用
 `game::gateway::GatewayRuntime`,差异只在传输配置与 `ServiceFrame` 的事件处理分支。
 
-以下身份已在枚举中保留、尚无实现,不建目录占位:`Lobby`、`Scene`、`Friend`、`Chat`、
-`Storage`、`Coordinator`;线名分别为 `lobby`、`scene`、`friend`、`chat`、`storage`、
-`coordinator`。它们目前也无法被 `realm_mesh --service` 启动——`self_service_type`、
-`dependency_service_type` 与 `known_service` 只认识 gateway/login/realm。
+不预先在枚举里登记未实现的服务身份:新服务进入实现时才添加 `ServiceType` 条目与线名映射
+(此前枚举曾预留 6 个未实现身份,已按 ADR-0003 移除)。`realm_mesh --service` 经
+`self_service_type` / `known_service` 只接受上表中的身份。
 
 Framework 侧同样按需新建。`base`、`memory`、`rpc`、`serialization`、`storage` 这几个名字
 曾被空目录预留,但代码与文档都没有定义它们的职责;需要时从第一个真实用例开始设计,

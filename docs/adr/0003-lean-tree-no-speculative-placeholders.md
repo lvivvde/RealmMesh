@@ -18,3 +18,6 @@ status: accepted
 - 新增服务 = 新建目录 + `CMakeLists.txt` + 根 `CMakeLists.txt` 一行 `add_subdirectory`,没有现成骨架可填。
 - 5 个 framework 预留模块(`base`/`memory`/`rpc`/`serialization`/`storage`)在代码与文档中都没有任何职责定义,因此按"有代码才建"处理,不为它们补写推测性说明。
 - 被删目录在 git 历史中仍可恢复,但恢复与否都不影响构建——没有任何构建脚本引用这些路径。
+- 同一原则延伸到代码:2026-09-11 从 `ServiceType` 枚举与 etcd 线名映射中移除了 6 个未实现的
+  身份(`Coordinator`/`Lobby`/`Scene`/`Friend`/`Chat`/`Storage`),新服务在实现时才登记身份;
+  实例类型在线上是字符串编码,删除不影响既有 etcd 数据的解码。
