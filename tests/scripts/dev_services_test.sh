@@ -73,7 +73,11 @@ cp "${realmmesh_source_root}/configs/main.config" \
 ln -s "${realmmesh_mesh_binary}" \
     "${realmmesh_test_root}/build/dev/bin/realm_mesh"
 
-mapfile -t realmmesh_ports < <(python3 - <<'PY'
+# macOS 自带 bash 3.2,没有 mapfile;用逐行读取保持同一行为。
+realmmesh_ports=()
+while IFS= read -r realmmesh_port; do
+    realmmesh_ports+=("${realmmesh_port}")
+done < <(python3 - <<'PY'
 import socket
 
 sockets = []
@@ -93,20 +97,26 @@ realmmesh_realm_metrics_port="${realmmesh_ports[3]}"
 realmmesh_login_metrics_port="${realmmesh_ports[4]}"
 realmmesh_gateway_metrics_port="${realmmesh_ports[5]}"
 
-sed -i \
+# BSD sed 的 -i 需要一个后缀参数,多段 -e 会被当成文件名("sed: -e: No such
+# file or directory")。用重定向 + mv 重写配置,在 GNU/BSD sed 上行为一致。
+rewrite_config() {
+    local realmmesh_config_file="$1"
+    shift
+    sed "$@" "${realmmesh_config_file}" > "${realmmesh_config_file}.tmp"
+    mv "${realmmesh_config_file}.tmp" "${realmmesh_config_file}"
+}
+
+rewrite_config "${realmmesh_test_root}/configs/services/realm.lua" \
     -e "s/listen_port = 7100/listen_port = ${realmmesh_realm_port}/" \
     -e "s/downstream_port = 8000/downstream_port = ${realmmesh_gateway_port}/" \
-    -e "s/metrics_port = 9102/metrics_port = ${realmmesh_realm_metrics_port}/" \
-    "${realmmesh_test_root}/configs/services/realm.lua"
-sed -i \
+    -e "s/metrics_port = 9102/metrics_port = ${realmmesh_realm_metrics_port}/"
+rewrite_config "${realmmesh_test_root}/configs/services/login.lua" \
     -e "s/listen_port = 7000/listen_port = ${realmmesh_login_port}/" \
     -e "s/downstream_port = 7100/downstream_port = ${realmmesh_realm_port}/" \
-    -e "s/metrics_port = 9101/metrics_port = ${realmmesh_login_metrics_port}/" \
-    "${realmmesh_test_root}/configs/services/login.lua"
-sed -i \
+    -e "s/metrics_port = 9101/metrics_port = ${realmmesh_login_metrics_port}/"
+rewrite_config "${realmmesh_test_root}/configs/services/gateway.lua" \
     -e "s/listen_port = 8000/listen_port = ${realmmesh_gateway_port}/g" \
-    -e "s/metrics_port = 9103/metrics_port = ${realmmesh_gateway_metrics_port}/" \
-    "${realmmesh_test_root}/configs/services/gateway.lua"
+    -e "s/metrics_port = 9103/metrics_port = ${realmmesh_gateway_metrics_port}/"
 
 export REALMMESH_TLS_CERTIFICATE_FILE="${realmmesh_tls_certificate}"
 export REALMMESH_TLS_PRIVATE_KEY_FILE="${realmmesh_tls_private_key}"
