@@ -9,6 +9,7 @@
 #include <unistd.h>
 
 #include <chrono>
+#include <csignal>
 #include <cstddef>
 #include <cstdint>
 #include <stdexcept>
@@ -87,6 +88,15 @@ TEST(TcpListenerTest, AcceptsIpv4ThroughAnIpv6DualStackListener) {
     const SocketGuard client(connect_to_loopback(listener.local_port()));
     ASSERT_FALSE(event_loop->wait(500ms).empty());
     EXPECT_TRUE(listener.accept().has_value());
+}
+
+/// 进程级兜底:TCP 平台后端在静态初始化阶段(早于 main)把 SIGPIPE 置为
+/// 忽略,因此这里读回的"旧处置"必须是 SIG_IGN。这一层独立于
+/// SO_NOSIGPIPE/MSG_NOSIGNAL,覆盖未经传输层创建的原生套接字。
+TEST(TcpPlatformTest, IgnoresSigpipeProcessWide) {
+    const auto previous = std::signal(SIGPIPE, SIG_IGN);
+    ASSERT_NE(previous, SIG_ERR);
+    EXPECT_EQ(previous, SIG_IGN);
 }
 
 }  // namespace
