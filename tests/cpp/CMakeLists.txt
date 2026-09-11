@@ -162,6 +162,19 @@ target_compile_features(tcp_listener_test PRIVATE cxx_std_20)
 
 gtest_discover_tests(tcp_listener_test)
 
+add_executable(event_loop_test
+    framework/network/reactor/event_loop_test.cpp
+)
+
+target_link_libraries(event_loop_test PRIVATE
+    GTest::gtest_main
+    realm_network
+)
+
+target_compile_features(event_loop_test PRIVATE cxx_std_20)
+
+gtest_discover_tests(event_loop_test)
+
 add_executable(transport_factory_test
     framework/network/transport/transport_factory_test.cpp
 )

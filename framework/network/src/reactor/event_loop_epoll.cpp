@@ -26,13 +26,17 @@ std::uint32_t to_epoll_events(EventInterest interest) noexcept {
 void control_epoll(
     int epoll_descriptor,
     int operation,
-    int watched_descriptor,
+    EventLoopHandle watched_handle,
     EventInterest interest) {
     epoll_event event{};
     event.events = to_epoll_events(interest);
-    event.data.fd = watched_descriptor;
+    event.data.fd = static_cast<int>(watched_handle);
 
-    if (::epoll_ctl(epoll_descriptor, operation, watched_descriptor, &event) < 0) {
+    if (::epoll_ctl(
+            epoll_descriptor,
+            operation,
+            static_cast<int>(watched_handle),
+            &event) < 0) {
         throw std::system_error(errno, std::generic_category(), "epoll_ctl");
     }
 }
@@ -60,16 +64,20 @@ EpollEventLoop& EpollEventLoop::operator=(EpollEventLoop&& other) noexcept {
     return *this;
 }
 
-void EpollEventLoop::add(int descriptor, EventInterest interest) {
-    control_epoll(descriptor_, EPOLL_CTL_ADD, descriptor, interest);
+void EpollEventLoop::add(EventLoopHandle handle, EventInterest interest) {
+    control_epoll(descriptor_, EPOLL_CTL_ADD, handle, interest);
 }
 
-void EpollEventLoop::modify(int descriptor, EventInterest interest) {
-    control_epoll(descriptor_, EPOLL_CTL_MOD, descriptor, interest);
+void EpollEventLoop::modify(EventLoopHandle handle, EventInterest interest) {
+    control_epoll(descriptor_, EPOLL_CTL_MOD, handle, interest);
 }
 
-void EpollEventLoop::remove(int descriptor) {
-    if (::epoll_ctl(descriptor_, EPOLL_CTL_DEL, descriptor, nullptr) < 0) {
+void EpollEventLoop::remove(EventLoopHandle handle) {
+    if (::epoll_ctl(
+            descriptor_,
+            EPOLL_CTL_DEL,
+            static_cast<int>(handle),
+            nullptr) < 0) {
         throw std::system_error(errno, std::generic_category(), "epoll_ctl(DEL)");
     }
 }
@@ -100,7 +108,7 @@ std::vector<ReadyEvent> EpollEventLoop::wait(std::chrono::milliseconds timeout) 
     for (int index = 0; index < ready_count; ++index) {
         const auto flags = events[index].events;
         ready_events.push_back({
-            events[index].data.fd,
+            to_event_loop_handle(events[index].data.fd),
             (flags & (EPOLLIN | EPOLLPRI)) != 0U,
             (flags & EPOLLOUT) != 0U,
             (flags & (EPOLLRDHUP | EPOLLHUP)) != 0U,

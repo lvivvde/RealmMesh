@@ -2,7 +2,8 @@ add_library(realm_network
     src/core/byte_buffer.cpp
     src/codec/length_field_codec.cpp
     src/client/preferred_transport_connector.cpp
-    src/reactor/epoll_event_loop.cpp
+    src/reactor/event_loop_epoll.cpp
+    src/reactor/event_loop_factory.cpp
     src/quic/quic_transport.cpp
     src/transport/transport_factory.cpp
     src/tcp/tcp_listener.cpp
@@ -10,6 +11,26 @@ add_library(realm_network
     src/tls/tls_connection.cpp
     src/tls/tls_server_context.cpp
     src/tls/tls_tcp_transport.cpp
+)
+
+# Platform Event Loop backend (ADR-0001): exactly one is compiled in. kqueue
+# and iocp are recognized here but their backends are not implemented yet
+# (ADR-0002), so the factory rejects them with a pointer back to the ADR.
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    set(REALM_NETWORK_EVENT_LOOP_BACKEND epoll)
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+    set(REALM_NETWORK_EVENT_LOOP_BACKEND kqueue)
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Windows")
+    set(REALM_NETWORK_EVENT_LOOP_BACKEND iocp)
+else()
+    message(FATAL_ERROR
+        "realm_network has no Event Loop backend for ${CMAKE_SYSTEM_NAME} "
+        "(see ADR-0001)")
+endif()
+string(TOUPPER "${REALM_NETWORK_EVENT_LOOP_BACKEND}" REALM_NETWORK_EVENT_LOOP_BACKEND_UPPER)
+message(STATUS "realm_network Event Loop backend: ${REALM_NETWORK_EVENT_LOOP_BACKEND}")
+target_compile_definitions(realm_network PRIVATE
+    REALM_NETWORK_EVENT_LOOP_BACKEND_${REALM_NETWORK_EVENT_LOOP_BACKEND_UPPER}
 )
 
 find_package(OpenSSL 3.0 REQUIRED COMPONENTS SSL Crypto)

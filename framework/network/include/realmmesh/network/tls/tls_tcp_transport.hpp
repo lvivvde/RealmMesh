@@ -1,12 +1,13 @@
 #pragma once
 
-#include "realmmesh/network/reactor/epoll_event_loop.hpp"
+#include "realmmesh/network/reactor/event_loop.hpp"
 #include "realmmesh/network/tcp/tcp_listener.hpp"
 #include "realmmesh/network/tls/tls_connection.hpp"
 #include "realmmesh/network/tls/tls_server_context.hpp"
 #include "realmmesh/network/transport/transport_config.hpp"
 
 #include <chrono>
+#include <memory>
 #include <string_view>
 #include <unordered_map>
 #include <utility>
@@ -45,7 +46,7 @@ private:
         TlsIoState io_need{TlsIoState::WantRead};
     };
 
-    using PendingClose = std::pair<int, std::string_view>;
+    using PendingClose = std::pair<EventLoopHandle, std::string_view>;
 
     void accept_connections();
     void service_connection(
@@ -54,7 +55,7 @@ private:
         std::vector<TransportEvent>& events,
         std::vector<PendingClose>& connections_to_close);
     void close_descriptor(
-        int descriptor,
+        EventLoopHandle handle,
         std::vector<TransportEvent>* events = nullptr,
         std::string_view reason = "application_requested");
     void update_interest(ConnectionEntry& entry);
@@ -63,10 +64,10 @@ private:
     observability::Logger* logger_{nullptr};
     std::unique_ptr<TlsServerContext> tls_context_;
     TcpListener listener_;
-    EpollEventLoop event_loop_;
+    std::unique_ptr<IEventLoop> event_loop_;
     SessionId next_session_id_{1};
-    std::unordered_map<int, ConnectionEntry> connections_;
-    std::unordered_map<SessionId, int> descriptors_;
+    std::unordered_map<EventLoopHandle, ConnectionEntry> connections_;
+    std::unordered_map<SessionId, EventLoopHandle> descriptors_;
 };
 
 }  // namespace realm::network

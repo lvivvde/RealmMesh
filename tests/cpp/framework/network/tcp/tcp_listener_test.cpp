@@ -88,7 +88,7 @@ TEST(EpollEventLoopTest, ReportsListenerAsReadableWhenClientConnects) {
 
     const auto event =
         std::ranges::find_if(events, [&listener](const ReadyEvent& value) {
-            return value.descriptor == listener.native_handle();
+            return value.handle == to_event_loop_handle(listener.native_handle());
         });
     ASSERT_NE(event, events.end());
     EXPECT_TRUE(event->readable);
