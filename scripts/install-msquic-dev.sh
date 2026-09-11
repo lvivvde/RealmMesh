@@ -22,6 +22,8 @@ header_base="https://raw.githubusercontent.com/microsoft/msquic/v2.5.10/src/inc"
 
 curl --fail --location --retry 3 --output "${temporary_root}/libmsquic.deb" "${package_url}"
 echo "${package_sha256}  ${temporary_root}/libmsquic.deb" | sha256sum --check --status
+# dpkg-deb 只会创建目标的最后一级目录,父目录须先就位。
+mkdir -p "${install_root}"
 dpkg-deb --extract "${temporary_root}/libmsquic.deb" "${install_root}"
 
 mkdir -p "${install_root}/usr/include"
