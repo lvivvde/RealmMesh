@@ -2,7 +2,7 @@
 
 #include "realmmesh/cluster/etcd_service_registry.hpp"
 #include "realmmesh/cluster/service_bootstrap.hpp"
-#include "realmmesh/game/gateway/gateway_server.hpp"
+#include "realmmesh/game/gateway/gateway_runtime.hpp"
 #include "realmmesh/observability/logger.hpp"
 
 #include <arpa/inet.h>

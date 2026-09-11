@@ -31,12 +31,6 @@ namespace {
     return account_id ^ 0x524d434841524143ULL;
 }
 
-[[nodiscard]] std::string connection_key(
-    std::string_view transport_name, network::SessionId transport_session_id) {
-    return std::string(transport_name) + '#' +
-           std::to_string(transport_session_id);
-}
-
 [[nodiscard]] game::common::SessionTicketKey load_ticket_key() {
     const char* value = std::getenv("REALMMESH_SESSION_TICKET_KEY");
     if (value == nullptr) {
@@ -133,6 +127,8 @@ void ServiceFrame::stopped(
                  "overload_disconnects", stats.overload_disconnects),
              observability::field(
                  "outbound_rejected", stats.rejected_outbound_commands),
+             observability::field(
+                 "unknown_session_commands", stats.unknown_session_commands),
              observability::field("delivered", stats.successful_deliveries),
              observability::field(
                  "delivery_failed", stats.failed_deliveries)}));
@@ -204,23 +200,10 @@ void ServiceFrame::handle_login_events(
                     .request_id = request_id,
                 }));
         }
-        if (event.client_session_id.has_value()) {
-            static_cast<void>(
-                runtime.try_send(*event.client_session_id, response));
+        if (event.established) {
+            static_cast<void>(runtime.try_send(event.session_id, response));
         } else {
-            if (authenticated) {
-                static_cast<void>(runtime.try_accept_connection(
-                    event.transport_name,
-                    event.transport_session_id,
-                    response));
-            } else {
-                static_cast<void>(runtime.try_send_channel(
-                    event.transport_name,
-                    event.transport_session_id,
-                    response));
-                static_cast<void>(runtime.try_close_channel(
-                    event.transport_name, event.transport_session_id));
-            }
+            static_cast<void>(runtime.try_accept(event.session_id, response));
         }
     }
 }
@@ -230,23 +213,12 @@ void ServiceFrame::handle_realm_events(
     game::gateway::GatewayRuntime& runtime,
     cluster::ServiceResolver* resolver) {
     for (auto& event : runtime.drain_events(max_events_per_frame_)) {
-        if (event.kind == game::gateway::GatewayEventKind::ConnectionClosed) {
-            pending_authenticated_.erase(connection_key(
-                event.transport_name, event.transport_session_id));
-            if (event.client_session_id.has_value()) {
-                authenticated_.erase(*event.client_session_id);
-            }
+        if (event.kind == game::gateway::GatewayEventKind::SessionClosed) {
+            authenticated_.erase(event.session_id);
             continue;
         }
-        if (event.kind ==
-            game::gateway::GatewayEventKind::ClientSessionOpened) {
-            const auto pending = pending_authenticated_.find(connection_key(
-                event.transport_name, event.transport_session_id));
-            if (pending != pending_authenticated_.end() &&
-                event.client_session_id.has_value()) {
-                authenticated_[*event.client_session_id] = pending->second;
-                pending_authenticated_.erase(pending);
-            }
+        if (event.kind == game::gateway::GatewayEventKind::SessionEstablished) {
+            // claims 已在 authenticate 分支写入;迁移通知本身无携带状态。
             continue;
         }
         if (event.kind != game::gateway::GatewayEventKind::MessageReceived) {
@@ -256,7 +228,7 @@ void ServiceFrame::handle_realm_events(
         const auto request_id =
             game::common::edge_request_id(event.payload).value_or(0);
         std::vector<std::byte> response;
-        if (!event.client_session_id.has_value()) {
+        if (!event.established) {
             const auto request =
                 game::common::decode_realm_authenticate(event.payload);
             const auto claims = tickets_.validate(
@@ -270,9 +242,7 @@ void ServiceFrame::handle_realm_events(
                 error.set_message("invalid login ticket");
                 response = game::common::encode(error, request_id);
             } else {
-                pending_authenticated_[connection_key(
-                    event.transport_name, event.transport_session_id)] =
-                    *claims;
+                authenticated_[event.session_id] = *claims;
                 game::common::CharacterList characters;
                 auto* character = characters.add_characters();
                 character->set_id(development_character_id(claims->account_id));
@@ -296,35 +266,29 @@ void ServiceFrame::handle_realm_events(
                     std::move(context)));
             }
             if (claims.has_value() && claims->realm_id == 1) {
-                static_cast<void>(runtime.try_accept_connection(
-                    event.transport_name,
-                    event.transport_session_id,
-                    response));
+                static_cast<void>(
+                    runtime.try_accept(event.session_id, response));
             } else {
-                static_cast<void>(runtime.try_send_channel(
-                    event.transport_name,
-                    event.transport_session_id,
-                    response));
-                static_cast<void>(runtime.try_close_channel(
-                    event.transport_name, event.transport_session_id));
+                static_cast<void>(
+                    runtime.try_decline(event.session_id, response));
             }
             continue;
         }
 
-        const auto client = *event.client_session_id;
+        const auto session = event.session_id;
         if (game::common::decode_heartbeat_request(event.payload).has_value() &&
-            authenticated_.contains(client)) {
+            authenticated_.contains(session)) {
             game::common::HeartbeatResponse heartbeat;
             response = game::common::encode(heartbeat, request_id);
-            static_cast<void>(runtime.try_send(client, response));
+            static_cast<void>(runtime.try_send(session, response));
             continue;
         }
         if (const auto request =
                 game::common::decode_select_character(event.payload);
-            request.has_value() && authenticated_.contains(client) &&
+            request.has_value() && authenticated_.contains(session) &&
             request->character_id() ==
-                development_character_id(authenticated_[client].account_id)) {
-            const auto& session_claims = authenticated_[client];
+                development_character_id(authenticated_[session].account_id)) {
+            const auto& session_claims = authenticated_[session];
             const auto account_id = session_claims.account_id;
             const auto discovered =
                 resolver != nullptr ? resolver->endpoint() : std::nullopt;
@@ -369,37 +333,25 @@ void ServiceFrame::handle_realm_events(
             error.set_message("authenticate before selecting character");
             response = game::common::encode(error, request_id);
         }
-        static_cast<void>(runtime.try_send(client, response));
+        static_cast<void>(runtime.try_send(session, response));
     }
 }
 
 void ServiceFrame::handle_gateway_events(
     observability::Logger& logger, game::gateway::GatewayRuntime& runtime) {
     for (auto& event : runtime.drain_events(max_events_per_frame_)) {
-        if (event.kind == game::gateway::GatewayEventKind::ConnectionClosed) {
-            pending_authenticated_.erase(connection_key(
-                event.transport_name, event.transport_session_id));
-            if (event.client_session_id.has_value()) {
-                authenticated_.erase(*event.client_session_id);
-            }
+        if (event.kind == game::gateway::GatewayEventKind::SessionClosed) {
+            authenticated_.erase(event.session_id);
             continue;
         }
-        if (event.kind ==
-            game::gateway::GatewayEventKind::ClientSessionOpened) {
-            const auto pending = pending_authenticated_.find(connection_key(
-                event.transport_name, event.transport_session_id));
-            if (pending != pending_authenticated_.end() &&
-                event.client_session_id.has_value()) {
-                authenticated_[*event.client_session_id] = pending->second;
-                pending_authenticated_.erase(pending);
-            }
+        if (event.kind == game::gateway::GatewayEventKind::SessionEstablished) {
             continue;
         }
         if (event.kind != game::gateway::GatewayEventKind::MessageReceived) {
             continue;
         }
 
-        if (!event.client_session_id.has_value()) {
+        if (!event.established) {
             const auto request = game::common::decode_enter_game(event.payload);
             const auto claims =
                 request.has_value()
@@ -420,9 +372,7 @@ void ServiceFrame::handle_gateway_events(
                 error.set_message("invalid or replayed enter-game ticket");
                 response = game::common::encode(error, request_id);
             } else {
-                pending_authenticated_[connection_key(
-                    event.transport_name, event.transport_session_id)] =
-                    *claims;
+                authenticated_[event.session_id] = *claims;
                 game::common::EnterGameAccepted accepted;
                 accepted.set_account_id(claims->account_id);
                 accepted.set_character_id(claims->character_id);
@@ -449,25 +399,18 @@ void ServiceFrame::handle_gateway_events(
                     std::move(context)));
             }
             if (accepted_ticket) {
-                static_cast<void>(runtime.try_accept_connection(
-                    event.transport_name,
-                    event.transport_session_id,
-                    response));
+                static_cast<void>(
+                    runtime.try_accept(event.session_id, response));
             } else {
-                static_cast<void>(runtime.try_send_channel(
-                    event.transport_name,
-                    event.transport_session_id,
-                    response));
-                static_cast<void>(runtime.try_close_channel(
-                    event.transport_name, event.transport_session_id));
+                static_cast<void>(
+                    runtime.try_decline(event.session_id, response));
             }
         } else {
-            const auto client = *event.client_session_id;
-            if (authenticated_.contains(client)) {
-                static_cast<void>(runtime.try_send(client, event.payload));
+            const auto session = event.session_id;
+            if (authenticated_.contains(session)) {
+                static_cast<void>(runtime.try_send(session, event.payload));
             } else {
-                static_cast<void>(runtime.try_close_channel(
-                    event.transport_name, event.transport_session_id));
+                static_cast<void>(runtime.try_close(session));
             }
         }
     }

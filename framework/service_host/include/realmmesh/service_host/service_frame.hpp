@@ -1,7 +1,7 @@
 #pragma once
 
 #include "realmmesh/game/common/session_ticket.hpp"
-#include "realmmesh/game/gateway/client_session_registry.hpp"
+#include "realmmesh/game/gateway/edge_session_table.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -19,7 +19,7 @@ class GatewayRuntime;
 
 namespace realm::observability {
 class Logger;
-}  // namespace realm::observability
+}  // namespace observability
 
 namespace realm::service_host {
 
@@ -68,12 +68,12 @@ private:
     std::size_t max_events_per_frame_{0};
     game::common::SessionTicketCodec tickets_;
     game::common::TicketReplayGuard replay_guard_;
+    /// 票据 claims 以 EdgeSessionId 寻址:authenticate 分支先写入,
+    /// accept 成功(SessionEstablished)后生效,SessionClosed 时清除。
     std::unordered_map<
-        game::gateway::ClientSessionId,
+        game::gateway::EdgeSessionId,
         game::common::SessionTicketClaims>
         authenticated_;
-    std::unordered_map<std::string, game::common::SessionTicketClaims>
-        pending_authenticated_;
 };
 
 }  // namespace realm::service_host

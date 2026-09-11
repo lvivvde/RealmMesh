@@ -45,21 +45,17 @@ _Avoid_: load balancer(它只暴露端点,选择策略在连接层)
 _Avoid_: heartbeat、TTL(TTL 是租约的时长参数,不是租约本身)
 
 **Watch**:
-借用 etcd v3 的监视语义:实例的增删以事件流推送,Resolver 由此感知拓扑变化,而非轮询。
-_Avoid_: polling、notification(这里专指服务实例事件,不是通用通知)
+借用 etcd v3 的监视语义:某一身份的实例增删以事件形式到达 Resolver,消费方不感知获取机制——轮询差分、流式订阅都是后端实现细节。
+_Avoid_: polling(轮询可以是底层实现,但不是这个概念的名字)、notification(这里专指服务实例事件,不是通用通知)
 
 ### Gateway
 
-**Pending Connection**:
-已完成 TLS 1.3 握手、但 EnterGame 票据尚未单次消费成功的连接;此时不存在 Client Session。
-_Avoid_: pending session(未晋升,不是会话)、unauthenticated session
-
-**Client Session**:
-票据单次消费成功后由 Pending Connection 晋升而来的逻辑会话,以 gateway 内自增的 ClientSessionId 寻址(与传输层 SessionId 是两个 id 空间);恰有一个 Primary Transport,断开即终结,不透明迁移。
-_Avoid_: player(玩家是业务概念)、user、connection
+**Edge Session**:
+一条边缘客户端连接在边缘服务内的统一寻址:以不透明的 EdgeSessionId 从连接打开标识到关闭;票据消费成功即由 pending 阶段迁入 established 阶段。
+_Avoid_: Client Session(旧名)、Pending Connection(旧名,pending 是阶段,不是另一种实体)、player(玩家是业务概念)、connection、handle
 
 **Primary Transport**:
-Client Session 当前唯一的传输通道;QUIC 与 TLS/TCP 是建连时的二选一候选,不是会话内的双通道。
+Edge Session 当前唯一的传输通道;QUIC 与 TLS/TCP 是建连时的二选一候选,不是会话内的双通道。
 _Avoid_: backup channel、secondary transport、failover
 
 ### Messaging
@@ -69,7 +65,7 @@ _Avoid_: backup channel、secondary transport、failover
 _Avoid_: packet、frame(frame 指传输层的长度帧概念)
 
 **Session Ticket**:
-libsodium 签发的一次性准入凭据,用途分 Login 与 EnterGame(`TicketPurpose`);用途为 EnterGame 的票据在 Gateway 单次消费(重放防护),消费成功触发 Pending Connection 到 Client Session 的晋升——流程文档中的 `EnterGameTicket` 即指此用途的票据。
+libsodium 签发的一次性准入凭据,用途分 Login 与 EnterGame(`TicketPurpose`);用途为 EnterGame 的票据在 Gateway 单次消费(重放防护),消费成功触发 Edge Session 由 pending 阶段迁入 established 阶段——流程文档中的 `EnterGameTicket` 即指此用途的票据。
 _Avoid_: token、credential、cookie
 
 ### Testing

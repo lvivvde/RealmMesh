@@ -20,7 +20,7 @@ realm_add_gtest(gateway_runtime_test
     DEPENDS realmmesh_test_tls_identity
 )
 
-realm_add_gtest(client_session_registry_test
-    SOURCES client_session_registry_test.cpp
+realm_add_gtest(edge_session_table_test
+    SOURCES edge_session_table_test.cpp
     LIBS realm_gateway_service
 )

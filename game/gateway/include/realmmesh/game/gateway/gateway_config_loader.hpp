@@ -1,6 +1,6 @@
 #pragma once
 
-#include "realmmesh/game/gateway/gateway_server.hpp"
+#include "realmmesh/game/gateway/gateway_runtime.hpp"
 #include "realmmesh/scripting/lua_runtime.hpp"
 
 #include <filesystem>

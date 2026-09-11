@@ -15,10 +15,12 @@
 #include <cstdint>
 #include <iterator>
 #include <memory>
+#include <optional>
 #include <span>
 #include <stdexcept>
 #include <string_view>
 #include <thread>
+#include <utility>
 #include <vector>
 
 namespace realm::game::gateway {
@@ -120,6 +122,14 @@ public:
         return result;
     }
 
+    /// 服务端关闭后的读取:返回 true 表示连接已终结(FIN/RST/关闭通知)。
+    [[nodiscard]] bool reached_eof() {
+        std::array<std::byte, 1> buffer{};
+        std::size_t received = 0;
+        return SSL_read_ex(
+                   ssl_.get(), buffer.data(), buffer.size(), &received) == 0;
+    }
+
 private:
     int descriptor_;
     std::unique_ptr<SSL_CTX, ContextDeleter> context_;
@@ -150,7 +160,62 @@ network::TransportConfig tls_transport() {
     };
 }
 
-TEST(GatewayRuntimeTest, AtomicallyRespondsAndPromotesAPendingConnection) {
+std::optional<GatewayEvent> wait_for_event(
+    GatewayRuntime& runtime,
+    GatewayEventKind kind,
+    std::chrono::milliseconds budget) {
+    const auto deadline = std::chrono::steady_clock::now() + budget;
+    std::optional<GatewayEvent> found;
+    while (std::chrono::steady_clock::now() < deadline && !found) {
+        auto event = runtime.try_receive();
+        if (event && event->kind == kind) {
+            found = std::move(event);
+        } else {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+    }
+    return found;
+}
+
+template <typename Predicate>
+bool wait_until(
+    Predicate&& predicate, std::chrono::milliseconds budget) {
+    const auto deadline = std::chrono::steady_clock::now() + budget;
+    while (std::chrono::steady_clock::now() < deadline) {
+        if (predicate()) {
+            return true;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    return predicate();
+}
+
+/// 连接 → 等握手(SessionOpened)→ 发一帧 → 等首个 MessageReceived。
+/// 客户端连接由调用方持有,保证会话在其存活期内可继续收发。
+struct ConnectedClient {
+    std::unique_ptr<TlsClient> client;
+    std::optional<GatewayEvent> message;
+};
+
+ConnectedClient connect_and_send_first_message(
+    GatewayRuntime& runtime,
+    const network::LengthFieldCodec& codec,
+    std::string_view message_text) {
+    ConnectedClient connected{std::make_unique<TlsClient>(runtime.local_port()),
+                              std::nullopt};
+    connected.client->send(codec.encode(bytes(message_text)));
+
+    const auto opened = wait_for_event(
+        runtime, GatewayEventKind::SessionOpened, std::chrono::seconds(2));
+    EXPECT_NE(opened->session_id, invalid_edge_session_id);
+    EXPECT_FALSE(opened->established);
+
+    connected.message = wait_for_event(
+        runtime, GatewayEventKind::MessageReceived, std::chrono::seconds(2));
+    return connected;
+}
+
+TEST(GatewayRuntimeTest, AcceptRespondsAndEstablishesAtomically) {
     using namespace std::chrono_literals;
     GatewayRuntime runtime(
         {.transports = {tls_transport()}},
@@ -160,49 +225,115 @@ TEST(GatewayRuntimeTest, AtomicallyRespondsAndPromotesAPendingConnection) {
             .io_poll_interval = 1ms,
         });
     runtime.start();
-    TlsClient client(runtime.local_port());
     const network::LengthFieldCodec codec(1024);
-    const auto payload = bytes("frame-message");
-    client.send(codec.encode(payload));
-
-    std::optional<GatewayEvent> message;
-    const auto deadline = std::chrono::steady_clock::now() + 2s;
-    while (std::chrono::steady_clock::now() < deadline && !message) {
-        auto event = runtime.try_receive();
-        if (event && event->kind == GatewayEventKind::MessageReceived) {
-            message = std::move(event);
-        } else {
-            std::this_thread::sleep_for(1ms);
-        }
-    }
-    ASSERT_TRUE(message.has_value());
-    EXPECT_FALSE(message->client_session_id.has_value());
+    auto connected =
+        connect_and_send_first_message(runtime, codec, "frame-message");
+    ASSERT_TRUE(connected.message.has_value());
+    EXPECT_FALSE(connected.message->established);
 
     const auto accepted = bytes("accepted");
     EXPECT_EQ(
-        runtime.try_accept_connection(
-            message->transport_name, message->transport_session_id, accepted),
+        runtime.try_accept(connected.message->session_id, accepted),
         QueueResult::Queued);
     EXPECT_EQ(
-        client.receive(codec.encode(accepted).size()), codec.encode(accepted));
+        connected.client->receive(codec.encode(accepted).size()),
+        codec.encode(accepted));
 
-    std::optional<GatewayEvent> promoted;
-    while (std::chrono::steady_clock::now() < deadline && !promoted) {
-        auto event = runtime.try_receive();
-        if (event && event->kind == GatewayEventKind::ClientSessionOpened) {
-            promoted = std::move(event);
-        } else {
-            std::this_thread::sleep_for(1ms);
-        }
-    }
-    ASSERT_TRUE(promoted.has_value());
-    ASSERT_TRUE(promoted->client_session_id.has_value());
+    const auto established = wait_for_event(
+        runtime, GatewayEventKind::SessionEstablished, std::chrono::seconds(2));
+    ASSERT_TRUE(established.has_value());
+    EXPECT_EQ(established->session_id, connected.message->session_id);
+    EXPECT_TRUE(established->established);
+
+    const auto payload = bytes("frame-message");
+    const auto encoded_payload = codec.encode(payload);
     EXPECT_EQ(
-        runtime.try_send(*promoted->client_session_id, payload),
+        runtime.try_send(connected.message->session_id, payload),
         QueueResult::Queued);
     EXPECT_EQ(
-        client.receive(codec.encode(payload).size()), codec.encode(payload));
+        connected.client->receive(encoded_payload.size()), encoded_payload);
     EXPECT_EQ(runtime.stats().successful_deliveries, 2U);
+    EXPECT_EQ(runtime.stats().unknown_session_commands, 0U);
+    runtime.stop();
+}
+
+TEST(GatewayRuntimeTest, DeclineRejectsAndTerminatesPendingSession) {
+    using namespace std::chrono_literals;
+    GatewayRuntime runtime(
+        {.transports = {tls_transport()}},
+        {
+            .inbound_capacity = 16,
+            .outbound_capacity = 16,
+            .io_poll_interval = 1ms,
+        });
+    runtime.start();
+    const network::LengthFieldCodec codec(1024);
+    auto connected =
+        connect_and_send_first_message(runtime, codec, "frame-message");
+    ASSERT_TRUE(connected.message.has_value());
+
+    const auto rejected = bytes("rejected");
+    EXPECT_EQ(
+        runtime.try_decline(connected.message->session_id, rejected),
+        QueueResult::Queued);
+    EXPECT_EQ(
+        connected.client->receive(codec.encode(rejected).size()),
+        codec.encode(rejected));
+
+    // 本地关闭不依赖传输层上报:终结事件由 runtime 合成,恰好一次。
+    const auto closed = wait_for_event(
+        runtime, GatewayEventKind::SessionClosed, std::chrono::seconds(2));
+    ASSERT_TRUE(closed.has_value());
+    EXPECT_EQ(closed->session_id, connected.message->session_id);
+    EXPECT_FALSE(closed->established);
+    EXPECT_TRUE(connected.client->reached_eof());
+    EXPECT_EQ(runtime.stats().successful_deliveries, 1U);
+    runtime.stop();
+}
+
+TEST(GatewayRuntimeTest, SendsToPendingSessionsCountAsUnknown) {
+    using namespace std::chrono_literals;
+    GatewayRuntime runtime(
+        {.transports = {tls_transport()}},
+        {
+            .inbound_capacity = 16,
+            .outbound_capacity = 16,
+            .io_poll_interval = 1ms,
+        });
+    runtime.start();
+    const network::LengthFieldCodec codec(1024);
+    auto connected =
+        connect_and_send_first_message(runtime, codec, "frame-message");
+    ASSERT_TRUE(connected.message.has_value());
+
+    EXPECT_EQ(
+        runtime.try_send(connected.message->session_id, bytes("early")),
+        QueueResult::Queued);
+    EXPECT_TRUE(wait_until(
+        [&runtime] { return runtime.stats().unknown_session_commands == 1; },
+        2s));
+    EXPECT_EQ(runtime.stats().successful_deliveries, 0U);
+    runtime.stop();
+}
+
+TEST(GatewayRuntimeTest, CommandsForUnknownSessionsCountAsUnknown) {
+    using namespace std::chrono_literals;
+    GatewayRuntime runtime(
+        {.transports = {tls_transport()}},
+        {
+            .inbound_capacity = 16,
+            .outbound_capacity = 16,
+            .io_poll_interval = 1ms,
+        });
+    runtime.start();
+
+    EXPECT_EQ(
+        runtime.try_accept(EdgeSessionId{4242}, bytes("x")),
+        QueueResult::Queued);
+    EXPECT_EQ(runtime.try_close(EdgeSessionId{4243}), QueueResult::Queued);
+    EXPECT_TRUE(wait_until(
+        [&runtime] { return runtime.stats().unknown_session_commands == 2; },
+        2s));
     runtime.stop();
 }
 
@@ -210,7 +341,16 @@ TEST(GatewayRuntimeTest, RejectsCommandsWhileStopped) {
     GatewayRuntime runtime(
         {.transports = {tls_transport()}},
         {.inbound_capacity = 1, .outbound_capacity = 1});
-    EXPECT_EQ(runtime.try_send(1, bytes("ignored")), QueueResult::Stopped);
+    EXPECT_EQ(
+        runtime.try_send(EdgeSessionId{1}, bytes("ignored")),
+        QueueResult::Stopped);
+    EXPECT_EQ(
+        runtime.try_accept(EdgeSessionId{1}, bytes("ignored")),
+        QueueResult::Stopped);
+    EXPECT_EQ(
+        runtime.try_decline(EdgeSessionId{1}, bytes("ignored")),
+        QueueResult::Stopped);
+    EXPECT_EQ(runtime.try_close(EdgeSessionId{1}), QueueResult::Stopped);
 }
 
 }  // namespace

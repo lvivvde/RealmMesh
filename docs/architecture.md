@@ -31,13 +31,14 @@ stateDiagram-v2
     [*] --> SecureHandshake
     SecureHandshake --> Pending: TLS 1.3 + ALPN 成功
     SecureHandshake --> Closed: 超时/证书/ALPN/协议失败
-    Pending --> ClientSession: EnterGameTicket 单次消费成功
+    Pending --> Established: EnterGameTicket 单次消费成功
     Pending --> Closed: 鉴权失败或过载
-    ClientSession --> ClientSession: QUIC 地址迁移
-    ClientSession --> Closed: primary transport 断开
+    Established --> Established: QUIC 地址迁移
+    Established --> Closed: primary transport 断开
 ```
 
-`ClientSessionRegistry` 只记录一个 primary transport。QUIC 和 TLS/TCP 是初次连接时的
+`EdgeSessionTable` 以单一 id 空间(`EdgeSessionId`)记录每个 Edge Session 的唯一
+primary transport 与阶段(pending/established)。QUIC 和 TLS/TCP 是初次连接时的
 二选一候选，不是一个会话里的双通道。当前没有恢复 token、序列号或重放窗口，因此
 已建立连接中断不会透明迁移到另一传输。
 
@@ -77,8 +78,9 @@ flowchart TB
 ```
 
 MsQuic 自有调度不会直接调用业务逻辑。回调只完成长度帧组装并发布统一事件；队列满
-时关闭可靠连接。鉴权成功响应与 pending→ClientSession 晋升由同一个 I/O 命令完成，
-避免发送成功但晋升命令入队失败的半状态。
+时关闭可靠连接。鉴权成功响应与 pending→established 迁移由同一个 I/O 命令
+(`try_accept`)完成，避免发送成功但迁移失败的半状态；decline/close 与 accept
+失败等本地终结由 runtime 合成恰好一次 SessionClosed 事件，不依赖传输层上报。
 
 ## 安全与资源限制
 
@@ -92,7 +94,7 @@ MsQuic 自有调度不会直接调用业务逻辑。回调只完成长度帧组�
 ## 分层
 
 - `framework/network`：QUIC、TLS/TCP、长度帧、客户端竞速策略。
-- `game/gateway`：pending 连接、ClientSession、运行时队列。
+- `game/gateway`：Edge Session 表(pending/established)、运行时队列与 I/O 线程。
 - `game/common`：Envelope 编解码和业务票据。
 - `framework/cluster`：多协议端点注册与发现。
 - `framework/service_host`：把服务名、分层配置与集群接线装配成一个可运行服务。

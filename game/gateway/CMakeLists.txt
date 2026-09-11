@@ -1,8 +1,7 @@
 add_library(realm_gateway_service
-    src/client_session_registry.cpp
+    src/edge_session_table.cpp
     src/gateway_config_loader.cpp
     src/gateway_runtime.cpp
-    src/gateway_server.cpp
 )
 
 add_library(RealmMesh::GatewayService ALIAS realm_gateway_service)

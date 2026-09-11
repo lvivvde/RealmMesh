@@ -1,5 +1,7 @@
 #include "realmmesh/game/gateway/gateway_runtime.hpp"
 
+#include "realmmesh/network/transport/transport_factory.hpp"
+
 #include <algorithm>
 #include <stdexcept>
 #include <utility>
@@ -14,12 +16,23 @@ GatewayRuntime::GatewayRuntime(
     GatewayConfig config,
     GatewayRuntimeOptions options,
     observability::Logger* logger)
-    : server_(std::move(config), logger),
+    : transports_(
+          network::TransportFactory::create_enabled(config.transports, logger)),
       options_(options),
-      local_port_(server_.local_port()),
-      local_endpoints_(server_.local_endpoints()),
       inbound_(options_.inbound_capacity),
       outbound_(options_.outbound_capacity) {
+    if (transports_.empty()) {
+        throw std::invalid_argument(
+            "gateway must have at least one enabled transport");
+    }
+    for (const auto& transport : transports_) {
+        sessions_.register_transport(*transport);
+    }
+    local_port_ = transports_.front()->local_endpoint().port;
+    local_endpoints_.reserve(transports_.size());
+    for (const auto& transport : transports_) {
+        local_endpoints_.push_back(transport->local_endpoint());
+    }
     if (options_.max_commands_per_cycle == 0) {
         throw std::invalid_argument(
             "max commands per I/O cycle must be positive");
@@ -86,49 +99,36 @@ std::vector<GatewayEvent> GatewayRuntime::drain_events(std::size_t max_events) {
 }
 
 QueueResult GatewayRuntime::try_send(
-    ClientSessionId client_session_id, std::span<const std::byte> payload) {
+    EdgeSessionId session_id, std::span<const std::byte> payload) {
     return enqueue({
-        .kind = CommandKind::SendClient,
-        .client_session_id = client_session_id,
-        .transport_name = {},
-        .transport_session_id = network::invalid_session_id,
+        .kind = CommandKind::Send,
+        .session_id = session_id,
         .payload = std::vector<std::byte>(payload.begin(), payload.end()),
     });
 }
 
-QueueResult GatewayRuntime::try_send_channel(
-    std::string_view transport_name,
-    network::SessionId transport_session_id,
-    std::span<const std::byte> payload) {
+QueueResult GatewayRuntime::try_accept(
+    EdgeSessionId session_id, std::span<const std::byte> response) {
     return enqueue({
-        .kind = CommandKind::SendChannel,
-        .client_session_id = invalid_client_session_id,
-        .transport_name = std::string(transport_name),
-        .transport_session_id = transport_session_id,
-        .payload = std::vector<std::byte>(payload.begin(), payload.end()),
-    });
-}
-
-QueueResult GatewayRuntime::try_accept_connection(
-    std::string_view transport_name,
-    network::SessionId transport_session_id,
-    std::span<const std::byte> response) {
-    return enqueue({
-        .kind = CommandKind::AcceptConnection,
-        .client_session_id = invalid_client_session_id,
-        .transport_name = std::string(transport_name),
-        .transport_session_id = transport_session_id,
+        .kind = CommandKind::Accept,
+        .session_id = session_id,
         .payload = std::vector<std::byte>(response.begin(), response.end()),
     });
 }
 
-QueueResult GatewayRuntime::try_close_channel(
-    std::string_view transport_name, network::SessionId transport_session_id) {
+QueueResult GatewayRuntime::try_decline(
+    EdgeSessionId session_id, std::span<const std::byte> response) {
     return enqueue({
-        .kind = CommandKind::CloseChannel,
-        .client_session_id = invalid_client_session_id,
-        .transport_name = std::string(transport_name),
-        .transport_session_id = transport_session_id,
+        .kind = CommandKind::Decline,
+        .session_id = session_id,
+        .payload = std::vector<std::byte>(response.begin(), response.end()),
+    });
+}
+
+QueueResult GatewayRuntime::try_close(EdgeSessionId session_id) {
+    return enqueue({
+        .kind = CommandKind::Close,
+        .session_id = session_id,
         .payload = {},
     });
 }
@@ -136,9 +136,7 @@ QueueResult GatewayRuntime::try_close_channel(
 QueueResult GatewayRuntime::try_reload_credentials() {
     return enqueue({
         .kind = CommandKind::ReloadCredentials,
-        .client_session_id = invalid_client_session_id,
-        .transport_name = {},
-        .transport_session_id = network::invalid_session_id,
+        .session_id = invalid_edge_session_id,
         .payload = {},
     });
 }
@@ -147,6 +145,7 @@ GatewayRuntimeStats GatewayRuntime::stats() const noexcept {
     return {
         .overload_disconnects = overload_disconnects_.load(),
         .rejected_outbound_commands = rejected_outbound_commands_.load(),
+        .unknown_session_commands = unknown_session_commands_.load(),
         .successful_deliveries = successful_deliveries_.load(),
         .failed_deliveries = failed_deliveries_.load(),
     };
@@ -172,7 +171,7 @@ void GatewayRuntime::io_loop(std::stop_token stop_token) noexcept {
     try {
         while (!stop_token.stop_requested()) {
             process_outbound_commands();
-            for (auto event : server_.poll_events(options_.io_poll_interval)) {
+            for (auto event : poll_events(options_.io_poll_interval)) {
                 publish_event(std::move(event));
             }
         }
@@ -201,82 +200,177 @@ void GatewayRuntime::process_outbound_commands() {
 
 void GatewayRuntime::process_command(OutboundCommand command) {
     switch (command.kind) {
-    case CommandKind::SendClient: {
-        const auto result =
-            server_.send(command.client_session_id, command.payload);
-        if (result == SendResult::Sent) {
+    case CommandKind::Send: {
+        // established-only 契约:pending 或未知会话的发送都是契约违例。
+        const auto record = sessions_.record(command.session_id);
+        if (!record.has_value() || !record->established) {
+            unknown_session_commands_.fetch_add(1);
+            break;
+        }
+        if (sessions_.send(command.session_id, command.payload) ==
+            SendResult::Sent) {
             successful_deliveries_.fetch_add(1);
         } else {
             failed_deliveries_.fetch_add(1);
         }
         break;
     }
-    case CommandKind::SendChannel:
-        if (!server_.send_channel(
-                command.transport_name,
-                command.transport_session_id,
-                command.payload)) {
-            failed_deliveries_.fetch_add(1);
-        } else {
-            successful_deliveries_.fetch_add(1);
-        }
-        break;
-    case CommandKind::AcceptConnection: {
-        if (!server_.send_channel(
-                command.transport_name,
-                command.transport_session_id,
-                command.payload)) {
-            failed_deliveries_.fetch_add(1);
-            static_cast<void>(server_.close_channel(
-                command.transport_name, command.transport_session_id));
+    case CommandKind::Accept: {
+        const auto record = sessions_.record(command.session_id);
+        if (!record.has_value() || record->established) {
+            unknown_session_commands_.fetch_add(1);
             break;
         }
-        const auto client_id = server_.promote_connection(
-            command.transport_name, command.transport_session_id);
-        const auto endpoint = server_.local_endpoint(command.transport_name);
-        if (!client_id.has_value() || !endpoint.has_value()) {
+        if (sessions_.send(command.session_id, command.payload) !=
+            SendResult::Sent) {
             failed_deliveries_.fetch_add(1);
-            static_cast<void>(server_.close_channel(
-                command.transport_name, command.transport_session_id));
+            // 响应发不出去,会话不可用:终结并通知业务层。
+            static_cast<void>(finish_close(command.session_id));
             break;
         }
+        static_cast<void>(sessions_.establish(command.session_id));
         successful_deliveries_.fetch_add(1);
         publish_event({
-            .kind = GatewayEventKind::ClientSessionOpened,
-            .client_session_id = client_id,
-            .transport_name = std::move(command.transport_name),
-            .protocol = endpoint->protocol,
-            .transport_session_id = command.transport_session_id,
+            .kind = GatewayEventKind::SessionEstablished,
+            .session_id = command.session_id,
+            .protocol = record->primary.protocol,
+            .established = true,
             .payload = {},
         });
         break;
     }
-    case CommandKind::CloseChannel:
-        if (!server_.close_channel(
-                command.transport_name, command.transport_session_id)) {
-            failed_deliveries_.fetch_add(1);
+    case CommandKind::Decline: {
+        const auto record = sessions_.record(command.session_id);
+        if (!record.has_value() || record->established) {
+            unknown_session_commands_.fetch_add(1);
+            break;
+        }
+        if (!command.payload.empty()) {
+            if (sessions_.send(command.session_id, command.payload) ==
+                SendResult::Sent) {
+                successful_deliveries_.fetch_add(1);
+            } else {
+                failed_deliveries_.fetch_add(1);
+            }
+        }
+        static_cast<void>(finish_close(command.session_id));
+        break;
+    }
+    case CommandKind::Close:
+        if (!finish_close(command.session_id)) {
+            unknown_session_commands_.fetch_add(1);
         }
         break;
     case CommandKind::ReloadCredentials:
-        if (!server_.reload_credentials()) {
+        if (!std::ranges::all_of(transports_, [](const auto& transport) {
+                return transport->reload_credentials();
+            })) {
             failed_deliveries_.fetch_add(1);
         }
         break;
     }
 }
 
+bool GatewayRuntime::finish_close(EdgeSessionId session_id) {
+    const auto record = sessions_.record(session_id);
+    if (!record.has_value()) {
+        return false;
+    }
+    const auto closed = sessions_.close_session(session_id);
+    if (!closed.has_value()) {
+        return false;
+    }
+    publish_event({
+        .kind = GatewayEventKind::SessionClosed,
+        .session_id = closed->session_id,
+        .protocol = record->primary.protocol,
+        .established = closed->established,
+        .payload = {},
+    });
+    return true;
+}
+
+std::vector<GatewayEvent> GatewayRuntime::poll_events(
+    std::chrono::milliseconds timeout) {
+    const auto count =
+        static_cast<std::chrono::milliseconds::rep>(transports_.size());
+    const auto per_transport_timeout =
+        count == 0 ? std::chrono::milliseconds::zero() : timeout / count;
+    std::vector<GatewayEvent> gateway_events;
+
+    for (const auto& transport : transports_) {
+        const auto events = transport->poll_once(per_transport_timeout);
+        for (auto& event : events) {
+            switch (event.kind) {
+            case network::TransportEventKind::SessionOpened: {
+                gateway_events.push_back({
+                    .kind = GatewayEventKind::SessionOpened,
+                    .session_id = sessions_.open(
+                        transport->name(), event.session_id),
+                    .protocol = transport->protocol(),
+                    .established = false,
+                    .payload = {},
+                });
+                break;
+            }
+            case network::TransportEventKind::SessionClosed: {
+                // 已被本地关闭的会话此处查不到记录:终结已由 finish_close
+                // 的合成事件上报,不重复发布。
+                const auto closed = sessions_.on_transport_closed(
+                    transport->name(), event.session_id);
+                if (closed.has_value()) {
+                    gateway_events.push_back({
+                        .kind = GatewayEventKind::SessionClosed,
+                        .session_id = closed->session_id,
+                        .protocol = transport->protocol(),
+                        .established = closed->established,
+                        .payload = {},
+                    });
+                }
+                break;
+            }
+            case network::TransportEventKind::MessageReceived:
+            case network::TransportEventKind::PeerAddressChanged: {
+                const auto session_id =
+                    sessions_.find(transport->name(), event.session_id);
+                if (!session_id.has_value()) {
+                    break;  // 会话已终结,丢弃迟到帧
+                }
+                const auto record = sessions_.record(*session_id);
+                if (!record.has_value()) {
+                    break;
+                }
+                gateway_events.push_back({
+                    .kind =
+                        event.kind ==
+                                network::TransportEventKind::MessageReceived
+                            ? GatewayEventKind::MessageReceived
+                            : GatewayEventKind::PeerAddressChanged,
+                    .session_id = *session_id,
+                    .protocol = transport->protocol(),
+                    .established = record->established,
+                    .payload = std::move(event.payload),
+                });
+                break;
+            }
+            }
+        }
+    }
+    return gateway_events;
+}
+
 void GatewayRuntime::publish_event(GatewayEvent event) {
     const auto kind = event.kind;
-    const auto transport_name = event.transport_name;
-    const auto transport_session_id = event.transport_session_id;
+    const auto session_id = event.session_id;
     if (inbound_.try_push(std::move(event))) {
         return;
     }
 
-    if (kind != GatewayEventKind::ConnectionClosed) {
+    if (kind != GatewayEventKind::SessionClosed) {
+        // 队列满即视为该会话不可再服务;由此产生的终结事件同样进不了
+        // 队列,业务层以超时断连兜底。
         overload_disconnects_.fetch_add(1);
-        static_cast<void>(
-            server_.close_channel(transport_name, transport_session_id));
+        static_cast<void>(sessions_.close_session(session_id));
     }
 }
 
