@@ -46,14 +46,15 @@ realmmesh_process_executable() {
     printf '%s\n' "${realmmesh_command%% *}"
 }
 
-# 命令行是否包含给定的连续参数串(用 ps 的单行形式做子串匹配)。
+# 命令行是否包含给定的连续参数串。用空格定界做整词匹配:ps 只给出空格连接的
+# 单行,直接子串匹配会让 "--service gateway" 误配 "--service gateway2"。
 realmmesh_process_has_arguments() {
     local realmmesh_pid="$1"
     shift
     local realmmesh_command
     realmmesh_command="$(realmmesh_process_command_line "${realmmesh_pid}")" ||
         return 1
-    [[ "${realmmesh_command}" == *"$*"* ]]
+    [[ " ${realmmesh_command} " == *" $* "* ]]
 }
 
 # 进程工作目录。
