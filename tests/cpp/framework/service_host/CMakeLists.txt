@@ -16,5 +16,7 @@ realm_add_gtest(service_host_test
         REALMMESH_TEST_TLS_PRIVATE_KEY="${REALMMESH_TEST_TLS_PRIVATE_KEY}"
     DEPENDS realmmesh_test_tls_identity
     # E2E/Mode2 用例占用真实固定端口且依赖 setenv,须与其他测试串行。
+    # 整目标属集成测试:不进快速子集,见 test_helpers.cmake。
+    LABELS integration
     DISCOVER_PROPERTIES RUN_SERIAL TRUE
 )

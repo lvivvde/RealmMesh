@@ -71,3 +71,13 @@ _Avoid_: packet、frame(frame 指传输层的长度帧概念)
 **Session Ticket**:
 libsodium 签发的一次性准入凭据,用途分 Login 与 EnterGame(`TicketPurpose`);用途为 EnterGame 的票据在 Gateway 单次消费(重放防护),消费成功触发 Pending Connection 到 Client Session 的晋升——流程文档中的 `EnterGameTicket` 即指此用途的票据。
 _Avoid_: token、credential、cookie
+
+### Testing
+
+**Unit Test**:
+进程内验证单个组件行为的 GTest 用例:不拉子进程、不占固定端口,CTest 标签 `unit`,构成快速子集(`ctest -L unit`)。
+_Avoid_: 快速子集(那是运行时选择的名字,不是测试类别)
+
+**Integration Test**:
+驱动真实二进制、真实端口或跨进程协作的测试(e2e、bash 脚本驱动、RUN_SERIAL 性质);CTest 标签 `integration`,不进快速子集,全量与 CI 覆盖。
+_Avoid_: e2e(e2e 只是其中驱动完整二进制拓扑的形态,不是整类的别名)

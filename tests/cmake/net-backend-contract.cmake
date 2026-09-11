@@ -8,3 +8,4 @@ add_test(
         "-DREALM_MESH_TEST_WORK_DIR=${CMAKE_CURRENT_BINARY_DIR}"
         -P "${PROJECT_SOURCE_DIR}/tests/cmake/net_backend_test.cmake"
 )
+set_tests_properties(NetBackendSwitchTest PROPERTIES LABELS integration)

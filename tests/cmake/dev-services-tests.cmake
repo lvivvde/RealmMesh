@@ -13,6 +13,7 @@ function(add_dev_services_test name test_case timeout)
             ${ARGN}
     )
     set_tests_properties("DevServicesScriptTest.${name}" PROPERTIES
+        LABELS integration
         RUN_SERIAL TRUE
         TIMEOUT "${timeout}"
     )
