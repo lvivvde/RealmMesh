@@ -235,9 +235,11 @@ add_executable(gateway_server_test
     game/gateway/gateway_server_test.cpp
 )
 
+# realm_service_host 公开依赖 realm_gateway_service,后者提供
+# GatewayConfigLoader;只列前者可避免同一静态库在链接行重复出现。
 target_link_libraries(gateway_server_test PRIVATE
     GTest::gtest_main
-    realm_gateway_service
+    realm_service_host
 )
 
 target_compile_features(gateway_server_test PRIVATE cxx_std_20)
