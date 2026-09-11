@@ -11,10 +11,10 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # Linux is not in the matrix yet: Linux behaviour is the production baseline
-  # (ADR-0002) but is verified by hand for now. Add an `ubuntu` job alongside
-  # this one when Linux work resumes; the steps are platform-neutral apart from
-  # the OpenSSL prefix.
+  # Two explicit jobs rather than a matrix: only the dependency steps differ
+  # (Homebrew's keg-only OpenSSL here, apt plus the pinned libmsquic package on
+  # Linux), while configure/build/test are identical. macOS serves TLS/TCP
+  # only, so the QUIC paths are covered by the linux job alone (ADR-0002).
   macos:
     name: macOS (clang, kqueue backend)
     runs-on: macos-latest
@@ -35,6 +35,47 @@ jobs:
       # 服务发现在本地要有 etcd 才能起(scripts/run-etcd-dev.sh)。测试集目前
       # 用假 HTTP server 覆盖 etcd registry,不需要真实 etcd,但这步同时验证
       # 安装脚本在 runner 上可用(固定版本 + 校验和)。
+      - name: Install etcd
+        run: ./scripts/install-etcd.sh
+
+      - name: Show toolchain
+        run: |
+          cmake --version
+          c++ --version
+
+      - name: Configure
+        run: cmake --preset dev
+
+      - name: Build
+        run: cmake --build --preset dev
+
+      - name: Test
+        run: ctest --preset dev
+
+  # Linux is the production and behaviour baseline (ADR-0002), and the only job
+  # where QUIC runs. It is not merely "also built here": on Linux
+  # third_party/msquic/CMakeLists.txt fails the configure outright when
+  # libmsquic is missing, so a green run proves the QUIC transport was built
+  # and its tests executed rather than silently skipped.
+  linux:
+    name: Linux (gcc, epoll backend, QUIC)
+    # Pinned to 24.04 on purpose: scripts/install-msquic-dev.sh verifies the
+    # SHA-256 of the official libmsquic 2.5.10 package built for 24.04.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - name: Check out
+        uses: actions/checkout@v5
+
+      # libxdp/libnl/libnuma are libmsquic's runtime dependencies; the project
+      # looks them up by soname, so the runtime packages are sufficient.
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libssl-dev libxdp1 libnl-3-200 libnl-route-3-200 libnuma1
+          ./scripts/install-msquic-dev.sh
+
       - name: Install etcd
         run: ./scripts/install-etcd.sh
 
