@@ -15,3 +15,7 @@ Default triage label vocabulary: `needs-triage`, `needs-info`, `ready-for-agent`
 ### Domain docs
 
 Single-context: one `CONTEXT.md` + `docs/adr/` at the repo root. See `docs/agents/domain.md`.
+
+### Testing
+
+Tests live under `tests/`: C++ GTest in `tests/cpp` (mirrors the source tree), Lua suites in `tests/lua`, script-driven integration in `tests/scripts`. Read `tests/README.md` before adding tests — every test must carry a ctest label (`unit`/`integration`); fast subset is `ctest -L unit`, full run is `./scripts/build.sh`.
