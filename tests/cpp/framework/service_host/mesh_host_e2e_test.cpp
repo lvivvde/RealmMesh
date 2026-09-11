@@ -1,6 +1,7 @@
 #include "realmmesh/service_host/mesh_host.hpp"
 
 #include "realmmesh/game/gateway/gateway_runtime.hpp"
+#include "realmmesh/network/tcp/tcp_listener.hpp"
 
 #include <gtest/gtest.h>
 
@@ -12,6 +13,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <memory>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -100,11 +102,77 @@ private:
         std::istreambuf_iterator<char>());
 }
 
+[[nodiscard]] bool write_file(
+    const std::filesystem::path& path, std::string_view contents) {
+    std::ofstream output(path, std::ios::trunc);
+    output << contents;
+    return static_cast<bool>(output);
+}
+
+[[nodiscard]] std::string replace_all(
+    std::string contents, std::string_view from, std::string_view to) {
+    for (auto position = contents.find(from); position != std::string::npos;
+         position = contents.find(from, position + to.size())) {
+        contents.replace(position, from.size(), to);
+    }
+    return contents;
+}
+
+/// 同时打开 count 个监听套接字后再取端口,保证返回的端口互不相同:逐个
+/// 取端口时操作系统可能把刚释放的同一个临时端口再分回来。
+[[nodiscard]] std::vector<std::uint16_t> unused_tcp_ports(std::size_t count) {
+    std::vector<std::unique_ptr<network::TcpListener>> listeners;
+    std::vector<std::uint16_t> ports;
+    listeners.reserve(count);
+    ports.reserve(count);
+    for (std::size_t index = 0; index < count; ++index) {
+        listeners.push_back(
+            std::make_unique<network::TcpListener>("127.0.0.1", 0));
+        ports.push_back(listeners.back()->local_port());
+    }
+    return ports;
+}
+
+/// 把服务配置里的固定端口改写成一组空闲端口。login → realm → gateway 的
+/// downstream 指向必须同步改写,否则依赖探活会连到错误的服务。
+void use_free_ports(
+    const std::filesystem::path& root,
+    std::uint16_t login_port,
+    std::uint16_t realm_port,
+    std::uint16_t gateway_port) {
+    const auto login_path = root / "services" / "login.lua";
+    auto login = read_file(login_path);
+    login = replace_all(login, "listen_port = 7000",
+                        "listen_port = " + std::to_string(login_port));
+    login = replace_all(login, "downstream_port = 7100",
+                        "downstream_port = " + std::to_string(realm_port));
+    login = replace_all(login, "metrics_port = 9101", "metrics_port = 0");
+    ASSERT_TRUE(write_file(login_path, login));
+
+    const auto realm_path = root / "services" / "realm.lua";
+    auto realm = read_file(realm_path);
+    realm = replace_all(realm, "listen_port = 7100",
+                        "listen_port = " + std::to_string(realm_port));
+    realm = replace_all(realm, "downstream_port = 8000",
+                        "downstream_port = " + std::to_string(gateway_port));
+    realm = replace_all(realm, "metrics_port = 9102", "metrics_port = 0");
+    ASSERT_TRUE(write_file(realm_path, realm));
+
+    // gateway.lua 里 listen_port = 8000 出现两次(TCP 与其伴随传输),
+    // 两处都要指向同一个空闲端口。
+    const auto gateway_path = root / "services" / "gateway.lua";
+    auto gateway = read_file(gateway_path);
+    gateway = replace_all(gateway, "listen_port = 8000",
+                          "listen_port = " + std::to_string(gateway_port));
+    gateway = replace_all(gateway, "metrics_port = 9103", "metrics_port = 0");
+    ASSERT_TRUE(write_file(gateway_path, gateway));
+}
+
 /// 拷贝真实 configs 到临时目录后确保服务发现关闭:
 /// - LayeredConfigLoader 会把日志写进 <root>/logs/,拷贝避免污染源码树;
 /// - 本环境无 etcd,而发现开启时 ServiceHost 的 ready 语义要求注册成功
 ///   (Task 4 契约),start_all 会整体失败;源配置默认 enabled = false,
-///   替换仅为幂等兜底,其余配置(含全部端口)保持真实值。
+///   替换仅为幂等兜底。端口由调用方随后改写成空闲端口(见 use_free_ports)。
 [[nodiscard]] bool copy_configs_with_discovery_disabled(
     const std::filesystem::path& source, const std::filesystem::path& target) {
     std::error_code error;
@@ -149,6 +217,14 @@ TEST(MeshHostE2ETest, AllInOneStartsAndStopsCleanly) {
     const TemporaryDirectory scratch;
     ASSERT_TRUE(copy_configs_with_discovery_disabled(source, scratch.path()));
 
+    // 7000/7100/8000 在本机常被占用(macOS ControlCenter 的 AirPlay Receiver
+    // 监听 7000),所以改用一组当前空闲的端口,而不是依赖配置里的默认值。
+    const auto ports = unused_tcp_ports(3);
+    const auto login_port = ports.at(0);
+    const auto realm_port = ports.at(1);
+    const auto gateway_port = ports.at(2);
+    use_free_ports(scratch.path(), login_port, realm_port, gateway_port);
+
     const std::vector<ServiceSpec> specs{
         {"realm", {}, false},
         {"login", {"realm"}, false},
@@ -157,8 +233,8 @@ TEST(MeshHostE2ETest, AllInOneStartsAndStopsCleanly) {
     MeshHost mesh(scratch.path(), specs);
     ASSERT_TRUE(mesh.start_all());
     EXPECT_TRUE(mesh.entry_ready());
-    // 依赖服务端口可连:127.0.0.1:7100(realm 监听)TCP 探活成功。
-    EXPECT_TRUE(tcp_port_accepts_connections(7100));
+    // 依赖服务端口可连:realm 的监听端口 TCP 探活成功。
+    EXPECT_TRUE(tcp_port_accepts_connections(realm_port));
     mesh.shutdown();
     EXPECT_FALSE(mesh.service("realm").runtime().running());
 }

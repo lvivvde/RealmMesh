@@ -1,5 +1,6 @@
 #include "realmmesh/game/common/edge_protocol.hpp"
 #include "realmmesh/network/codec/length_field_codec.hpp"
+#include "realmmesh/network/tcp/tcp_listener.hpp"
 
 #include <gtest/gtest.h>
 #include <openssl/ssl.h>
@@ -82,6 +83,114 @@ private:
     }
     return static_cast<std::uint16_t>(parsed);
 }
+
+[[nodiscard]] bool write_file(
+    const std::filesystem::path& path, std::string_view contents) {
+    std::ofstream output(path, std::ios::trunc);
+    output << contents;
+    return static_cast<bool>(output);
+}
+
+[[nodiscard]] std::string replace_all(
+    std::string contents, std::string_view from, std::string_view to) {
+    for (auto position = contents.find(from); position != std::string::npos;
+         position = contents.find(from, position + to.size())) {
+        contents.replace(position, from.size(), to);
+    }
+    return contents;
+}
+
+/// 同时打开 count 个监听套接字后再取端口,保证返回的端口互不相同:逐个
+/// 取端口时操作系统可能把刚释放的同一个临时端口再分回来。
+[[nodiscard]] std::vector<std::uint16_t> unused_tcp_ports(std::size_t count) {
+    std::vector<std::unique_ptr<network::TcpListener>> listeners;
+    std::vector<std::uint16_t> ports;
+    listeners.reserve(count);
+    ports.reserve(count);
+    for (std::size_t index = 0; index < count; ++index) {
+        listeners.push_back(
+            std::make_unique<network::TcpListener>("127.0.0.1", 0));
+        ports.push_back(listeners.back()->local_port());
+    }
+    return ports;
+}
+
+/// 把服务配置里的固定端口改写成一组空闲端口。login → realm → gateway 的
+/// downstream 指向必须同步改写,否则依赖探活会连到错误的服务。
+void use_free_ports(
+    const std::filesystem::path& root,
+    std::uint16_t login_port,
+    std::uint16_t realm_port,
+    std::uint16_t gateway_port) {
+    const auto login_path = root / "services" / "login.lua";
+    auto login = read_file(login_path);
+    login = replace_all(login, "listen_port = 7000",
+                        "listen_port = " + std::to_string(login_port));
+    login = replace_all(login, "downstream_port = 7100",
+                        "downstream_port = " + std::to_string(realm_port));
+    login = replace_all(login, "metrics_port = 9101", "metrics_port = 0");
+    if (!write_file(login_path, login)) {
+        throw std::runtime_error("cannot rewrite login.lua");
+    }
+
+    const auto realm_path = root / "services" / "realm.lua";
+    auto realm = read_file(realm_path);
+    realm = replace_all(realm, "listen_port = 7100",
+                        "listen_port = " + std::to_string(realm_port));
+    realm = replace_all(realm, "downstream_port = 8000",
+                        "downstream_port = " + std::to_string(gateway_port));
+    realm = replace_all(realm, "metrics_port = 9102", "metrics_port = 0");
+    if (!write_file(realm_path, realm)) {
+        throw std::runtime_error("cannot rewrite realm.lua");
+    }
+
+    // gateway.lua 里 listen_port = 8000 出现两次(TCP 与其伴随传输),
+    // 两处都要指向同一个空闲端口。
+    const auto gateway_path = root / "services" / "gateway.lua";
+    auto gateway = read_file(gateway_path);
+    gateway = replace_all(gateway, "listen_port = 8000",
+                          "listen_port = " + std::to_string(gateway_port));
+    gateway = replace_all(gateway, "metrics_port = 9103", "metrics_port = 0");
+    if (!write_file(gateway_path, gateway)) {
+        throw std::runtime_error("cannot rewrite gateway.lua");
+    }
+}
+
+/// 自起进程的用例使用的临时配置树:拷贝权威 configs/ 后按需改写端口,
+/// 析构时递归清理。这样既不占用开发机上的固定端口(macOS 的 7000 常被
+/// AirPlay Receiver 占用),也不把日志写进源码树的 configs/logs/。
+class ScratchConfigRoot final {
+public:
+    explicit ScratchConfigRoot(const std::filesystem::path& source) {
+        path_ = std::filesystem::temp_directory_path() /
+                ("three-stage-flow-" +
+                 std::to_string(static_cast<long long>(::getpid())));
+        std::error_code error;
+        std::filesystem::remove_all(path_, error);
+        std::filesystem::create_directories(path_, error);
+        if (error) throw std::runtime_error("cannot create config scratch dir");
+        std::filesystem::copy(
+            source,
+            path_,
+            std::filesystem::copy_options::recursive |
+                std::filesystem::copy_options::overwrite_existing,
+            error);
+        if (error) throw std::runtime_error("cannot copy config tree");
+    }
+    ~ScratchConfigRoot() {
+        std::error_code error;
+        std::filesystem::remove_all(path_, error);
+    }
+    ScratchConfigRoot(const ScratchConfigRoot&) = delete;
+    ScratchConfigRoot& operator=(const ScratchConfigRoot&) = delete;
+
+    [[nodiscard]] const std::filesystem::path& path() const noexcept {
+        return path_;
+    }
+
+private:
+    std::filesystem::path path_;
+};
 
 [[nodiscard]] std::optional<std::string> correlation_for_event(
     std::string_view contents, std::string_view event_name) {
@@ -303,21 +412,36 @@ std::vector<std::byte> receive_message(TlsSocket& socket) {
 TEST(ThreeStageFlowTest, LogsInSelectsACharacterAndEntersTheGateway) {
     const bool external_service_group =
         std::getenv("REALMMESH_THREE_STAGE_EXTERNAL") != nullptr;
-    const std::uint16_t login_port =
-        environment_port("REALMMESH_THREE_STAGE_LOGIN_PORT", 7000);
-    const std::uint16_t realm_port =
-        environment_port("REALMMESH_THREE_STAGE_REALM_PORT", 7100);
-    const std::uint16_t gateway_port =
-        environment_port("REALMMESH_THREE_STAGE_GATEWAY_PORT", 8000);
     const char* external_config_root =
         std::getenv("REALMMESH_THREE_STAGE_CONFIG_ROOT");
-    const auto config_root =
-        external_config_root == nullptr
-            ? std::filesystem::path(REALMMESH_TEST_SOURCE_DIR) / "configs"
-            : std::filesystem::path(external_config_root);
-    // 自行启动进程时先清理上次日志;外部服务组已经打开当前日志文件,
-    // 此时 unlink 会让后续事件只写入已删除的 inode。
-    if (!external_service_group) {
+
+    // 自起进程时用临时配置树 + 当空闲端口:固定端口不再成为测试前提
+    // (7000 在 macOS 上常被 AirPlay Receiver 占用),日志也不再写进源码树。
+    std::optional<ScratchConfigRoot> scratch;
+    std::filesystem::path config_root;
+    std::uint16_t login_port = 0;
+    std::uint16_t realm_port = 0;
+    std::uint16_t gateway_port = 0;
+    if (external_service_group) {
+        login_port = environment_port("REALMMESH_THREE_STAGE_LOGIN_PORT", 7000);
+        realm_port = environment_port("REALMMESH_THREE_STAGE_REALM_PORT", 7100);
+        gateway_port =
+            environment_port("REALMMESH_THREE_STAGE_GATEWAY_PORT", 8000);
+        config_root = external_config_root == nullptr
+                          ? std::filesystem::path(REALMMESH_TEST_SOURCE_DIR) /
+                                "configs"
+                          : std::filesystem::path(external_config_root);
+    } else {
+        scratch.emplace(
+            std::filesystem::path(REALMMESH_TEST_SOURCE_DIR) / "configs");
+        config_root = scratch->path();
+        const auto ports = unused_tcp_ports(3);
+        login_port = ports.at(0);
+        realm_port = ports.at(1);
+        gateway_port = ports.at(2);
+        use_free_ports(config_root, login_port, realm_port, gateway_port);
+        // 自行启动进程时先清理上次日志;外部服务组已经打开当前日志文件,
+        // 此时 unlink 会让后续事件只写入已删除的 inode。
         for (const std::string_view service : {"login", "realm", "gateway"}) {
             std::error_code error;
             std::filesystem::remove(
