@@ -33,32 +33,6 @@ if(APPLE)
     add_subdirectory(tools/detach)
 endif()
 
-add_executable(realmmesh
-    src/main.cpp
-)
-
-target_link_libraries(realmmesh PRIVATE
-    realm_observability
-    realm_scheduler
-)
-
-target_compile_features(realmmesh PRIVATE cxx_std_20)
-set_target_properties(realmmesh PROPERTIES
-    CXX_EXTENSIONS OFF
-)
-
-if(MSVC)
-    target_compile_options(realmmesh PRIVATE /W4 /permissive-)
-else()
-    target_compile_options(realmmesh PRIVATE
-        -Wall
-        -Wextra
-        -Wpedantic
-        -Wconversion
-        -Wsign-conversion
-    )
-endif()
-
 include(CTest)
 if(BUILD_TESTING)
     include(FetchContent)
