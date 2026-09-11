@@ -105,8 +105,32 @@ TEST(EventLoopTest, StopsReportingAfterRemove) {
     event_loop->remove(handle);
 
     const SocketGuard client(connect_to_loopback(listener.local_port()));
-    EXPECT_FALSE(reports(event_loop->wait(100ms), handle, &ReadyEvent::readable));
+    EXPECT_FALSE(
+        reports(event_loop->wait(100ms), handle, &ReadyEvent::readable));
     EXPECT_TRUE(listener.accept().has_value());
+}
+
+// epoll reports this as EPOLLRDHUP/EPOLLHUP, kqueue as EV_EOF: both backends
+// must surface peer_closed for a half-closed peer, so the contract is asserted
+// against whichever backend the platform selected.
+TEST(EventLoopTest, ReportsPeerClosedWhenThePeerStopsWriting) {
+    using namespace std::chrono_literals;
+
+    auto event_loop = make_default_event_loop();
+    ASSERT_NE(event_loop, nullptr);
+
+    int descriptors[2] = {-1, -1};
+    ASSERT_EQ(::socketpair(AF_UNIX, SOCK_STREAM, 0, descriptors), 0);
+    const SocketGuard local(descriptors[0]);
+    const SocketGuard peer(descriptors[1]);
+
+    const auto handle = to_event_loop_handle(descriptors[0]);
+    event_loop->add(handle, EventInterest::Read);
+
+    ASSERT_EQ(::shutdown(descriptors[1], SHUT_WR), 0);
+
+    EXPECT_TRUE(
+        reports(event_loop->wait(500ms), handle, &ReadyEvent::peer_closed));
 }
 
 TEST(EventLoopTest, ReportsWritableOnlyWhileWriteInterestIsRegistered) {

@@ -13,12 +13,25 @@ add_library(realm_network
 )
 
 # The QUIC transport is built only where MsQuic was found (Linux, ADR-0002).
-# Elsewhere the Transport Factory serves the TLS/TCP fallback only.
+# Elsewhere the Transport Factory serves the TLS/TCP fallback only. CMake
+# supplies both the capability value and the QUIC construction seam, so the
+# transport layer itself carries no preprocessor branch (ADR-0001).
 if(REALM_MESH_MSQUIC_FOUND)
-    target_sources(realm_network PRIVATE src/quic/quic_transport.cpp)
-    target_compile_definitions(realm_network PRIVATE REALM_NETWORK_HAS_QUIC)
+    target_sources(realm_network PRIVATE
+        src/quic/quic_transport.cpp
+        src/quic/quic_transport_factory.cpp
+    )
+    target_compile_definitions(realm_network PRIVATE
+        REALM_NETWORK_QUIC_AVAILABLE=1
+    )
     message(STATUS "realm_network: QUIC transport enabled (MsQuic found)")
 else()
+    target_sources(realm_network PRIVATE
+        src/quic/quic_transport_factory_unavailable.cpp
+    )
+    target_compile_definitions(realm_network PRIVATE
+        REALM_NETWORK_QUIC_AVAILABLE=0
+    )
     message(STATUS "realm_network: QUIC transport disabled (no MsQuic, ADR-0002)")
 endif()
 

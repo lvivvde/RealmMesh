@@ -28,8 +28,8 @@ private:
     void close() noexcept;
 
     int kqueue_descriptor_{-1};
-    // kqueue keeps one filter per direction, so the requested interest has to be
-    // remembered to enable/disable the right filters on modify().
+    // kqueue keeps one filter per direction, so the requested interest has to
+    // be remembered to enable/disable the right filters on modify().
     std::unordered_map<EventLoopHandle, EventInterest> interests_;
 };
 

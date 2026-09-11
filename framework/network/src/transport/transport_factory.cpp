@@ -1,6 +1,6 @@
 #include "realmmesh/network/transport/transport_factory.hpp"
 
-#include "realmmesh/network/quic/quic_transport.hpp"
+#include "realmmesh/network/quic/quic_transport_factory.hpp"
 #include "realmmesh/network/tls/tls_tcp_transport.hpp"
 #include "realmmesh/observability/logger.hpp"
 
@@ -84,15 +84,8 @@ TransportFactory::create_enabled(
                 report_unsupported_transport(config, logger);
                 break;
             }
-#if defined(REALM_NETWORK_HAS_QUIC)
-            transports.push_back(
-                std::make_unique<QuicTransport>(config, logger));
+            transports.push_back(make_quic_transport(config, logger));
             break;
-#else
-            throw std::logic_error(
-                "QUIC capability was reported but MsQuic was not available "
-                "at build time");
-#endif
         case TransportProtocol::TlsTcp:
             transports.push_back(
                 std::make_unique<TlsTcpTransport>(config, logger));

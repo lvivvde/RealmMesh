@@ -17,7 +17,7 @@ std::int16_t to_kqueue_filter(EventInterest interest) noexcept {
     return interest == EventInterest::Write ? EVFILT_WRITE : EVFILT_READ;
 }
 
-bool wants(EventInterest interest, EventInterest direction) noexcept {
+bool has_direction(EventInterest interest, EventInterest direction) noexcept {
     return (static_cast<std::uint8_t>(interest) &
             static_cast<std::uint8_t>(direction)) != 0U;
 }
@@ -53,12 +53,12 @@ void apply_interest(
         kqueue_descriptor,
         handle,
         EventInterest::Read,
-        wants(interest, EventInterest::Read));
+        has_direction(interest, EventInterest::Read));
     apply_filter(
         kqueue_descriptor,
         handle,
         EventInterest::Write,
-        wants(interest, EventInterest::Write));
+        has_direction(interest, EventInterest::Write));
 }
 
 }  // namespace
@@ -110,10 +110,12 @@ void KqueueEventLoop::remove(EventLoopHandle handle) {
     apply_filter(kqueue_descriptor_, handle, EventInterest::Write, false);
 }
 
-std::vector<ReadyEvent> KqueueEventLoop::wait(std::chrono::milliseconds timeout) {
+std::vector<ReadyEvent> KqueueEventLoop::wait(
+    std::chrono::milliseconds timeout) {
     if (timeout.count() < -1 ||
         timeout.count() > std::numeric_limits<int>::max()) {
-        throw std::invalid_argument("kqueue timeout is outside supported range");
+        throw std::invalid_argument(
+            "kqueue timeout is outside supported range");
     }
 
     constexpr int max_events = 64;

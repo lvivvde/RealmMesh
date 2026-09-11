@@ -15,13 +15,15 @@ void make_nonblocking_and_cloexec(int descriptor) {
     const int status_flags = ::fcntl(descriptor, F_GETFL, 0);
     if (status_flags < 0 ||
         ::fcntl(descriptor, F_SETFL, status_flags | O_NONBLOCK) < 0) {
-        throw std::system_error(errno, std::generic_category(), "fcntl(F_SETFL)");
+        throw std::system_error(
+            errno, std::generic_category(), "fcntl(F_SETFL)");
     }
 
     const int descriptor_flags = ::fcntl(descriptor, F_GETFD, 0);
     if (descriptor_flags < 0 ||
         ::fcntl(descriptor, F_SETFD, descriptor_flags | FD_CLOEXEC) < 0) {
-        throw std::system_error(errno, std::generic_category(), "fcntl(F_SETFD)");
+        throw std::system_error(
+            errno, std::generic_category(), "fcntl(F_SETFD)");
     }
 }
 
