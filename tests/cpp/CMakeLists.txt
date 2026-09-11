@@ -338,6 +338,17 @@ add_test(
     COMMAND realmmesh --frames 2 --tick-rate 1000
 )
 
+# Configure-time contract for the REALMMESH_NET_BACKEND switch: the mapping
+# lives in a dependency-free CMake module, so every branch is asserted here.
+add_test(
+    NAME NetBackendSwitchTest
+    COMMAND "${CMAKE_COMMAND}"
+        "-DREALM_MESH_TEST_CMAKE_COMMAND=${CMAKE_COMMAND}"
+        "-DREALM_MESH_TEST_SOURCE_DIR=${PROJECT_SOURCE_DIR}"
+        "-DREALM_MESH_TEST_WORK_DIR=${CMAKE_CURRENT_BINARY_DIR}"
+        -P "${PROJECT_SOURCE_DIR}/tests/cmake/net_backend_test.cmake"
+)
+
 function(add_dev_services_test name test_case timeout)
     add_test(
         NAME "DevServicesScriptTest.${name}"

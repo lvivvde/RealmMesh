@@ -37,27 +37,32 @@ endif()
 
 # Platform Event Loop backend (ADR-0001): exactly one backend implementation is
 # compiled in, and the TCP layer's POSIX differences live in a per-platform TU.
-# iocp is recognized but not implemented (ADR-0002), so Windows selects no
-# source and the factory rejects it with a pointer back to the ADR.
+# REALMMESH_NET_BACKEND selects it; `auto` follows the platform, an explicit
+# value must match it, and iocp is recognised but unimplemented (ADR-0002).
+set(REALMMESH_NET_BACKEND "auto" CACHE STRING
+    "Event Loop backend: auto | epoll | kqueue | iocp (see ADR-0002)")
+set_property(CACHE REALMMESH_NET_BACKEND PROPERTY STRINGS auto epoll kqueue iocp)
+
+include("${PROJECT_SOURCE_DIR}/cmake/RealmMeshNetBackend.cmake")
+realm_mesh_select_net_backend(
+    "${CMAKE_SYSTEM_NAME}"
+    "${REALMMESH_NET_BACKEND}"
+    REALM_NETWORK_EVENT_LOOP_BACKEND
+)
+
 set(REALM_NETWORK_EVENT_LOOP_SOURCES)
 set(REALM_NETWORK_TCP_PLATFORM_SOURCES)
-if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
-    set(REALM_NETWORK_EVENT_LOOP_BACKEND epoll)
+if(REALM_NETWORK_EVENT_LOOP_BACKEND STREQUAL "epoll")
     set(REALM_NETWORK_EVENT_LOOP_SOURCES src/reactor/event_loop_epoll.cpp)
     set(REALM_NETWORK_TCP_PLATFORM_SOURCES src/tcp/tcp_platform_linux.cpp)
-elseif(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
-    set(REALM_NETWORK_EVENT_LOOP_BACKEND kqueue)
+elseif(REALM_NETWORK_EVENT_LOOP_BACKEND STREQUAL "kqueue")
     set(REALM_NETWORK_EVENT_LOOP_SOURCES src/reactor/event_loop_kqueue.cpp)
     set(REALM_NETWORK_TCP_PLATFORM_SOURCES src/tcp/tcp_platform_darwin.cpp)
-elseif(CMAKE_SYSTEM_NAME STREQUAL "Windows")
-    set(REALM_NETWORK_EVENT_LOOP_BACKEND iocp)
-else()
-    message(FATAL_ERROR
-        "realm_network has no Event Loop backend for ${CMAKE_SYSTEM_NAME} "
-        "(see ADR-0001)")
 endif()
 string(TOUPPER "${REALM_NETWORK_EVENT_LOOP_BACKEND}" REALM_NETWORK_EVENT_LOOP_BACKEND_UPPER)
-message(STATUS "realm_network Event Loop backend: ${REALM_NETWORK_EVENT_LOOP_BACKEND}")
+message(STATUS
+    "realm_network Event Loop backend: ${REALM_NETWORK_EVENT_LOOP_BACKEND} "
+    "(REALMMESH_NET_BACKEND=${REALMMESH_NET_BACKEND})")
 target_sources(realm_network PRIVATE
     ${REALM_NETWORK_EVENT_LOOP_SOURCES}
     ${REALM_NETWORK_TCP_PLATFORM_SOURCES}
