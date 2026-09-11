@@ -8,7 +8,7 @@
 
 **Tech Stack:** C++20、sol2(经 `realm::scripting::LuaRuntime`)、spdlog、httplib、etcd v3、GoogleTest、CMake。
 
-**Spec:** `docs/superpowers/specs/2026-08-23-dual-mode-service-startup-design.md`
+**Spec:** `docs/plans/2026-08-23-dual-mode-service-startup-design.md`
 
 ## Global Constraints
 

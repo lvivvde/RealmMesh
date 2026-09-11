@@ -95,4 +95,33 @@ MsQuic 自有调度不会直接调用业务逻辑。回调只完成长度帧组�
 - `game/gateway`：pending 连接、ClientSession、运行时队列。
 - `game/common`：Envelope 编解码和业务票据。
 - `framework/cluster`：多协议端点注册与发现。
-- `apps/*`：三段业务入口与信号处理。
+- `framework/service_host`：把服务名、分层配置与集群接线装配成一个可运行服务。
+- `apps/mesh_host`：`realm_mesh` 单一入口，以 `--service` 区分三段服务与信号处理。
+
+## 未实现的服务与模块
+
+目录树只反映已实现代码:规划中的服务与模块不预先创建空目录,意图记录在本节(理由见
+[ADR-0003](adr/0003-lean-tree-no-speculative-placeholders.md))。新增服务时按需创建
+`game/<service>/`、`apps/<service>/` 与对应 `CMakeLists.txt`。
+
+服务身份的权威列表在 `realm::cluster::ServiceType`
+(`framework/cluster/include/realmmesh/cluster/service_registry.hpp`),线名映射在
+`service_type_name` / `parse_service_type`。枚举共有 9 个身份,其中只有 3 个已接线:
+
+| ServiceType | 线名 | 状态 |
+|---|---|---|
+| `Gateway` | `gateway` | 已接线,Gateway 入口,端口 8000,QUIC 优先 |
+| `Login` | `login` | 已接线,端口 7000 |
+| `Realm` | `realm` | 已接线,端口 7100 |
+
+`login` 与 `realm` 没有独立的业务库:三者在 `framework/service_host` 中共用
+`game::gateway::GatewayRuntime`,差异只在传输配置与 `ServiceFrame` 的事件处理分支。
+
+以下身份已在枚举中保留、尚无实现,不建目录占位:`Lobby`、`Scene`、`Friend`、`Chat`、
+`Storage`、`Coordinator`;线名分别为 `lobby`、`scene`、`friend`、`chat`、`storage`、
+`coordinator`。它们目前也无法被 `realm_mesh --service` 启动——`self_service_type`、
+`dependency_service_type` 与 `known_service` 只认识 gateway/login/realm。
+
+Framework 侧同样按需新建。`base`、`memory`、`rpc`、`serialization`、`storage` 这几个名字
+曾被空目录预留,但代码与文档都没有定义它们的职责;需要时从第一个真实用例开始设计,
+不预设分层。
