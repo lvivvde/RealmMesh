@@ -1,4 +1,6 @@
 add_library(realm_gateway_service
+    src/edge_attach_chain.cpp
+    src/edge_session_pipeline.cpp
     src/edge_session_table.cpp
     src/gateway_config_loader.cpp
     src/gateway_runtime.cpp
@@ -15,6 +17,7 @@ target_include_directories(realm_gateway_service
 target_link_libraries(realm_gateway_service PUBLIC
     realm_concurrency
     realm_cluster
+    realm_game_common
     realm_network
     realm_observability
     realm_scripting

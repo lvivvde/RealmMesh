@@ -4,7 +4,6 @@ add_library(realm_queue_service
     src/queue_handler.cpp
     src/queue_service.cpp
     src/queue_store.cpp
-    src/queue_number.cpp
 )
 
 add_library(RealmMesh::QueueService ALIAS realm_queue_service)

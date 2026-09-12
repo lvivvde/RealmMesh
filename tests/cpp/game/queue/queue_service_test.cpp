@@ -269,8 +269,8 @@ protected:
             std::string{kIdentityKid});
     }
 
-    [[nodiscard]] QueueNumberCodec number_codec() const {
-        return QueueNumberCodec(
+    [[nodiscard]] common::QueueNumberCodec number_codec() const {
+        return common::QueueNumberCodec(
             common::parse_identity_seed_hex(kSeedHex), std::string{kKid});
     }
 

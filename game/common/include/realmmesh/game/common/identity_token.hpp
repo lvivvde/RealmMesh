@@ -7,6 +7,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 
 namespace realm::game::common {
 
@@ -46,6 +47,21 @@ public:
 private:
     CompactJws jws_;
     std::string kid_;
+};
+
+/// 身份 Token jti 的单次消费守卫(spec #43 网关入口;先例同
+/// TicketReplayGuard):条目随 exp 过期清理,重放返回 false。
+/// 非线程安全:网关业务帧线程单线程约定。
+class IdentityReplayGuard final {
+public:
+    [[nodiscard]] bool consume(
+        const IdentityClaims& claims,
+        std::chrono::system_clock::time_point now =
+            std::chrono::system_clock::now());
+
+private:
+    std::unordered_map<std::string, std::chrono::system_clock::time_point>
+        consumed_;
 };
 
 /// 64 个 hex 字符(大小写均可)→ 32 字节种子;长度或字符不合规即抛出。

@@ -18,6 +18,7 @@ return {
     },
     tick_rate = 20,
     max_events_per_frame = 4096,
+    pipeline_fetch_capacity = 1000,
     runtime = {
         inbound_capacity = 65536,
         outbound_capacity = 65536,

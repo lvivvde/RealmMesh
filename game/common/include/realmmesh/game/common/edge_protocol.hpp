@@ -23,6 +23,8 @@ using HeartbeatRequest = ::realmmesh::protocol::edge::v1::HeartbeatRequest;
 using HeartbeatResponse = ::realmmesh::protocol::edge::v1::HeartbeatResponse;
 using EnterGame = ::realmmesh::protocol::edge::v1::EnterGame;
 using EnterGameAccepted = ::realmmesh::protocol::edge::v1::EnterGameAccepted;
+using EdgeAttach = ::realmmesh::protocol::edge::v1::EdgeAttach;
+using EdgeAttachAccepted = ::realmmesh::protocol::edge::v1::EdgeAttachAccepted;
 using EdgeError = ::realmmesh::protocol::edge::v1::EdgeError;
 using EdgeMessageId = ::realmmesh::protocol::edge::v1::MessageId;
 using EdgeTransportProtocol =
@@ -30,9 +32,15 @@ using EdgeTransportProtocol =
 
 inline constexpr std::uint32_t kEdgeProtocolVersion = 1;
 
-/// EdgeError.code 的取值:按发起服务分段(login 1xxx、realm 2xxx、gateway 3xxx)。
+/// EdgeError.code 的取值(主 spec §5.1:1xxx 沿用 edge.proto 凭据段、
+/// 2xxx 排队段):1001 身份凭据无效、1004 网关满额拒绝 attach(#43)、
+/// 2001 号牌无效(排队段;与旧链路 realm login ticket 同码,按消息
+/// 上下文区分,#50 退役旧链路后收敛)、2002 未认证、3001 旧链路
+/// EnterGame 票据无效。
 inline constexpr int edge_error_invalid_credentials = 1001;
+inline constexpr int edge_error_attach_out_of_budget = 1004;
 inline constexpr int edge_error_invalid_login_ticket = 2001;
+inline constexpr int edge_error_invalid_queue_number = 2001;
 inline constexpr int edge_error_not_authenticated = 2002;
 inline constexpr int edge_error_invalid_enter_game_ticket = 3001;
 
@@ -70,6 +78,10 @@ inline constexpr int edge_error_invalid_enter_game_ticket = 3001;
 [[nodiscard]] std::vector<std::byte> encode(
     const EnterGameAccepted& message, std::uint64_t request_id = 0);
 [[nodiscard]] std::vector<std::byte> encode(
+    const EdgeAttach& message, std::uint64_t request_id = 0);
+[[nodiscard]] std::vector<std::byte> encode(
+    const EdgeAttachAccepted& message, std::uint64_t request_id = 0);
+[[nodiscard]] std::vector<std::byte> encode(
     const EdgeError& message, std::uint64_t request_id = 0);
 
 [[nodiscard]] std::optional<LoginRequest> decode_login_request(
@@ -91,6 +103,10 @@ inline constexpr int edge_error_invalid_enter_game_ticket = 3001;
 [[nodiscard]] std::optional<EnterGame> decode_enter_game(
     std::span<const std::byte> payload);
 [[nodiscard]] std::optional<EnterGameAccepted> decode_enter_game_accepted(
+    std::span<const std::byte> payload);
+[[nodiscard]] std::optional<EdgeAttach> decode_edge_attach(
+    std::span<const std::byte> payload);
+[[nodiscard]] std::optional<EdgeAttachAccepted> decode_edge_attach_accepted(
     std::span<const std::byte> payload);
 [[nodiscard]] std::optional<EdgeError> decode_edge_error(
     std::span<const std::byte> payload);

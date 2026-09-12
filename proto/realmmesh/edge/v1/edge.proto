@@ -21,6 +21,11 @@ enum MessageId {
   MESSAGE_ID_C2S_ENTER_GAME = 1201;
   MESSAGE_ID_S2C_ENTER_GAME_ACCEPTED = 1202;
 
+  // Gateway 登录管线(#43):Edge Session 从 pending 迁入 fetching 的
+  // 凭据提交;校验链与错误码见主 spec §5.3。
+  MESSAGE_ID_C2S_EDGE_ATTACH = 1301;
+  MESSAGE_ID_S2C_EDGE_ATTACH_ACCEPTED = 1302;
+
   MESSAGE_ID_S2C_ERROR = 1999;
 }
 
@@ -81,6 +86,18 @@ message EnterGame {
 message EnterGameAccepted {
   uint64 account_id = 1;
   uint64 character_id = 2;
+}
+
+// Gateway 登录管线凭据提交:身份 Token(iss=realmmesh/login-verify)+
+// admitted 排队号牌(iss=realmmesh/queue)。网关在 pending→fetching
+// 迁移处单次消费身份 Token 的 jti。
+message EdgeAttach {
+  string identity_token = 1;
+  string queue_number_token = 2;
+}
+
+message EdgeAttachAccepted {
+  uint64 account_id = 1;
 }
 
 message EdgeError {

@@ -8,7 +8,7 @@
 #include <string>
 #include <string_view>
 
-namespace realm::game::queue {
+namespace realm::game::common {
 
 /// 排队号牌签发方(ADR-0006);与身份 Token 的 iss(realmmesh/login-verify)
 /// 区分凭据类型。
@@ -27,7 +27,7 @@ struct QueueNumberClaims {
 /// 时效规则(jws_clock_leeway)只活在这一处;JWS 机制由 CompactJws 承载。
 class QueueNumberCodec final {
 public:
-    QueueNumberCodec(common::Ed25519Seed seed, std::string kid);
+    QueueNumberCodec(Ed25519Seed seed, std::string kid);
 
     /// 签发紧缩三段式 JWS;前提:claims 由本方签发路径构造
     /// (number ≥ 1、expires_at 不早于 issued_at)。
@@ -40,8 +40,8 @@ public:
         std::chrono::system_clock::time_point now) const;
 
 private:
-    common::CompactJws jws_;
+    CompactJws jws_;
     std::string kid_;
 };
 
-}  // namespace realm::game::queue
+}  // namespace realm::game::common

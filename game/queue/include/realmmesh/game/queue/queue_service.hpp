@@ -4,7 +4,7 @@
 #include "realmmesh/game/queue/queue_core.hpp"
 #include "realmmesh/game/queue/queue_handler.hpp"
 #include "realmmesh/game/queue/queue_store.hpp"
-#include "realmmesh/game/queue/queue_number.hpp"
+#include "realmmesh/game/common/queue_number.hpp"
 #include "realmmesh/network/transport/message_transport.hpp"
 
 #include <chrono>
@@ -58,7 +58,7 @@ private:
     QueueConfig config_;
     std::shared_ptr<QueueStateStore> store_;
     std::unique_ptr<common::IdentityTokenCodec> identity_codec_;
-    std::unique_ptr<QueueNumberCodec> number_codec_;
+    std::unique_ptr<common::QueueNumberCodec> number_codec_;
     std::unique_ptr<QueueCore> core_;
     std::unique_ptr<QueueHandler> handler_;
     std::unique_ptr<network::HttpServer> server_;

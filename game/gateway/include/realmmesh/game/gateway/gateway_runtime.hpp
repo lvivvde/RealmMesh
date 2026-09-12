@@ -54,6 +54,10 @@ struct GatewayConfig {
     std::size_t max_events_per_frame{4'096};
     std::string downstream_address;
     std::uint16_t downstream_port{0};
+    /// Edge 登录管线实例额度(#43):fetch=每实例拉取并发预算池规模。
+    /// conn 容量不单独配置,由启用传输的 max_sessions 之和同源注入
+    /// (管线满 ⟺ 传输满,满额拒绝语义不依赖两处配置的一致性)。
+    std::uint64_t pipeline_fetch_capacity{1'000};
 };
 
 enum class GatewayEventKind : std::uint8_t {

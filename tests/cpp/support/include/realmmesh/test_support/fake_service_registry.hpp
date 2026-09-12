@@ -6,6 +6,7 @@
 #include <map>
 #include <mutex>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -30,13 +31,23 @@ public:
         cluster::ServiceEventHandler handler) override;
     [[nodiscard]] bool cancel_watch(cluster::WatchId watch_id) override;
 
+    [[nodiscard]] bool put_leased(
+        cluster::RegistrationId registration_id,
+        std::string_view key,
+        std::string_view value) override;
+
     [[nodiscard]] bool expire_registration(
         cluster::RegistrationId registration_id);
+
+    /// 挂到注册租约上的 key(put_leased 的观察口);未知注册返回空表。
+    [[nodiscard]] std::map<std::string, std::string> leased_keys(
+        cluster::RegistrationId registration_id) const;
 
 private:
     struct Registration {
         cluster::ServiceInstance instance;
         std::chrono::seconds lease_ttl;
+        std::map<std::string, std::string> leased_keys;
     };
 
     struct Watch {

@@ -1,11 +1,11 @@
-#include "realmmesh/game/queue/queue_number.hpp"
+#include "realmmesh/game/common/queue_number.hpp"
 
 #include <gtest/gtest.h>
 
 #include <chrono>
 #include <string>
 
-namespace realm::game::queue {
+namespace realm::game::common {
 namespace {
 
 using namespace std::chrono_literals;
@@ -18,7 +18,7 @@ std::chrono::system_clock::time_point at_time(std::int64_t seconds) {
 }
 
 QueueNumberCodec test_codec() {
-    return QueueNumberCodec(common::parse_identity_seed_hex(seed_hex), "test-kid");
+    return QueueNumberCodec(parse_identity_seed_hex(seed_hex), "test-kid");
 }
 
 QueueNumberClaims test_claims() {
@@ -96,4 +96,4 @@ TEST(QueueNumberCodecTest, RejectsGarbage) {
 }
 
 }  // namespace
-}  // namespace realm::game::queue
+}  // namespace realm::game::common

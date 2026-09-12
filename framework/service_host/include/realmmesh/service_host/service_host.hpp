@@ -1,5 +1,6 @@
 #pragma once
 
+#include "realmmesh/cluster/budget_publisher.hpp"
 #include "realmmesh/cluster/service_discovery_config.hpp"
 #include "realmmesh/service_host/layered_config_loader.hpp"
 #include "realmmesh/service_host/service_frame.hpp"
@@ -13,6 +14,7 @@
 
 namespace realm::cluster {
 class EtcdServiceRegistry;
+class InstanceBudgetReporter;
 class ServicePublisher;
 class ServiceResolver;
 }  // namespace realm::cluster
@@ -85,7 +87,8 @@ private:
     // stopped_:停机幂等标志,MeshHost::shutdown() 与析构双停只生效首次。
     bool started_{false};
     bool stopped_{false};
-    // 声明序即析构序:resolver → publisher → registry(引用链),
+    // 声明序即析构序:budget_reporter → resolver → publisher → registry
+    // (budget_reporter 与 publisher 持 registry 引用),
     // 再到 frame → login_verify/runtime → metrics → logger。
     std::unique_ptr<observability::Logger> logger_;
     std::unique_ptr<observability::LoggerMetricsServer> metrics_;
@@ -96,6 +99,12 @@ private:
     std::unique_ptr<cluster::EtcdServiceRegistry> registry_;
     std::unique_ptr<cluster::ServicePublisher> publisher_;
     std::unique_ptr<cluster::ServiceResolver> resolver_;
+    /// 额度上报器(#43,仅 gateway 且发现注册成功后装配);析构须先于
+    /// registry,故声明在引用链成员之后。
+    std::unique_ptr<cluster::InstanceBudgetReporter> budget_reporter_;
+    /// 上报器的阈值策略:容量在构造期从网关配置同源注入(config 随后
+    /// 被 move 进 runtime,tick 期不可再取)。
+    cluster::BudgetPublishPolicy budget_policy_;
 };
 
 }  // namespace realm::service_host

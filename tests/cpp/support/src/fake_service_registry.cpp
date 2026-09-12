@@ -57,6 +57,30 @@ bool FakeServiceRegistry::refresh_registration(
     return registrations_.contains(registration_id);
 }
 
+bool FakeServiceRegistry::put_leased(
+    cluster::RegistrationId registration_id,
+    std::string_view key,
+    std::string_view value) {
+    const std::scoped_lock lock(mutex_);
+    const auto registration = registrations_.find(registration_id);
+    if (registration == registrations_.end()) {
+        return false;
+    }
+    registration->second.leased_keys.insert_or_assign(
+        std::string(key), std::string(value));
+    return true;
+}
+
+std::map<std::string, std::string> FakeServiceRegistry::leased_keys(
+    cluster::RegistrationId registration_id) const {
+    const std::scoped_lock lock(mutex_);
+    const auto registration = registrations_.find(registration_id);
+    if (registration == registrations_.end()) {
+        return {};
+    }
+    return registration->second.leased_keys;
+}
+
 bool FakeServiceRegistry::unregister_instance(
     cluster::RegistrationId registration_id) {
     return remove_registration(registration_id);

@@ -64,6 +64,10 @@ struct ServiceEvent {
 
 using ServiceEventHandler = std::function<void(const ServiceEvent&)>;
 
+/// 服务类型的 etcd key 段名(注册 key 与额度 key 共用);未知类型抛
+/// std::invalid_argument。
+[[nodiscard]] std::string_view service_type_name(ServiceType type);
+
 class IServiceRegistry {
 public:
     virtual ~IServiceRegistry() = default;
@@ -74,6 +78,16 @@ public:
         RegistrationId registration_id) = 0;
     [[nodiscard]] virtual bool unregister_instance(
         RegistrationId registration_id) = 0;
+
+    /// 把 key 挂到注册的租约上(与实例 key 同租约:实例死→key 消失)。
+    /// Admission Budget 上报的载体(见主 spec §5.2)。注册中心记住成功
+    /// 写入的 (key, value),refresh 重授租约改写实例 key 时同步改写;
+    /// 写失败不改挂载表——新 key 不入表,已有 key 保留原值,由调用方
+    /// 按最新值重试。未知注册返回 false。
+    [[nodiscard]] virtual bool put_leased(
+        RegistrationId registration_id,
+        std::string_view key,
+        std::string_view value) = 0;
 
     [[nodiscard]] virtual std::vector<ServiceInstance> discover(
         ServiceType type) const = 0;

@@ -3,7 +3,7 @@
 #include "realmmesh/game/common/identity_token.hpp"
 #include "realmmesh/game/common/json.hpp"
 #include "realmmesh/game/queue/queue_core.hpp"
-#include "realmmesh/game/queue/queue_number.hpp"
+#include "realmmesh/game/common/queue_number.hpp"
 
 #include <gtest/gtest.h>
 
@@ -49,7 +49,7 @@ protected:
         identity_codec_ = std::make_unique<IdentityTokenCodec>(
             common::parse_identity_seed_hex(kSeedHex),
             std::string{kIdentityKid});
-        number_codec_ = std::make_unique<QueueNumberCodec>(
+        number_codec_ = std::make_unique<common::QueueNumberCodec>(
             common::parse_identity_seed_hex(kSeedHex), std::string{kKid});
         core_ = std::make_unique<QueueCore>(100);
         handler_ = std::make_unique<QueueHandler>(
@@ -111,7 +111,7 @@ protected:
         std::chrono::system_clock::time_point{
             std::chrono::seconds{1'700'000'000}};
     std::unique_ptr<IdentityTokenCodec> identity_codec_;
-    std::unique_ptr<QueueNumberCodec> number_codec_;
+    std::unique_ptr<common::QueueNumberCodec> number_codec_;
     std::unique_ptr<QueueCore> core_;
     std::unique_ptr<QueueHandler> handler_;
 };
@@ -368,7 +368,7 @@ TEST_F(QueueHandlerTest, InvalidOrExpiredNumberIs2001) {
     EXPECT_EQ(code_of(garbage), QueueHandler::error_invalid_number);
 
     // 过期号牌:签发于 now,查询时已越过 exp + 宽限。
-    const auto stale = number_codec_->issue(QueueNumberClaims{
+    const auto stale = number_codec_->issue(common::QueueNumberClaims{
         .number = 1,
         .admitted = false,
         .issued_at = now_,

@@ -1,12 +1,9 @@
-#include "realmmesh/game/queue/queue_number.hpp"
+#include "realmmesh/game/common/queue_number.hpp"
 
 #include "realmmesh/game/common/json.hpp"
 
-namespace realm::game::queue {
+namespace realm::game::common {
 namespace {
-
-using common::JsonObject;
-using common::JsonValue;
 
 const bool* bool_member(const JsonObject& object, std::string_view key) {
     const auto found = object.find(std::string{key});
@@ -18,7 +15,7 @@ const bool* bool_member(const JsonObject& object, std::string_view key) {
 
 }  // namespace
 
-QueueNumberCodec::QueueNumberCodec(common::Ed25519Seed seed, std::string kid)
+QueueNumberCodec::QueueNumberCodec(Ed25519Seed seed, std::string kid)
     : jws_(seed),
       kid_(std::move(kid)) {}
 
@@ -52,11 +49,11 @@ std::optional<QueueNumberClaims> QueueNumberCodec::validate(
         return std::nullopt;
     }
 
-    const auto* issuer = common::json_string_member(*payload, "iss");
-    const auto* number = common::json_int_member(*payload, "number");
+    const auto* issuer = json_string_member(*payload, "iss");
+    const auto* number = json_int_member(*payload, "number");
     const auto* admitted = bool_member(*payload, "admitted");
-    const auto* issued_at = common::json_int_member(*payload, "iat");
-    const auto* expires_at = common::json_int_member(*payload, "exp");
+    const auto* issued_at = json_int_member(*payload, "iat");
+    const auto* expires_at = json_int_member(*payload, "exp");
     if (payload->size() != 5 || issuer == nullptr || number == nullptr ||
         admitted == nullptr || issued_at == nullptr ||
         expires_at == nullptr) {
@@ -83,4 +80,4 @@ std::optional<QueueNumberClaims> QueueNumberCodec::validate(
     };
 }
 
-}  // namespace realm::game::queue
+}  // namespace realm::game::common

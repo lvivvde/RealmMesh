@@ -2,7 +2,7 @@
 
 #include "realmmesh/game/common/identity_token.hpp"
 #include "realmmesh/game/queue/queue_core.hpp"
-#include "realmmesh/game/queue/queue_number.hpp"
+#include "realmmesh/game/common/queue_number.hpp"
 #include "realmmesh/network/http/http1_parser.hpp"
 #include "realmmesh/network/http/http1_response.hpp"
 
@@ -30,7 +30,7 @@ public:
     QueueHandler(
         QueueCore& core,
         const common::IdentityTokenCodec& identity_codec,
-        const QueueNumberCodec& number_codec,
+        const common::QueueNumberCodec& number_codec,
         Clock clock,
         std::string_view identity_issuer,
         std::chrono::seconds queued_number_ttl,
@@ -42,7 +42,7 @@ public:
 private:
     QueueCore* core_;
     const common::IdentityTokenCodec* identity_codec_;
-    const QueueNumberCodec* number_codec_;
+    const common::QueueNumberCodec* number_codec_;
     Clock clock_;
     std::string identity_issuer_;
     std::chrono::seconds queued_number_ttl_;

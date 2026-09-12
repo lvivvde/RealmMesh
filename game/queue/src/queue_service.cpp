@@ -33,7 +33,7 @@ void QueueService::start(observability::Logger* logger) {
     // queue 自己的种子(kid 在 JWKS 语义上由签发方独占)。
     // TODO(#42):号牌签发私钥只应存在于排队调度服;当前经环境变量分发
     // 属过渡形态,生产由密钥管理注入并收敛到本服务。
-    number_codec_ = std::make_unique<QueueNumberCodec>(
+    number_codec_ = std::make_unique<common::QueueNumberCodec>(
         common::seed_from_environment("REALMMESH_QUEUE_KEY_SEED"),
         config_.kid);
     // TODO(#42):身份验签当前信任环境变量注入的对称种子;生产应改为

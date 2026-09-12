@@ -1,8 +1,3 @@
-realm_add_gtest(queue_number_test
-    SOURCES queue_number_test.cpp
-    LIBS realm_queue_service
-)
-
 realm_add_gtest(queue_handler_test
     SOURCES queue_handler_test.cpp
     LIBS realm_queue_service

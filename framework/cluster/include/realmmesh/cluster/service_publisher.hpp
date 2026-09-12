@@ -20,6 +20,11 @@ public:
 
     [[nodiscard]] bool tick();
     [[nodiscard]] bool registered() const noexcept;
+    /// 当前注册标识;未注册时为 invalid_registration_id(额度上报等
+    /// 挂租约写以此为准,需在每次使用时重读而非缓存)。
+    [[nodiscard]] RegistrationId registration_id() const noexcept {
+        return registration_id_;
+    }
     [[nodiscard]] RegistryStatus last_status() const noexcept;
 
 private:

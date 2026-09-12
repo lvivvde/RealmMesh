@@ -17,6 +17,22 @@
 
 namespace realm::cluster {
 
+std::string_view service_type_name(ServiceType type) {
+    switch (type) {
+    case ServiceType::Gateway:
+        return "gateway";
+    case ServiceType::Login:
+        return "login";
+    case ServiceType::Realm:
+        return "realm";
+    case ServiceType::LoginVerify:
+        return "login_verify";
+    case ServiceType::Queue:
+        return "queue";
+    }
+    throw std::invalid_argument("unknown service type");
+}
+
 namespace {
 
 using Json = nlohmann::json;
@@ -131,22 +147,6 @@ std::optional<std::string> base64_decode(std::string_view input) {
         }
     }
     return output;
-}
-
-std::string_view service_type_name(ServiceType type) {
-    switch (type) {
-    case ServiceType::Gateway:
-        return "gateway";
-    case ServiceType::Login:
-        return "login";
-    case ServiceType::Realm:
-        return "realm";
-    case ServiceType::LoginVerify:
-        return "login_verify";
-    case ServiceType::Queue:
-        return "queue";
-    }
-    throw std::invalid_argument("unknown service type");
 }
 
 std::optional<ServiceType> parse_service_type(std::string_view value) {
@@ -360,6 +360,7 @@ public:
                 *lease,
                 lease_ttl,
                 Clock::now() + refresh_delay(lease_ttl),
+                {},
             });
         return {RegistryStatus::Success, id};
     }
@@ -386,6 +387,20 @@ public:
             static_cast<void>(revoke_lease(*new_lease));
             return false;
         }
+        // 挂载的额度 key 与实例 key 同进退:逐个改写到新租约下,任一
+        // 失败则回收新租约、保留旧租约,下个刷新周期重试。
+        for (const auto& [leased_key, leased_value] :
+             registration.leased_keys) {
+            const Json leased_request = {
+                {"key", base64_encode(leased_key)},
+                {"value", base64_encode(leased_value)},
+                {"lease", std::to_string(*new_lease)},
+            };
+            if (!call("/v3/kv/put", leased_request, response)) {
+                static_cast<void>(revoke_lease(*new_lease));
+                return false;
+            }
+        }
 
         std::int64_t old_lease = 0;
         {
@@ -401,6 +416,37 @@ public:
                 Clock::now() + refresh_delay(found->second.lease_ttl);
         }
         static_cast<void>(revoke_lease(old_lease));
+        return true;
+    }
+
+    bool put_leased(
+        RegistrationId registration_id,
+        std::string_view key,
+        std::string_view value) {
+        std::int64_t lease_id = 0;
+        {
+            const std::scoped_lock lock(mutex_);
+            const auto found = registrations_.find(registration_id);
+            if (found == registrations_.end()) return false;
+            lease_id = found->second.lease_id;
+        }
+
+        Json response;
+        const Json request = {
+            {"key", base64_encode(key)},
+            {"value", base64_encode(value)},
+            {"lease", std::to_string(lease_id)},
+        };
+        if (!call("/v3/kv/put", request, response)) return false;
+
+        // 只记成功写入的 key(失败时 etcd 与挂载表保持一致:新 key 无
+        // 需改写,已有 key 保留原值由 refresh 维持)。与 refresh 并发的
+        // 窗口内可能写在即将被回收的旧租约上,下个刷新周期改写恢复。
+        const std::scoped_lock lock(mutex_);
+        const auto found = registrations_.find(registration_id);
+        if (found == registrations_.end()) return true;
+        found->second.leased_keys.insert_or_assign(
+            std::string(key), std::string(value));
         return true;
     }
 
@@ -523,6 +569,9 @@ private:
         std::int64_t lease_id;
         std::chrono::seconds lease_ttl;
         Clock::time_point next_refresh;
+        /// 已成功挂到本注册租约上的额度 key(见 put_leased);refresh
+        /// 重授租约时按此表在新租约下改写。
+        std::map<std::string, std::string> leased_keys;
     };
 
     struct Watch {
@@ -684,6 +733,13 @@ RegistrationResult EtcdServiceRegistry::register_instance(
 
 bool EtcdServiceRegistry::refresh_registration(RegistrationId registration_id) {
     return impl_->refresh_registration(registration_id);
+}
+
+bool EtcdServiceRegistry::put_leased(
+    RegistrationId registration_id,
+    std::string_view key,
+    std::string_view value) {
+    return impl_->put_leased(registration_id, key, value);
 }
 
 bool EtcdServiceRegistry::unregister_instance(RegistrationId registration_id) {

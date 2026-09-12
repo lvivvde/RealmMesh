@@ -1,5 +1,6 @@
 #include "realmmesh/service_host/service_frame.hpp"
 
+#include "realmmesh/cluster/budget_publisher.hpp"
 #include "realmmesh/cluster/service_resolver.hpp"
 #include "realmmesh/game/common/edge_protocol.hpp"
 #include "realmmesh/game/gateway/gateway_runtime.hpp"
@@ -51,6 +52,33 @@ namespace {
     return load_ticket_key();
 }
 
+/// attach 验签 codec 的 kid:与签发方配置默认值一致(login_verify.kid =
+/// login-verify-v1、queue.kid = queue-v1);JWKS 分发与 kid 轮换收敛后
+/// 改为发现机制(与 queue 侧验签同源的过渡形态)。
+constexpr std::string_view identity_token_kid = "login-verify-v1";
+constexpr std::string_view queue_number_kid = "queue-v1";
+
+/// attach 拒绝回包:尚未进入会话的事件(event.established 为假)经
+/// try_decline 尽力回包并终结;已在管的会话回包后 try_close(状态机:
+/// 凭据无效/额度外拒绝 → Closed)。
+void decline_attach(
+    game::gateway::GatewayRuntime& runtime,
+    const game::gateway::GatewayEvent& event,
+    std::uint64_t request_id,
+    std::uint32_t code,
+    std::string_view message) {
+    game::common::EdgeError error;
+    error.set_code(code);
+    error.set_message(std::string(message));
+    const auto response = game::common::encode(error, request_id);
+    if (event.established) {
+        static_cast<void>(runtime.try_send(event.session_id, response));
+        static_cast<void>(runtime.try_close(event.session_id));
+        return;
+    }
+    static_cast<void>(runtime.try_decline(event.session_id, response));
+}
+
 }  // namespace
 
 std::optional<cluster::ServiceType> parse_service_identity(
@@ -68,7 +96,8 @@ ServiceFrame::ServiceFrame(
     std::string_view service_name,
     std::string downstream_address,
     std::uint16_t downstream_port,
-    std::size_t max_events_per_frame)
+    std::size_t max_events_per_frame,
+    EdgePipelineCaps edge_pipeline_caps)
     : service_name_(service_name),
       downstream_address_(std::move(downstream_address)),
       downstream_port_(downstream_port),
@@ -81,7 +110,23 @@ ServiceFrame::ServiceFrame(
         throw std::invalid_argument(
             service_name_ + " downstream endpoint is required");
     }
+    if (identity_ == cluster::ServiceType::Gateway) {
+        pipeline_.emplace(
+            edge_pipeline_caps.conn_capacity,
+            edge_pipeline_caps.fetch_capacity);
+    }
 }
+
+ServiceFrame::EdgeAttachContext::EdgeAttachContext(
+    game::common::Ed25519Seed identity_seed,
+    game::common::Ed25519Seed number_seed,
+    game::gateway::EdgeSessionPipeline& pipeline,
+    std::string_view identity_kid,
+    std::string_view number_kid,
+    std::string_view identity_issuer)
+    : identity_codec(identity_seed, std::string(identity_kid)),
+      number_codec(number_seed, std::string(number_kid)),
+      chain(identity_codec, number_codec, pipeline, identity_issuer) {}
 
 bool ServiceFrame::absorb_lifecycle(
     const game::gateway::GatewayEvent& event) {
@@ -121,7 +166,8 @@ void ServiceFrame::started(
 void ServiceFrame::tick(
     observability::Logger& logger,
     game::gateway::GatewayRuntime& runtime,
-    cluster::ServiceResolver* resolver) {
+    cluster::ServiceResolver* resolver,
+    cluster::InstanceBudgetReporter* budget_reporter) {
     if (!identity_.has_value()) {
         return;
     }
@@ -133,7 +179,7 @@ void ServiceFrame::tick(
         handle_realm_events(logger, runtime, resolver);
         break;
     case cluster::ServiceType::Gateway:
-        handle_gateway_events(logger, runtime);
+        handle_gateway_events(logger, runtime, budget_reporter);
         break;
     case cluster::ServiceType::LoginVerify:
     case cluster::ServiceType::Queue:
@@ -363,9 +409,26 @@ void ServiceFrame::handle_realm_events(
 }
 
 void ServiceFrame::handle_gateway_events(
-    observability::Logger& logger, game::gateway::GatewayRuntime& runtime) {
+    observability::Logger& logger,
+    game::gateway::GatewayRuntime& runtime,
+    cluster::InstanceBudgetReporter* budget_reporter) {
     for (auto& event : runtime.drain_events(max_events_per_frame_)) {
+        // 管线登记/注销先于其余分支:SessionClosed 的额度归还不依赖
+        // 业务处理,SessionOpened 只登记不回包。
+        if (event.kind == game::gateway::GatewayEventKind::SessionOpened) {
+            pipeline_->on_session_opened(event.session_id);
+        } else if (
+            event.kind == game::gateway::GatewayEventKind::SessionClosed) {
+            static_cast<void>(pipeline_->on_session_closed(event.session_id));
+        }
         if (!absorb_lifecycle(event)) {
+            continue;
+        }
+
+        if (const auto attach =
+                game::common::decode_edge_attach(event.payload);
+            attach.has_value()) {
+            handle_edge_attach(logger, runtime, event, *attach);
             continue;
         }
 
@@ -431,6 +494,100 @@ void ServiceFrame::handle_gateway_events(
                 static_cast<void>(runtime.try_close(session));
             }
         }
+    }
+    // 帧尾发布额度快照(#43):策略节流在 InstanceBudgetReporter 内,
+    // 写失败不更新已发布状态,后续帧自动重试。
+    if (budget_reporter != nullptr && pipeline_.has_value()) {
+        static_cast<void>(budget_reporter->publish(
+            cluster::InstanceBudgetSnapshot{
+                pipeline_->conn_free(), pipeline_->fetch_free(), true}));
+    }
+}
+
+void ServiceFrame::handle_edge_attach(
+    observability::Logger& logger,
+    game::gateway::GatewayRuntime& runtime,
+    const game::gateway::GatewayEvent& event,
+    const game::common::EdgeAttach& attach) {
+    if (!attach_.has_value() && !attach_unavailable_) {
+        try {
+            attach_.emplace(
+                game::common::seed_from_environment(
+                    "REALMMESH_IDENTITY_KEY_SEED"),
+                game::common::seed_from_environment(
+                    "REALMMESH_QUEUE_KEY_SEED"),
+                *pipeline_,
+                identity_token_kid,
+                queue_number_kid,
+                "realmmesh/login-verify");
+        } catch (const std::exception& error) {
+            attach_unavailable_ = true;
+            static_cast<void>(logger.warn(
+                "edge_attach_rejected",
+                "attach verification unavailable: signing seed not set",
+                {observability::field(
+                    "error_message", std::string(error.what()))}));
+        }
+    }
+    const auto request_id =
+        game::common::edge_request_id(event.payload).value_or(0);
+    if (!attach_.has_value()) {
+        decline_attach(
+            runtime,
+            event,
+            request_id,
+            game::common::edge_error_invalid_credentials,
+            "attach verification unavailable");
+        return;
+    }
+    switch (attach_->chain.handle(
+        event.session_id,
+        attach.identity_token(),
+        attach.queue_number_token(),
+        std::chrono::system_clock::now())) {
+    case game::gateway::EdgeAttachVerdict::Accepted: {
+        game::common::EdgeAttachAccepted accepted;
+        accepted.set_account_id(attach_->chain.last_account_id());
+        const auto response = game::common::encode(accepted, request_id);
+        if (event.established) {
+            static_cast<void>(runtime.try_send(event.session_id, response));
+        } else {
+            static_cast<void>(runtime.try_accept(event.session_id, response));
+        }
+        static_cast<void>(logger.info(
+            "edge_session_attached",
+            "edge session attached",
+            {observability::field(
+                "account_id",
+                attach_->chain.last_account_id(),
+                observability::DataClass::Pseudonymous)}));
+        break;
+    }
+    case game::gateway::EdgeAttachVerdict::InvalidCredentials:
+    case game::gateway::EdgeAttachVerdict::NotPending:
+        decline_attach(
+            runtime,
+            event,
+            request_id,
+            game::common::edge_error_invalid_credentials,
+            "invalid credentials");
+        break;
+    case game::gateway::EdgeAttachVerdict::InvalidNumber:
+        decline_attach(
+            runtime,
+            event,
+            request_id,
+            game::common::edge_error_invalid_queue_number,
+            "invalid queue number");
+        break;
+    case game::gateway::EdgeAttachVerdict::OutOfBudget:
+        decline_attach(
+            runtime,
+            event,
+            request_id,
+            game::common::edge_error_attach_out_of_budget,
+            "attach out of budget");
+        break;
     }
 }
 

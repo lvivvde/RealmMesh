@@ -247,5 +247,146 @@ TEST(EtcdServiceRegistryTest, PublishesSnapshotChangesToWatchers) {
     EXPECT_TRUE(http->complete());
 }
 
+TEST(EtcdServiceRegistryTest, PutLeasedWritesKeyUnderRegistrationLease) {
+    using Step = ScriptedEtcdHttpClient::Step;
+    const std::string budget_key =
+        "/realmmesh/budgets/service/gateway/gateway-01/budget";
+    auto http = std::make_shared<ScriptedEtcdHttpClient>(std::vector<Step>{
+        {"/v3/lease/grant", R"({"ID":"31","TTL":"9"})", {}},
+        {"/v3/kv/txn", R"({"succeeded":true})", {}},
+        {"/v3/kv/put", R"({})", {}},
+        {"/v3/lease/revoke", R"({})", {}},
+    });
+    EtcdServiceRegistry registry(test_options(), http);
+
+    const auto registration =
+        registry.register_instance(gateway_instance(), std::chrono::seconds(9));
+    ASSERT_EQ(registration.status, RegistryStatus::Success);
+    EXPECT_TRUE(
+        registry.put_leased(registration.id, budget_key, R"({"conn_free":99})"));
+    EXPECT_TRUE(registry.unregister_instance(registration.id));
+    EXPECT_TRUE(http->complete());
+
+    const auto requests = http->requests();
+    ASSERT_EQ(requests.size(), 4U);
+    EXPECT_EQ(requests[2].at("key"), base64(budget_key));
+    EXPECT_EQ(requests[2].at("value"), base64(R"({"conn_free":99})"));
+    EXPECT_EQ(requests[2].at("lease"), "31");
+}
+
+TEST(EtcdServiceRegistryTest, PutLeasedUnknownRegistrationReturnsFalse) {
+    using Step = ScriptedEtcdHttpClient::Step;
+    auto http = std::make_shared<ScriptedEtcdHttpClient>(std::vector<Step>{});
+    EtcdServiceRegistry registry(test_options(), http);
+
+    EXPECT_FALSE(registry.put_leased(
+        42, "/realmmesh/budgets/service/gateway/x/budget", "{}"));
+    EXPECT_TRUE(http->complete());
+}
+
+TEST(EtcdServiceRegistryTest, RefreshRewritesLeasedKeysUnderNewLease) {
+    using Step = ScriptedEtcdHttpClient::Step;
+    const std::string budget_key =
+        "/realmmesh/budgets/service/gateway/gateway-01/budget";
+    const std::string budget_value = R"({"conn_free":98,"fetch_free":10})";
+    auto http = std::make_shared<ScriptedEtcdHttpClient>(std::vector<Step>{
+        {"/v3/lease/grant", R"({"ID":"41","TTL":"9"})", {}},
+        {"/v3/kv/txn", R"({"succeeded":true})", {}},
+        {"/v3/kv/put", R"({})", {}},
+        {"/v3/lease/grant", R"({"ID":"42","TTL":"9"})", {}},
+        {"/v3/kv/put", R"({})", {}},
+        {"/v3/kv/put", R"({})", {}},
+        {"/v3/lease/revoke", R"({})", {}},
+        {"/v3/lease/revoke", R"({})", {}},
+    });
+    EtcdServiceRegistry registry(test_options(), http);
+
+    const auto registration =
+        registry.register_instance(gateway_instance(), std::chrono::seconds(9));
+    ASSERT_EQ(registration.status, RegistryStatus::Success);
+    ASSERT_TRUE(registry.put_leased(registration.id, budget_key, budget_value));
+    EXPECT_TRUE(registry.refresh_registration(registration.id));
+    EXPECT_TRUE(registry.unregister_instance(registration.id));
+    EXPECT_TRUE(http->complete());
+
+    const auto requests = http->requests();
+    ASSERT_EQ(requests.size(), 8U);
+    EXPECT_EQ(
+        requests[4].at("key"), base64("/realmmesh/services/gateway/gateway-01"));
+    EXPECT_EQ(requests[4].at("lease"), "42");
+    EXPECT_EQ(requests[5].at("key"), base64(budget_key));
+    EXPECT_EQ(requests[5].at("value"), base64(budget_value));
+    EXPECT_EQ(requests[5].at("lease"), "42");
+    EXPECT_EQ(requests[6].at("ID"), "41");
+    EXPECT_EQ(requests[7].at("ID"), "42");
+}
+
+TEST(EtcdServiceRegistryTest, PutLeasedFailureOfNewKeyIsNotTracked) {
+    using Step = ScriptedEtcdHttpClient::Step;
+    const std::string budget_key =
+        "/realmmesh/budgets/service/gateway/gateway-01/budget";
+    auto http = std::make_shared<ScriptedEtcdHttpClient>(std::vector<Step>{
+        {"/v3/lease/grant", R"({"ID":"51","TTL":"9"})", {}},
+        {"/v3/kv/txn", R"({"succeeded":true})", {}},
+        {"/v3/kv/put", std::nullopt, "etcd down"},
+        {"/v3/lease/grant", R"({"ID":"52","TTL":"9"})", {}},
+        {"/v3/kv/put", R"({})", {}},
+        {"/v3/lease/revoke", R"({})", {}},
+        {"/v3/lease/revoke", R"({})", {}},
+    });
+    EtcdServiceRegistry registry(test_options(), http);
+
+    const auto registration =
+        registry.register_instance(gateway_instance(), std::chrono::seconds(9));
+    ASSERT_EQ(registration.status, RegistryStatus::Success);
+    EXPECT_FALSE(
+        registry.put_leased(registration.id, budget_key, R"({"conn_free":1})"));
+    EXPECT_TRUE(registry.refresh_registration(registration.id));
+    EXPECT_TRUE(registry.unregister_instance(registration.id));
+    EXPECT_TRUE(http->complete());
+
+    const auto requests = http->requests();
+    ASSERT_EQ(requests.size(), 7U);
+    for (std::size_t index = 3; index < requests.size(); ++index) {
+        if (requests[index].contains("key")) {
+            EXPECT_NE(requests[index].at("key"), base64(budget_key));
+        }
+    }
+}
+
+TEST(EtcdServiceRegistryTest, PutLeasedFailureKeepsPreviousTrackedValue) {
+    using Step = ScriptedEtcdHttpClient::Step;
+    const std::string budget_key =
+        "/realmmesh/budgets/service/gateway/gateway-01/budget";
+    auto http = std::make_shared<ScriptedEtcdHttpClient>(std::vector<Step>{
+        {"/v3/lease/grant", R"({"ID":"61","TTL":"9"})", {}},
+        {"/v3/kv/txn", R"({"succeeded":true})", {}},
+        {"/v3/kv/put", R"({})", {}},
+        {"/v3/kv/put", std::nullopt, "etcd down"},
+        {"/v3/lease/grant", R"({"ID":"62","TTL":"9"})", {}},
+        {"/v3/kv/put", R"({})", {}},
+        {"/v3/kv/put", R"({})", {}},
+        {"/v3/lease/revoke", R"({})", {}},
+        {"/v3/lease/revoke", R"({})", {}},
+    });
+    EtcdServiceRegistry registry(test_options(), http);
+
+    const auto registration =
+        registry.register_instance(gateway_instance(), std::chrono::seconds(9));
+    ASSERT_EQ(registration.status, RegistryStatus::Success);
+    ASSERT_TRUE(
+        registry.put_leased(registration.id, budget_key, R"({"conn_free":98})"));
+    EXPECT_FALSE(
+        registry.put_leased(registration.id, budget_key, R"({"conn_free":50})"));
+    EXPECT_TRUE(registry.refresh_registration(registration.id));
+    EXPECT_TRUE(registry.unregister_instance(registration.id));
+    EXPECT_TRUE(http->complete());
+
+    const auto requests = http->requests();
+    ASSERT_EQ(requests.size(), 9U);
+    EXPECT_EQ(requests[6].at("value"), base64(R"({"conn_free":98})"));
+    EXPECT_EQ(requests[6].at("lease"), "62");
+}
+
 }  // namespace
 }  // namespace realm::cluster

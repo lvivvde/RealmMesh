@@ -98,7 +98,7 @@ using common::JsonValue;
 QueueHandler::QueueHandler(
     QueueCore& core,
     const common::IdentityTokenCodec& identity_codec,
-    const QueueNumberCodec& number_codec,
+    const common::QueueNumberCodec& number_codec,
     Clock clock,
     std::string_view identity_issuer,
     std::chrono::seconds queued_number_ttl,
@@ -133,7 +133,7 @@ network::Http1Response QueueHandler::handle(
                 401, error_invalid_credentials, "invalid credentials");
         }
         const auto issued = core_->issue(identity->jti, now);
-        const auto token = number_codec_->issue(QueueNumberClaims{
+        const auto token = number_codec_->issue(common::QueueNumberClaims{
             .number = issued.number,
             .admitted = false,
             .issued_at = now,
@@ -187,7 +187,7 @@ network::Http1Response QueueHandler::handle(
         }
         if (claims->admitted || claims->number <= core_->released_number()) {
             // 放行凭证 = 号牌重签 admitted(ADR-0006);宽限自重签起算。
-            const auto grant = number_codec_->issue(QueueNumberClaims{
+            const auto grant = number_codec_->issue(common::QueueNumberClaims{
                 .number = claims->number,
                 .admitted = true,
                 .issued_at = now,

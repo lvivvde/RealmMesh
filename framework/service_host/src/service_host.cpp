@@ -1,5 +1,6 @@
 #include "realmmesh/service_host/service_host.hpp"
 
+#include "realmmesh/cluster/budget_publisher.hpp"
 #include "realmmesh/cluster/etcd_service_registry.hpp"
 #include "realmmesh/cluster/service_bootstrap.hpp"
 #include "realmmesh/cluster/service_publisher.hpp"
@@ -107,11 +108,24 @@ ServiceHost::ServiceHost(
         queue_ = std::move(queue);
         return;
     }
+    // conn 容量与传输层同源(#43):取全部启用传输的 max_sessions 之和
+    // (QUIC/TLS 竞速下两条传输可同时满载),管线满即传输满,满额拒绝
+    // 语义不依赖两处配置保持一致。
+    std::uint64_t pipeline_conn_capacity = 0;
+    for (const auto& transport : config.transports) {
+        if (transport.enabled) {
+            pipeline_conn_capacity += transport.max_sessions;
+        }
+    }
     frame_ = std::make_unique<ServiceFrame>(
         service_name_,
         config.downstream_address,
         config.downstream_port,
-        config.max_events_per_frame);
+        config.max_events_per_frame,
+        EdgePipelineCaps{
+            pipeline_conn_capacity, config.pipeline_fetch_capacity});
+    budget_policy_.conn_capacity = pipeline_conn_capacity;
+    budget_policy_.fetch_capacity = config.pipeline_fetch_capacity;
     runtime_ = std::make_unique<game::gateway::GatewayRuntime>(
         std::move(config), logger_.get());
 }
@@ -145,6 +159,7 @@ bool ServiceHost::start() {
     try {
         if (discovery_config_.enabled) {
             // 重启场景按引用链反序清理旧装配,避免 publisher 悬挂 registry。
+            budget_reporter_.reset();
             resolver_.reset();
             publisher_.reset();
             registry_.reset();
@@ -208,6 +223,7 @@ bool ServiceHost::start() {
         } else if (runtime_ != nullptr) {
             runtime_->stop();
         }
+        budget_reporter_.reset();
         resolver_.reset();
         publisher_.reset();
         registry_.reset();
@@ -237,7 +253,9 @@ void ServiceHost::stop() {
                 "service_stopped", service_name_ + " service stopped"));
         }
     }
-    // 注销发现:publisher/resolver 持有 registry 引用,须先行析构。
+    // 注销发现:budget_reporter/publisher/resolver 持有 registry 引用,
+    // 须先行析构。
+    budget_reporter_.reset();
     resolver_.reset();
     publisher_.reset();
     registry_.reset();
@@ -276,10 +294,28 @@ void ServiceHost::tick() {
     } else if (queue_ != nullptr) {
         queue_->tick();
     } else if (frame_ != nullptr && runtime_ != nullptr) {
-        frame_->tick(*logger_, *runtime_, resolver_.get());
+        frame_->tick(
+            *logger_, *runtime_, resolver_.get(), budget_reporter_.get());
     }
     if (publisher_ == nullptr) return;
     if (!publisher_->tick()) return;
+    // gateway 注册成功后装配额度上报器(#43):required=false 时首注册
+    // 可能失败,注册成功后的首个 tick 补齐。
+    if (budget_reporter_ == nullptr && service_name_ == "gateway" &&
+        publisher_->registered()) {
+        budget_reporter_ = std::make_unique<cluster::InstanceBudgetReporter>(
+            *registry_,
+            publisher_->registration_id(),
+            cluster::ServiceType::Gateway,
+            instance_,
+            budget_policy_);
+        budget_reporter_->set_failure_sink([this](const std::string& key) {
+            static_cast<void>(logger_->warn(
+                "instance_budget_publish_failed",
+                "instance budget publish failed; will retry when policy allows",
+                {observability::field("key", key)}));
+        });
+    }
     // required=false 时首注册可能失败,续约成功后补齐 ready。
     const bool running = login_verify_ != nullptr
                              ? login_verify_->running()

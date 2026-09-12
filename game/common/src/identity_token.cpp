@@ -123,4 +123,15 @@ std::string IdentityTokenCodec::jwks() const {
     return R"({"keys":[)" + JsonCodec::encode(jwk) + "]}";
 }
 
+bool IdentityReplayGuard::consume(
+    const IdentityClaims& claims,
+    std::chrono::system_clock::time_point now) {
+    // 条目存活到 exp+leeway:编解码器在窗口内仍会验讫 token,清理窗口
+    // 必须覆盖同一区间,否则临期重放会被当作新凭据重新消费。
+    std::erase_if(consumed_, [now](const auto& entry) {
+        return entry.second + jws_clock_leeway <= now;
+    });
+    return consumed_.emplace(claims.jti, claims.expires_at).second;
+}
+
 }  // namespace realm::game::common

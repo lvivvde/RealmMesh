@@ -4,11 +4,14 @@ realm_add_gtest(service_host_test
         mesh_host_e2e_test.cpp
         mesh_host_test.cpp
         mode2_test.cpp
+        service_frame_edge_budget_test.cpp
         service_host_test.cpp
         startup_topology_test.cpp
+        ${PROJECT_SOURCE_DIR}/tests/cpp/support/src/fake_service_registry.cpp
     INCLUDE_DIRS ${PROJECT_SOURCE_DIR}/tests/cpp/support/include
     LIBS
         httplib::httplib
+        nlohmann_json::nlohmann_json
         realm_service_host
     DEFINITIONS
         REALMMESH_SOURCE_DIR="${PROJECT_SOURCE_DIR}"

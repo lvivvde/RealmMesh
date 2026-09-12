@@ -213,6 +213,8 @@ GatewayConfig GatewayConfigLoader::parse(const sol::table& root) {
         root, "downstream_address", std::move(config.downstream_address));
     config.downstream_port =
         optional_integer(root, "downstream_port", config.downstream_port);
+    config.pipeline_fetch_capacity = optional_integer(
+        root, "pipeline_fetch_capacity", config.pipeline_fetch_capacity);
 
     const sol::object runtime_value = root.raw_get<sol::object>("runtime");
     if (runtime_value != sol::lua_nil) {
@@ -345,6 +347,10 @@ GatewayConfig GatewayConfigLoader::parse(const sol::table& root) {
     if (config.tick_rate == 0 || config.max_events_per_frame == 0) {
         throw std::invalid_argument(
             "gateway tick rate and max events per frame must be positive");
+    }
+    if (config.pipeline_fetch_capacity == 0) {
+        throw std::invalid_argument(
+            "gateway pipeline fetch capacity must be positive");
     }
     if (config.logging.file_path.empty() ||
         config.logging_identity.service_name.empty() ||

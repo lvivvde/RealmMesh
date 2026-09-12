@@ -48,6 +48,10 @@ public:
         std::chrono::seconds lease_ttl) override;
     [[nodiscard]] bool refresh_registration(
         RegistrationId registration_id) override;
+    [[nodiscard]] bool put_leased(
+        RegistrationId registration_id,
+        std::string_view key,
+        std::string_view value) override;
     [[nodiscard]] bool unregister_instance(
         RegistrationId registration_id) override;
     [[nodiscard]] std::vector<ServiceInstance> discover(

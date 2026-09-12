@@ -14,6 +14,16 @@ realm_add_gtest(compact_jws_test
     LIBS realm_game_common
 )
 
+realm_add_gtest(edge_attach_protocol_test
+    SOURCES edge_attach_protocol_test.cpp
+    LIBS realm_game_common
+)
+
+realm_add_gtest(identity_replay_guard_test
+    SOURCES identity_replay_guard_test.cpp
+    LIBS realm_game_common
+)
+
 realm_add_gtest(identity_token_test
     SOURCES identity_token_test.cpp
     LIBS realm_game_common
@@ -21,6 +31,11 @@ realm_add_gtest(identity_token_test
 
 realm_add_gtest(json_test
     SOURCES json_test.cpp
+    LIBS realm_game_common
+)
+
+realm_add_gtest(queue_number_test
+    SOURCES queue_number_test.cpp
     LIBS realm_game_common
 )
 

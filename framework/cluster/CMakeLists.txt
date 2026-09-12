@@ -1,4 +1,5 @@
 add_library(realm_cluster
+    src/budget_publisher.cpp
     src/etcd_service_registry.cpp
     src/service_bootstrap.cpp
     src/service_publisher.cpp
