@@ -17,7 +17,7 @@
 
 ```mermaid
 flowchart LR
-    C[客户端] -->|HTTPS+JWT| Edge[边缘 CDN/WAF<br/>验签放行·DDoS]
+    C[客户端] -->|HTTPS+JWT| Edge["边缘 CDN/WAF<br/>验签放行(能力分级)·DDoS"]
     Edge -->|HTTPS 回源| LV[登录健全服 login_verify<br/>无状态·可水平扩展]
     LV -->|身份Token| C
     C -->|HTTPS+身份Token| QS[排队调度服 queue<br/>发号·查号·放行]
@@ -46,14 +46,15 @@ flowchart LR
 
 | 凭据 | 格式 | 签发方 | 消费方 | TTL | 单次消费 |
 |---|---|---|---|---|---|
-| 身份 Token | JWT/EdDSA（`iss=realmmesh/login-verify`） | 健全服 | 边缘验签放行、排队服、网关 | 30 min | `jti` 仅在网关入口单次消费 |
+| 身份 Token | JWT/EdDSA（`iss=realmmesh/login-verify`） | 健全服 | 边缘验签（能力分级）、排队服、网关 | 30 min | `jti` 仅在网关入口单次消费 |
 | 排队号牌 | JWT/EdDSA（`iss=realmmesh/queue`，号值+`admitted`） | 排队服 | 客户端轮询、网关验 `admitted=true` | 放行 + 5 min 宽限 | 否（位次查询复用） |
 | EnterRealm 票据 | SessionTicket（对称键，原 EnterGame 用途更名） | 网关 | Realm 兑换 | 60 s | 是（`TicketReplayGuard`） |
 | 旧 SessionTicket Login 用途 | — | — | — | — | **退役**（随旧 Login 服） |
 
-- claims 最小集：header `alg/typ/kid` + payload `iss/sub/iat/exp/jti`；`aud` 不设（用途由 iss 绑定）；封禁/白名单状态不入 token（签发时检查 + 网关拉取时二次校验兜底）。
+- claims 最小集：header `alg/typ/kid` + payload `iss/sub/iat/exp/jti` + `aud=realmmesh-access`（RFC 8725 §3.9 要求消费方必须校验）+ `purpose=access`（私有 claim，防 token 类型混用）；`sub` 为 account_id 十进制字符串（uint64 超 2^53 会被边缘 JS 消费方的 JSON number 失真）；封禁/白名单状态不入 token（签发时检查 + 网关拉取时二次校验兜底）。
 - 密钥：Ed25519 私钥只在健全服（`REALMMESH_IDENTITY_KEY_SEED`，env 注入）；公钥经 `GET /.well-known/jwks.json` 发布；内部消费方配置静态载入。轮换：`kid` 单调递增、24h 重叠窗双键并存。SessionTicket 对称键保留（内网签发+内网兑换）。
-- 实现路线：libsodium 自研 Compact JWS + 极小 JSON，零新依赖（否 libjwt/jwt-cpp/HS256，理由见[调研](../research/2026-09-12-identity-token-jwt-edge.md)）。
+- 实现路线：libsodium 自研 Compact JWS + 极小 JSON，零新依赖（否 libjwt/jwt-cpp/HS256，理由见[调研](../research/2026-09-12-identity-token.md)）。
+- **边缘契约＝能力分级**（ADR-0004）：免代码产品面（Cloudflare API Shield、Akamai API Gateway、Fastly VCL）均无 EdDSA——该类拓扑边缘仅 TLS 终结 + L3-L7 防护，回源 HTTPS、健全服本地验签兜底；EdDSA 边缘验签只在可编程计算面可行（Cloudflare Workers 原生、Fastly Compute 代码实现），「边缘验签 → 回源明文」选项仅限此类拓扑；Akamai 当前不可落地。各消费方本地验签一律不可省略，边缘验签只是把无效流量挡在边缘的优化。
 
 ## 5. 协议契约
 
@@ -126,7 +127,7 @@ stateDiagram-v2
 - 进程编排：全部服务沿用 `realm_mesh --service` 单入口（`login_verify`/`queue` 实现时新增 ServiceType）；健全服与网关按实例数水平扩，排队服单实例+冷备（同机或邻机）。
 - etcd 布局：服务注册（现有）+ 额度前缀 `service/<type>/<instance>/budget`（与实例同租约）；排队服快照 key 随放行批次更新。
 - 多区：v1 单区；健全服无状态可多区前置 CDN；排队服冷备跨机不跨区（TODO：多区时号牌签发键与进度端点的区间一致性）。
-- 边缘：CDN/WAF 契约＝Bearer + EdDSA 白名单 + JWKS URL + 边缘拒绝非保证性（ADR-0004）。
+- 边缘：CDN/WAF 契约＝Bearer + EdDSA 白名单 + JWKS URL + 边缘拒绝非保证性；按验签能力分级选型——可编程边缘（Workers/Compute 类）做边缘验签（可选明文回源），其余拓扑仅 TLS 终结 + 回源 HTTPS 验签（ADR-0004）。
 
 ## 11. 实施拆解索引
 

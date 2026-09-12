@@ -15,5 +15,5 @@ status: accepted
 
 ## Consequences
 
-- 边缘 TLS 终结后回源明文/内网协议作为契约选项记录(边缘已验签 + 内网信任),不替代原生 HTTPS 监听能力。
+- 边缘 TLS 终结后回源明文/内网协议作为契约选项记录,但仅在边缘具备 EdDSA 验签能力的拓扑(Workers/Compute 类)成立,无该能力的边缘(如 Akamai)回退回源 HTTPS + 回源验签;选项不替代原生 HTTPS 监听能力。
 - service_host 装配为加法式扩展(可选 HTTP listener,配置门控),不改 TransportFactory/IMessageTransport/QUIC 路径。
