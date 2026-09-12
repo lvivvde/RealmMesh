@@ -265,6 +265,24 @@ private:
 
 }  // namespace
 
+const std::string* json_string_member(
+    const JsonObject& object, std::string_view key) {
+    const auto found = object.find(std::string{key});
+    if (found == object.end()) {
+        return nullptr;
+    }
+    return std::get_if<std::string>(&found->second);
+}
+
+const std::int64_t* json_int_member(
+    const JsonObject& object, std::string_view key) {
+    const auto found = object.find(std::string{key});
+    if (found == object.end()) {
+        return nullptr;
+    }
+    return std::get_if<std::int64_t>(&found->second);
+}
+
 std::string JsonCodec::encode(const JsonObject& object) {
     std::string out;
     out.push_back('{');

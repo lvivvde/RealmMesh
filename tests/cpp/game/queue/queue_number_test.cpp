@@ -1,4 +1,4 @@
-#include "realmmesh/game/queue/queue_ticket.hpp"
+#include "realmmesh/game/queue/queue_number.hpp"
 
 #include <gtest/gtest.h>
 
@@ -17,12 +17,12 @@ std::chrono::system_clock::time_point at_time(std::int64_t seconds) {
     return std::chrono::system_clock::time_point(std::chrono::seconds{seconds});
 }
 
-QueueTicketCodec test_codec() {
-    return QueueTicketCodec(common::parse_identity_seed_hex(seed_hex), "test-kid");
+QueueNumberCodec test_codec() {
+    return QueueNumberCodec(common::parse_identity_seed_hex(seed_hex), "test-kid");
 }
 
-QueueTicketClaims test_claims() {
-    return QueueTicketClaims{
+QueueNumberClaims test_claims() {
+    return QueueNumberClaims{
         .number = 42,
         .admitted = false,
         .issued_at = at_time(1'700'000'000),
@@ -30,8 +30,8 @@ QueueTicketClaims test_claims() {
     };
 }
 
-TEST(QueueTicketCodecTest, RoundTripsQueuedTicket) {
-    const QueueTicketCodec codec = test_codec();
+TEST(QueueNumberCodecTest, RoundTripsQueuedTicket) {
+    const QueueNumberCodec codec = test_codec();
     const auto token = codec.issue(test_claims());
     const auto claims = codec.validate(token, at_time(1'700'000'100));
     ASSERT_TRUE(claims.has_value());
@@ -41,8 +41,8 @@ TEST(QueueTicketCodecTest, RoundTripsQueuedTicket) {
     EXPECT_EQ(claims->expires_at, test_claims().expires_at);
 }
 
-TEST(QueueTicketCodecTest, RoundTripsAdmittedTicket) {
-    const QueueTicketCodec codec = test_codec();
+TEST(QueueNumberCodecTest, RoundTripsAdmittedTicket) {
+    const QueueNumberCodec codec = test_codec();
     auto claims = test_claims();
     claims.admitted = true;
     claims.expires_at = claims.issued_at + 300s;
@@ -52,8 +52,8 @@ TEST(QueueTicketCodecTest, RoundTripsAdmittedTicket) {
     EXPECT_EQ(decoded->number, 42U);
 }
 
-TEST(QueueTicketCodecTest, AcceptsWithinLeewayAfterExpiry) {
-    const QueueTicketCodec codec = test_codec();
+TEST(QueueNumberCodecTest, AcceptsWithinLeewayAfterExpiry) {
+    const QueueNumberCodec codec = test_codec();
     const auto token = codec.issue(test_claims());
     // 容差边界内(60s)仍有效,超出即拒绝。
     const auto claims = test_claims();
@@ -64,32 +64,32 @@ TEST(QueueTicketCodecTest, AcceptsWithinLeewayAfterExpiry) {
             .has_value());
 }
 
-TEST(QueueTicketCodecTest, RejectsTokenFromFuture) {
-    const QueueTicketCodec codec = test_codec();
+TEST(QueueNumberCodecTest, RejectsTokenFromFuture) {
+    const QueueNumberCodec codec = test_codec();
     const auto token = codec.issue(test_claims());
     EXPECT_FALSE(
         codec.validate(token, test_claims().issued_at - common::jws_clock_leeway - 1s)
             .has_value());
 }
 
-TEST(QueueTicketCodecTest, RejectsWrongKid) {
-    const QueueTicketCodec codec =
-        QueueTicketCodec(common::parse_identity_seed_hex(seed_hex), "other-kid");
+TEST(QueueNumberCodecTest, RejectsWrongKid) {
+    const QueueNumberCodec codec =
+        QueueNumberCodec(common::parse_identity_seed_hex(seed_hex), "other-kid");
     const auto token = codec.issue(test_claims());
     EXPECT_FALSE(
         test_codec().validate(token, at_time(1'700'000'100)).has_value());
 }
 
-TEST(QueueTicketCodecTest, RejectsZeroNumber) {
-    const QueueTicketCodec codec = test_codec();
+TEST(QueueNumberCodecTest, RejectsZeroNumber) {
+    const QueueNumberCodec codec = test_codec();
     auto claims = test_claims();
     claims.number = 0;
     const auto token = codec.issue(claims);
     EXPECT_FALSE(codec.validate(token, at_time(1'700'000'100)).has_value());
 }
 
-TEST(QueueTicketCodecTest, RejectsGarbage) {
-    const QueueTicketCodec codec = test_codec();
+TEST(QueueNumberCodecTest, RejectsGarbage) {
+    const QueueNumberCodec codec = test_codec();
     EXPECT_FALSE(codec.validate("", at_time(1'700'000'100)).has_value());
     EXPECT_FALSE(
         codec.validate("a.b.c", at_time(1'700'000'100)).has_value());

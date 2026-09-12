@@ -43,22 +43,24 @@ QueueCore::Issued QueueCore::issue(
             return entry.second.issued_at < cutoff;
         });
     }
+    const auto number = next_number_.load(std::memory_order_relaxed);
     const auto [iterator, inserted] = idempotency_.try_emplace(
         std::move(identity_jti),
-        IdempotencyEntry{next_number_, now});
+        IdempotencyEntry{number, now});
     if (inserted) {
-        return {next_number_++, true};
+        next_number_.store(number + 1, std::memory_order_relaxed);
+        return {number, true};
     }
     iterator->second.issued_at = now;  // 幂等重放刷新时间戳
     return {iterator->second.number, false};
 }
 
 std::uint64_t QueueCore::released_number() const noexcept {
-    return released_number_;
+    return released_number_.load(std::memory_order_relaxed);
 }
 
 std::uint64_t QueueCore::next_number() const noexcept {
-    return next_number_;
+    return next_number_.load(std::memory_order_relaxed);
 }
 
 std::uint64_t QueueCore::admit_rate(
@@ -79,10 +81,13 @@ std::uint64_t QueueCore::release_batch(
     std::chrono::system_clock::time_point now) {
     const std::uint64_t allowance = std::min(
         {budgets.gateway_admission, budgets.realm_connections, release_step_});
-    const std::uint64_t issued_ahead = next_number_ - 1 - released_number_;
+    const std::uint64_t issued_ahead =
+        next_number_.load(std::memory_order_relaxed) - 1 -
+        released_number_.load(std::memory_order_relaxed);
     const std::uint64_t batch = std::min(allowance, issued_ahead);
     if (batch != 0) {
-        released_number_ += batch;
+        static_cast<void>(
+            released_number_.fetch_add(batch, std::memory_order_relaxed));
         releases_.push_back({now, batch});
     }
     prune_releases(now);
@@ -93,14 +98,16 @@ void QueueCore::restore(const QueueSnapshot& snapshot) {
     if (snapshot.released_number >= snapshot.next_number) {
         throw std::invalid_argument("inconsistent queue snapshot");
     }
-    released_number_ = snapshot.released_number;
-    next_number_ = snapshot.next_number;
+    released_number_.store(snapshot.released_number, std::memory_order_relaxed);
+    next_number_.store(snapshot.next_number, std::memory_order_relaxed);
     releases_.clear();  // 实测速率随实例重启重建,不跨快照延续
 }
 
 QueueSnapshot QueueCore::snapshot(
     std::chrono::system_clock::time_point now) const {
-    return {released_number_, next_number_, admit_rate(now)};
+    return {released_number_.load(std::memory_order_relaxed),
+            next_number_.load(std::memory_order_relaxed),
+            admit_rate(now)};
 }
 
 void QueueCore::prune_releases(std::chrono::system_clock::time_point now) {

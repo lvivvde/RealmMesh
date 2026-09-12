@@ -17,6 +17,11 @@
 
 namespace realm::cluster {
 
+namespace {
+
+using Json = nlohmann::json;
+using Clock = std::chrono::steady_clock;
+
 class EtcdHttpClient final : public IEtcdHttpClient {
 public:
     EtcdHttpClient(std::string endpoint, std::chrono::milliseconds timeout)
@@ -64,10 +69,6 @@ private:
     std::chrono::milliseconds timeout_;
 };
 
-namespace {
-
-using Json = nlohmann::json;
-using Clock = std::chrono::steady_clock;
 
 std::string base64_encode(std::string_view input) {
     static constexpr std::string_view alphabet =

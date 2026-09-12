@@ -2,7 +2,7 @@
 
 #include "realmmesh/game/common/json.hpp"
 
-#include <algorithm>
+#include <chrono>
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -54,15 +54,13 @@ using common::JsonValue;
     const std::string* authorization = request.header("Authorization");
     if (authorization == nullptr) return std::nullopt;
     static constexpr std::string_view scheme = "Bearer ";
-    if (authorization->size() <= scheme.size() ||
-        !std::equal(
-            scheme.begin(), scheme.end(), authorization->begin(),
-            [](char expected, char actual) {
-                return expected == actual;
-            })) {
+    const std::string_view value{*authorization};
+    if (!value.starts_with(scheme)) {
         return std::nullopt;
     }
-    return std::string_view{*authorization}.substr(scheme.size());
+    const auto credential = value.substr(scheme.size());
+    return credential.empty() ? std::nullopt
+                              : std::optional<std::string_view>{credential};
 }
 
 /// 估时(§5.1/ADR-0006):ceil(位次/速率);速率为 0(未建立)或位次
@@ -75,22 +73,42 @@ using common::JsonValue;
     return static_cast<std::int64_t>((position + rate - 1U) / rate);
 }
 
+/// 放行响应(§5.1):凭据嵌套在 admit_grant 对象内(JsonCodec 只编扁平
+/// 对象,嵌套成员按 login_verify jwks() 先例拼接)。encode 输出键序确
+/// 定且 "admit_grant" 字典序先于响应其余键,首个键前即拼接点。
+[[nodiscard]] network::Http1Response admitted_response(
+    std::string_view grant_token,
+    std::uint64_t number,
+    std::chrono::seconds admit_grace) {
+    const std::string grant = common::JsonCodec::encode(
+        {{"queue_number_token", JsonValue(std::string(grant_token))},
+         {"number", static_cast<std::int64_t>(number)},
+         {"expires_in", static_cast<std::int64_t>(admit_grace.count())}});
+    network::Http1Response response = json_response(
+        200,
+        {{"status", std::string{"admitted"}},
+         {"position", std::int64_t{0}},
+         {"estimated_wait_seconds", std::int64_t{0}}});
+    response.body.insert(1, "\"admit_grant\":" + grant + ",");
+    return response;
+}
+
 }  // namespace
 
 QueueHandler::QueueHandler(
     QueueCore& core,
     const common::IdentityTokenCodec& identity_codec,
-    const QueueTicketCodec& ticket_codec,
+    const QueueNumberCodec& number_codec,
     Clock clock,
     std::string_view identity_issuer,
-    std::chrono::seconds queued_ticket_ttl,
+    std::chrono::seconds queued_number_ttl,
     std::chrono::seconds admit_grace)
     : core_(&core),
       identity_codec_(&identity_codec),
-      ticket_codec_(&ticket_codec),
+      number_codec_(&number_codec),
       clock_(std::move(clock)),
       identity_issuer_(identity_issuer),
-      queued_ticket_ttl_(queued_ticket_ttl),
+      queued_number_ttl_(queued_number_ttl),
       admit_grace_(admit_grace) {}
 
 network::Http1Response QueueHandler::handle(
@@ -115,11 +133,11 @@ network::Http1Response QueueHandler::handle(
                 401, error_invalid_credentials, "invalid credentials");
         }
         const auto issued = core_->issue(identity->jti, now);
-        const auto token = ticket_codec_->issue(QueueTicketClaims{
+        const auto token = number_codec_->issue(QueueNumberClaims{
             .number = issued.number,
             .admitted = false,
             .issued_at = now,
-            .expires_at = now + queued_ticket_ttl_,
+            .expires_at = now + queued_number_ttl_,
         });
         return json_response(
             202,
@@ -160,29 +178,22 @@ network::Http1Response QueueHandler::handle(
         const auto credential = bearer_token(request);
         if (!credential.has_value()) {
             return error_response(
-                401, error_invalid_ticket, "missing bearer ticket");
+                401, error_invalid_number, "missing bearer number");
         }
-        const auto claims = ticket_codec_->validate(*credential, now);
+        const auto claims = number_codec_->validate(*credential, now);
         if (!claims.has_value()) {
             return error_response(
-                401, error_invalid_ticket, "invalid or expired queue ticket");
+                401, error_invalid_number, "invalid or expired queue number");
         }
         if (claims->admitted || claims->number <= core_->released_number()) {
             // 放行凭证 = 号牌重签 admitted(ADR-0006);宽限自重签起算。
-            const auto grant = ticket_codec_->issue(QueueTicketClaims{
+            const auto grant = number_codec_->issue(QueueNumberClaims{
                 .number = claims->number,
                 .admitted = true,
                 .issued_at = now,
                 .expires_at = now + admit_grace_,
             });
-            return json_response(
-                200,
-                {{"status", std::string{"admitted"}},
-                 {"position", std::int64_t{0}},
-                 {"estimated_wait_seconds", std::int64_t{0}},
-                 {"queue_number_token", JsonValue(std::move(grant))},
-                 {"expires_in",
-                  static_cast<std::int64_t>(admit_grace_.count())}});
+            return admitted_response(grant, claims->number, admit_grace_);
         }
         const auto position = claims->number - core_->released_number();
         return json_response(

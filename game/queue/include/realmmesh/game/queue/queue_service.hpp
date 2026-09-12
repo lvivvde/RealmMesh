@@ -4,11 +4,12 @@
 #include "realmmesh/game/queue/queue_core.hpp"
 #include "realmmesh/game/queue/queue_handler.hpp"
 #include "realmmesh/game/queue/queue_store.hpp"
-#include "realmmesh/game/queue/queue_ticket.hpp"
+#include "realmmesh/game/queue/queue_number.hpp"
 #include "realmmesh/network/transport/message_transport.hpp"
 
 #include <chrono>
 #include <memory>
+#include <optional>
 #include <vector>
 
 namespace realm::network {
@@ -51,17 +52,20 @@ public:
     local_endpoints() const noexcept;
 
 private:
-    /// 单个放行帧:聚合额度(fail-closed)→ 批放行 → 快照落盘。
+    /// 单个放行帧:取缓存的额度聚合(fail-closed)→ 批放行 → 快照落盘。
     void release_frame();
 
     QueueConfig config_;
     std::shared_ptr<QueueStateStore> store_;
     std::unique_ptr<common::IdentityTokenCodec> identity_codec_;
-    std::unique_ptr<QueueTicketCodec> ticket_codec_;
+    std::unique_ptr<QueueNumberCodec> number_codec_;
     std::unique_ptr<QueueCore> core_;
     std::unique_ptr<QueueHandler> handler_;
     std::unique_ptr<network::HttpServer> server_;
     std::vector<network::TransportEndpoint> endpoints_;
+    /// 最近一次成功轮询的额度聚合;nullopt = 额度未知(停放)。
+    std::optional<BudgetAggregate> budgets_;
+    std::chrono::steady_clock::time_point next_budget_poll_{};
     std::chrono::steady_clock::time_point next_release_{};
 };
 

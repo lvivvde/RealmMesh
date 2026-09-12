@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
@@ -44,6 +45,9 @@ struct QueueSnapshot {
     bool operator==(const QueueSnapshot&) const = default;
 };
 
+/// 放行速率实测固定窗(ADR-0006 定值);构造默认值与装配侧共用。
+inline constexpr std::chrono::seconds queue_rate_window{10};
+
 /// 排队权威状态(ADR-0006):两个水位 + 实测放行速率 + 发号幂等映射。
 /// 纯域逻辑,无 IO;时间一律由调用方注入,etcd 存取在 QueueStateStore。
 class QueueCore final {
@@ -61,7 +65,7 @@ public:
     /// (超限先清扫过期条目,发号不因此失败)。
     explicit QueueCore(
         std::uint64_t release_step,
-        std::chrono::seconds rate_window = std::chrono::seconds{10},
+        std::chrono::seconds rate_window = queue_rate_window,
         std::chrono::seconds idempotency_ttl = std::chrono::seconds{1800},
         std::size_t idempotency_capacity = 1'000'000);
 
@@ -108,8 +112,10 @@ private:
     std::chrono::seconds rate_window_;
     std::chrono::seconds idempotency_ttl_;
     std::size_t idempotency_capacity_;
-    std::uint64_t released_number_{0};
-    std::uint64_t next_number_{1};
+    /// 两个水位以原子承载(spec §5.1 对外只读量);域操作仍限单帧循环
+    /// 线程,原子仅保证观测方读到的水位不撕裂。
+    std::atomic<std::uint64_t> released_number_{0};
+    std::atomic<std::uint64_t> next_number_{1};
     std::deque<ReleaseRecord> releases_;
     std::unordered_map<std::string, IdempotencyEntry> idempotency_;
 };

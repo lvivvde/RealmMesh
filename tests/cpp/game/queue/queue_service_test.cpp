@@ -269,8 +269,8 @@ protected:
             std::string{kIdentityKid});
     }
 
-    [[nodiscard]] QueueTicketCodec ticket_codec() const {
-        return QueueTicketCodec(
+    [[nodiscard]] QueueNumberCodec number_codec() const {
+        return QueueNumberCodec(
             common::parse_identity_seed_hex(kSeedHex), std::string{kKid});
     }
 
@@ -292,7 +292,7 @@ protected:
         });
     }
 
-    [[nodiscard]] std::optional<std::string> post_ticket(
+    [[nodiscard]] std::optional<std::string> post_number(
         std::string_view suffix) const {
         std::string body;
         body += "POST /v1/queue/tickets HTTP/1.1\r\n";
@@ -343,7 +343,7 @@ TEST_F(QueueServiceTest, ServesHealthzOverTls) {
 }
 
 TEST_F(QueueServiceTest, IssuesAndReleasesByBudgetFrame) {
-    const auto token = post_ticket("01");
+    const auto token = post_number("01");
     ASSERT_TRUE(token.has_value());
 
     // 未放行前:progress 水位 0,号牌查询为排队态。
@@ -365,18 +365,26 @@ TEST_F(QueueServiceTest, IssuesAndReleasesByBudgetFrame) {
     EXPECT_EQ(saved.at(0).released_number, 1U);
     EXPECT_EQ(saved.at(0).next_number, 2U);
 
-    // 放行后:号牌查询重签放行凭证,progress 水位前进。
+    // 放行后:号牌查询重签放行凭证(spec:凭证嵌套 admit_grant,外层
+    // 只带状态/位次/估时;JsonCodec 只编扁平对象,以尾段与嵌套截取核验)。
     const auto after = https_exchange(
         port_, get_request("/v1/queue/tickets/me", token));
     ASSERT_TRUE(after.has_value());
-    const auto after_payload = JsonCodec::decode(body_of(*after));
-    ASSERT_TRUE(after_payload.has_value());
-    EXPECT_EQ(
-        std::get<std::string>(after_payload->at("status")), "admitted");
+    const std::string_view admitted_body = body_of(*after);
+    EXPECT_TRUE(admitted_body.ends_with(R"("status":"admitted"})"));
+    static constexpr std::string_view grant_marker = "\"admit_grant\":";
+    const auto grant_at = admitted_body.find(grant_marker);
+    ASSERT_NE(grant_at, std::string_view::npos);
+    const auto grant_start = grant_at + grant_marker.size();
+    const auto grant_end = admitted_body.find('}', grant_start);
+    ASSERT_NE(grant_end, std::string_view::npos);
+    const auto grant_payload = JsonCodec::decode(
+        admitted_body.substr(grant_start, grant_end - grant_start + 1));
+    ASSERT_TRUE(grant_payload.has_value());
     const auto* grant = std::get_if<std::string>(
-        &after_payload->at("queue_number_token"));
+        &grant_payload->at("queue_number_token"));
     ASSERT_NE(grant, nullptr);
-    const auto grant_claims = ticket_codec().validate(*grant, std::chrono::system_clock::now());
+    const auto grant_claims = number_codec().validate(*grant, std::chrono::system_clock::now());
     ASSERT_TRUE(grant_claims.has_value());
     EXPECT_EQ(grant_claims->number, 1U);
     EXPECT_TRUE(grant_claims->admitted);
@@ -390,7 +398,7 @@ TEST_F(QueueServiceTest, IssuesAndReleasesByBudgetFrame) {
 }
 
 TEST_F(QueueServiceTest, FailClosedWhenBudgetsUnavailable) {
-    const auto token = post_ticket("01");
+    const auto token = post_number("01");
     ASSERT_TRUE(token.has_value());
     // 额度保持未知(nullopt):tick 轮询照跑,但不放行、不落快照。
     store_->set_budgets(std::nullopt);
@@ -434,9 +442,9 @@ TEST_F(QueueServiceTest, RestoresWaterLevelsFromColdBackup) {
     EXPECT_EQ(
         std::get<std::int64_t>(progress_payload->at("released_number")), 5);
 
-    const auto token = post_ticket("01");
+    const auto token = post_number("01");
     ASSERT_TRUE(token.has_value());
-    const auto claims = ticket_codec().validate(*token, std::chrono::system_clock::now());
+    const auto claims = number_codec().validate(*token, std::chrono::system_clock::now());
     ASSERT_TRUE(claims.has_value());
     EXPECT_EQ(claims->number, 6U);
 }

@@ -2,6 +2,7 @@
 
 #include <sodium.h>
 
+#include <cstdlib>
 #include <stdexcept>
 #include <utility>
 
@@ -21,16 +22,15 @@ std::string_view as_string_view(std::span<const std::byte> bytes) {
     return {reinterpret_cast<const char*>(bytes.data()), bytes.size()};
 }
 
-const std::string* string_member(
-    const JsonObject& object, std::string_view key) {
-    const auto found = object.find(std::string{key});
-    if (found == object.end()) {
-        return nullptr;
-    }
-    return std::get_if<std::string>(&found->second);
-}
-
 }  // namespace
+
+Ed25519Seed seed_from_environment(const char* name) {
+    const char* value = std::getenv(name);
+    if (value == nullptr || *value == '\0') {
+        throw std::runtime_error(std::string{name} + " is not set");
+    }
+    return parse_identity_seed_hex(value);
+}
 
 CompactJws::CompactJws(Ed25519Seed seed) {
     if (sodium_init() < 0) {
@@ -82,9 +82,9 @@ std::optional<JsonObject> CompactJws::decode(
     if (!header.has_value()) {
         return std::nullopt;
     }
-    const auto* alg = string_member(*header, "alg");
-    const auto* typ = string_member(*header, "typ");
-    const auto* kid = string_member(*header, "kid");
+    const auto* alg = json_string_member(*header, "alg");
+    const auto* typ = json_string_member(*header, "typ");
+    const auto* kid = json_string_member(*header, "kid");
     if (header->size() != 3 || alg == nullptr || *alg != "EdDSA" ||
         typ == nullptr || *typ != "JWT" || kid == nullptr ||
         *kid != expected_kid) {

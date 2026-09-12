@@ -6,8 +6,6 @@
 #include "realmmesh/observability/logger.hpp"
 
 #include <chrono>
-#include <cstdlib>
-#include <stdexcept>
 #include <utility>
 
 namespace realm::game::login_verify {
@@ -18,12 +16,9 @@ LoginVerifyService::LoginVerifyService(LoginVerifyConfig config)
 LoginVerifyService::~LoginVerifyService() = default;
 
 void LoginVerifyService::start(observability::Logger* logger) {
-    const char* seed = std::getenv("REALMMESH_IDENTITY_KEY_SEED");
-    if (seed == nullptr || *seed == '\0') {
-        throw std::runtime_error("REALMMESH_IDENTITY_KEY_SEED is not set");
-    }
     codec_ = std::make_unique<common::IdentityTokenCodec>(
-        common::parse_identity_seed_hex(seed), config_.kid);
+        common::seed_from_environment("REALMMESH_IDENTITY_KEY_SEED"),
+        config_.kid);
     store_ = std::make_unique<common::ConfigAccountStore>(
         common::ConfigAccountStore::load(config_.accounts_file));
     handler_ = std::make_unique<LoginVerifyHandler>(

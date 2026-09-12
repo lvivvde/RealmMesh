@@ -47,4 +47,7 @@ private:
 /// 64 个 hex 字符(大小写均可)→ 32 字节种子;长度或字符不合规即抛出。
 [[nodiscard]] Ed25519Seed parse_identity_seed_hex(std::string_view value);
 
+/// 从环境变量读种子并解析;缺失、为空或非法即抛(start 失败快速可见)。
+[[nodiscard]] Ed25519Seed seed_from_environment(const char* name);
+
 }  // namespace realm::game::common

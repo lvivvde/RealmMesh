@@ -226,22 +226,30 @@ std::optional<BudgetAggregate> EtcdQueueStore::refresh_budgets() const {
 }
 
 std::optional<QueueSnapshot> EtcdQueueStore::load_snapshot() const {
+    // 精确 key 读取(range_end 为空)。三态契约:无快照返回 nullopt
+    // (确属空状态,从零开始);etcd 不可达或快照损坏抛出——冷备未知
+    // 时从零重发会与存量号牌冲突,启动必须失败(fail-closed)。
     const auto kvs = range(*client_, options_.snapshot_key, "");
-    if (!kvs.has_value() || kvs->empty()) {
+    if (!kvs.has_value()) {
+        throw std::runtime_error(
+            "queue snapshot load failed: etcd unavailable");
+    }
+    if (kvs->empty()) {
         return std::nullopt;
     }
     Json snapshot;
     try {
         snapshot = Json::parse(kvs->front().second);
     } catch (const Json::exception&) {
-        return std::nullopt;
+        throw std::runtime_error("queue snapshot load failed: corrupt value");
     }
     const auto released = budget_integer(snapshot, "released_number");
     const auto next = budget_integer(snapshot, "next_number");
     const auto rate = budget_integer(snapshot, "admit_rate");
     if (!released.has_value() || !next.has_value() || !rate.has_value() ||
         *released >= *next) {
-        return std::nullopt;  // 损坏快照视同无快照,从零开始
+        throw std::runtime_error(
+            "queue snapshot load failed: corrupt snapshot");
     }
     return QueueSnapshot{*released, *next, *rate};
 }

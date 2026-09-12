@@ -14,23 +14,6 @@ constexpr std::string_view audience = "realmmesh-access";
 constexpr std::string_view purpose = "access";
 constexpr std::size_t jti_size = 32;
 
-const std::string* string_member(
-    const JsonObject& object, std::string_view key) {
-    const auto found = object.find(std::string{key});
-    if (found == object.end()) {
-        return nullptr;
-    }
-    return std::get_if<std::string>(&found->second);
-}
-
-const std::int64_t* int_member(const JsonObject& object, std::string_view key) {
-    const auto found = object.find(std::string{key});
-    if (found == object.end()) {
-        return nullptr;
-    }
-    return std::get_if<std::int64_t>(&found->second);
-}
-
 }  // namespace
 
 IdentityTokenCodec::IdentityTokenCodec(Ed25519Seed seed, std::string kid)
@@ -70,13 +53,13 @@ std::optional<IdentityClaims> IdentityTokenCodec::validate(
         return std::nullopt;
     }
 
-    const auto* issuer = string_member(*payload, "iss");
-    const auto* sub = string_member(*payload, "sub");
-    const auto* audience_member = string_member(*payload, "aud");
-    const auto* purpose_member = string_member(*payload, "purpose");
-    const auto* jti = string_member(*payload, "jti");
-    const auto* issued_at = int_member(*payload, "iat");
-    const auto* expires_at = int_member(*payload, "exp");
+    const auto* issuer = json_string_member(*payload, "iss");
+    const auto* sub = json_string_member(*payload, "sub");
+    const auto* audience_member = json_string_member(*payload, "aud");
+    const auto* purpose_member = json_string_member(*payload, "purpose");
+    const auto* jti = json_string_member(*payload, "jti");
+    const auto* issued_at = json_int_member(*payload, "iat");
+    const auto* expires_at = json_int_member(*payload, "exp");
     if (payload->size() != 7 || issuer == nullptr || sub == nullptr ||
         audience_member == nullptr || purpose_member == nullptr ||
         jti == nullptr || issued_at == nullptr || expires_at == nullptr) {

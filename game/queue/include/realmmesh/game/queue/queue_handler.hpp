@@ -2,7 +2,7 @@
 
 #include "realmmesh/game/common/identity_token.hpp"
 #include "realmmesh/game/queue/queue_core.hpp"
-#include "realmmesh/game/queue/queue_ticket.hpp"
+#include "realmmesh/game/queue/queue_number.hpp"
 #include "realmmesh/network/http/http1_parser.hpp"
 #include "realmmesh/network/http/http1_response.hpp"
 
@@ -25,16 +25,16 @@ public:
 
     static constexpr int error_invalid_request = 1000;
     static constexpr int error_invalid_credentials = 1001;
-    static constexpr int error_invalid_ticket = 2001;
+    static constexpr int error_invalid_number = 2001;
 
     QueueHandler(
         QueueCore& core,
         const common::IdentityTokenCodec& identity_codec,
-        const QueueTicketCodec& ticket_codec,
+        const QueueNumberCodec& number_codec,
         Clock clock,
-        std::string_view identity_issuer = "realmmesh/login-verify",
-        std::chrono::seconds queued_ticket_ttl = std::chrono::seconds{3600},
-        std::chrono::seconds admit_grace = std::chrono::seconds{300});
+        std::string_view identity_issuer,
+        std::chrono::seconds queued_number_ttl,
+        std::chrono::seconds admit_grace);
 
     [[nodiscard]] network::Http1Response handle(
         const network::Http1Request& request) const;
@@ -42,10 +42,10 @@ public:
 private:
     QueueCore* core_;
     const common::IdentityTokenCodec* identity_codec_;
-    const QueueTicketCodec* ticket_codec_;
+    const QueueNumberCodec* number_codec_;
     Clock clock_;
     std::string identity_issuer_;
-    std::chrono::seconds queued_ticket_ttl_;
+    std::chrono::seconds queued_number_ttl_;
     std::chrono::seconds admit_grace_;
 };
 

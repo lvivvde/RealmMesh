@@ -3,7 +3,7 @@
 #include "realmmesh/game/common/identity_token.hpp"
 #include "realmmesh/game/common/json.hpp"
 #include "realmmesh/game/queue/queue_core.hpp"
-#include "realmmesh/game/queue/queue_ticket.hpp"
+#include "realmmesh/game/queue/queue_number.hpp"
 
 #include <gtest/gtest.h>
 
@@ -22,6 +22,24 @@ using common::IdentityClaims;
 using common::IdentityTokenCodec;
 using common::JsonCodec;
 using common::JsonObject;
+using common::JsonValue;
+
+/// 放行响应按 spec 携带嵌套 admit_grant(JsonCodec 只编扁平对象):
+/// 截取嵌套对象解码;嵌套体内无子对象,首个 '}' 即闭合。
+[[nodiscard]] std::optional<JsonObject> decode_admit_grant(
+    std::string_view body) {
+    static constexpr std::string_view marker = "\"admit_grant\":";
+    const auto marker_at = body.find(marker);
+    if (marker_at == std::string_view::npos) {
+        return std::nullopt;
+    }
+    const auto start = marker_at + marker.size();
+    const auto end = body.find('}', start);
+    if (end == std::string_view::npos) {
+        return std::nullopt;
+    }
+    return JsonCodec::decode(body.substr(start, end - start + 1));
+}
 
 /// 只测 QueueHandler 外显行为:路由、Bearer 分档拒绝、幂等发号、
 /// 位次与放行重签。时间注入可推进,验证号牌时效。
@@ -31,15 +49,17 @@ protected:
         identity_codec_ = std::make_unique<IdentityTokenCodec>(
             common::parse_identity_seed_hex(kSeedHex),
             std::string{kIdentityKid});
-        ticket_codec_ = std::make_unique<QueueTicketCodec>(
+        number_codec_ = std::make_unique<QueueNumberCodec>(
             common::parse_identity_seed_hex(kSeedHex), std::string{kKid});
         core_ = std::make_unique<QueueCore>(100);
         handler_ = std::make_unique<QueueHandler>(
             *core_,
             *identity_codec_,
-            *ticket_codec_,
+            *number_codec_,
             [this] { return now_; },
-            std::string{kIssuer});
+            std::string{kIssuer},
+            std::chrono::seconds{3600},
+            std::chrono::seconds{300});
     }
 
     /// jti 需 32 字符小写 hex;suffix 变体保证不同身份。
@@ -91,12 +111,12 @@ protected:
         std::chrono::system_clock::time_point{
             std::chrono::seconds{1'700'000'000}};
     std::unique_ptr<IdentityTokenCodec> identity_codec_;
-    std::unique_ptr<QueueTicketCodec> ticket_codec_;
+    std::unique_ptr<QueueNumberCodec> number_codec_;
     std::unique_ptr<QueueCore> core_;
     std::unique_ptr<QueueHandler> handler_;
 };
 
-TEST_F(QueueHandlerTest, IssuesSequentialTicketsForDistinctIdentities) {
+TEST_F(QueueHandlerTest, IssuesSequentialNumbersForDistinctIdentities) {
     const auto first = handler_->handle(
         request("POST", "/v1/queue/tickets", identity_token(jti("01"))));
     ASSERT_EQ(first.status, 202);
@@ -115,7 +135,7 @@ TEST_F(QueueHandlerTest, IssuesSequentialTicketsForDistinctIdentities) {
     const auto* token = std::get_if<std::string>(
         &first_payload->at("queue_number_token"));
     ASSERT_NE(token, nullptr);
-    const auto claims = ticket_codec_->validate(*token, now_);
+    const auto claims = number_codec_->validate(*token, now_);
     ASSERT_TRUE(claims.has_value());
     EXPECT_EQ(claims->number, 1U);
     EXPECT_FALSE(claims->admitted);
@@ -251,7 +271,7 @@ TEST_F(QueueHandlerTest, ProgressReportsWaterLevelsAndCachePolicy) {
     EXPECT_EQ(std::get<std::int64_t>(after_payload->at("admit_rate")), 3);
 }
 
-TEST_F(QueueHandlerTest, QueuedTicketReportsLivePosition) {
+TEST_F(QueueHandlerTest, QueuedNumberReportsLivePosition) {
     const auto first = handler_->handle(
         request("POST", "/v1/queue/tickets", identity_token(jti("01"))));
     const auto second = handler_->handle(
@@ -284,7 +304,7 @@ TEST_F(QueueHandlerTest, QueuedTicketReportsLivePosition) {
     EXPECT_EQ(payload->find("queue_number_token"), payload->end());
 }
 
-TEST_F(QueueHandlerTest, AdmittedTicketGetsResignedGrant) {
+TEST_F(QueueHandlerTest, AdmittedNumberGetsResignedGrant) {
     const auto issued = handler_->handle(
         request("POST", "/v1/queue/tickets", identity_token(jti("01"))));
     ASSERT_EQ(issued.status, 202);
@@ -303,18 +323,22 @@ TEST_F(QueueHandlerTest, AdmittedTicketGetsResignedGrant) {
     const auto admitted = handler_->handle(
         request("GET", "/v1/queue/tickets/me", *token));
     ASSERT_EQ(admitted.status, 200);
-    const auto payload = JsonCodec::decode(admitted.body);
-    ASSERT_TRUE(payload.has_value());
-    EXPECT_EQ(std::get<std::string>(payload->at("status")), "admitted");
-    EXPECT_EQ(std::get<std::int64_t>(payload->at("position")), 0);
-    EXPECT_EQ(std::get<std::int64_t>(payload->at("estimated_wait_seconds")), 0);
-    EXPECT_EQ(std::get<std::int64_t>(payload->at("expires_in")), 300);
+    // 外层契约(§5.1):状态/位次/估时,无散置凭证字段;凭证嵌套在
+    // admit_grant 内且含号值(encode 键序确定,首尾段可比对)。
+    EXPECT_TRUE(std::string_view{admitted.body}.starts_with(
+        R"({"admit_grant":{"expires_in":300,"number":1,"queue_number_token":")"));
+    EXPECT_TRUE(std::string_view{admitted.body}.ends_with(
+        R"(,"estimated_wait_seconds":0,"position":0,"status":"admitted"})"));
+    const auto grant_payload = decode_admit_grant(admitted.body);
+    ASSERT_TRUE(grant_payload.has_value());
+    EXPECT_EQ(std::get<std::int64_t>(grant_payload->at("number")), 1);
+    EXPECT_EQ(std::get<std::int64_t>(grant_payload->at("expires_in")), 300);
 
     // 放行凭证 = 重签号牌:admitted 置位、号值不变、时效为放行宽限。
     const auto* grant = std::get_if<std::string>(
-        &payload->at("queue_number_token"));
+        &grant_payload->at("queue_number_token"));
     ASSERT_NE(grant, nullptr);
-    const auto grant_claims = ticket_codec_->validate(*grant, now_);
+    const auto grant_claims = number_codec_->validate(*grant, now_);
     ASSERT_TRUE(grant_claims.has_value());
     EXPECT_EQ(grant_claims->number, 1U);
     EXPECT_TRUE(grant_claims->admitted);
@@ -327,23 +351,24 @@ TEST_F(QueueHandlerTest, AdmittedTicketGetsResignedGrant) {
     const auto again = handler_->handle(
         request("GET", "/v1/queue/tickets/me", *grant));
     ASSERT_EQ(again.status, 200);
-    const auto again_payload = JsonCodec::decode(again.body);
+    const auto again_payload = decode_admit_grant(again.body);
     ASSERT_TRUE(again_payload.has_value());
-    EXPECT_EQ(std::get<std::string>(again_payload->at("status")), "admitted");
+    EXPECT_TRUE(std::string_view{again.body}.ends_with(
+        R"("status":"admitted"})"));
 }
 
-TEST_F(QueueHandlerTest, InvalidOrExpiredTicketIs2001) {
+TEST_F(QueueHandlerTest, InvalidOrExpiredNumberIs2001) {
     const auto absent = handler_->handle(request("GET", "/v1/queue/tickets/me"));
     EXPECT_EQ(absent.status, 401);
-    EXPECT_EQ(code_of(absent), QueueHandler::error_invalid_ticket);
+    EXPECT_EQ(code_of(absent), QueueHandler::error_invalid_number);
 
     const auto garbage = handler_->handle(
         request("GET", "/v1/queue/tickets/me", std::string{"not-a-token"}));
     EXPECT_EQ(garbage.status, 401);
-    EXPECT_EQ(code_of(garbage), QueueHandler::error_invalid_ticket);
+    EXPECT_EQ(code_of(garbage), QueueHandler::error_invalid_number);
 
     // 过期号牌:签发于 now,查询时已越过 exp + 宽限。
-    const auto stale = ticket_codec_->issue(QueueTicketClaims{
+    const auto stale = number_codec_->issue(QueueNumberClaims{
         .number = 1,
         .admitted = false,
         .issued_at = now_,
@@ -353,7 +378,7 @@ TEST_F(QueueHandlerTest, InvalidOrExpiredTicketIs2001) {
     const auto expired = handler_->handle(
         request("GET", "/v1/queue/tickets/me", stale));
     EXPECT_EQ(expired.status, 401);
-    EXPECT_EQ(code_of(expired), QueueHandler::error_invalid_ticket);
+    EXPECT_EQ(code_of(expired), QueueHandler::error_invalid_number);
 }
 
 TEST_F(QueueHandlerTest, WrongMethodAndUnknownPath) {
@@ -372,9 +397,9 @@ TEST_F(QueueHandlerTest, HealthzAndQueryStrings) {
     EXPECT_EQ(health.status, 200);
     EXPECT_EQ(health.body, "ok");
 
-    const auto ticket = handler_->handle(
+    const auto response = handler_->handle(
         request("POST", "/v1/queue/tickets?src=test", identity_token(jti("01"))));
-    EXPECT_EQ(ticket.status, 202);
+    EXPECT_EQ(response.status, 202);
     const auto progress =
         handler_->handle(request("GET", "/v1/queue/progress?brief=1"));
     EXPECT_EQ(progress.status, 200);

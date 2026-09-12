@@ -86,7 +86,8 @@ _Avoid_: 排队服(可作口头简称,文档用全称)、matchmaking(没有匹�
 
 **Queue Number**:
 排队调度服签发的含号值的签名凭据;客户端凭它轮询位次、断线找回,服务端不保存每客户端状态。
-_Avoid_: 号(裸号值不防伪)、ticket(与 Session Ticket 冲突)
+_Avoid_: 号(裸号值不防伪)、ticket(与 Session Ticket 冲突;线路由
+`/v1/queue/tickets*` 沿用主 spec 已发布契约,不属命名)
 
 **Admission Controller**:
 排队调度服内的速率阀门:按可用准入额度定时放一批号进网关集群。

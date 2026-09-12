@@ -21,7 +21,9 @@ public:
     /// (调用方本批停放,fail-closed)。
     [[nodiscard]] virtual std::optional<BudgetAggregate> refresh_budgets() const = 0;
 
-    /// 快照读取(冷备启动);无快照或 etcd 不可用返回 nullopt(从零开始)。
+    /// 快照读取(冷备启动)的三态契约:无快照返回 nullopt(确属空
+    /// 状态,从零开始);etcd 不可达或快照损坏抛出(std::runtime_error,
+    /// 启动失败——冷备未知时从零重发会与存量号牌冲突,fail-closed)。
     [[nodiscard]] virtual std::optional<QueueSnapshot> load_snapshot() const = 0;
 
     /// 快照写入(随放行批调用);updated_at 为 Unix 秒,仅落快照值、
@@ -40,7 +42,6 @@ public:
     struct Options {
         std::string budget_prefix{"/realmmesh/budgets/service"};
         std::string snapshot_key{"/realmmesh/queue/snapshot"};
-        std::chrono::milliseconds request_timeout{500};
     };
 
     EtcdQueueStore(

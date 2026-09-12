@@ -1,5 +1,5 @@
-realm_add_gtest(queue_ticket_test
-    SOURCES queue_ticket_test.cpp
+realm_add_gtest(queue_number_test
+    SOURCES queue_number_test.cpp
     LIBS realm_queue_service
 )
 

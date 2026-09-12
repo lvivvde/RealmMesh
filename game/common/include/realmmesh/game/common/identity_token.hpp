@@ -49,6 +49,5 @@ private:
 };
 
 /// 64 个 hex 字符(大小写均可)→ 32 字节种子;长度或字符不合规即抛出。
-/// (承载于 compact_jws.hpp。)
 
 }  // namespace realm::game::common

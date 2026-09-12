@@ -97,7 +97,6 @@ EtcdQueueStore::Options test_options() {
     return EtcdQueueStore::Options{
         .budget_prefix = "/realmmesh/budgets/service",
         .snapshot_key = std::string{snapshot_key},
-        .request_timeout = std::chrono::milliseconds{100},
     };
 }
 
@@ -199,24 +198,31 @@ TEST(QueueStoreTest, LoadSnapshotReturnsNulloptWhenMissing) {
     EXPECT_FALSE(store.load_snapshot().has_value());
 }
 
-TEST(QueueStoreTest, LoadSnapshotRejectsCorruptValues) {
+// 冷备三态契约:不可达/损坏抛出(启动失败,fail-closed),仅缺失从零。
+TEST(QueueStoreTest, LoadSnapshotFailsClosedOnUnavailableOrCorrupt) {
     const EtcdQueueStore store(test_options(), [] {
         auto client = std::make_shared<ScriptedEtcdClient>();
         client->enqueue(std::nullopt);  // etcd 不可用
         return client;
     }());
-    EXPECT_FALSE(store.load_snapshot().has_value());
+    EXPECT_THROW(store.load_snapshot(), std::runtime_error);
 
     auto inconsistent = std::make_shared<ScriptedEtcdClient>();
     inconsistent->enqueue(range_response(
         {R"({"released_number":9,"next_number":5,"admit_rate":0})"}));
     const EtcdQueueStore inconsistent_store(test_options(), inconsistent);
-    EXPECT_FALSE(inconsistent_store.load_snapshot().has_value());
+    EXPECT_THROW(inconsistent_store.load_snapshot(), std::runtime_error);
 
     auto malformed = std::make_shared<ScriptedEtcdClient>();
     malformed->enqueue(range_response({"not-json"}));
     const EtcdQueueStore malformed_store(test_options(), malformed);
-    EXPECT_FALSE(malformed_store.load_snapshot().has_value());
+    EXPECT_THROW(malformed_store.load_snapshot(), std::runtime_error);
+
+    auto missing_field = std::make_shared<ScriptedEtcdClient>();
+    missing_field->enqueue(range_response(
+        {R"({"released_number":5,"next_number":9})"}));
+    const EtcdQueueStore missing_field_store(test_options(), missing_field);
+    EXPECT_THROW(missing_field_store.load_snapshot(), std::runtime_error);
 }
 
 }  // namespace

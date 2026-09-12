@@ -44,6 +44,18 @@ namespace {
     return static_cast<std::uint64_t>(value.as<lua_Integer>());
 }
 
+/// 布尔字段;非布尔即抛。
+[[nodiscard]] bool optional_bool(
+    const sol::table& table, std::string_view field, bool fallback) {
+    const sol::object value = table.raw_get<sol::object>(std::string(field));
+    if (value == sol::lua_nil) return fallback;
+    if (!value.is<bool>()) {
+        throw std::invalid_argument(
+            "queue field " + std::string(field) + " must be a boolean");
+    }
+    return value.as<bool>();
+}
+
 /// TLS 路径:配置直填优先,否则按环境变量名解析(先例同 login_verify);
 /// 两路皆空抛 std::invalid_argument。
 [[nodiscard]] std::string path_from_config_or_environment(
@@ -98,10 +110,10 @@ QueueConfig QueueConfigLoader::parse(const sol::table& root) {
         "budget_interval_seconds",
         static_cast<std::uint64_t>(config.budget_interval.count()) / 1000U) *
         1000U);
-    config.queued_ticket_ttl = std::chrono::seconds(optional_positive(
+    config.queued_number_ttl = std::chrono::seconds(optional_positive(
         table,
-        "queued_ticket_ttl_seconds",
-        static_cast<std::uint64_t>(config.queued_ticket_ttl.count())));
+        "queued_number_ttl_seconds",
+        static_cast<std::uint64_t>(config.queued_number_ttl.count())));
     config.admit_grace = std::chrono::seconds(optional_positive(
         table,
         "admit_grace_seconds",
@@ -118,6 +130,8 @@ QueueConfig QueueConfigLoader::parse(const sol::table& root) {
         optional_string(table, "snapshot_key", config.snapshot_key);
     config.etcd_endpoint =
         optional_string(table, "etcd_endpoint", config.etcd_endpoint);
+    config.snapshot_required =
+        optional_bool(table, "snapshot_required", config.snapshot_required);
     config.tls = network::TransportConfig::TlsServerIdentity{
         .certificate_chain_file = path_from_config_or_environment(
             table,

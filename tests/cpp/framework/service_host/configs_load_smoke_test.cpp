@@ -1,4 +1,5 @@
 #include "realmmesh/scripting/lua_runtime.hpp"
+#include "realmmesh/game/queue/queue_config.hpp"
 #include "realmmesh/service_host/layered_config_loader.hpp"
 
 #include <gtest/gtest.h>
@@ -94,6 +95,9 @@ TEST_F(ConfigsLoadSmokeTest, QueueConfigLoadsThroughDedicatedLoader) {
     // 快照/额度 key 契约(§5.2)与生产 etcd 路径默认值在配置中可见。
     EXPECT_EQ(config.queue.budget_prefix, "/realmmesh/budgets/service");
     EXPECT_EQ(config.queue.snapshot_key, "/realmmesh/queue/snapshot");
+    // 开发配置显式关闭冷备强校验(无 etcd 网状);代码默认必须为 true。
+    EXPECT_FALSE(config.queue.snapshot_required);
+    EXPECT_TRUE((game::queue::QueueConfig{}.snapshot_required));
 }
 
 TEST_F(ConfigsLoadSmokeTest, EveryConfigFileCompilesInLuaRuntime) {

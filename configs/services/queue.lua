@@ -27,5 +27,7 @@ return {
         private_key_file_environment = "REALMMESH_TLS_PRIVATE_KEY_FILE",
         alpn = "http/1.1",
         etcd_endpoint = "http://127.0.0.1:2379",
+        -- 开发网状无 etcd:冷备缺失降级为告警;生产部署必须为 true(默认)。
+        snapshot_required = false,
     },
 }
