@@ -39,16 +39,11 @@ namespace {
     return game::common::parse_ticket_key_hex(value);
 }
 
-[[nodiscard]] bool known_service(std::string_view service_name) {
-    return service_name == "login" || service_name == "realm" ||
-           service_name == "gateway";
-}
-
 /// 未知服务无业务帧,ticket 门面仅为成员占位(不会被调用);
 /// codec 拒绝全零 key,故填非零哑值。
 [[nodiscard]] game::common::SessionTicketKey make_ticket_key(
-    std::string_view service_name) {
-    if (!known_service(service_name)) {
+    const std::optional<cluster::ServiceType>& identity) {
+    if (!identity.has_value()) {
         game::common::SessionTicketKey placeholder{};
         placeholder.fill(std::byte{1});
         return placeholder;
@@ -57,6 +52,14 @@ namespace {
 }
 
 }  // namespace
+
+std::optional<cluster::ServiceType> parse_service_identity(
+    std::string_view service_name) {
+    if (service_name == "gateway") return cluster::ServiceType::Gateway;
+    if (service_name == "login") return cluster::ServiceType::Login;
+    if (service_name == "realm") return cluster::ServiceType::Realm;
+    return std::nullopt;
+}
 
 ServiceFrame::ServiceFrame(
     std::string_view service_name,
@@ -67,18 +70,29 @@ ServiceFrame::ServiceFrame(
       downstream_address_(std::move(downstream_address)),
       downstream_port_(downstream_port),
       max_events_per_frame_(max_events_per_frame),
-      tickets_(make_ticket_key(service_name)) {
-    if (service_name_ != "gateway" && known_service(service_name_) &&
+      identity_(parse_service_identity(service_name)),
+      tickets_(make_ticket_key(identity_)) {
+    if (identity_.has_value() &&
+        identity_ != cluster::ServiceType::Gateway &&
         (downstream_address_.empty() || downstream_port_ == 0)) {
         throw std::invalid_argument(
             service_name_ + " downstream endpoint is required");
     }
 }
 
+bool ServiceFrame::absorb_lifecycle(
+    const game::gateway::GatewayEvent& event) {
+    if (event.kind == game::gateway::GatewayEventKind::SessionClosed) {
+        authenticated_.erase(event.session_id);
+        return false;
+    }
+    return event.kind == game::gateway::GatewayEventKind::MessageReceived;
+}
+
 void ServiceFrame::started(
     observability::Logger& logger,
     const game::gateway::GatewayRuntime& runtime) const {
-    if (service_name_ == "gateway") {
+    if (identity_ == cluster::ServiceType::Gateway) {
         for (const auto& endpoint : runtime.local_endpoints()) {
             static_cast<void>(logger.info(
                 "listener_started",
@@ -93,7 +107,7 @@ void ServiceFrame::started(
             logger.info("service_started", "gateway service started"));
         return;
     }
-    if (!known_service(service_name_)) return;
+    if (!identity_.has_value()) return;
     static_cast<void>(logger.info(
         "service_started",
         service_name_ + " service started",
@@ -105,20 +119,27 @@ void ServiceFrame::tick(
     observability::Logger& logger,
     game::gateway::GatewayRuntime& runtime,
     cluster::ServiceResolver* resolver) {
-    if (service_name_ == "login") {
+    if (!identity_.has_value()) {
+        return;
+    }
+    switch (*identity_) {
+    case cluster::ServiceType::Login:
         handle_login_events(logger, runtime, resolver);
-    } else if (service_name_ == "realm") {
+        break;
+    case cluster::ServiceType::Realm:
         handle_realm_events(logger, runtime, resolver);
-    } else if (service_name_ == "gateway") {
+        break;
+    case cluster::ServiceType::Gateway:
         handle_gateway_events(logger, runtime);
+        break;
     }
 }
 
 void ServiceFrame::stopped(
     observability::Logger& logger,
     const game::gateway::GatewayRuntime& runtime) const {
-    if (!known_service(service_name_)) return;
-    if (service_name_ == "gateway") {
+    if (!identity_.has_value()) return;
+    if (identity_ == cluster::ServiceType::Gateway) {
         const auto stats = runtime.stats();
         static_cast<void>(logger.info(
             "service_stopped",
@@ -143,7 +164,7 @@ void ServiceFrame::handle_login_events(
     game::gateway::GatewayRuntime& runtime,
     cluster::ServiceResolver* resolver) {
     for (auto& event : runtime.drain_events(max_events_per_frame_)) {
-        if (event.kind != game::gateway::GatewayEventKind::MessageReceived) {
+        if (!absorb_lifecycle(event)) {
             continue;
         }
 
@@ -156,7 +177,7 @@ void ServiceFrame::handle_login_events(
                                    request->credential() == "dev";
         if (!authenticated) {
             game::common::EdgeError error;
-            error.set_code(1001);
+            error.set_code(game::common::edge_error_invalid_credentials);
             error.set_message("invalid credentials");
             response = game::common::encode(error, request_id);
         } else {
@@ -213,15 +234,7 @@ void ServiceFrame::handle_realm_events(
     game::gateway::GatewayRuntime& runtime,
     cluster::ServiceResolver* resolver) {
     for (auto& event : runtime.drain_events(max_events_per_frame_)) {
-        if (event.kind == game::gateway::GatewayEventKind::SessionClosed) {
-            authenticated_.erase(event.session_id);
-            continue;
-        }
-        if (event.kind == game::gateway::GatewayEventKind::SessionEstablished) {
-            // claims 已在 authenticate 分支写入;迁移通知本身无携带状态。
-            continue;
-        }
-        if (event.kind != game::gateway::GatewayEventKind::MessageReceived) {
+        if (!absorb_lifecycle(event)) {
             continue;
         }
 
@@ -241,7 +254,7 @@ void ServiceFrame::handle_realm_events(
                 redeemed.claims.realm_id == 1;
             if (!authenticated) {
                 game::common::EdgeError error;
-                error.set_code(2001);
+                error.set_code(game::common::edge_error_invalid_login_ticket);
                 error.set_message("invalid login ticket");
                 response = game::common::encode(error, request_id);
             } else {
@@ -333,7 +346,7 @@ void ServiceFrame::handle_realm_events(
             response = game::common::encode(issued, request_id);
         } else {
             game::common::EdgeError error;
-            error.set_code(2002);
+            error.set_code(game::common::edge_error_not_authenticated);
             error.set_message("authenticate before selecting character");
             response = game::common::encode(error, request_id);
         }
@@ -344,14 +357,7 @@ void ServiceFrame::handle_realm_events(
 void ServiceFrame::handle_gateway_events(
     observability::Logger& logger, game::gateway::GatewayRuntime& runtime) {
     for (auto& event : runtime.drain_events(max_events_per_frame_)) {
-        if (event.kind == game::gateway::GatewayEventKind::SessionClosed) {
-            authenticated_.erase(event.session_id);
-            continue;
-        }
-        if (event.kind == game::gateway::GatewayEventKind::SessionEstablished) {
-            continue;
-        }
-        if (event.kind != game::gateway::GatewayEventKind::MessageReceived) {
+        if (!absorb_lifecycle(event)) {
             continue;
         }
 
@@ -371,7 +377,8 @@ void ServiceFrame::handle_gateway_events(
             std::vector<std::byte> response;
             if (!accepted_ticket) {
                 game::common::EdgeError error;
-                error.set_code(3001);
+                error.set_code(
+                    game::common::edge_error_invalid_enter_game_ticket);
                 error.set_message("invalid or replayed enter-game ticket");
                 response = game::common::encode(error, request_id);
             } else {

@@ -58,6 +58,32 @@ _Avoid_: Client Session(旧名)、Pending Connection(旧名,pending 是阶段,�
 Edge Session 当前唯一的传输通道;QUIC 与 TLS/TCP 是建连时的二选一候选,不是会话内的双通道。
 _Avoid_: backup channel、secondary transport、failover
 
+### Access
+
+**Login Verifier**:
+登录链路的第一站:无状态、可水平扩展,只回答账号是否有效(有效、封禁、白名单),通过后签发身份 Token;取代旧 Login 服的对外职责。
+_Avoid_: 登录服(旧 Login 服已退役)、鉴权服(鉴权在本仓库专指票据兑换)、auth server
+
+**Identity Token**:
+登录健全服签发的可验签凭据(JWT/EdDSA);边缘、排队调度服、网关各自本地验签,不引入共享状态。
+_Avoid_: 裸用 token(须指明是身份 Token 还是排队号牌)、login ticket(旧机制名)、credential(那是登录请求里的口令字段)
+
+**Queue Scheduler**:
+发号、查号并按准入额度分批放行玩家进网关集群的服务;唯一权威状态是已放行号。
+_Avoid_: 排队服(可作口头简称,文档用全称)、matchmaking(没有匹配语义)
+
+**Queue Number**:
+排队调度服签发的含号值的签名凭据;客户端凭它轮询位次、断线找回,服务端不保存每客户端状态。
+_Avoid_: 号(裸号值不防伪)、ticket(与 Session Ticket 冲突)
+
+**Admission Controller**:
+排队调度服内的速率阀门:按可用准入额度定时放一批号进网关集群。
+_Avoid_: rate limiter(限流专指网关本地拉取的执行概念)、gate、valve
+
+**Admission Budget**:
+网关实例广播的剩余接纳能力(连接余量与拉取并发余量);准入控制器放批的依据。
+_Avoid_: capacity(容量是规格层面的总量概念)、load(负载是原始观测,额度是上报值)
+
 ### Messaging
 
 **Envelope**:

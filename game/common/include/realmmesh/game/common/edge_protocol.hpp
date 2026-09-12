@@ -30,6 +30,12 @@ using EdgeTransportProtocol =
 
 inline constexpr std::uint32_t kEdgeProtocolVersion = 1;
 
+/// EdgeError.code 的取值:按发起服务分段(login 1xxx、realm 2xxx、gateway 3xxx)。
+inline constexpr int edge_error_invalid_credentials = 1001;
+inline constexpr int edge_error_invalid_login_ticket = 2001;
+inline constexpr int edge_error_not_authenticated = 2002;
+inline constexpr int edge_error_invalid_enter_game_ticket = 3001;
+
 [[nodiscard]] inline std::span<const std::byte> protobuf_bytes(
     std::string_view value) noexcept {
     return {

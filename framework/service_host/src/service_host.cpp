@@ -6,6 +6,7 @@
 #include "realmmesh/cluster/service_resolver.hpp"
 #include "realmmesh/game/gateway/gateway_runtime.hpp"
 #include "realmmesh/observability/logger.hpp"
+#include "realmmesh/service_host/service_frame.hpp"
 
 #include <chrono>
 #include <optional>
@@ -18,16 +19,6 @@ namespace {
 
 /// 注册到发现中心的服务版本(与原 main 装配一致)。
 constexpr std::string_view service_version = "0.1.0";
-
-/// 注册自身类型映射:gateway/realm/login 之外的名字无发现语义。
-[[nodiscard]] cluster::ServiceType self_service_type(
-    std::string_view service_name) {
-    if (service_name == "gateway") return cluster::ServiceType::Gateway;
-    if (service_name == "realm") return cluster::ServiceType::Realm;
-    if (service_name == "login") return cluster::ServiceType::Login;
-    throw std::invalid_argument(
-        "unsupported service name: " + std::string(service_name));
-}
 
 /// 依赖解析对象映射:gateway→Login、login→Realm、realm→Gateway。
 [[nodiscard]] cluster::ServiceType dependency_service_type(
@@ -102,7 +93,11 @@ bool ServiceHost::start() {
     std::optional<cluster::ServiceType> dependency_type;
     if (discovery_config_.enabled) {
         // 纯配置校验先行:未知服务名在启动 I/O 或触碰 etcd 前即失败。
-        self_type = self_service_type(service_name_);
+        self_type = parse_service_identity(service_name_);
+        if (!self_type.has_value()) {
+            throw std::invalid_argument(
+                "unsupported service name: " + service_name_);
+        }
         dependency_type = dependency_service_type(service_name_);
     }
     runtime_->start();

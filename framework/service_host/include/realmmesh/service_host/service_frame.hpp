@@ -1,10 +1,12 @@
 #pragma once
 
+#include "realmmesh/cluster/service_registry.hpp"
 #include "realmmesh/game/common/session_ticket.hpp"
 #include "realmmesh/game/gateway/edge_session_table.hpp"
 
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -15,6 +17,7 @@ class ServiceResolver;
 
 namespace realm::game::gateway {
 class GatewayRuntime;
+struct GatewayEvent;
 }  // namespace realm::game::gateway
 
 namespace realm::observability {
@@ -23,9 +26,13 @@ class Logger;
 
 namespace realm::service_host {
 
+/// 服务名 → 集群身份的唯一映射;gateway/realm/login 之外的名字无身份。
+[[nodiscard]] std::optional<cluster::ServiceType> parse_service_identity(
+    std::string_view service_name);
+
 /// 单服务业务帧:搬运自旧 apps/{login,realm,gateway}/main.cpp 的消息循环。
-/// login/realm/gateway 之外的服务名不处理业务消息(帧循环空转);
-/// 三类已知服务要求 REALMMESH_SESSION_TICKET_KEY 已设置(与旧 main 一致,
+/// 构造时把服务名解析为身份;无身份的服务名不处理业务消息(帧循环空转)。
+/// 已知服务要求 REALMMESH_SESSION_TICKET_KEY 已设置(与旧 main 一致,
 /// 缺失时构造抛 std::runtime_error)。
 class ServiceFrame final {
 public:
@@ -51,6 +58,10 @@ public:
         const game::gateway::GatewayRuntime& runtime) const;
 
 private:
+    /// 会话生命周期簿记:SessionClosed 清除票据 claims,SessionEstablished
+    /// 无携带状态(claims 在 authenticate 分支写入);返回是否为业务消息。
+    [[nodiscard]] bool absorb_lifecycle(
+        const game::gateway::GatewayEvent& event);
     void handle_login_events(
         observability::Logger& logger,
         game::gateway::GatewayRuntime& runtime,
@@ -66,6 +77,7 @@ private:
     std::string downstream_address_;
     std::uint16_t downstream_port_{0};
     std::size_t max_events_per_frame_{0};
+    std::optional<cluster::ServiceType> identity_;
     game::common::SessionTickets tickets_;
     /// 票据 claims 以 EdgeSessionId 寻址:authenticate 分支先写入,
     /// accept 成功(SessionEstablished)后生效,SessionClosed 时清除。
