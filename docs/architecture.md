@@ -99,7 +99,7 @@ MsQuic 自有调度不会直接调用业务逻辑。回调只完成长度帧组�
 
 - `framework/network`：QUIC、TLS/TCP、长度帧、客户端竞速策略。
 - `game/gateway`：Edge Session 表(pending/established)、运行时队列与 I/O 线程。
-- `game/common`：Envelope 编解码和业务票据。
+- `game/common`：Envelope 编解码、业务票据与账号数据源抽象（AccountStore）。
 - `framework/cluster`：多协议端点注册与发现。
 - `framework/service_host`：把服务名、分层配置与集群接线装配成一个可运行服务。
 - `apps/mesh_host`：`realm_mesh` 单一入口，以 `--service` 区分三段服务与信号处理。

@@ -1,3 +1,9 @@
+realm_add_gtest(account_store_test
+    SOURCES account_store_test.cpp
+    LIBS realm_game_common
+    INCLUDE_DIRS ${PROJECT_SOURCE_DIR}/tests/cpp/support/include
+)
+
 realm_add_gtest(base64url_test
     SOURCES base64url_test.cpp
     LIBS realm_game_common
