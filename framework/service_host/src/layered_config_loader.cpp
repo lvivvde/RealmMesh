@@ -84,52 +84,60 @@ Return call_merger(
     return result.get<Return>();
 }
 
-}  // namespace
+/// 合并后的分层根表:runtime 必须与 root 同生命周期(root 引用其 Lua 态)。
+struct MergedLayers {
+    scripting::LuaRuntime runtime;
+    sol::table root;
+};
 
-game::gateway::GatewayConfig LayeredConfigLoader::load(
+/// 公共装载管线(出参形式,避免移动持 Lua 态的对象):服务层 + 公共层
+/// 深合并(公共层先互并,服务层最后并入,服务层值胜)、CLI 覆盖、实例
+/// 身份与日志身份注入。parse 前置工作全在这里,各 load_* 只剩解析分派。
+void merged_layers(
+    MergedLayers& layers,
     const std::filesystem::path& config_root,
     std::string_view service_name,
     const CliOverrides& overrides) {
-    scripting::LuaRuntime runtime;
     std::string error;
-    if (!runtime.load_module_source("config_merger", merge_script, &error)) {
+    if (!layers.runtime.load_module_source(
+            "config_merger", merge_script, &error)) {
         throw std::runtime_error("failed to load merge script: " + error);
     }
 
     // 服务层表:services/<name>.lua 缺失或语法错误 → runtime_error。
     const std::filesystem::path service_file =
         config_root / "services" / (std::string(service_name) + ".lua");
-    if (!runtime.load_module("service_config", service_file, &error)) {
+    if (!layers.runtime.load_module("service_config", service_file, &error)) {
         throw std::runtime_error(
             "failed to load service configuration: " + error);
     }
-    sol::table service_table = runtime.module("service_config");
+    layers.root = layers.runtime.module("service_config");
 
     // 公共层按文件名序相互深合并(后文件胜),服务层最后并入(服务层值胜)。
-    sol::table root;
+    sol::table common_root;
     bool has_common = false;
     for (const auto& file : lua_files(config_root / "common")) {
-        if (!runtime.load_module("common_config", file, &error)) {
+        if (!layers.runtime.load_module("common_config", file, &error)) {
             throw std::runtime_error(
                 "failed to load common configuration: " + error);
         }
         if (has_common) {
-            call_merger<sol::table>(
-                runtime, "merge", root, runtime.module("common_config"));
+            common_root = call_merger<sol::table>(
+                layers.runtime, "merge", common_root,
+                layers.runtime.module("common_config"));
         } else {
-            root = runtime.module("common_config");
+            common_root = layers.runtime.module("common_config");
             has_common = true;
         }
     }
     if (has_common) {
-        root = call_merger<sol::table>(runtime, "merge", root, service_table);
-    } else {
-        root = service_table;
+        layers.root = call_merger<sol::table>(
+            layers.runtime, "merge", common_root, layers.root);
     }
 
     // CLI 覆盖:非空项写入 service_discovery,优先级最高。
     sol::table discovery = call_merger<sol::table>(
-        runtime, "ensure_table", root, "service_discovery");
+        layers.runtime, "ensure_table", layers.root, "service_discovery");
     if (overrides.instance_id.has_value()) {
         discovery["instance_id"] = *overrides.instance_id;
     }
@@ -140,25 +148,58 @@ game::gateway::GatewayConfig LayeredConfigLoader::load(
         discovery["zone"] = *overrides.zone;
     }
 
-    // 实例身份:CLI 覆盖 > 服务表 instance_id > 默认 "<svc>-01"。
+    // 实例身份默认值与日志身份:file_path 按实例生成,service_name 固定。
     std::string instance = string_field(discovery, "instance_id");
     if (instance.empty()) {
         instance = std::string(service_name) + "-01";
     }
-
-    // 日志身份:file_path 按实例生成,service_name 固定为服务名。
-    sol::table logging =
-        call_merger<sol::table>(runtime, "ensure_table", root, "logging");
+    sol::table logging = call_merger<sol::table>(
+        layers.runtime, "ensure_table", layers.root, "logging");
     logging["service_name"] = std::string(service_name);
     logging["file_path"] =
         (config_root / "logs" / std::string(service_name) /
          (std::string(service_name) + "-" + instance + ".jsonl"))
             .string();
+}
+
+}  // namespace
+
+game::gateway::GatewayConfig LayeredConfigLoader::load(
+    const std::filesystem::path& config_root,
+    std::string_view service_name,
+    const CliOverrides& overrides) {
+    MergedLayers layers;
+    merged_layers(layers, config_root, service_name, overrides);
 
     // parse 要求 transports 为表(可为空):未配置时补空表。
-    call_merger<sol::table>(runtime, "ensure_table", root, "transports");
+    call_merger<sol::table>(
+        layers.runtime, "ensure_table", layers.root, "transports");
 
-    return game::gateway::GatewayConfigLoader::parse(root);
+    return game::gateway::GatewayConfigLoader::parse(layers.root);
+}
+
+LayeredConfigLoader::LoginVerifyServiceConfig
+LayeredConfigLoader::load_login_verify(
+    const std::filesystem::path& config_root,
+    std::string_view service_name,
+    const CliOverrides& overrides) {
+    MergedLayers layers;
+    merged_layers(layers, config_root, service_name, overrides);
+
+    LoginVerifyServiceConfig config;
+    // 宿主级节段经由既有解析器(logging/service_discovery/metrics);
+    // parse 要求 transports 为表(可为空):未配置时补空表。
+    call_merger<sol::table>(
+        layers.runtime, "ensure_table", layers.root, "transports");
+    config.host = game::gateway::GatewayConfigLoader::parse(layers.root);
+    config.login_verify =
+        game::login_verify::LoginVerifyConfigLoader::parse(layers.root);
+
+    if (config.login_verify.accounts_file.is_relative()) {
+        config.login_verify.accounts_file =
+            config_root / config.login_verify.accounts_file;
+    }
+    return config;
 }
 
 }  // namespace realm::service_host

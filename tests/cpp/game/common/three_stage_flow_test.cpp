@@ -454,6 +454,13 @@ TEST(ThreeStageFlowTest, LogsInSelectsACharacterAndEntersTheGateway) {
     ASSERT_EQ(::setenv("REALMMESH_SESSION_TICKET_KEY", key, 1), 0);
     ASSERT_EQ(
         ::setenv(
+            "REALMMESH_IDENTITY_KEY_SEED",
+            "00112233445566778899aabbccddeeff"
+            "00112233445566778899aabbccddeeff",
+            1),
+        0);
+    ASSERT_EQ(
+        ::setenv(
             "REALMMESH_TLS_CERTIFICATE_FILE",
             REALMMESH_TEST_TLS_CERTIFICATE,
             1),
@@ -579,6 +586,7 @@ TEST(ThreeStageFlowTest, LogsInSelectsACharacterAndEntersTheGateway) {
     EXPECT_EQ(*realm_correlation, *login_correlation);
     EXPECT_EQ(*gateway_correlation, *login_correlation);
     static_cast<void>(::unsetenv("REALMMESH_SESSION_TICKET_KEY"));
+    static_cast<void>(::unsetenv("REALMMESH_IDENTITY_KEY_SEED"));
     static_cast<void>(::unsetenv("REALMMESH_TLS_CERTIFICATE_FILE"));
     static_cast<void>(::unsetenv("REALMMESH_TLS_PRIVATE_KEY_FILE"));
 }

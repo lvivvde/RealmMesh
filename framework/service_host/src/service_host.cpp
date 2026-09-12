@@ -5,6 +5,7 @@
 #include "realmmesh/cluster/service_publisher.hpp"
 #include "realmmesh/cluster/service_resolver.hpp"
 #include "realmmesh/game/gateway/gateway_runtime.hpp"
+#include "realmmesh/game/login_verify/login_verify_service.hpp"
 #include "realmmesh/observability/logger.hpp"
 #include "realmmesh/service_host/service_frame.hpp"
 
@@ -20,12 +21,14 @@ namespace {
 /// 注册到发现中心的服务版本(与原 main 装配一致)。
 constexpr std::string_view service_version = "0.1.0";
 
-/// 依赖解析对象映射:gateway→Login、login→Realm、realm→Gateway。
-[[nodiscard]] cluster::ServiceType dependency_service_type(
+/// 依赖解析对象映射:gateway→Login、login→Realm、realm→Gateway;
+/// login_verify 无下游依赖(无状态 HTTPS 服务)。
+[[nodiscard]] std::optional<cluster::ServiceType> dependency_service_type(
     std::string_view service_name) {
     if (service_name == "gateway") return cluster::ServiceType::Login;
     if (service_name == "login") return cluster::ServiceType::Realm;
     if (service_name == "realm") return cluster::ServiceType::Gateway;
+    if (service_name == "login_verify") return std::nullopt;
     throw std::invalid_argument(
         "unsupported service name: " + std::string(service_name));
 }
@@ -61,8 +64,21 @@ ServiceHost::ServiceHost(
     std::string_view service_name,
     const CliOverrides& overrides)
     : service_name_(service_name) {
-    auto config =
-        LayeredConfigLoader::load(config_root, service_name, overrides);
+    // login_verify 是第二种服务形态:宿主级节段仍走 GatewayConfig 的
+    // 解析面,业务体换成 LoginVerifyService(无 ServiceFrame/EdgeSession)。
+    std::unique_ptr<game::login_verify::LoginVerifyService> login_verify;
+    game::gateway::GatewayConfig config;
+    if (service_name_ == "login_verify") {
+        auto login_verify_config = LayeredConfigLoader::load_login_verify(
+            config_root, service_name, overrides);
+        login_verify =
+            std::make_unique<game::login_verify::LoginVerifyService>(
+                std::move(login_verify_config.login_verify));
+        config = std::move(login_verify_config.host);
+    } else {
+        config =
+            LayeredConfigLoader::load(config_root, service_name, overrides);
+    }
     discovery_config_ = config.service_discovery;
     // 实例标识默认值与 LayeredConfigLoader 的日志文件命名保持一致。
     instance_ = discovery_config_.instance_id.empty()
@@ -76,6 +92,10 @@ ServiceHost::ServiceHost(
                 return prometheus_metrics();
             },
             config.logging_metrics);
+    }
+    if (login_verify != nullptr) {
+        login_verify_ = std::move(login_verify);
+        return;
     }
     frame_ = std::make_unique<ServiceFrame>(
         service_name_,
@@ -100,8 +120,15 @@ bool ServiceHost::start() {
         }
         dependency_type = dependency_service_type(service_name_);
     }
-    runtime_->start();
-    if (!runtime_->running()) return false;
+    bool running = false;
+    if (login_verify_ != nullptr) {
+        login_verify_->start(logger_.get());
+        running = login_verify_->running();
+    } else {
+        runtime_->start();
+        running = runtime_->running();
+    }
+    if (!running) return false;
     try {
         if (discovery_config_.enabled) {
             // 重启场景按引用链反序清理旧装配,避免 publisher 悬挂 registry。
@@ -115,7 +142,10 @@ bool ServiceHost::start() {
                 cluster::make_service_instance(
                     *self_type,
                     discovery_config_,
-                    runtime_->local_endpoints(),
+                    login_verify_ != nullptr
+                        ? std::span<const network::TransportEndpoint>(
+                              login_verify_->local_endpoints())
+                        : runtime_->local_endpoints(),
                     service_version),
                 discovery_config_.lease_ttl);
             const bool registered = publisher_->tick();
@@ -133,12 +163,16 @@ bool ServiceHost::start() {
                      observability::field(
                          "error_message", registry_->last_error())}));
             }
-            resolver_ = std::make_unique<cluster::ServiceResolver>(
-                *registry_,
-                *dependency_type,
-                network::TransportProtocol::TlsTcp);
+            if (dependency_type.has_value()) {
+                resolver_ = std::make_unique<cluster::ServiceResolver>(
+                    *registry_,
+                    *dependency_type,
+                    network::TransportProtocol::TlsTcp);
+            }
         }
-        frame_->started(*logger_, *runtime_);
+        if (frame_ != nullptr) {
+            frame_->started(*logger_, *runtime_);
+        }
         // 重启场景:成功启动后复位停机标志,允许再次 stop() 写出事件。
         started_ = true;
         stopped_ = false;
@@ -148,7 +182,11 @@ bool ServiceHost::start() {
         }
         return ready_.load();
     } catch (...) {
-        runtime_->stop();
+        if (login_verify_ != nullptr) {
+            login_verify_->stop();
+        } else if (runtime_ != nullptr) {
+            runtime_->stop();
+        }
         resolver_.reset();
         publisher_.reset();
         registry_.reset();
@@ -164,10 +202,18 @@ void ServiceHost::stop() {
     // 未写过 service_started 的失败启动不补写无配对的 service_stopped。
     if (stopped_) return;
     stopped_ = true;
+    if (login_verify_ != nullptr) {
+        login_verify_->stop();
+    }
     if (runtime_ != nullptr) runtime_->stop();
-    if (started_ && runtime_ != nullptr && logger_ != nullptr &&
-        frame_ != nullptr) {
-        frame_->stopped(*logger_, *runtime_);
+    if (started_ && logger_ != nullptr) {
+        if (frame_ != nullptr && runtime_ != nullptr) {
+            frame_->stopped(*logger_, *runtime_);
+        } else if (login_verify_ != nullptr) {
+            // login_verify 形态没有 frame,生命周期事件在此补齐配对。
+            static_cast<void>(logger_->info(
+                "service_stopped", service_name_ + " service stopped"));
+        }
     }
     // 注销发现:publisher/resolver 持有 registry 引用,须先行析构。
     resolver_.reset();
@@ -183,6 +229,16 @@ game::gateway::GatewayRuntime& ServiceHost::runtime() noexcept {
     return *runtime_;
 }
 
+bool ServiceHost::healthy() const noexcept {
+    if (login_verify_ != nullptr) return login_verify_->running();
+    return runtime_ != nullptr && runtime_->running();
+}
+
+std::optional<std::string> ServiceHost::terminal_error() const {
+    if (login_verify_ != nullptr || runtime_ == nullptr) return std::nullopt;
+    return runtime_->terminal_error();
+}
+
 observability::Logger& ServiceHost::logger() noexcept { return *logger_; }
 
 cluster::ServiceResolver* ServiceHost::resolver() noexcept {
@@ -190,13 +246,18 @@ cluster::ServiceResolver* ServiceHost::resolver() noexcept {
 }
 
 void ServiceHost::tick() {
-    if (frame_ != nullptr && runtime_ != nullptr) {
+    if (login_verify_ != nullptr) {
+        login_verify_->tick();
+    } else if (frame_ != nullptr && runtime_ != nullptr) {
         frame_->tick(*logger_, *runtime_, resolver_.get());
     }
     if (publisher_ == nullptr) return;
     if (!publisher_->tick()) return;
     // required=false 时首注册可能失败,续约成功后补齐 ready。
-    if (runtime_ != nullptr && runtime_->running()) {
+    const bool running = login_verify_ != nullptr
+                             ? login_verify_->running()
+                             : runtime_ != nullptr && runtime_->running();
+    if (running) {
         ready_.store(true);
     }
 }

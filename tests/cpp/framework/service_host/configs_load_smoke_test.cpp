@@ -68,6 +68,18 @@ TEST_F(ConfigsLoadSmokeTest, EveryServiceConfigLoadsThroughLayeredLoader) {
     }
 }
 
+TEST_F(ConfigsLoadSmokeTest, LoginVerifyConfigLoadsThroughDedicatedLoader) {
+    const auto config =
+        LayeredConfigLoader::load_login_verify(configs_root(), "login_verify");
+    // TLS 路径经环境变量解析(ScopedTlsEnvironment 已指向测试证书),
+    // 账号集相对路径按 config_root 落为绝对路径。
+    EXPECT_FALSE(config.login_verify.tls.certificate_chain_file.empty());
+    EXPECT_FALSE(config.login_verify.tls.private_key_file.empty());
+    EXPECT_TRUE(config.login_verify.accounts_file.is_absolute());
+    EXPECT_TRUE(std::filesystem::exists(config.login_verify.accounts_file));
+    EXPECT_EQ(config.login_verify.kid, "login-verify-v1");
+}
+
 TEST_F(ConfigsLoadSmokeTest, EveryConfigFileCompilesInLuaRuntime) {
     const std::vector<std::filesystem::path> layers = {
         configs_root() / "common",

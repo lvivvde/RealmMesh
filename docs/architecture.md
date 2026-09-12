@@ -5,6 +5,7 @@
 ```mermaid
 flowchart LR
     Client[Windows 客户端参考目标]
+    LoginVerify[Login Verify HTTPS/JSON]
     Login[Login :7000 TLS/TCP]
     Realm[Realm :7100 TLS/TCP]
     Gateway[Gateway :8000]
@@ -12,16 +13,19 @@ flowchart LR
     TlsTcp[TLS 1.3 / TCP fallback]
     Etcd[etcd v3 Lease / Watch]
 
+    Client -->|HTTPS 登录校验| LoginVerify --> Client
     Client --> Login --> Client
     Client --> Realm --> Client
     Client -->|0ms| Quic --> Gateway
     Client -->|350ms staged race| TlsTcp --> Gateway
+    LoginVerify <--> Etcd
     Login <--> Etcd
     Realm <--> Etcd
     Gateway <--> Etcd
 ```
 
-Login 返回一个 Realm TLS/TCP 候选；Realm 返回 Gateway 的 QUIC 与 TLS/TCP 候选，
+LoginVerify 是登录链路第一站(无状态 HTTPS JSON 服务,#41);Login 返回一个
+Realm TLS/TCP 候选；Realm 返回 Gateway 的 QUIC 与 TLS/TCP 候选，
 两者主机名和数字端口相同，协议和优先级显式编码，不依赖客户端隐式约定。
 
 ## Gateway 建连与会话
@@ -97,12 +101,13 @@ MsQuic 自有调度不会直接调用业务逻辑。回调只完成长度帧组�
 
 ## 分层
 
-- `framework/network`：QUIC、TLS/TCP、长度帧、客户端竞速策略。
+- `framework/network`：QUIC、TLS/TCP、长度帧、客户端竞速策略、自研 HTTPS 服务边。
 - `game/gateway`：Edge Session 表(pending/established)、运行时队列与 I/O 线程。
+- `game/login_verify`：登录健全服(账号认定、身份 Token 签发、JWKS)。
 - `game/common`：Envelope 编解码、业务票据与账号数据源抽象（AccountStore）。
 - `framework/cluster`：多协议端点注册与发现。
 - `framework/service_host`：把服务名、分层配置与集群接线装配成一个可运行服务。
-- `apps/mesh_host`：`realm_mesh` 单一入口，以 `--service` 区分三段服务与信号处理。
+- `apps/mesh_host`：`realm_mesh` 单一入口，以 `--service` 区分服务与信号处理。
 
 ## 未实现的服务与模块
 
@@ -112,16 +117,19 @@ MsQuic 自有调度不会直接调用业务逻辑。回调只完成长度帧组�
 
 服务身份的权威列表在 `realm::cluster::ServiceType`
 (`framework/cluster/include/realmmesh/cluster/service_registry.hpp`),线名映射在
-`service_type_name` / `parse_service_type`。枚举只包含已接线的 3 个身份:
+`service_type_name` / `parse_service_type`。枚举只包含已接线的 4 个身份:
 
 | ServiceType | 线名 | 状态 |
 |---|---|---|
 | `Gateway` | `gateway` | 已接线,Gateway 入口,端口 8000,QUIC 优先 |
-| `Login` | `login` | 已接线,端口 7000 |
+| `Login` | `login` | 已接线,端口 7000(旧 Login,随 #50 退役) |
 | `Realm` | `realm` | 已接线,端口 7100 |
+| `LoginVerify` | `login_verify` | 已接线,HTTPS 服务边(端口见服务配置) |
 
 `login` 与 `realm` 没有独立的业务库:三者在 `framework/service_host` 中共用
 `game::gateway::GatewayRuntime`,差异只在传输配置与 `ServiceFrame` 的事件处理分支。
+`login_verify` 是第二种服务形态:独立业务库 `game::login_verify`,走 HTTPS 请求循环,
+不经 `ServiceFrame`/EdgeSession 管线。
 
 不预先在枚举里登记未实现的服务身份:新服务进入实现时才添加 `ServiceType` 条目与线名映射
 (此前枚举曾预留 6 个未实现身份,已按 ADR-0003 移除)。`realm_mesh --service` 经

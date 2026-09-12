@@ -139,6 +139,8 @@ std::string_view service_type_name(ServiceType type) {
         return "login";
     case ServiceType::Realm:
         return "realm";
+    case ServiceType::LoginVerify:
+        return "login_verify";
     }
     throw std::invalid_argument("unknown service type");
 }
@@ -147,6 +149,7 @@ std::optional<ServiceType> parse_service_type(std::string_view value) {
     if (value == "gateway") return ServiceType::Gateway;
     if (value == "login") return ServiceType::Login;
     if (value == "realm") return ServiceType::Realm;
+    if (value == "login_verify") return ServiceType::LoginVerify;
     return std::nullopt;
 }
 

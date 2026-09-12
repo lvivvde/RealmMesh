@@ -1,6 +1,7 @@
 #pragma once
 
 #include "realmmesh/game/gateway/gateway_config_loader.hpp"
+#include "realmmesh/game/login_verify/login_verify_config.hpp"
 
 #include <filesystem>
 #include <optional>
@@ -20,8 +21,21 @@ struct CliOverrides {
 /// CLI 覆盖最后生效;日志 file_path 按实例身份生成。
 class LayeredConfigLoader final {
 public:
-    /// config_root: 含 common/ 与 services/ 的目录。文件缺失/解析失败抛异常。
+    /// 消息服务(gateway/realm/login)的配置。
     [[nodiscard]] static game::gateway::GatewayConfig load(
+        const std::filesystem::path& config_root,
+        std::string_view service_name,
+        const CliOverrides& overrides = {});
+
+    /// 健全服配置:宿主级节段(logging、service_discovery、metrics)与
+    /// login_verify 专属节段一次装载。
+    struct LoginVerifyServiceConfig {
+        game::gateway::GatewayConfig host;
+        game::login_verify::LoginVerifyConfig login_verify;
+    };
+
+    /// login_verify 的账号集相对路径在此按 config_root 解析为绝对路径。
+    [[nodiscard]] static LoginVerifyServiceConfig load_login_verify(
         const std::filesystem::path& config_root,
         std::string_view service_name,
         const CliOverrides& overrides = {});

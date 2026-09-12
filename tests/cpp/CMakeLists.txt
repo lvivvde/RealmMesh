@@ -25,6 +25,7 @@ add_subdirectory(framework/network/http)
 add_subdirectory(framework/network/quic)
 add_subdirectory(game/common)
 add_subdirectory(game/gateway)
+add_subdirectory(game/login_verify)
 
 # 跨切面:不属于任何单个源码目录的测试入口。
 include(${CMAKE_CURRENT_SOURCE_DIR}/../cmake/net-backend-contract.cmake)

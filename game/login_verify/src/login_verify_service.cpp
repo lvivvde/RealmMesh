@@ -1,0 +1,83 @@
+#include "realmmesh/game/login_verify/login_verify_service.hpp"
+
+#include "realmmesh/game/common/account_store.hpp"
+#include "realmmesh/game/common/identity_token.hpp"
+#include "realmmesh/network/http/http_server.hpp"
+#include "realmmesh/observability/logger.hpp"
+
+#include <chrono>
+#include <cstdlib>
+#include <stdexcept>
+#include <utility>
+
+namespace realm::game::login_verify {
+
+LoginVerifyService::LoginVerifyService(LoginVerifyConfig config)
+    : config_(std::move(config)) {}
+
+LoginVerifyService::~LoginVerifyService() = default;
+
+void LoginVerifyService::start(observability::Logger* logger) {
+    const char* seed = std::getenv("REALMMESH_IDENTITY_KEY_SEED");
+    if (seed == nullptr || *seed == '\0') {
+        throw std::runtime_error("REALMMESH_IDENTITY_KEY_SEED is not set");
+    }
+    codec_ = std::make_unique<common::IdentityTokenCodec>(
+        common::parse_identity_seed_hex(seed), config_.kid);
+    store_ = std::make_unique<common::ConfigAccountStore>(
+        common::ConfigAccountStore::load(config_.accounts_file));
+    handler_ = std::make_unique<LoginVerifyHandler>(
+        *store_, *codec_, [] { return std::chrono::system_clock::now(); });
+
+    network::HttpServerConfig http_config;
+    http_config.tls_identity = config_.tls;
+    server_ = std::make_unique<network::HttpServer>(
+        config_.listen_address, config_.listen_port, http_config,
+        [this](const network::Http1Request& request) {
+            return handler_->handle(request.method, request.target, request.body);
+        });
+    endpoints_ = {network::TransportEndpoint{
+        .name = "https",
+        .protocol = network::TransportProtocol::TlsTcp,
+        .address = config_.listen_address,
+        .port = server_->local_port()}};
+
+    if (logger != nullptr) {
+        static_cast<void>(logger->info(
+            "listener_started",
+            "login_verify listener started",
+            {observability::field("listen_address", config_.listen_address),
+             observability::field("listen_port", server_->local_port()),
+             observability::field(
+                 "transport", network::to_string(
+                                  network::TransportProtocol::TlsTcp)),
+             observability::field("transport_name", std::string("https"))}));
+        static_cast<void>(logger->info(
+            "service_started", "login_verify service started"));
+    }
+}
+
+void LoginVerifyService::stop() {
+    server_.reset();
+    handler_.reset();
+    codec_.reset();
+    store_.reset();
+    endpoints_.clear();
+}
+
+void LoginVerifyService::tick() {
+    if (server_ != nullptr) {
+        server_->poll_once(std::chrono::milliseconds(2));
+    }
+}
+
+bool LoginVerifyService::running() const noexcept {
+    return server_ != nullptr;
+}
+
+const std::vector<network::TransportEndpoint>&
+LoginVerifyService::local_endpoints() const noexcept {
+    return endpoints_;
+}
+
+}  // namespace realm::game::login_verify

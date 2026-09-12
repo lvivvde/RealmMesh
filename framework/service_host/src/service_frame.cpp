@@ -58,6 +58,8 @@ std::optional<cluster::ServiceType> parse_service_identity(
     if (service_name == "gateway") return cluster::ServiceType::Gateway;
     if (service_name == "login") return cluster::ServiceType::Login;
     if (service_name == "realm") return cluster::ServiceType::Realm;
+    if (service_name == "login_verify")
+        return cluster::ServiceType::LoginVerify;
     return std::nullopt;
 }
 

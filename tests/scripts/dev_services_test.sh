@@ -89,19 +89,31 @@ if ! command -v setsid >/dev/null 2>&1; then
 fi
 
 # macOS 自带 bash 3.2,没有 mapfile;用逐行读取保持同一行为。
+# 在临时端口范围(49152-65535)之外选端口:supervisor 的就绪探测用 curl
+# 反复建出站连接,其源端口恰好从这个池子分配,刚释放的临时端口可能在
+# 服务 bind 前被抢走,login 会以 EADDRINUSE 启动失败(CI 上偶发)。
 realmmesh_ports=()
 while IFS= read -r realmmesh_port; do
     realmmesh_ports+=("${realmmesh_port}")
 done < <(python3 - <<'PY'
+import random
 import socket
 
+chosen = []
 sockets = []
-for _ in range(6):
+while len(chosen) < 6:
+    port = random.randint(20000, 30000)
+    if port in chosen:
+        continue
     listener = socket.socket()
-    listener.bind(("127.0.0.1", 0))
+    try:
+        listener.bind(("127.0.0.1", port))
+    except OSError:
+        continue
+    chosen.append(port)
     sockets.append(listener)
-for listener in sockets:
-    print(listener.getsockname()[1])
+for port in chosen:
+    print(port)
 PY
 )
 

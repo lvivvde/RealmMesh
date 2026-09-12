@@ -168,14 +168,14 @@ int main(int argc, char* argv[]) {
 
     realm::scheduler::SteadyFrameClock clock;
     realm::scheduler::FrameScheduler scheduler(20, clock);
-    // 任一服务 runtime 死亡 → 记 runtime_io_failed 并以退出码 1 结束
+    // 任一服务业务体死亡 → 记 runtime_io_failed 并以退出码 1 结束
     // (对齐旧 main 的 runtime_failed 语义;优雅停止优先,退出码 0)。
     std::string failed_service;
     static_cast<void>(scheduler.run([&](realm::scheduler::FrameContext) {
         mesh.tick();
         if (stop_requested != 0) return false;
         for (const auto& name : service_names) {
-            if (!mesh.service(name).runtime().running()) {
+            if (!mesh.service(name).healthy()) {
                 failed_service = name;
                 return false;
             }
@@ -189,7 +189,7 @@ int main(int argc, char* argv[]) {
             failed_service + " I/O loop terminated unexpectedly",
             {realm::observability::field(
                 "error_message",
-                host.runtime().terminal_error().value_or("unknown error"))}));
+                host.terminal_error().value_or("unknown error"))}));
     }
     mesh.shutdown();
     return failed_service.empty() ? 0 : 1;

@@ -26,6 +26,7 @@ add_subdirectory(framework/cluster)
 add_subdirectory(framework/service_host)
 add_subdirectory(game/common)
 add_subdirectory(game/gateway)
+add_subdirectory(game/login_verify)
 add_subdirectory(apps/mesh_host)
 # detach 辅助程序只为缺少 setsid(1) 的平台而建(macOS;见 scripts/lib/dev-process.sh)。
 # 其它平台系统自带 setsid,建了也不会被用到。
