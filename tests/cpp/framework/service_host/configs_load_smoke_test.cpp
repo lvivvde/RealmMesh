@@ -3,6 +3,7 @@
 
 #include <gtest/gtest.h>
 
+#include <chrono>
 #include <cstdlib>
 #include <filesystem>
 #include <string>
@@ -34,7 +35,7 @@ public:
     }
 };
 
-// 真实 configs/ 树的生产加载路径冒烟:三个 services/<name>.lua 都能经
+// 真实 configs/ 树的生产加载路径冒烟:全部 services/<name>.lua 都能经
 // LayeredConfigLoader 加载(与 mesh_host 同路径),全部 .lua 都能被 LuaRuntime
 // 编译执行。纯 Lua 侧不做这件事——沙箱外的解释器与宿主环境不一致,
 // 边界划分见地图 #15 的调研结论(调研票 #16)。
@@ -78,6 +79,21 @@ TEST_F(ConfigsLoadSmokeTest, LoginVerifyConfigLoadsThroughDedicatedLoader) {
     EXPECT_TRUE(config.login_verify.accounts_file.is_absolute());
     EXPECT_TRUE(std::filesystem::exists(config.login_verify.accounts_file));
     EXPECT_EQ(config.login_verify.kid, "login-verify-v1");
+}
+
+TEST_F(ConfigsLoadSmokeTest, QueueConfigLoadsThroughDedicatedLoader) {
+    const auto config = LayeredConfigLoader::load_queue(configs_root(), "queue");
+    // TLS 路径经环境变量解析(ScopedTlsEnvironment 已指向测试证书)。
+    EXPECT_FALSE(config.queue.tls.certificate_chain_file.empty());
+    EXPECT_FALSE(config.queue.tls.private_key_file.empty());
+    EXPECT_EQ(config.queue.kid, "queue-v1");
+    EXPECT_EQ(config.queue.identity_issuer, "realmmesh/login-verify");
+    EXPECT_TRUE(config.queue.release_step > 0);
+    EXPECT_GE(config.queue.release_interval, std::chrono::seconds{2});
+    EXPECT_GE(config.queue.budget_interval, std::chrono::seconds{1});
+    // 快照/额度 key 契约(§5.2)与生产 etcd 路径默认值在配置中可见。
+    EXPECT_EQ(config.queue.budget_prefix, "/realmmesh/budgets/service");
+    EXPECT_EQ(config.queue.snapshot_key, "/realmmesh/queue/snapshot");
 }
 
 TEST_F(ConfigsLoadSmokeTest, EveryConfigFileCompilesInLuaRuntime) {

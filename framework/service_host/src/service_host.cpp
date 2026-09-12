@@ -6,6 +6,7 @@
 #include "realmmesh/cluster/service_resolver.hpp"
 #include "realmmesh/game/gateway/gateway_runtime.hpp"
 #include "realmmesh/game/login_verify/login_verify_service.hpp"
+#include "realmmesh/game/queue/queue_service.hpp"
 #include "realmmesh/observability/logger.hpp"
 #include "realmmesh/service_host/service_frame.hpp"
 
@@ -22,13 +23,14 @@ namespace {
 constexpr std::string_view service_version = "0.1.0";
 
 /// 依赖解析对象映射:gateway→Login、login→Realm、realm→Gateway;
-/// login_verify 无下游依赖(无状态 HTTPS 服务)。
+/// login_verify/queue 无下游依赖(HTTPS 服务,状态经 etcd 而非服务依赖)。
 [[nodiscard]] std::optional<cluster::ServiceType> dependency_service_type(
     std::string_view service_name) {
     if (service_name == "gateway") return cluster::ServiceType::Login;
     if (service_name == "login") return cluster::ServiceType::Realm;
     if (service_name == "realm") return cluster::ServiceType::Gateway;
     if (service_name == "login_verify") return std::nullopt;
+    if (service_name == "queue") return std::nullopt;
     throw std::invalid_argument(
         "unsupported service name: " + std::string(service_name));
 }
@@ -64,9 +66,10 @@ ServiceHost::ServiceHost(
     std::string_view service_name,
     const CliOverrides& overrides)
     : service_name_(service_name) {
-    // login_verify 是第二种服务形态:宿主级节段仍走 GatewayConfig 的
-    // 解析面,业务体换成 LoginVerifyService(无 ServiceFrame/EdgeSession)。
+    // login_verify 与 queue 是 HTTPS 请求循环形态:宿主级节段仍走
+    // GatewayConfig 的解析面,业务体换成各自的 Service(无 ServiceFrame)。
     std::unique_ptr<game::login_verify::LoginVerifyService> login_verify;
+    std::unique_ptr<game::queue::QueueService> queue;
     game::gateway::GatewayConfig config;
     if (service_name_ == "login_verify") {
         auto login_verify_config = LayeredConfigLoader::load_login_verify(
@@ -75,6 +78,12 @@ ServiceHost::ServiceHost(
             std::make_unique<game::login_verify::LoginVerifyService>(
                 std::move(login_verify_config.login_verify));
         config = std::move(login_verify_config.host);
+    } else if (service_name_ == "queue") {
+        auto queue_config = LayeredConfigLoader::load_queue(
+            config_root, service_name, overrides);
+        queue = std::make_unique<game::queue::QueueService>(
+            std::move(queue_config.queue));
+        config = std::move(queue_config.host);
     } else {
         config =
             LayeredConfigLoader::load(config_root, service_name, overrides);
@@ -93,8 +102,9 @@ ServiceHost::ServiceHost(
             },
             config.logging_metrics);
     }
-    if (login_verify != nullptr) {
+    if (login_verify != nullptr || queue != nullptr) {
         login_verify_ = std::move(login_verify);
+        queue_ = std::move(queue);
         return;
     }
     frame_ = std::make_unique<ServiceFrame>(
@@ -124,6 +134,9 @@ bool ServiceHost::start() {
     if (login_verify_ != nullptr) {
         login_verify_->start(logger_.get());
         running = login_verify_->running();
+    } else if (queue_ != nullptr) {
+        queue_->start(logger_.get());
+        running = queue_->running();
     } else {
         runtime_->start();
         running = runtime_->running();
@@ -137,15 +150,21 @@ bool ServiceHost::start() {
             registry_.reset();
             registry_ = std::make_unique<cluster::EtcdServiceRegistry>(
                 cluster::make_etcd_registry_options(discovery_config_));
+            // 服务注册端点:HTTPS 形态来自各自 Service,消息形态来自 runtime。
+            std::span<const network::TransportEndpoint> registered_endpoints;
+            if (login_verify_ != nullptr) {
+                registered_endpoints = login_verify_->local_endpoints();
+            } else if (queue_ != nullptr) {
+                registered_endpoints = queue_->local_endpoints();
+            } else {
+                registered_endpoints = runtime_->local_endpoints();
+            }
             publisher_ = std::make_unique<cluster::ServicePublisher>(
                 *registry_,
                 cluster::make_service_instance(
                     *self_type,
                     discovery_config_,
-                    login_verify_ != nullptr
-                        ? std::span<const network::TransportEndpoint>(
-                              login_verify_->local_endpoints())
-                        : runtime_->local_endpoints(),
+                    registered_endpoints,
                     service_version),
                 discovery_config_.lease_ttl);
             const bool registered = publisher_->tick();
@@ -184,6 +203,8 @@ bool ServiceHost::start() {
     } catch (...) {
         if (login_verify_ != nullptr) {
             login_verify_->stop();
+        } else if (queue_ != nullptr) {
+            queue_->stop();
         } else if (runtime_ != nullptr) {
             runtime_->stop();
         }
@@ -205,12 +226,13 @@ void ServiceHost::stop() {
     if (login_verify_ != nullptr) {
         login_verify_->stop();
     }
+    if (queue_ != nullptr) queue_->stop();
     if (runtime_ != nullptr) runtime_->stop();
     if (started_ && logger_ != nullptr) {
         if (frame_ != nullptr && runtime_ != nullptr) {
             frame_->stopped(*logger_, *runtime_);
-        } else if (login_verify_ != nullptr) {
-            // login_verify 形态没有 frame,生命周期事件在此补齐配对。
+        } else if (login_verify_ != nullptr || queue_ != nullptr) {
+            // HTTPS 形态没有 frame,生命周期事件在此补齐配对。
             static_cast<void>(logger_->info(
                 "service_stopped", service_name_ + " service stopped"));
         }
@@ -231,11 +253,14 @@ game::gateway::GatewayRuntime& ServiceHost::runtime() noexcept {
 
 bool ServiceHost::healthy() const noexcept {
     if (login_verify_ != nullptr) return login_verify_->running();
+    if (queue_ != nullptr) return queue_->running();
     return runtime_ != nullptr && runtime_->running();
 }
 
 std::optional<std::string> ServiceHost::terminal_error() const {
-    if (login_verify_ != nullptr || runtime_ == nullptr) return std::nullopt;
+    if (login_verify_ != nullptr || queue_ != nullptr || runtime_ == nullptr) {
+        return std::nullopt;
+    }
     return runtime_->terminal_error();
 }
 
@@ -248,6 +273,8 @@ cluster::ServiceResolver* ServiceHost::resolver() noexcept {
 void ServiceHost::tick() {
     if (login_verify_ != nullptr) {
         login_verify_->tick();
+    } else if (queue_ != nullptr) {
+        queue_->tick();
     } else if (frame_ != nullptr && runtime_ != nullptr) {
         frame_->tick(*logger_, *runtime_, resolver_.get());
     }
@@ -256,7 +283,9 @@ void ServiceHost::tick() {
     // required=false 时首注册可能失败,续约成功后补齐 ready。
     const bool running = login_verify_ != nullptr
                              ? login_verify_->running()
-                             : runtime_ != nullptr && runtime_->running();
+                             : queue_ != nullptr
+                                 ? queue_->running()
+                                 : runtime_ != nullptr && runtime_->running();
     if (running) {
         ready_.store(true);
     }

@@ -104,6 +104,7 @@ MsQuic 自有调度不会直接调用业务逻辑。回调只完成长度帧组�
 - `framework/network`：QUIC、TLS/TCP、长度帧、客户端竞速策略、自研 HTTPS 服务边。
 - `game/gateway`：Edge Session 表(pending/established)、运行时队列与 I/O 线程。
 - `game/login_verify`：登录健全服(账号认定、身份 Token 签发、JWKS)。
+- `game/queue`：排队调度服(号牌签发、放行阀门、etcd 额度/快照存取)。
 - `game/common`：Envelope 编解码、业务票据与账号数据源抽象（AccountStore）。
 - `framework/cluster`：多协议端点注册与发现。
 - `framework/service_host`：把服务名、分层配置与集群接线装配成一个可运行服务。
@@ -117,7 +118,7 @@ MsQuic 自有调度不会直接调用业务逻辑。回调只完成长度帧组�
 
 服务身份的权威列表在 `realm::cluster::ServiceType`
 (`framework/cluster/include/realmmesh/cluster/service_registry.hpp`),线名映射在
-`service_type_name` / `parse_service_type`。枚举只包含已接线的 4 个身份:
+`service_type_name` / `parse_service_type`。枚举只包含已接线的 5 个身份:
 
 | ServiceType | 线名 | 状态 |
 |---|---|---|
@@ -125,10 +126,11 @@ MsQuic 自有调度不会直接调用业务逻辑。回调只完成长度帧组�
 | `Login` | `login` | 已接线,端口 7000(旧 Login,随 #50 退役) |
 | `Realm` | `realm` | 已接线,端口 7100 |
 | `LoginVerify` | `login_verify` | 已接线,HTTPS 服务边(端口见服务配置) |
+| `Queue` | `queue` | 已接线,HTTPS 服务边,排队调度(端口见服务配置) |
 
 `login` 与 `realm` 没有独立的业务库:三者在 `framework/service_host` 中共用
 `game::gateway::GatewayRuntime`,差异只在传输配置与 `ServiceFrame` 的事件处理分支。
-`login_verify` 是第二种服务形态:独立业务库 `game::login_verify`,走 HTTPS 请求循环,
+`login_verify` 与 `queue` 是第二种服务形态:独立业务库,走 HTTPS 请求循环,
 不经 `ServiceFrame`/EdgeSession 管线。
 
 不预先在枚举里登记未实现的服务身份:新服务进入实现时才添加 `ServiceType` 条目与线名映射

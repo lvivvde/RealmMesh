@@ -9,6 +9,11 @@ realm_add_gtest(base64url_test
     LIBS realm_game_common
 )
 
+realm_add_gtest(compact_jws_test
+    SOURCES compact_jws_test.cpp
+    LIBS realm_game_common
+)
+
 realm_add_gtest(identity_token_test
     SOURCES identity_token_test.cpp
     LIBS realm_game_common

@@ -19,6 +19,7 @@ target_link_libraries(realm_service_host PUBLIC
     realm_game_common
     realm_gateway_service
     realm_login_verify_service
+    realm_queue_service
     realm_observability
     realm_scripting
 )

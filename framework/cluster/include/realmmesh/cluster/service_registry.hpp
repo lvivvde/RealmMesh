@@ -16,6 +16,7 @@ enum class ServiceType : std::uint8_t {
     Login,
     Realm,
     LoginVerify,
+    Queue,
 };
 
 struct ServiceInstance {

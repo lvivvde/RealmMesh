@@ -2,6 +2,7 @@
 
 #include "realmmesh/game/gateway/gateway_config_loader.hpp"
 #include "realmmesh/game/login_verify/login_verify_config.hpp"
+#include "realmmesh/game/queue/queue_config.hpp"
 
 #include <filesystem>
 #include <optional>
@@ -36,6 +37,18 @@ public:
 
     /// login_verify 的账号集相对路径在此按 config_root 解析为绝对路径。
     [[nodiscard]] static LoginVerifyServiceConfig load_login_verify(
+        const std::filesystem::path& config_root,
+        std::string_view service_name,
+        const CliOverrides& overrides = {});
+
+    /// 排队调度服配置:宿主级节段(logging、service_discovery、metrics)
+    /// 与 queue 专属节段一次装载。
+    struct QueueServiceConfig {
+        game::gateway::GatewayConfig host;
+        game::queue::QueueConfig queue;
+    };
+
+    [[nodiscard]] static QueueServiceConfig load_queue(
         const std::filesystem::path& config_root,
         std::string_view service_name,
         const CliOverrides& overrides = {});

@@ -28,6 +28,10 @@ public:
         std::string* error) = 0;
 };
 
+/// 具象 HTTP 客户端工厂(生产路径);测试用 fake IEtcdHttpClient 注入。
+[[nodiscard]] std::shared_ptr<IEtcdHttpClient> make_etcd_http_client(
+    std::string endpoint, std::chrono::milliseconds timeout);
+
 class EtcdServiceRegistry final : public IServiceRegistry {
 public:
     explicit EtcdServiceRegistry(EtcdRegistryOptions options = {});

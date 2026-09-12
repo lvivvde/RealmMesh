@@ -202,4 +202,22 @@ LayeredConfigLoader::load_login_verify(
     return config;
 }
 
+LayeredConfigLoader::QueueServiceConfig
+LayeredConfigLoader::load_queue(
+    const std::filesystem::path& config_root,
+    std::string_view service_name,
+    const CliOverrides& overrides) {
+    MergedLayers layers;
+    merged_layers(layers, config_root, service_name, overrides);
+
+    QueueServiceConfig config;
+    // 宿主级节段经由既有解析器(logging/service_discovery/metrics);
+    // parse 要求 transports 为表(可为空):未配置时补空表。
+    call_merger<sol::table>(
+        layers.runtime, "ensure_table", layers.root, "transports");
+    config.host = game::gateway::GatewayConfigLoader::parse(layers.root);
+    config.queue = game::queue::QueueConfigLoader::parse(layers.root);
+    return config;
+}
+
 }  // namespace realm::service_host

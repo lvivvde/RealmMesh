@@ -459,6 +459,14 @@ TEST(ThreeStageFlowTest, LogsInSelectsACharacterAndEntersTheGateway) {
             "00112233445566778899aabbccddeeff",
             1),
         0);
+    // queue 节点自 mode-1 拓扑起随组启动,号牌签名种子与身份种子同批注入。
+    ASSERT_EQ(
+        ::setenv(
+            "REALMMESH_QUEUE_KEY_SEED",
+            "00112233445566778899aabbccddeeff"
+            "00112233445566778899aabbccddeeff",
+            1),
+        0);
     ASSERT_EQ(
         ::setenv(
             "REALMMESH_TLS_CERTIFICATE_FILE",

@@ -16,10 +16,6 @@
 #include <utility>
 
 namespace realm::cluster {
-namespace {
-
-using Json = nlohmann::json;
-using Clock = std::chrono::steady_clock;
 
 class EtcdHttpClient final : public IEtcdHttpClient {
 public:
@@ -67,6 +63,11 @@ private:
     std::string endpoint_;
     std::chrono::milliseconds timeout_;
 };
+
+namespace {
+
+using Json = nlohmann::json;
+using Clock = std::chrono::steady_clock;
 
 std::string base64_encode(std::string_view input) {
     static constexpr std::string_view alphabet =
@@ -141,6 +142,8 @@ std::string_view service_type_name(ServiceType type) {
         return "realm";
     case ServiceType::LoginVerify:
         return "login_verify";
+    case ServiceType::Queue:
+        return "queue";
     }
     throw std::invalid_argument("unknown service type");
 }
@@ -150,6 +153,7 @@ std::optional<ServiceType> parse_service_type(std::string_view value) {
     if (value == "login") return ServiceType::Login;
     if (value == "realm") return ServiceType::Realm;
     if (value == "login_verify") return ServiceType::LoginVerify;
+    if (value == "queue") return ServiceType::Queue;
     return std::nullopt;
 }
 
@@ -703,6 +707,11 @@ void EtcdServiceRegistry::poll_once() { impl_->poll_once(); }
 
 std::string EtcdServiceRegistry::last_error() const {
     return impl_->last_error();
+}
+
+std::shared_ptr<IEtcdHttpClient> make_etcd_http_client(
+    std::string endpoint, std::chrono::milliseconds timeout) {
+    return std::make_shared<EtcdHttpClient>(std::move(endpoint), timeout);
 }
 
 }  // namespace realm::cluster

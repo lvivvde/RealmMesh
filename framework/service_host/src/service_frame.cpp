@@ -60,6 +60,7 @@ std::optional<cluster::ServiceType> parse_service_identity(
     if (service_name == "realm") return cluster::ServiceType::Realm;
     if (service_name == "login_verify")
         return cluster::ServiceType::LoginVerify;
+    if (service_name == "queue") return cluster::ServiceType::Queue;
     return std::nullopt;
 }
 
@@ -133,6 +134,11 @@ void ServiceFrame::tick(
         break;
     case cluster::ServiceType::Gateway:
         handle_gateway_events(logger, runtime);
+        break;
+    case cluster::ServiceType::LoginVerify:
+    case cluster::ServiceType::Queue:
+        // HTTPS 请求循环形态不经 ServiceFrame(见 ServiceHost 装配),
+        // 这里不可达;保持空转以穷尽枚举。
         break;
     }
 }

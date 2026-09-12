@@ -25,6 +25,10 @@ namespace realm::game::login_verify {
 class LoginVerifyService;
 }  // namespace realm::game::login_verify
 
+namespace realm::game::queue {
+class QueueService;
+}  // namespace realm::game::queue
+
 namespace realm::observability {
 class Logger;
 class LoggerMetricsServer;
@@ -32,12 +36,12 @@ class LoggerMetricsServer;
 
 namespace realm::service_host {
 
-/// 单服务装配:封装原三个 main 的公共链与业务帧循环。login_verify 是
-/// 第二种服务形态(HTTPS 请求循环,不走 ServiceFrame/EdgeSession 管线)。
+/// 单服务装配:封装原三个 main 的公共链与业务帧循环。login_verify 与
+/// queue 是 HTTPS 请求循环形态的服务(不走 ServiceFrame/EdgeSession 管线)。
 /// 发现关闭时 ready() = runtime 监听成功;发现开启时还需注册 tick 成功
 /// (required=true 注册失败 → start() 抛出);
-/// 发现开启且服务名非 gateway/realm/login/login_verify 时 start() 抛
-/// std::invalid_argument。
+/// 发现开启且服务名非 gateway/realm/login/login_verify/queue 时 start()
+/// 抛 std::invalid_argument。
 class ServiceHost final {
 public:
     /// service_name/instance_id 驱动 LayeredConfigLoader;构造失败抛异常
@@ -87,6 +91,7 @@ private:
     std::unique_ptr<observability::LoggerMetricsServer> metrics_;
     std::unique_ptr<game::gateway::GatewayRuntime> runtime_;
     std::unique_ptr<game::login_verify::LoginVerifyService> login_verify_;
+    std::unique_ptr<game::queue::QueueService> queue_;
     std::unique_ptr<ServiceFrame> frame_;
     std::unique_ptr<cluster::EtcdServiceRegistry> registry_;
     std::unique_ptr<cluster::ServicePublisher> publisher_;
