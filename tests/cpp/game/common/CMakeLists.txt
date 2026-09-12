@@ -1,3 +1,8 @@
+realm_add_gtest(json_test
+    SOURCES json_test.cpp
+    LIBS realm_game_common
+)
+
 realm_add_gtest(session_ticket_test
     SOURCES session_ticket_test.cpp
     LIBS realm_game_common

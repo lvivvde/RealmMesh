@@ -1,5 +1,6 @@
 add_library(realm_game_common
     src/edge_protocol.cpp
+    src/json.cpp
     src/session_ticket.cpp
 )
 
