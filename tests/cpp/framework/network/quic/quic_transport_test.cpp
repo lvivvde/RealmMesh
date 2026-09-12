@@ -72,7 +72,8 @@ struct ClientState {
     HQUIC stream{nullptr};
     std::mutex mutex;
     std::condition_variable ready;
-    bool connected{false};
+    bool stream_ready{false};
+    bool start_failed{false};
     bool shutdown{false};
     QUIC_STATUS transport_status{QUIC_STATUS_SUCCESS};
     std::vector<std::byte> received;
@@ -119,21 +120,30 @@ client_connection_callback(HQUIC, void* context, QUIC_CONNECTION_EVENT* event) {
     auto* state = static_cast<ClientState*>(context);
     switch (event->Type) {
     case QUIC_CONNECTION_EVENT_CONNECTED: {
-        {
-            std::lock_guard lock(state->mutex);
-            state->connected = true;
-        }
-        state->ready.notify_all();
+        // 流就绪之后才唤醒主线程:StreamSend 依赖 StreamOpen 写入的句柄,
+        // 若先置位,主线程可能抢在 StreamOpen 之前发送,拿到空句柄。
         if (QUIC_FAILED(state->api->StreamOpen(
                 state->connection,
                 QUIC_STREAM_OPEN_FLAG_NONE,
                 client_stream_callback,
                 state,
                 &state->stream))) {
+            {
+                std::lock_guard lock(state->mutex);
+                state->start_failed = true;
+            }
+            state->ready.notify_all();
             return QUIC_STATUS_ABORTED;
         }
-        return state->api->StreamStart(
+        const auto start_status = state->api->StreamStart(
             state->stream, QUIC_STREAM_START_FLAG_IMMEDIATE);
+        {
+            std::lock_guard lock(state->mutex);
+            state->stream_ready = QUIC_SUCCEEDED(start_status);
+            state->start_failed = QUIC_FAILED(start_status);
+        }
+        state->ready.notify_all();
+        return start_status;
     }
     case QUIC_CONNECTION_EVENT_SHUTDOWN_COMPLETE: {
         std::lock_guard lock(state->mutex);
@@ -282,11 +292,12 @@ TEST(QuicTransportTest, ExchangesAFramedMessageOverOneVerifiedStream) {
             lock,
             std::chrono::seconds(5),
             [&] {
-                return client.connected || client.shutdown;
+                return client.stream_ready || client.start_failed ||
+                       client.shutdown;
             }))
             << "MsQuic status=" << client.transport_status
             << " server sessions=" << transport.session_count();
-        ASSERT_TRUE(client.connected)
+        ASSERT_TRUE(client.stream_ready)
             << "MsQuic status=" << client.transport_status;
     }
     const std::array<std::byte, 4> payload{
