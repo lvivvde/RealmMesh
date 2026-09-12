@@ -71,14 +71,49 @@ TlsReceiveBatch TlsConnection::receive_frames() {
     }
 }
 
-bool TlsConnection::queue_frame(std::span<const std::byte> payload) {
-    const auto frame = codec_.encode(payload);
+TlsStreamBatch TlsConnection::receive_stream() {
+    TlsStreamBatch result;
+    std::array<std::byte, 8192> receive_buffer{};
+    while (true) {
+        std::size_t received = 0;
+        const int status = SSL_read_ex(
+            ssl_.get(), receive_buffer.data(), receive_buffer.size(), &received);
+        if (status == 1) {
+            result.bytes.insert(
+                result.bytes.end(),
+                receive_buffer.begin(),
+                receive_buffer.begin() +
+                    static_cast<std::ptrdiff_t>(received));
+            continue;
+        }
+        result.state = classify_result(ssl_.get(), status);
+        if (result.state == TlsIoState::Closed) {
+            result.status = ReceiveStatus::PeerClosed;
+        }
+        return result;
+    }
+}
+
+bool TlsConnection::fits_pending_output(std::size_t payload_size) const noexcept {
     const auto available = max_pending_output_bytes_ -
                            std::min(max_pending_output_bytes_, output_.readable_bytes());
-    if (frame.size() > available) {
+    return payload_size <= available;
+}
+
+bool TlsConnection::queue_frame(std::span<const std::byte> payload) {
+    const auto frame = codec_.encode(payload);
+    if (!fits_pending_output(frame.size())) {
         return false;
     }
     output_.append(frame);
+    return true;
+}
+
+bool TlsConnection::queue_bytes(std::span<const std::byte> payload) {
+    if (!fits_pending_output(payload.size())) {
+        return false;
+    }
+    output_.append(payload);
     return true;
 }
 

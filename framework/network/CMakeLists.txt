@@ -7,6 +7,9 @@ add_library(realm_network
     src/transport/transport_factory.cpp
     src/tcp/tcp_listener.cpp
     src/tcp/tcp_socket.cpp
+    src/http/http1_parser.cpp
+    src/http/http1_response.cpp
+    src/http/http_server.cpp
     src/tls/tls_connection.cpp
     src/tls/tls_server_context.cpp
     src/tls/tls_tcp_transport.cpp
