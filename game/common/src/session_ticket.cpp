@@ -7,6 +7,8 @@
 #include <stdexcept>
 #include <string>
 
+#include "hex.hpp"
+
 namespace realm::game::common {
 namespace {
 
@@ -34,13 +36,6 @@ std::uint64_t read_unsigned(std::span<const std::byte> input) {
         value = (value << 8U) | std::to_integer<std::uint8_t>(byte);
     }
     return value;
-}
-
-int hex_nibble(char value) {
-    if (value >= '0' && value <= '9') return value - '0';
-    if (value >= 'a' && value <= 'f') return value - 'a' + 10;
-    if (value >= 'A' && value <= 'F') return value - 'A' + 10;
-    return -1;
 }
 
 std::vector<std::byte> issue_ticket(
@@ -263,8 +258,8 @@ SessionTicketKey parse_ticket_key_hex(std::string_view value) {
     }
     SessionTicketKey key{};
     for (std::size_t index = 0; index < key.size(); ++index) {
-        const int high = hex_nibble(value[index * 2]);
-        const int low = hex_nibble(value[index * 2 + 1]);
+        const int high = hex::nibble(value[index * 2]);
+        const int low = hex::nibble(value[index * 2 + 1]);
         if (high < 0 || low < 0) {
             throw std::invalid_argument(
                 "session ticket key contains non-hex data");

@@ -1,3 +1,13 @@
+realm_add_gtest(base64url_test
+    SOURCES base64url_test.cpp
+    LIBS realm_game_common
+)
+
+realm_add_gtest(identity_token_test
+    SOURCES identity_token_test.cpp
+    LIBS realm_game_common
+)
+
 realm_add_gtest(json_test
     SOURCES json_test.cpp
     LIBS realm_game_common
