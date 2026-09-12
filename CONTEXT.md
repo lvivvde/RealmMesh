@@ -51,8 +51,16 @@ _Avoid_: polling(轮询可以是底层实现,但不是这个概念的名字)、n
 ### Gateway
 
 **Edge Session**:
-一条边缘客户端连接在边缘服务内的统一寻址:以不透明的 EdgeSessionId 从连接打开标识到关闭;票据消费成功即由 pending 阶段迁入 established 阶段。
-_Avoid_: Client Session(旧名)、Pending Connection(旧名,pending 是阶段,不是另一种实体)、player(玩家是业务概念)、connection、handle
+一条边缘客户端连接在边缘服务内的统一寻址:以不透明的 EdgeSessionId 从连接打开标识到关闭;凭据验讫由 pending 阶段迁入 fetching 阶段,账号数据拉取完成、直连凭证下发后进入终态 handed-off 阶段。网关只承载登录管线,不承载业务长连接。
+_Avoid_: Client Session(旧名)、Pending Connection(旧名,pending 是阶段,不是另一种实体)、player(玩家是业务概念)、connection、handle、established(旧终态名:网关没有业务长连,终态是 handed-off)
+
+**Fetching**:
+Edge Session 的中间阶段:准入暂扣——凭据已验讫,正在限额拉取玩家账号数据;每次进出该阶段都是一次原子状态迁移。
+_Avoid_: loading、provisioning、暂扣(是阶段名,不是动作)
+
+**Handoff**:
+网关把直连凭证与业务服端点下发给客户端、Edge Session 进入终态的动作;之后客户端直连业务服,网关不中转业务流量。
+_Avoid_: bridge、proxy(网关不中转)、handover
 
 **Primary Transport**:
 Edge Session 当前唯一的传输通道;QUIC 与 TLS/TCP 是建连时的二选一候选,不是会话内的双通道。
@@ -91,8 +99,8 @@ _Avoid_: capacity(容量是规格层面的总量概念)、load(负载是原始�
 _Avoid_: packet、frame(frame 指传输层的长度帧概念)
 
 **Session Ticket**:
-libsodium 签发的一次性准入凭据,用途分 Login 与 EnterGame(`TicketPurpose`);无论用途都在兑换点单次消费(重放防护):Login 票据在 Realm 兑换,EnterGame 票据在 Gateway 兑换,消费成功触发 Edge Session 由 pending 阶段迁入 established 阶段——流程文档中的 `EnterGameTicket` 即指此用途的票据。
-_Avoid_: token、credential、cookie
+libsodium 签发的一次性准入凭据(`TicketPurpose`),在兑换点单次消费(重放防护)。在新登录链路(Access 一节)中:Login 用途随旧 Login 服退役;EnterGame 用途更名 **EnterRealm**——网关在拉取完成后签发,客户端携带,Realm 兑换后直连入场(即直连凭证)。入场前置凭据为身份 Token + 放行凭证;网关入口的 `jti` 单次消费与之并行。
+_Avoid_: token、credential、cookie、EnterGameTicket(旧名)
 
 ### Testing
 
