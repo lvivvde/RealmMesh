@@ -44,7 +44,7 @@ namespace {
            service_name == "gateway";
 }
 
-/// 未知服务无业务帧,ticket codec 仅为成员占位(不会被调用);
+/// 未知服务无业务帧,ticket 门面仅为成员占位(不会被调用);
 /// codec 拒绝全零 key,故填非零哑值。
 [[nodiscard]] game::common::SessionTicketKey make_ticket_key(
     std::string_view service_name) {
@@ -231,41 +231,45 @@ void ServiceFrame::handle_realm_events(
         if (!event.established) {
             const auto request =
                 game::common::decode_realm_authenticate(event.payload);
-            const auto claims = tickets_.validate(
+            const auto redeemed = tickets_.redeem(
                 request.has_value()
                     ? game::common::protobuf_bytes(request->login_ticket())
                     : std::span<const std::byte>{},
                 game::common::TicketPurpose::Login);
-            if (!claims.has_value() || claims->realm_id != 1) {
+            const bool authenticated =
+                redeemed.status == game::common::RedeemStatus::Accepted &&
+                redeemed.claims.realm_id == 1;
+            if (!authenticated) {
                 game::common::EdgeError error;
                 error.set_code(2001);
                 error.set_message("invalid login ticket");
                 response = game::common::encode(error, request_id);
             } else {
-                authenticated_[event.session_id] = *claims;
+                authenticated_[event.session_id] = redeemed.claims;
                 game::common::CharacterList characters;
                 auto* character = characters.add_characters();
-                character->set_id(development_character_id(claims->account_id));
+                character->set_id(
+                    development_character_id(redeemed.claims.account_id));
                 character->set_name("Development Hero");
                 response = game::common::encode(characters, request_id);
                 observability::EventContext context{
                     .correlation_id = std::nullopt,
                     .request_id = request_id,
                 };
-                if (claims->correlation_id.has_value()) {
+                if (redeemed.claims.correlation_id.has_value()) {
                     context.correlation_id = game::common::correlation_id_hex(
-                        *claims->correlation_id);
+                        *redeemed.claims.correlation_id);
                 }
                 static_cast<void>(logger.info(
                     "player_session_established",
                     "realm authenticated player session",
                     {observability::field(
                         "account_id",
-                        claims->account_id,
+                        redeemed.claims.account_id,
                         observability::DataClass::Pseudonymous)},
                     std::move(context)));
             }
-            if (claims.has_value() && claims->realm_id == 1) {
+            if (authenticated) {
                 static_cast<void>(
                     runtime.try_accept(event.session_id, response));
             } else {
@@ -353,18 +357,17 @@ void ServiceFrame::handle_gateway_events(
 
         if (!event.established) {
             const auto request = game::common::decode_enter_game(event.payload);
-            const auto claims =
+            const auto redeemed = tickets_.redeem(
                 request.has_value()
-                    ? tickets_.validate(
-                          game::common::protobuf_bytes(
-                              request->enter_game_ticket()),
-                          game::common::TicketPurpose::EnterGame)
-                    : std::nullopt;
+                    ? game::common::protobuf_bytes(request->enter_game_ticket())
+                    : std::span<const std::byte>{},
+                game::common::TicketPurpose::EnterGame);
             const auto request_id =
                 game::common::edge_request_id(event.payload).value_or(0);
             const bool accepted_ticket =
-                claims.has_value() && claims->realm_id == 1 &&
-                claims->character_id != 0 && replay_guard_.consume(*claims);
+                redeemed.status == game::common::RedeemStatus::Accepted &&
+                redeemed.claims.realm_id == 1 &&
+                redeemed.claims.character_id != 0;
             std::vector<std::byte> response;
             if (!accepted_ticket) {
                 game::common::EdgeError error;
@@ -372,29 +375,29 @@ void ServiceFrame::handle_gateway_events(
                 error.set_message("invalid or replayed enter-game ticket");
                 response = game::common::encode(error, request_id);
             } else {
-                authenticated_[event.session_id] = *claims;
+                authenticated_[event.session_id] = redeemed.claims;
                 game::common::EnterGameAccepted accepted;
-                accepted.set_account_id(claims->account_id);
-                accepted.set_character_id(claims->character_id);
+                accepted.set_account_id(redeemed.claims.account_id);
+                accepted.set_character_id(redeemed.claims.character_id);
                 response = game::common::encode(accepted, request_id);
                 observability::EventContext context{
                     .correlation_id = std::nullopt,
                     .request_id = request_id,
                 };
-                if (claims->correlation_id.has_value()) {
+                if (redeemed.claims.correlation_id.has_value()) {
                     context.correlation_id = game::common::correlation_id_hex(
-                        *claims->correlation_id);
+                        *redeemed.claims.correlation_id);
                 }
                 static_cast<void>(logger.info(
                     "player_session_established",
                     "gateway accepted player session",
                     {observability::field(
                          "account_id",
-                         claims->account_id,
+                         redeemed.claims.account_id,
                          observability::DataClass::Pseudonymous),
                      observability::field(
                          "character_id",
-                         claims->character_id,
+                         redeemed.claims.character_id,
                          observability::DataClass::Pseudonymous)},
                     std::move(context)));
             }

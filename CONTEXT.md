@@ -65,7 +65,7 @@ _Avoid_: backup channel、secondary transport、failover
 _Avoid_: packet、frame(frame 指传输层的长度帧概念)
 
 **Session Ticket**:
-libsodium 签发的一次性准入凭据,用途分 Login 与 EnterGame(`TicketPurpose`);用途为 EnterGame 的票据在 Gateway 单次消费(重放防护),消费成功触发 Edge Session 由 pending 阶段迁入 established 阶段——流程文档中的 `EnterGameTicket` 即指此用途的票据。
+libsodium 签发的一次性准入凭据,用途分 Login 与 EnterGame(`TicketPurpose`);无论用途都在兑换点单次消费(重放防护):Login 票据在 Realm 兑换,EnterGame 票据在 Gateway 兑换,消费成功触发 Edge Session 由 pending 阶段迁入 established 阶段——流程文档中的 `EnterGameTicket` 即指此用途的票据。
 _Avoid_: token、credential、cookie
 
 ### Testing

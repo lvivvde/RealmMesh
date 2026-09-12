@@ -42,6 +42,10 @@ primary transport 与阶段(pending/established)。QUIC 和 TLS/TCP 是初次连
 二选一候选，不是一个会话里的双通道。当前没有恢复 token、序列号或重放窗口，因此
 已建立连接中断不会透明迁移到另一传输。
 
+两种用途的 Session Ticket 都只在各自的兑换点单次消费(重放防护):Login 票据在
+Realm 兑换，EnterGame 票据在 Gateway 兑换；兑换成功响应与 pending→established
+迁移由同一个 I/O 命令完成，重放或无效票据按鉴权失败处理并断开。
+
 ## 客户端竞速
 
 ```mermaid

@@ -66,6 +66,48 @@ TEST(SessionTicketTest, V2CarriesASignedCorrelationIdAndStillAcceptsV1) {
     EXPECT_FALSE(codec.validate(v2, TicketPurpose::Login, now).has_value());
 }
 
+TEST(SessionTicketsTest, RedeemsATicketExactlyOnce) {
+    using namespace std::chrono_literals;
+    const auto now = std::chrono::system_clock::time_point(3'000s);
+    SessionTickets tickets(test_key());
+    const auto ticket =
+        tickets.issue(TicketPurpose::Login, 7, 3, 0, 30s, now);
+
+    const auto first = tickets.redeem(ticket, TicketPurpose::Login, now + 1s);
+    ASSERT_EQ(first.status, RedeemStatus::Accepted);
+    EXPECT_EQ(first.claims.account_id, 7U);
+    EXPECT_EQ(first.claims.realm_id, 3U);
+    EXPECT_EQ(first.claims.purpose, TicketPurpose::Login);
+
+    const auto second = tickets.redeem(ticket, TicketPurpose::Login, now + 2s);
+    EXPECT_EQ(second.status, RedeemStatus::Replayed);
+}
+
+TEST(SessionTicketsTest, PurposeMismatchDoesNotBurnTheTicket) {
+    using namespace std::chrono_literals;
+    const auto now = std::chrono::system_clock::time_point(4'000s);
+    SessionTickets tickets(test_key());
+    const auto ticket = tickets.issue(TicketPurpose::Login, 7, 3, 0, 30s, now);
+
+    const auto wrong_purpose =
+        tickets.redeem(ticket, TicketPurpose::EnterGame, now + 1s);
+    EXPECT_EQ(wrong_purpose.status, RedeemStatus::InvalidTicket);
+
+    const auto right_purpose =
+        tickets.redeem(ticket, TicketPurpose::Login, now + 2s);
+    EXPECT_EQ(right_purpose.status, RedeemStatus::Accepted);
+}
+
+TEST(SessionTicketsTest, ExpiredTicketsAreInvalidNotReplayed) {
+    using namespace std::chrono_literals;
+    const auto now = std::chrono::system_clock::time_point(5'000s);
+    SessionTickets tickets(test_key());
+    const auto ticket = tickets.issue(TicketPurpose::EnterGame, 7, 3, 9, 30s, now);
+
+    const auto expired = tickets.redeem(ticket, TicketPurpose::EnterGame, now + 31s);
+    EXPECT_EQ(expired.status, RedeemStatus::InvalidTicket);
+}
+
 TEST(EdgeProtocolTest, RoundTripsTheThreeStageHandshakeMessages) {
     LoginRequest login;
     login.set_account("alice");

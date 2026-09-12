@@ -85,6 +85,55 @@ private:
         TicketIdHash> consumed_;
 };
 
+enum class RedeemStatus : std::uint8_t {
+    Accepted,
+    /// 签名、版本、用途、期限或可解码性任一不满足;票据未被消费。
+    InvalidTicket,
+    /// 票据有效但 ticket_id 已消费过。
+    Replayed,
+};
+
+struct RedeemedTicket {
+    RedeemStatus status{RedeemStatus::InvalidTicket};
+    SessionTicketClaims claims{};
+};
+
+/// 单个服务持有的票据能力面:签发与兑换同址。redeem 原子地完成
+/// 「验证 + 单次消费」,调用方无法只验证不消费——一次性语义由类型保证。
+class SessionTickets final {
+public:
+    explicit SessionTickets(SessionTicketKey key);
+
+    [[nodiscard]] std::vector<std::byte> issue(
+        TicketPurpose purpose,
+        std::uint64_t account_id,
+        std::uint32_t realm_id,
+        std::uint64_t character_id,
+        std::chrono::seconds ttl,
+        std::chrono::system_clock::time_point now =
+            std::chrono::system_clock::now()) const;
+
+    [[nodiscard]] std::vector<std::byte> issue(
+        TicketPurpose purpose,
+        std::uint64_t account_id,
+        std::uint32_t realm_id,
+        std::uint64_t character_id,
+        const CorrelationId& correlation_id,
+        std::chrono::seconds ttl,
+        std::chrono::system_clock::time_point now =
+            std::chrono::system_clock::now()) const;
+
+    [[nodiscard]] RedeemedTicket redeem(
+        std::span<const std::byte> ticket,
+        TicketPurpose expected_purpose,
+        std::chrono::system_clock::time_point now =
+            std::chrono::system_clock::now());
+
+private:
+    SessionTicketCodec codec_;
+    TicketReplayGuard replay_guard_;
+};
+
 [[nodiscard]] SessionTicketKey parse_ticket_key_hex(std::string_view value);
 [[nodiscard]] CorrelationId make_correlation_id();
 [[nodiscard]] std::string correlation_id_hex(const CorrelationId& value);

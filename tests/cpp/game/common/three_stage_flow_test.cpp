@@ -497,6 +497,16 @@ TEST(ThreeStageFlowTest, LogsInSelectsACharacterAndEntersTheGateway) {
     ASSERT_TRUE(characters.has_value());
     ASSERT_EQ(characters->characters_size(), 1);
 
+    // Login 票据一次性:同一票据在第二条连接上再次兑换必须被拒(2001)并断开。
+    auto replay_socket = connect_when_ready(
+        static_cast<std::uint16_t>(login_response->realm_endpoints(0).port()));
+    send_message(replay_socket, encode(authenticate, 6));
+    const auto replay_wire = receive_message(replay_socket);
+    EXPECT_EQ(edge_request_id(replay_wire), 6);
+    const auto replay_error = decode_edge_error(replay_wire);
+    ASSERT_TRUE(replay_error.has_value());
+    EXPECT_EQ(replay_error->code(), 2001);
+
     HeartbeatRequest heartbeat;
     send_message(realm_socket, encode(heartbeat, 5));
     const auto heartbeat_wire = receive_message(realm_socket);

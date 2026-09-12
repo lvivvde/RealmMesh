@@ -218,6 +218,44 @@ bool TicketReplayGuard::consume(
     return consumed_.emplace(claims.ticket_id, claims.expires_at).second;
 }
 
+SessionTickets::SessionTickets(SessionTicketKey key) : codec_(std::move(key)) {}
+
+std::vector<std::byte> SessionTickets::issue(
+    TicketPurpose purpose,
+    std::uint64_t account_id,
+    std::uint32_t realm_id,
+    std::uint64_t character_id,
+    std::chrono::seconds ttl,
+    std::chrono::system_clock::time_point now) const {
+    return codec_.issue(purpose, account_id, realm_id, character_id, ttl, now);
+}
+
+std::vector<std::byte> SessionTickets::issue(
+    TicketPurpose purpose,
+    std::uint64_t account_id,
+    std::uint32_t realm_id,
+    std::uint64_t character_id,
+    const CorrelationId& correlation_id,
+    std::chrono::seconds ttl,
+    std::chrono::system_clock::time_point now) const {
+    return codec_.issue(
+        purpose, account_id, realm_id, character_id, correlation_id, ttl, now);
+}
+
+RedeemedTicket SessionTickets::redeem(
+    std::span<const std::byte> ticket,
+    TicketPurpose expected_purpose,
+    std::chrono::system_clock::time_point now) {
+    const auto claims = codec_.validate(ticket, expected_purpose, now);
+    if (!claims.has_value()) {
+        return {.status = RedeemStatus::InvalidTicket};
+    }
+    if (!replay_guard_.consume(*claims, now)) {
+        return {.status = RedeemStatus::Replayed};
+    }
+    return {.status = RedeemStatus::Accepted, .claims = *claims};
+}
+
 SessionTicketKey parse_ticket_key_hex(std::string_view value) {
     if (value.size() != session_ticket_key_size * 2) {
         throw std::invalid_argument(

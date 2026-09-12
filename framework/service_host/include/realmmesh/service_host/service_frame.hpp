@@ -66,8 +66,7 @@ private:
     std::string downstream_address_;
     std::uint16_t downstream_port_{0};
     std::size_t max_events_per_frame_{0};
-    game::common::SessionTicketCodec tickets_;
-    game::common::TicketReplayGuard replay_guard_;
+    game::common::SessionTickets tickets_;
     /// 票据 claims 以 EdgeSessionId 寻址:authenticate 分支先写入,
     /// accept 成功(SessionEstablished)后生效,SessionClosed 时清除。
     std::unordered_map<
