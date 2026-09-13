@@ -1,9 +1,9 @@
 #include "realmmesh/loadgen/robot.hpp"
 
 #include "realmmesh/game/common/edge_protocol.hpp"
-#include "realmmesh/loadgen/edge_client.hpp"
-#include "realmmesh/loadgen/http_client.hpp"
-#include "realmmesh/loadgen/json_field.hpp"
+#include "realmmesh/network/client/edge_client_connection.hpp"
+#include "realmmesh/network/client/http1_client_connection.hpp"
+#include "realmmesh/network/client/json_field.hpp"
 
 #include <chrono>
 #include <cstdint>
@@ -20,6 +20,74 @@ namespace {
 
 namespace common = ::realm::game::common;
 namespace edge_v1 = ::realmmesh::protocol::edge::v1;
+namespace net_client = ::realm::network::client;
+
+/// 压测短连语义:SO_LINGER 0(RST 关闭,不进 TIME_WAIT)+ 不校验服务端
+/// 证书(测试/soak 是自签环境,应用层凭据承担身份)。
+constexpr net_client::TlsClientOptions kRobotTlsOptions{
+    .verify_peer = false, .reset_close_on_release = true};
+
+/// 拨号失败分型记账:把 network 客户端的失败分型搬进报告口径。
+void record_dial_failure(net_client::TlsDialFailure failure, int last_errno) {
+    switch (failure) {
+        case net_client::TlsDialFailure::None:
+            return;
+        case net_client::TlsDialFailure::Resolve:
+            ++dial_diagnostics.resolve;
+            return;
+        case net_client::TlsDialFailure::Socket:
+            ++dial_diagnostics.socket;
+            return;
+        case net_client::TlsDialFailure::Configure:
+            ++dial_diagnostics.configure;
+            return;
+        case net_client::TlsDialFailure::Connect:
+            ++dial_diagnostics.connect;
+            dial_diagnostics.last_errno = last_errno;
+            return;
+        case net_client::TlsDialFailure::ConnectTimeout:
+            ++dial_diagnostics.connect_timeout;
+            dial_diagnostics.last_errno = last_errno;
+            return;
+        case net_client::TlsDialFailure::SslSetup:
+            ++dial_diagnostics.ssl_setup;
+            return;
+        case net_client::TlsDialFailure::Handshake:
+            ++dial_diagnostics.handshake;
+            return;
+        case net_client::TlsDialFailure::Cancelled:
+            ++dial_diagnostics.cancelled;
+            return;
+    }
+}
+
+/// 拨号:HTTP 客户端(失败记诊断),成功即持有 keep-alive 连接。
+[[nodiscard]] std::shared_ptr<net_client::Http1ClientConnection> dial_http(
+    const ServiceAddress& address,
+    std::chrono::steady_clock::time_point deadline) {
+    auto dial = net_client::Http1ClientConnection::dial(
+        address.host, address.port, kRobotTlsOptions, deadline);
+    if (!dial.ok()) {
+        record_dial_failure(dial.failure, dial.last_errno);
+        return nullptr;
+    }
+    return std::make_shared<net_client::Http1ClientConnection>(
+        std::move(dial.stream));
+}
+
+/// 拨号:edge 帧客户端(失败记诊断)。
+[[nodiscard]] std::shared_ptr<net_client::EdgeClientConnection> dial_edge(
+    const ServiceAddress& address,
+    std::chrono::steady_clock::time_point deadline) {
+    auto dial = net_client::EdgeClientConnection::dial(
+        address.host, address.port, kRobotTlsOptions, deadline);
+    if (!dial.ok()) {
+        record_dial_failure(dial.failure, dial.last_errno);
+        return nullptr;
+    }
+    return std::make_shared<net_client::EdgeClientConnection>(
+        std::move(dial.stream));
+}
 
 [[nodiscard]] double elapsed_ms(std::chrono::steady_clock::time_point from) {
     return std::chrono::duration<double, std::milli>(
@@ -32,8 +100,7 @@ namespace edge_v1 = ::realmmesh::protocol::edge::v1;
     const RobotOptions& options,
     PhaseCounters& verify) {
     const auto started = std::chrono::steady_clock::now();
-    auto connection = TlsHttpConnection::dial(
-        options.endpoints.login_verify, options.deadline);
+    auto connection = dial_http(options.endpoints.login_verify, options.deadline);
     if (connection == nullptr) {
         verify.record_failure(FailureKind::ConnectionError, elapsed_ms(started));
         return std::nullopt;
@@ -42,13 +109,15 @@ namespace edge_v1 = ::realmmesh::protocol::edge::v1;
                              "\",\"credential\":\"" + options.credential +
                              "\"}";
     const auto response = connection->request(
-        "POST", "/v1/login/verify", std::nullopt, body, options.deadline);
+        "POST", "/v1/login/verify", options.endpoints.login_verify.host,
+        std::nullopt, body, options.deadline);
     if (!response.has_value()) {
         verify.record_failure(FailureKind::ConnectionError, elapsed_ms(started));
         return std::nullopt;
     }
     const auto token =
-        extract_json_string_field(response->body, "identity_token");
+        net_client::extract_json_string_field(
+            response->body, "identity_token");
     if (response->status != 200 || !token.has_value()) {
         verify.record_failure(FailureKind::VerifyRejected, elapsed_ms(started));
         return std::nullopt;
@@ -61,19 +130,21 @@ namespace edge_v1 = ::realmmesh::protocol::edge::v1;
 /// 跨相位复用(keep-alive):万级短连洪流的握手次数减半。
 [[nodiscard]] std::optional<std::pair<std::uint64_t, std::string>> run_tickets(
     const RobotOptions& options,
-    TlsHttpConnection& connection,
+    net_client::Http1ClientConnection& connection,
     const std::string& identity_token,
     PhaseCounters& tickets) {
     const auto started = std::chrono::steady_clock::now();
     const auto response = connection.request(
-        "POST", "/v1/queue/tickets", identity_token, "", options.deadline);
+        "POST", "/v1/queue/tickets", options.endpoints.queue.host,
+        identity_token, "", options.deadline);
     if (!response.has_value()) {
         tickets.record_failure(FailureKind::ConnectionError, elapsed_ms(started));
         return std::nullopt;
     }
-    const auto token =
-        extract_json_string_field(response->body, "queue_number_token");
-    const auto number = extract_json_int_field(response->body, "number");
+    const auto token = net_client::extract_json_string_field(
+        response->body, "queue_number_token");
+    const auto number =
+        net_client::extract_json_int_field(response->body, "number");
     if (response->status != 202 || !token.has_value() || !number.has_value() ||
         *number < 0) {
         tickets.record_failure(
@@ -89,17 +160,19 @@ namespace edge_v1 = ::realmmesh::protocol::edge::v1;
 /// 是响应体首个 queue_number_token)。每个请求记一次时延。
 [[nodiscard]] std::optional<std::string> run_poll(
     const RobotOptions& options,
-    TlsHttpConnection& connection,
+    net_client::Http1ClientConnection& connection,
     std::uint64_t number,
     const std::string& number_token,
     PhaseCounters& poll) {
     for (;;) {
         const auto started = std::chrono::steady_clock::now();
         const auto response = connection.request(
-            "GET", "/v1/queue/progress", std::nullopt, "", options.deadline);
+            "GET", "/v1/queue/progress", options.endpoints.queue.host,
+            std::nullopt, "", options.deadline);
         const auto released =
             response.has_value()
-                ? extract_json_int_field(response->body, "released_number")
+                ? net_client::extract_json_int_field(
+                      response->body, "released_number")
                 : std::nullopt;
         if (!response.has_value() || response->status != 200 ||
             !released.has_value() || *released < 0) {
@@ -124,14 +197,16 @@ namespace edge_v1 = ::realmmesh::protocol::edge::v1;
 
     const auto started = std::chrono::steady_clock::now();
     const auto response = connection.request(
-        "GET", "/v1/queue/tickets/me", number_token, "", options.deadline);
+        "GET", "/v1/queue/tickets/me", options.endpoints.queue.host,
+        number_token, "", options.deadline);
     if (!response.has_value()) {
         poll.record_failure(FailureKind::ConnectionError, elapsed_ms(started));
         return std::nullopt;
     }
-    const auto status = extract_json_string_field(response->body, "status");
-    const auto grant =
-        extract_json_string_field(response->body, "queue_number_token");
+    const auto status =
+        net_client::extract_json_string_field(response->body, "status");
+    const auto grant = net_client::extract_json_string_field(
+        response->body, "queue_number_token");
     if (response->status != 200 || !status.has_value() ||
         *status != "admitted" || !grant.has_value() || grant->empty()) {
         poll.record_failure(FailureKind::PollFailed, elapsed_ms(started));
@@ -144,7 +219,7 @@ namespace edge_v1 = ::realmmesh::protocol::edge::v1;
 /// 建连相位:发 attach 帧 + 等 1302 受理(连接由调用方拨好)。
 [[nodiscard]] bool run_attach(
     const RobotOptions& options,
-    TlsEdgeConnection& connection,
+    net_client::EdgeClientConnection& connection,
     const std::string& identity_token,
     const std::string& grant_token,
     PhaseCounters& attach) {
@@ -186,7 +261,7 @@ namespace edge_v1 = ::realmmesh::protocol::edge::v1;
 /// 客户端可见事件,#45)。
 [[nodiscard]] bool run_handoff(
     const RobotOptions& options,
-    TlsEdgeConnection& connection,
+    net_client::EdgeClientConnection& connection,
     PhaseCounters& handoff) {
     const auto started = std::chrono::steady_clock::now();
     for (;;) {
@@ -239,7 +314,7 @@ RobotOutcome run_robot(
     std::string number_token;
     // 队列连接按机器人复用(keep-alive):取号、轮询、兑换同连接,
     // 万级短连下的握手总量减半;连接随机器人结束关闭(RST)。
-    std::unique_ptr<TlsHttpConnection> queue_connection;
+    std::shared_ptr<net_client::Http1ClientConnection> queue_connection;
     for (;;) {
         auto identity = run_verify(options, verify);
         if (!identity.has_value()) {
@@ -254,8 +329,8 @@ RobotOutcome run_robot(
         }
 
         if (queue_connection == nullptr) {
-            queue_connection = TlsHttpConnection::dial(
-                options.endpoints.queue, options.deadline);
+            queue_connection =
+                dial_http(options.endpoints.queue, options.deadline);
             if (queue_connection == nullptr) {
                 tickets.record_failure(
                     FailureKind::ConnectionError,
@@ -294,8 +369,8 @@ RobotOutcome run_robot(
                     .number_token = std::move(number_token)};
         }
 
-        auto connection = TlsEdgeConnection::dial(
-            options.endpoints.gateway, options.deadline);
+        auto connection =
+            dial_edge(options.endpoints.gateway, options.deadline);
         if (connection == nullptr) {
             attach.record_failure(
                 FailureKind::ConnectionError,

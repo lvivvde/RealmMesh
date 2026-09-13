@@ -2,9 +2,6 @@
 # 测试链接(机器人经真实服务 HTTPS 回环驱动);不入 ServiceType。
 add_library(realm_loadgen_core
     src/stats.cpp
-    src/json_field.cpp
-    src/http_client.cpp
-    src/edge_client.cpp
     src/metrics_scrape.cpp
     src/robot.cpp
     src/loadgen.cpp

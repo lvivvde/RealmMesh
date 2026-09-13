@@ -1,7 +1,12 @@
 add_library(realm_network
     src/core/byte_buffer.cpp
     src/codec/length_field_codec.cpp
+    src/client/edge_client_connection.cpp
+    src/client/http1_client_connection.cpp
+    src/client/json_field.cpp
     src/client/preferred_transport_connector.cpp
+    src/client/tls_client_stream.cpp
+    src/client/tls_tcp_client_dialer.cpp
     src/reactor/event_loop_factory.cpp
     src/transport/transport_capabilities.cpp
     src/transport/transport_factory.cpp

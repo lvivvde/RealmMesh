@@ -1,5 +1,4 @@
 #include "realmmesh/loadgen/loadgen.hpp"
-#include "tls_wire.hpp"
 
 #include <algorithm>
 #include <atomic>
@@ -50,11 +49,11 @@ std::string LoadgenReport::render() const {
 
     // 拨号失败分型(仅在有失败时占行):connection_error 只说"网络层
     // 失败",细分计数把内核层原因(端口不可用/拒连/握手中断)带出来。
-    const auto& dial = tls_wire::dial_failures;
-    const auto dial_total = dial.getaddrinfo.load() + dial.socket.load() +
-        dial.fcntl.load() + dial.connect.load() +
-        dial.connect_poll_timeout.load() + dial.connect_soerror.load() +
-        dial.ssl_setup.load() + dial.ssl_connect.load();
+    const auto& dial = dial_diagnostics;
+    const auto dial_total = dial.resolve.load() + dial.socket.load() +
+        dial.configure.load() + dial.connect.load() +
+        dial.connect_timeout.load() + dial.ssl_setup.load() +
+        dial.handshake.load() + dial.cancelled.load();
     if (dial_total > 0) {
         text += "dial_failures:";
         auto append = [&text](std::string_view name, std::uint64_t count) {
@@ -63,14 +62,14 @@ std::string LoadgenReport::render() const {
                         std::to_string(count);
             }
         };
-        append("getaddrinfo", dial.getaddrinfo.load());
+        append("getaddrinfo", dial.resolve.load());
         append("socket", dial.socket.load());
-        append("fcntl", dial.fcntl.load());
+        append("fcntl", dial.configure.load());
         append("connect", dial.connect.load());
-        append("connect_poll_timeout", dial.connect_poll_timeout.load());
-        append("connect_soerror", dial.connect_soerror.load());
+        append("connect_poll_timeout", dial.connect_timeout.load());
         append("ssl_setup", dial.ssl_setup.load());
-        append("ssl_connect", dial.ssl_connect.load());
+        append("ssl_connect", dial.handshake.load());
+        append("cancelled", dial.cancelled.load());
         text += "  last_errno=" + std::to_string(dial.last_errno.load()) +
                 "\n";
     }

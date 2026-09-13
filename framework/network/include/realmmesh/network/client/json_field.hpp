@@ -5,7 +5,7 @@
 #include <string>
 #include <string_view>
 
-namespace realm::loadgen {
+namespace realm::network::client {
 
 /// 服务响应体的字段提取(轻量扫描):JsonCodec 只编扁平对象,而放行
 /// 响应的 admit_grant 是嵌套拼接体;token 值为 base64url/数字等无转义
@@ -19,4 +19,4 @@ namespace realm::loadgen {
     std::string_view body,
     std::string_view name);
 
-}  // namespace realm::loadgen
+}  // namespace realm::network::client

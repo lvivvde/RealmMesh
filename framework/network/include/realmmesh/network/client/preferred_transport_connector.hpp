@@ -1,6 +1,6 @@
 #pragma once
 
-#include "realmmesh/network/transport/message_transport.hpp"
+#include "realmmesh/network/client/secure_byte_stream.hpp"
 
 #include <chrono>
 #include <memory>
@@ -40,12 +40,6 @@ enum class ConnectFailure {
            failure == ConnectFailure::NetworkUnreachable ||
            failure == ConnectFailure::HandshakeTimeout;
 }
-
-class ISecureConnection {
-public:
-    virtual ~ISecureConnection() = default;
-    [[nodiscard]] virtual TransportProtocol protocol() const noexcept = 0;
-};
 
 using ConnectAttempt =
     std::variant<std::shared_ptr<ISecureConnection>, ConnectFailure>;

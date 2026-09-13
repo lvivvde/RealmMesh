@@ -1,6 +1,6 @@
 #include "realmmesh/loadgen/metrics_scrape.hpp"
 
-#include "realmmesh/loadgen/http_client.hpp"
+#include "realmmesh/network/client/http1_client_connection.hpp"
 
 #include <cstdint>
 #include <string>
@@ -82,12 +82,18 @@ void parse_metrics_line(std::string_view line, MetricsSnapshot& into) {
 std::optional<MetricsSnapshot> scrape_metrics(
     const ServiceAddress& address,
     std::chrono::steady_clock::time_point deadline) {
-    auto connection = TlsHttpConnection::dial(address, deadline);
-    if (connection == nullptr) {
+    const auto dial = network::client::Http1ClientConnection::dial(
+        address.host, address.port,
+        network::client::TlsClientOptions{
+            .verify_peer = false, .reset_close_on_release = true},
+        deadline);
+    if (!dial.ok()) {
         return std::nullopt;
     }
+    auto connection =
+        std::make_unique<network::client::Http1ClientConnection>(dial.stream);
     auto response = connection->request(
-        "GET", "/metrics", std::nullopt, "", deadline);
+        "GET", "/metrics", address.host, std::nullopt, "", deadline);
     if (!response.has_value() || response->status != 200) {
         return std::nullopt;
     }

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <cstdint>
 #include <map>
 #include <string>
@@ -73,6 +74,26 @@ struct PhaseCounters final {
     /// 直接取这里,避免外层把网络层故障错记成相位拒绝。
     FailureKind last_failure{FailureKind::None};
 };
+
+/// 拨号失败分型计数(诊断口径):机器人的 ConnectionError 只说"网络层
+/// 失败",细分计数把内核层/握手层原因带出来才可定位(CI runner 与本机
+/// 网络栈差异大:拒连、端口不可用、握手中断是三种不同处置)。分型直接
+/// 取自 network 客户端的 TlsDialFailure。inline 全局:进程内聚合,报告
+/// 收尾读一次。
+struct DialDiagnostics final {
+    std::atomic<std::uint64_t> resolve{0};
+    std::atomic<std::uint64_t> socket{0};
+    std::atomic<std::uint64_t> configure{0};
+    std::atomic<std::uint64_t> connect{0};
+    std::atomic<std::uint64_t> connect_timeout{0};
+    std::atomic<std::uint64_t> ssl_setup{0};
+    std::atomic<std::uint64_t> handshake{0};
+    std::atomic<std::uint64_t> cancelled{0};
+    /// connect/timeout 失败路径最近一次的 errno(诊断补充线索)。
+    std::atomic<int> last_errno{0};
+};
+
+inline DialDiagnostics dial_diagnostics;
 
 /// 服务端地址(回环压测语境:host 为点分 IPv4 或主机名)。
 struct ServiceAddress final {

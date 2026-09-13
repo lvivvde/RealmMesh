@@ -1,4 +1,4 @@
-#include "realmmesh/loadgen/json_field.hpp"
+#include "realmmesh/network/client/json_field.hpp"
 
 #include <charconv>
 #include <cstddef>
@@ -6,7 +6,7 @@
 #include <string>
 #include <system_error>
 
-namespace realm::loadgen {
+namespace realm::network::client {
 namespace {
 
 /// 定位 `"name"` 后跳过冒号与空白,返回值起点;找不到返回 nullopt。
@@ -63,4 +63,4 @@ std::optional<std::int64_t> extract_json_int_field(
     return parsed;
 }
 
-}  // namespace realm::loadgen
+}  // namespace realm::network::client
