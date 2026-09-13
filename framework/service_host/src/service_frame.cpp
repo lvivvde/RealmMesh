@@ -100,14 +100,15 @@ ServiceFrame::ServiceFrame(
     std::uint16_t downstream_port,
     std::size_t max_events_per_frame,
     EdgePipelineCaps edge_pipeline_caps,
-    EdgeFetchTuning edge_fetch_tuning,
+    EdgePipelineTuning edge_pipeline_tuning,
     game::gateway::EdgeFetchSource* edge_fetch_source)
     : service_name_(service_name),
       downstream_address_(std::move(downstream_address)),
       downstream_port_(downstream_port),
       max_events_per_frame_(max_events_per_frame),
       identity_(parse_service_identity(service_name)),
-      tickets_(make_ticket_key(identity_)) {
+      tickets_(make_ticket_key(identity_)),
+      handoff_grace_(edge_pipeline_tuning.handoff_grace) {
     if (identity_.has_value() &&
         identity_ != cluster::ServiceType::Gateway &&
         (downstream_address_.empty() || downstream_port_ == 0)) {
@@ -126,8 +127,8 @@ ServiceFrame::ServiceFrame(
             edge_fetch_source = default_fetch_source_.get();
         }
         fetch_scheduler_.emplace(
-            edge_fetch_tuning.retry_base,
-            edge_fetch_tuning.retry_max,
+            edge_pipeline_tuning.retry_base,
+            edge_pipeline_tuning.retry_max,
             *edge_fetch_source);
     }
 }
@@ -196,7 +197,7 @@ void ServiceFrame::tick(
         handle_realm_events(logger, runtime, resolver);
         break;
     case cluster::ServiceType::Gateway:
-        handle_gateway_events(logger, runtime, budget_reporter);
+        handle_gateway_events(logger, runtime, resolver, budget_reporter);
         break;
     case cluster::ServiceType::LoginVerify:
     case cluster::ServiceType::Queue:
@@ -428,16 +429,45 @@ void ServiceFrame::handle_realm_events(
 void ServiceFrame::handle_gateway_events(
     observability::Logger& logger,
     game::gateway::GatewayRuntime& runtime,
+    cluster::ServiceResolver* resolver,
     cluster::InstanceBudgetReporter* budget_reporter) {
-    // 拉取调度器先行驱动(#44):结算事件先落(handed-off / 耗尽断开),
-    // 本帧的 attach 与关闭再按最新阶段处理;帧尾发布额度快照。
+    // 帧头次序(#44/#45):宽限到期收尾 → 调度器驱动 → 事件吸收 →
+    // 帧尾发布。收尾先于驱动,签发后未迁移的会话尽早让出预算;结算
+    // 事件先落(handed-off 签发 / 耗尽断开),本帧 attach 与关闭再按
+    // 最新阶段处理。
+    if (pipeline_.has_value()) {
+        const auto now = std::chrono::steady_clock::now();
+        for (auto entry = handoff_deadlines_.begin();
+             entry != handoff_deadlines_.end();) {
+            if (entry->second > now) {
+                ++entry;
+                continue;
+            }
+            static_cast<void>(logger.warn(
+                "edge_handoff_expired",
+                "handoff grace elapsed without migration; closing session",
+                {observability::field(
+                    "session_id",
+                    entry->first.value,
+                    observability::DataClass::Internal)}));
+            static_cast<void>(runtime.try_close(entry->first));
+            entry = handoff_deadlines_.erase(entry);
+        }
+    }
     if (fetch_scheduler_.has_value() && pipeline_.has_value()) {
         for (const auto& fetch_event : fetch_scheduler_->tick(
                  std::chrono::steady_clock::now())) {
             if (fetch_event.kind ==
                 game::gateway::EdgeFetchEventKind::Succeeded) {
-                static_cast<void>(pipeline_->mark_handed_off(
-                    fetch_event.session_id));
+                // 首次迁 handed-off 即签发(#45);重复结算幂等丢弃。
+                if (pipeline_->mark_handed_off(fetch_event.session_id)) {
+                    grant_handoff(
+                        logger,
+                        runtime,
+                        resolver,
+                        fetch_event.session_id,
+                        fetch_event.account_id);
+                }
                 static_cast<void>(logger.info(
                     "edge_fetch_completed",
                     "edge fetch completed",
@@ -467,6 +497,7 @@ void ServiceFrame::handle_gateway_events(
             if (fetch_scheduler_.has_value()) {
                 fetch_scheduler_->cancel(event.session_id);
             }
+            handoff_deadlines_.erase(event.session_id);
             static_cast<void>(pipeline_->on_session_closed(event.session_id));
         }
         if (!absorb_lifecycle(event)) {
@@ -550,6 +581,66 @@ void ServiceFrame::handle_gateway_events(
             cluster::InstanceBudgetSnapshot{
                 pipeline_->conn_free(), pipeline_->fetch_free(), true}));
     }
+}
+
+void ServiceFrame::grant_handoff(
+    observability::Logger& logger,
+    game::gateway::GatewayRuntime& runtime,
+    cluster::ServiceResolver* resolver,
+    game::gateway::EdgeSessionId session_id,
+    std::uint64_t account_id) {
+    // 端点解析(#45):Realm 发现端点优先,缺失退回静态下游;两者皆缺
+    // 为降级 —— 告警并断开,不签发无法直连的票据。
+    const auto discovered =
+        resolver != nullptr ? resolver->endpoint() : std::nullopt;
+    if (!discovered.has_value() &&
+        (downstream_address_.empty() || downstream_port_ == 0)) {
+        static_cast<void>(logger.warn(
+            "edge_handoff_unavailable",
+            "no realm endpoint for handoff; closing session",
+            {observability::field(
+                "session_id",
+                session_id.value,
+                observability::DataClass::Internal)}));
+        static_cast<void>(runtime.try_close(session_id));
+        return;
+    }
+    const auto& realm_address =
+        discovered.has_value() ? discovered->address : downstream_address_;
+    const auto realm_port =
+        discovered.has_value() ? discovered->port : downstream_port_;
+    // 直连凭证绑定拉取账号:realm 固定 1、角色占位 0(#46 兑换时校验),
+    // 期限 60s 为规格定值。
+    const auto ticket = tickets_.issue(
+        game::common::TicketPurpose::EnterRealm,
+        account_id,
+        1,
+        0,
+        std::chrono::seconds(60));
+    game::common::EnterRealmGranted granted;
+    granted.set_enter_realm_ticket(ticket.data(), ticket.size());
+    auto* endpoint = granted.add_realm_endpoints();
+    endpoint->set_protocol(
+        ::realmmesh::protocol::edge::v1::TRANSPORT_PROTOCOL_TLS_TCP);
+    endpoint->set_address(realm_address);
+    endpoint->set_port(realm_port);
+    endpoint->set_priority(0);
+    // 服务器主动推送,request_id 恒 0;签发即进入宽限,到期由帧头收尾。
+    const auto response = game::common::encode(granted, 0);
+    static_cast<void>(runtime.try_send(session_id, response));
+    handoff_deadlines_[session_id] =
+        std::chrono::steady_clock::now() + handoff_grace_;
+    static_cast<void>(logger.info(
+        "edge_handoff_granted",
+        "enter-realm handoff granted",
+        {observability::field(
+             "session_id",
+             session_id.value,
+             observability::DataClass::Internal),
+         observability::field(
+             "account_id",
+             account_id,
+             observability::DataClass::Pseudonymous)}));
 }
 
 void ServiceFrame::handle_edge_attach(

@@ -23,11 +23,13 @@ namespace {
 /// 注册到发现中心的服务版本(与原 main 装配一致)。
 constexpr std::string_view service_version = "0.1.0";
 
-/// 依赖解析对象映射:gateway→Login、login→Realm、realm→Gateway;
-/// login_verify/queue 无下游依赖(HTTPS 服务,状态经 etcd 而非服务依赖)。
+/// 依赖解析对象映射:gateway→Realm(#45:handoff 直连端点来自 Realm
+/// 发现,缺失退回静态下游;旧 Login 依赖随 #50 退役)、login→Realm、
+/// realm→Gateway;login_verify/queue 无下游依赖(HTTPS 服务,状态经
+/// etcd 而非服务依赖)。
 [[nodiscard]] std::optional<cluster::ServiceType> dependency_service_type(
     std::string_view service_name) {
-    if (service_name == "gateway") return cluster::ServiceType::Login;
+    if (service_name == "gateway") return cluster::ServiceType::Realm;
     if (service_name == "login") return cluster::ServiceType::Realm;
     if (service_name == "realm") return cluster::ServiceType::Gateway;
     if (service_name == "login_verify") return std::nullopt;
@@ -124,9 +126,10 @@ ServiceHost::ServiceHost(
         config.max_events_per_frame,
         EdgePipelineCaps{
             pipeline_conn_capacity, config.pipeline_fetch_capacity},
-        EdgeFetchTuning{
+        EdgePipelineTuning{
             std::chrono::milliseconds{config.fetch_retry_base_ms},
-            config.fetch_retry_max});
+            config.fetch_retry_max,
+            std::chrono::milliseconds{config.handoff_grace_ms}});
     budget_policy_.conn_capacity = pipeline_conn_capacity;
     budget_policy_.fetch_capacity = config.pipeline_fetch_capacity;
     runtime_ = std::make_unique<game::gateway::GatewayRuntime>(

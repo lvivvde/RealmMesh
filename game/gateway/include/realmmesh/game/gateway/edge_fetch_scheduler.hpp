@@ -21,6 +21,8 @@ enum class EdgeFetchEventKind : std::uint8_t {
 struct EdgeFetchEvent {
     EdgeSessionId session_id;
     EdgeFetchEventKind kind{EdgeFetchEventKind::Succeeded};
+    /// 登记时携带的拉取账号:帧侧签发 handoff 直连凭证免查表(#45)。
+    std::uint64_t account_id{0};
 };
 
 /// 拉取调度器(spec #44 域内核):每 fetching 会话至多一次在途尝试;

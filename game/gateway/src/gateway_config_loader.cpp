@@ -219,6 +219,8 @@ GatewayConfig GatewayConfigLoader::parse(const sol::table& root) {
         root, "fetch_retry_base_ms", config.fetch_retry_base_ms);
     config.fetch_retry_max = static_cast<unsigned>(optional_integer<unsigned>(
         root, "fetch_retry_max", config.fetch_retry_max));
+    config.handoff_grace_ms = optional_integer(
+        root, "handoff_grace_ms", config.handoff_grace_ms);
 
     const sol::object runtime_value = root.raw_get<sol::object>("runtime");
     if (runtime_value != sol::lua_nil) {
@@ -361,6 +363,9 @@ GatewayConfig GatewayConfigLoader::parse(const sol::table& root) {
         throw std::invalid_argument(
             "gateway fetch retry base must be positive and retry max "
             "within 1..10");
+    }
+    if (config.handoff_grace_ms == 0) {
+        throw std::invalid_argument("gateway handoff grace must be positive");
     }
     if (config.logging.file_path.empty() ||
         config.logging_identity.service_name.empty() ||

@@ -71,6 +71,7 @@ TEST(GatewayConfigLoaderTest, LoadsQuicPrimaryAndTlsTcpFallbackFromLua) {
     EXPECT_EQ(config.tick_rate, 20U);
     EXPECT_EQ(config.fetch_retry_base_ms, 2500U);
     EXPECT_EQ(config.fetch_retry_max, 5U);
+    EXPECT_EQ(config.handoff_grace_ms, 2500U);
     EXPECT_TRUE(config.service_discovery.enabled);
     EXPECT_EQ(config.runtime.inbound_capacity, 65536U);
     EXPECT_EQ(config.logging.min_severity, observability::Severity::Info);
@@ -185,6 +186,11 @@ TEST(LayeredConfigLoaderTest, MergesAuthoritativeGatewayTreeFieldByField) {
     // 服务层提供的拉取重试参数(#44):基数 2s、最多重试 3 次。
     EXPECT_EQ(config.fetch_retry_base_ms, 2000U);
     EXPECT_EQ(config.fetch_retry_max, 3U);
+    // handoff 收尾宽限(#45):服务层显式 5s。
+    EXPECT_EQ(config.handoff_grace_ms, 5000U);
+    // 静态兜底下游(#45):发现缺失时 handoff 回退本机 realm。
+    EXPECT_EQ(config.downstream_address, "127.0.0.1");
+    EXPECT_EQ(config.downstream_port, 7100U);
     EXPECT_EQ(config.runtime.inbound_capacity, 65536U);
     EXPECT_EQ(config.runtime.outbound_capacity, 65536U);
     EXPECT_EQ(config.runtime.max_commands_per_cycle, 4096U);
@@ -262,6 +268,22 @@ TEST(LayeredConfigLoaderTest, RejectsInvalidFetchRetryTuning) {
                 configs.path(), "gateway"),
             std::invalid_argument);
     }
+}
+
+/// handoff 收尾宽限必须为正(#45)。
+TEST(LayeredConfigLoaderTest, RejectsZeroHandoffGrace) {
+    const ScopedTlsEnvironment tls_environment;
+    const auto authoritative_root =
+        std::filesystem::path(REALMMESH_TEST_SOURCE_DIR) / "configs";
+
+    const test_support::TemporaryDirectory configs(
+        "realmmesh-gateway-config-");
+    copy_layered_configs(authoritative_root, configs.path());
+    rewrite_gateway_service_line(
+        configs.path(), "handoff_grace_ms = 5000,", "handoff_grace_ms = 0,");
+    EXPECT_THROW(
+        service_host::LayeredConfigLoader::load(configs.path(), "gateway"),
+        std::invalid_argument);
 }
 
 /// CLI 覆盖优先级最高,并参与日志文件名的实例身份。

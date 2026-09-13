@@ -25,6 +25,7 @@ using EnterGame = ::realmmesh::protocol::edge::v1::EnterGame;
 using EnterGameAccepted = ::realmmesh::protocol::edge::v1::EnterGameAccepted;
 using EdgeAttach = ::realmmesh::protocol::edge::v1::EdgeAttach;
 using EdgeAttachAccepted = ::realmmesh::protocol::edge::v1::EdgeAttachAccepted;
+using EnterRealmGranted = ::realmmesh::protocol::edge::v1::EnterRealmGranted;
 using EdgeError = ::realmmesh::protocol::edge::v1::EdgeError;
 using EdgeMessageId = ::realmmesh::protocol::edge::v1::MessageId;
 using EdgeTransportProtocol =
@@ -82,6 +83,8 @@ inline constexpr int edge_error_invalid_enter_game_ticket = 3001;
 [[nodiscard]] std::vector<std::byte> encode(
     const EdgeAttachAccepted& message, std::uint64_t request_id = 0);
 [[nodiscard]] std::vector<std::byte> encode(
+    const EnterRealmGranted& message, std::uint64_t request_id = 0);
+[[nodiscard]] std::vector<std::byte> encode(
     const EdgeError& message, std::uint64_t request_id = 0);
 
 [[nodiscard]] std::optional<LoginRequest> decode_login_request(
@@ -107,6 +110,8 @@ inline constexpr int edge_error_invalid_enter_game_ticket = 3001;
 [[nodiscard]] std::optional<EdgeAttach> decode_edge_attach(
     std::span<const std::byte> payload);
 [[nodiscard]] std::optional<EdgeAttachAccepted> decode_edge_attach_accepted(
+    std::span<const std::byte> payload);
+[[nodiscard]] std::optional<EnterRealmGranted> decode_enter_realm_granted(
     std::span<const std::byte> payload);
 [[nodiscard]] std::optional<EdgeError> decode_edge_error(
     std::span<const std::byte> payload);

@@ -49,10 +49,13 @@ struct EdgePipelineCaps {
     std::uint64_t fetch_capacity{1'000};
 };
 
-/// 拉取重试参数(#44):语义与不变量见 EdgeFetchScheduler。
-struct EdgeFetchTuning {
+/// Edge 登录管线时序参数(#44/#45):retry_* 语义与不变量见
+/// EdgeFetchScheduler;handoff_grace 为签发 EnterRealm 票据后保留
+/// 会话的宽限,到期未迁移由帧头关闭。
+struct EdgePipelineTuning {
     std::chrono::milliseconds retry_base{2'000};
     unsigned retry_max{3};
+    std::chrono::milliseconds handoff_grace{5'000};
 };
 
 /// 单服务业务帧:搬运自旧 apps/{login,realm,gateway}/main.cpp 的消息循环。
@@ -72,7 +75,7 @@ public:
         std::uint16_t downstream_port,
         std::size_t max_events_per_frame,
         EdgePipelineCaps edge_pipeline_caps = {},
-        EdgeFetchTuning edge_fetch_tuning = {},
+        EdgePipelineTuning edge_pipeline_tuning = {},
         game::gateway::EdgeFetchSource* edge_fetch_source = nullptr);
     /// 成员含前置声明的调度器/源,析构收敛到 cpp(完整类型可见处)。
     ~ServiceFrame();
@@ -109,7 +112,16 @@ private:
     void handle_gateway_events(
         observability::Logger& logger,
         game::gateway::GatewayRuntime& runtime,
+        cluster::ServiceResolver* resolver,
         cluster::InstanceBudgetReporter* budget_reporter);
+    /// handoff 签发(#45):Realm 发现端点优先、静态下游兜底,签发
+    /// EnterRealm 票据推送 1303 并进入宽限;两者皆缺为降级,告警并断开。
+    void grant_handoff(
+        observability::Logger& logger,
+        game::gateway::GatewayRuntime& runtime,
+        cluster::ServiceResolver* resolver,
+        game::gateway::EdgeSessionId session_id,
+        std::uint64_t account_id);
     /// attach 校验链分发(#43):校验链裁决 → 按阶段回包;拒绝一律终结
     /// 会话(状态机 Pending→Closed:凭据无效/额度外拒绝)。
     void handle_edge_attach(
@@ -139,6 +151,14 @@ private:
     /// 声明顺序即析构逆序 —— 调度器引用源,必须先于源析构。
     std::unique_ptr<game::gateway::EdgeFetchSource> default_fetch_source_;
     std::optional<game::gateway::EdgeFetchScheduler> fetch_scheduler_;
+
+    /// handoff 宽限簿记(#45):已签发票据的会话在宽限到期后由帧头
+    /// 关闭;SessionClosed 主动清除。
+    std::unordered_map<
+        game::gateway::EdgeSessionId,
+        std::chrono::steady_clock::time_point>
+        handoff_deadlines_;
+    std::chrono::milliseconds handoff_grace_{5'000};
 
     /// attach 验签上下文:codec 依赖环境注入的签名种子,首条 attach 时
     /// 惰性构造(缺种子的既有部署/测试不受影响);构造失败置

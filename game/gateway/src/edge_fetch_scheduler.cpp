@@ -45,13 +45,19 @@ std::vector<EdgeFetchEvent> EdgeFetchScheduler::tick(
         }
         attempt.in_flight = false;
         if (attempt.last_ok) {
-            events.push_back({session, EdgeFetchEventKind::Succeeded});
+            events.push_back(
+                {session,
+                 EdgeFetchEventKind::Succeeded,
+                 attempt.account_id});
             finished.push_back(session);
             continue;
         }
         const unsigned retries_done = attempt.attempts_made - 1;
         if (retries_done >= retry_max_) {
-            events.push_back({session, EdgeFetchEventKind::Exhausted});
+            events.push_back(
+                {session,
+                 EdgeFetchEventKind::Exhausted,
+                 attempt.account_id});
             finished.push_back(session);
             continue;
         }

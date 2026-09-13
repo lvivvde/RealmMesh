@@ -26,6 +26,7 @@ bool is_known_message_id(std::uint32_t value) {
     case edge_v1::MESSAGE_ID_S2C_ENTER_GAME_ACCEPTED:
     case edge_v1::MESSAGE_ID_C2S_EDGE_ATTACH:
     case edge_v1::MESSAGE_ID_S2C_EDGE_ATTACH_ACCEPTED:
+    case edge_v1::MESSAGE_ID_S2C_ENTER_REALM_GRANTED:
     case edge_v1::MESSAGE_ID_S2C_ERROR:
         return true;
     case edge_v1::MESSAGE_ID_UNSPECIFIED:
@@ -186,6 +187,12 @@ std::vector<std::byte> encode(
 }
 
 std::vector<std::byte> encode(
+    const EnterRealmGranted& message, std::uint64_t request_id) {
+    return encode_message(
+        message, edge_v1::MESSAGE_ID_S2C_ENTER_REALM_GRANTED, request_id);
+}
+
+std::vector<std::byte> encode(
     const EdgeError& message, std::uint64_t request_id) {
     return encode_message(message, edge_v1::MESSAGE_ID_S2C_ERROR, request_id);
 }
@@ -259,6 +266,12 @@ std::optional<EdgeAttachAccepted> decode_edge_attach_accepted(
     std::span<const std::byte> payload) {
     return decode_message<EdgeAttachAccepted>(
         payload, edge_v1::MESSAGE_ID_S2C_EDGE_ATTACH_ACCEPTED);
+}
+
+std::optional<EnterRealmGranted> decode_enter_realm_granted(
+    std::span<const std::byte> payload) {
+    return decode_message<EnterRealmGranted>(
+        payload, edge_v1::MESSAGE_ID_S2C_ENTER_REALM_GRANTED);
 }
 
 std::optional<EdgeError> decode_edge_error(std::span<const std::byte> payload) {

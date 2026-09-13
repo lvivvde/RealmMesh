@@ -108,6 +108,38 @@ TEST(SessionTicketsTest, ExpiredTicketsAreInvalidNotReplayed) {
     EXPECT_EQ(expired.status, RedeemStatus::InvalidTicket);
 }
 
+TEST(SessionTicketsTest, EnterRealmPurposeRoundTripsAndRejectsWrongPurpose) {
+    using namespace std::chrono_literals;
+    const auto now = std::chrono::system_clock::time_point(6'000s);
+    SessionTickets tickets(test_key());
+    const auto ticket =
+        tickets.issue(TicketPurpose::EnterRealm, 42, 1, 0, 60s, now);
+
+    // 60s 期限(#45 spec):逾期即无效,且不烧票。
+    const auto stale = tickets.redeem(
+        tickets.issue(TicketPurpose::EnterRealm, 43, 1, 0, 60s, now),
+        TicketPurpose::EnterRealm,
+        now + 61s);
+    EXPECT_EQ(stale.status, RedeemStatus::InvalidTicket);
+
+    // 用途不符不烧票:EnterRealm 票据只能被 EnterRealm 兑换(#46)。
+    const auto wrong =
+        tickets.redeem(ticket, TicketPurpose::EnterGame, now + 1s);
+    EXPECT_EQ(wrong.status, RedeemStatus::InvalidTicket);
+
+    const auto right =
+        tickets.redeem(ticket, TicketPurpose::EnterRealm, now + 1s);
+    ASSERT_EQ(right.status, RedeemStatus::Accepted);
+    EXPECT_EQ(right.claims.purpose, TicketPurpose::EnterRealm);
+    EXPECT_EQ(right.claims.account_id, 42U);
+    EXPECT_EQ(right.claims.realm_id, 1U);
+    EXPECT_EQ(right.claims.character_id, 0U);
+
+    const auto replayed =
+        tickets.redeem(ticket, TicketPurpose::EnterRealm, now + 2s);
+    EXPECT_EQ(replayed.status, RedeemStatus::Replayed);
+}
+
 TEST(EdgeProtocolTest, RoundTripsTheThreeStageHandshakeMessages) {
     LoginRequest login;
     login.set_account("alice");

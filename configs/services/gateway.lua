@@ -18,9 +18,12 @@ return {
     },
     tick_rate = 20,
     max_events_per_frame = 4096,
+    downstream_address = "127.0.0.1",
+    downstream_port = 7100,
     pipeline_fetch_capacity = 1000,
     fetch_retry_base_ms = 2000,
     fetch_retry_max = 3,
+    handoff_grace_ms = 5000,
     runtime = {
         inbound_capacity = 65536,
         outbound_capacity = 65536,

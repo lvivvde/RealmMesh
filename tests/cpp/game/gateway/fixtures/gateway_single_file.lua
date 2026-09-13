@@ -41,6 +41,7 @@ return {
     max_events_per_frame = 4096,
     fetch_retry_base_ms = 2500,
     fetch_retry_max = 5,
+    handoff_grace_ms = 2500,
     runtime = {
         inbound_capacity = 65536,
         outbound_capacity = 65536,

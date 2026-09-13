@@ -26,6 +26,10 @@ enum MessageId {
   MESSAGE_ID_C2S_EDGE_ATTACH = 1301;
   MESSAGE_ID_S2C_EDGE_ATTACH_ACCEPTED = 1302;
 
+  // Gateway handoff(#45):拉取完成后服务器推送的直连凭证——
+  // EnterRealm 票据 + realm 端点;无对应 C2S,客户端凭票据直连业务服。
+  MESSAGE_ID_S2C_ENTER_REALM_GRANTED = 1303;
+
   MESSAGE_ID_S2C_ERROR = 1999;
 }
 
@@ -98,6 +102,13 @@ message EdgeAttach {
 
 message EdgeAttachAccepted {
   uint64 account_id = 1;
+}
+
+// Gateway handoff(#45):EnterRealm 票据(SessionTicket,60s、单次消费,
+// Realm 侧兑换)+ 业务服端点;客户端凭此直连业务服。
+message EnterRealmGranted {
+  bytes enter_realm_ticket = 1;
+  repeated ServiceEndpoint realm_endpoints = 2;
 }
 
 message EdgeError {

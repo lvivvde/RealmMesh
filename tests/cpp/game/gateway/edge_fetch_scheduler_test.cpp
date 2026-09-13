@@ -64,6 +64,7 @@ TEST(EdgeFetchSchedulerTest, SuccessCompletesAndReleasesFetchSlot) {
     ASSERT_EQ(events.size(), 1U);
     EXPECT_EQ(events[0].session_id, session);
     EXPECT_EQ(events[0].kind, EdgeFetchEventKind::Succeeded);
+    EXPECT_EQ(events[0].account_id, 42U);
 
     // 调用方应用事件:迁 handed-off,拉取槽即还。
     ASSERT_TRUE(pipeline.mark_handed_off(session));

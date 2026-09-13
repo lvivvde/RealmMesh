@@ -22,6 +22,9 @@ using CorrelationId = std::array<std::byte, correlation_id_size>;
 enum class TicketPurpose : std::uint8_t {
     Login = 1,
     EnterGame = 2,
+    /// 网关 handoff 直连凭证(#45;spec §4)。旧链 EnterGame 用途保留
+    /// 至 #50 退役。
+    EnterRealm = 3,
 };
 
 struct SessionTicketClaims {

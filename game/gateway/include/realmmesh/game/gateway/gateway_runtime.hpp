@@ -62,6 +62,9 @@ struct GatewayConfig {
     /// 断开会话,双预算随关闭路径归还。
     std::uint64_t fetch_retry_base_ms{2'000};
     unsigned fetch_retry_max{3};
+    /// handoff 收尾宽限(#45):签发 EnterRealm 票据后保留会话的时长,
+    /// 到期未迁移即由帧头关闭。
+    std::uint64_t handoff_grace_ms{5'000};
 };
 
 enum class GatewayEventKind : std::uint8_t {
