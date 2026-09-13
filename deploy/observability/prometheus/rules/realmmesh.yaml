@@ -16,11 +16,16 @@ groups:
             实例 {{ $labels.instance }} 的放行阀门看起来在运行,最近 5
             分钟却没有号牌被放行。优先排查额度轮询与放行帧日志。
 
-      # 2) 额度收敛超时:有放行速率但全部网关 conn_free 归零超过 10s
-      #    (#34 原义"实例死亡后其额度仍被计入"需 etcd exporter 才能精确
-      #    观测,v1 以实例自身 conn_free 总和归零作代理,#32 校准后替换)。
+      # 2) 额度收敛超时(#34:实例死亡后其额度仍被计入 > 10s):v1 用
+      #    实例自身指标作代理——放行在跑但没有网关上报 conn_free(实例
+      #    死亡后序列 stale,absent 命中),或总量已归零。两侧先聚合成
+      #    无标签向量再 and,否则跨服务标签集不相交永不触发。etcd 租约
+      #    视角的精确观测属平台侧 exporter,#32 校准后替换。
       - alert: BudgetConvergenceTimeout
-        expr: admit_rate > 0 and sum(edge_budget{kind="conn_free"}) == 0
+        expr: >-
+          sum(admit_rate) > 0
+            and (absent(edge_budget{kind="conn_free"})
+                 or sum(edge_budget{kind="conn_free"}) == 0)
         for: 10s
         labels:
           severity: critical
@@ -75,7 +80,9 @@ groups:
           summary: 健全服未决请求占比超 0.1%(5 分钟窗口)
           description: >-
             实例 {{ $labels.instance }} 的 verify 请求既未签发也未落入
-            已知拒绝分档,相当于 5xx 类错误超阈值。
+            已知拒绝分档,相当于 5xx/超时类路径。当前已接线的路径
+            (签发 + 三档拒绝)守恒归零,该告警触发即出现了新的未决
+            返回路径,需要排查代码。
 
       # 6) CDN 卸载失效:progress 源站直查速率超过 5 万 QPS(缓存命中
       #    失效或 CDN 配置异常时流量会直接打到排队调度服)。

@@ -35,7 +35,6 @@ public:
         observability::MetricsRegistry* metrics = nullptr);
     /// 存取注入构造(测试用 fake store;生产路径走 etcd)。shared_ptr
     /// 语义:测试侧需在 stop() 清空后仍持引用观测 save 调用。
-    /// metrics(#47):宿主持有的指标注册表;可空(测试装配)。
     QueueService(
         QueueConfig config,
         std::shared_ptr<QueueStateStore> store,

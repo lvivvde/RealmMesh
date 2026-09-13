@@ -60,6 +60,13 @@ constexpr double histogram_buckets[] = {
     return canonical;
 }
 
+/// 系列键:(指标名, 规范化标签串)。
+[[nodiscard]] std::pair<std::string, std::string> series_key(
+    std::string_view name,
+    std::initializer_list<MetricLabel> labels) {
+    return {std::string(name), canonical_labels(labels)};
+}
+
 /// 最短往返浮点文本(std::to_chars general 格式):42 → "42"、
 /// 0.38 → "0.38",避免固定小数位的噪声零。
 [[nodiscard]] std::string format_value(double value) {
@@ -111,8 +118,7 @@ void MetricsRegistry::counter_add(
     std::string_view name,
     double value,
     std::initializer_list<MetricLabel> labels) {
-    const std::pair<std::string, std::string> key(
-        std::string(name), canonical_labels(labels));
+    const auto key = series_key(name, labels);
     std::unique_lock lock(impl_->mutex);
     impl_->counters[key] += value;
 }
@@ -121,8 +127,7 @@ void MetricsRegistry::counter_set(
     std::string_view name,
     double value,
     std::initializer_list<MetricLabel> labels) {
-    const std::pair<std::string, std::string> key(
-        std::string(name), canonical_labels(labels));
+    const auto key = series_key(name, labels);
     std::unique_lock lock(impl_->mutex);
     impl_->counters[key] = value;
 }
@@ -131,8 +136,7 @@ void MetricsRegistry::gauge_set(
     std::string_view name,
     double value,
     std::initializer_list<MetricLabel> labels) {
-    const std::pair<std::string, std::string> key(
-        std::string(name), canonical_labels(labels));
+    const auto key = series_key(name, labels);
     std::unique_lock lock(impl_->mutex);
     impl_->gauges[key] = value;
 }
@@ -141,8 +145,7 @@ void MetricsRegistry::histogram_observe(
     std::string_view name,
     double value,
     std::initializer_list<MetricLabel> labels) {
-    const std::pair<std::string, std::string> key(
-        std::string(name), canonical_labels(labels));
+    const auto key = series_key(name, labels);
     std::unique_lock lock(impl_->mutex);
     auto& histogram = impl_->histograms[key];
     for (std::size_t i = 0; i < std::size(histogram_buckets); ++i) {

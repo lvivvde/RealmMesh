@@ -1,8 +1,10 @@
 /// 告警 rules 与 Grafana 仪表盘的指标名一致性校验(#47):抽取
 /// deploy/observability 下 prometheus rules 的 expr 与仪表盘 JSON 的
-/// panel targets,断言引用的指标名 ⊆ 代码暴露的指标名清单。改名若不
-/// 同步规则/仪表盘即在此失败,不会静默弄瞎告警。各指标名的外显行为
-/// 由各服务测试断言实际渲染行(见 login_verify/queue/帧级测试)。
+/// panel targets,断言引用的指标名 ⊆ 本文件登记的暴露指标清单。改名
+/// 若不同步规则/仪表盘即在此失败,不会静默弄瞎告警。清单与代码的
+/// 贴合由第二层防线保证:每个在册指标的外显行为都在对应服务测试里
+/// 以实际渲染行断言(login_verify/queue 服务测试、网关帧级测试、
+/// mesh_host e2e),代码改名而清单未动会在那里先失败。
 
 #include <gtest/gtest.h>
 #include <nlohmann/json.hpp>
@@ -205,6 +207,12 @@ void assert_refs_known(
     }
 }
 
+/// 仪表盘交付清单(六块,#34 定案):五服务 + 洪峰总览。
+constexpr std::string_view kDashboards[] = {
+    "login-verify.json", "queue.json",   "gateway.json",
+    "realm.json",        "platform.json", "surge-overview.json",
+};
+
 TEST(ObservabilityArtifactsTest, AlertRulesReferenceExposedMetrics) {
     const std::string rules = read_file(
         std::string{REALMMESH_SOURCE_DIR} +
@@ -223,13 +231,9 @@ TEST(ObservabilityArtifactsTest, AlertRulesReferenceExposedMetrics) {
 }
 
 TEST(ObservabilityArtifactsTest, DashboardsReferenceExposedMetrics) {
-    static constexpr std::string_view dashboards[] = {
-        "login-verify.json", "queue.json",     "gateway.json",
-        "realm.json",        "platform.json",  "surge-overview.json",
-    };
     const auto known = exposed_metrics();
     const auto allowlist = allowlisted_metrics();
-    for (const auto name : dashboards) {
+    for (const auto name : kDashboards) {
         const std::string path =
             std::string{REALMMESH_SOURCE_DIR} +
             "/deploy/observability/grafana/dashboards/" + std::string{name};
@@ -255,11 +259,7 @@ TEST(ObservabilityArtifactsTest, DashboardsReferenceExposedMetrics) {
 }
 
 TEST(ObservabilityArtifactsTest, DashboardsPinPrometheusDatasource) {
-    static constexpr std::string_view dashboards[] = {
-        "login-verify.json", "queue.json",    "gateway.json",
-        "realm.json",        "platform.json", "surge-overview.json",
-    };
-    for (const auto name : dashboards) {
+    for (const auto name : kDashboards) {
         const auto document = nlohmann::json::parse(
             read_file(
                 std::string{REALMMESH_SOURCE_DIR} +
