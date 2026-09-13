@@ -107,6 +107,28 @@ _Avoid_: packet、frame(frame 指传输层的长度帧概念)
 libsodium 签发的一次性准入凭据(`TicketPurpose`),在兑换点单次消费(重放防护)。在新登录链路(Access 一节)中:Login 用途随旧 Login 服退役;EnterGame 用途更名 **EnterRealm**——网关在拉取完成后签发,客户端携带,Realm 兑换后直连入场(即直连凭证)。入场前置凭据为身份 Token + 放行凭证;网关入口的 `jti` 单次消费与之并行。
 _Avoid_: token、credential、cookie、EnterGameTicket(旧名)
 
+### Client
+
+**Login Chain**:
+客户端从凭据到入场的七态驱动器:`verifying → queued → admitted → gateway_connecting → handoff_received → realm_connecting → in_game`;失败按规则回退(verify 失败回 idle、号牌过期自动重取、网关失败在放行宽限内重入、Realm 直连失败在 EnterRealm 票据窗口内重试),不自作主张重排队。
+_Avoid_: 登录流程(流程指纸上步骤,链路是能跑出状态的实体)、session(那是服务端概念)
+
+**Login Stage**:
+登录链路的当前状态,取值为上述七态之一;`idle` 是链路的初始态与所有回退的落点。
+_Avoid_: step(步骤是动作,阶段是状态)、phase(phasing 是服务端的拉取分期概念)
+
+**Adaptive Polling**(分档轮询):
+排队进度轮询的节奏策略:按位次分档(初始 2s、位次 >1000 用 5s、≤10 用 1s)、±20% 抖动、连续 3 次失败起指数退避至 30s 封顶,且不短于 progress 的缓存窗口。
+_Avoid_: 定时轮询(丢掉了「随位次与失败自适应」的要义)、退避(退避只是失败分支,不是整套策略)
+
+**Staged Race**(竞速建连):
+同一段建连的两个传输候选错时起跑:QUIC 立即、TLS/TCP 延后 350ms,先成者胜出并取消另一路;连网关与直连业务服各自独立跑一次。
+_Avoid_: 双通道(同一时刻只有一条通道存活,没有并行双路)、failover(不是故障切换,是建连竞赛)
+
+**EnterRealm Redeemer**(兑换口):
+Realm 段在已竞速建连的流上兑换 EnterRealm 票据的注入点;协议归 #46,默认实现显式判失败而不猜协议。
+_Avoid_: realm login(兑换是凭据消费,不是再登录一次)、handoff(handoff 指网关下发凭据与端点)
+
 ### Testing
 
 **Unit Test**:
