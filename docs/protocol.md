@@ -49,6 +49,11 @@ QUIC 在一个客户端发起的长期可靠双向流上承载该字节流；不
 | 1106 | S2C | `HeartbeatResponse` |
 | 1201 | C2S | `EnterGame` |
 | 1202 | S2C | `EnterGameAccepted` |
+| 1301 | C2S | `EdgeAttach` |
+| 1302 | S2C | `EdgeAttachAccepted` |
+| 1303 | S2C | `EnterRealmGranted` |
+| 1304 | C2S | `EnterRealm` |
+| 1305 | S2C | `EnterRealmAccepted` |
 | 1999 | S2C | `EdgeError` |
 
 Realm 鉴权成功后，客户端每 10 秒发送一次 `HeartbeatRequest`，服务端使用相同的

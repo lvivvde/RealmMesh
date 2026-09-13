@@ -42,9 +42,10 @@ namespace realm::service_host {
 [[nodiscard]] std::optional<cluster::ServiceType> parse_service_identity(
     std::string_view service_name);
 
-/// Edge 登录管线额度上限(#43):conn=在管会话上限(规格层总量),
-/// 由启用传输的 max_sessions 之和同源注入(管线满即传输满);
-/// fetch=每实例拉取并发预算池规模。仅 gateway 身份消费,其余服务忽略。
+/// Edge 登录管线额度上限:conn=在管会话上限(规格层总量),由启用传输的
+/// max_sessions 之和同源注入(管线满即传输满)——gateway 用作管线与额度
+/// 上限,realm 用作 conn_free 上报的容量基准(#46);fetch=每实例拉取并发
+/// 预算池规模,仅 gateway 拉取管线存在,其余身份恒 0。
 struct EdgePipelineCaps {
     std::uint64_t conn_capacity{10'000};
     std::uint64_t fetch_capacity{1'000};
@@ -87,7 +88,8 @@ public:
         observability::Logger& logger,
         const game::gateway::GatewayRuntime& runtime) const;
     /// 每帧业务:drain 事件并按服务名分发处理。budget_reporter 非空时
-    /// (gateway 身份)帧尾发布管线额度快照,策略节流由上报器自理。
+    /// 帧尾发布额度快照(gateway 双维度、realm 仅 conn_free),策略节流
+    /// 由上报器自理。
     void tick(
         observability::Logger& logger,
         game::gateway::GatewayRuntime& runtime,

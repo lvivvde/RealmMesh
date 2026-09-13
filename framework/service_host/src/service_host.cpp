@@ -317,11 +317,12 @@ void ServiceHost::tick() {
     if (publisher_ == nullptr) return;
     if (!publisher_->tick()) return;
     // 注册成功后装配额度上报器(#43 gateway / #46 realm):required=false
-    // 时首注册可能失败,注册成功后的首个 tick 补齐。身份映射复用
-    // parse_service_identity,仅帧形态服务(gateway|realm)上报。
-    std::optional<cluster::ServiceType> budget_type;
-    if (service_name_ == "gateway" || service_name_ == "realm") {
-        budget_type = parse_service_identity(service_name_);
+    // 时首注册可能失败,注册成功后的首个 tick 补齐。名字→身份的映射
+    // 只由 parse_service_identity 持有,这里按身份判定上报资格。
+    auto budget_type = parse_service_identity(service_name_);
+    if (budget_type != cluster::ServiceType::Gateway &&
+        budget_type != cluster::ServiceType::Realm) {
+        budget_type.reset();
     }
     if (budget_reporter_ == nullptr && budget_type.has_value() &&
         publisher_->registered()) {

@@ -474,9 +474,9 @@ void ServiceFrame::handle_enter_realm(
     // realm 固定 1 的不变量与旧链一致;character_id 占位 0(#46 不校验,
     // 选角业务后续票落地)。回放保护在 redeem 处烧票:同票据二次提交
     // 自然落 Replayed,与无效/过期同路拒绝。
-    const bool entered =
-        redeemed.status == game::common::RedeemStatus::Accepted &&
-        redeemed.claims.realm_id == 1;
+    const bool ticket_valid =
+        redeemed.status == game::common::RedeemStatus::Accepted;
+    const bool entered = ticket_valid && redeemed.claims.realm_id == 1;
     if (!entered) {
         game::common::EdgeError error;
         error.set_code(game::common::edge_error_invalid_enter_realm_ticket);
@@ -489,14 +489,30 @@ void ServiceFrame::handle_enter_realm(
             static_cast<void>(
                 runtime.try_decline(event.session_id, response));
         }
-        static_cast<void>(logger.warn(
-            "realm_enter_rejected",
-            "enter realm ticket rejected",
-            {observability::field("session_id",
-                                  event.session_id.value,
-                                  observability::DataClass::Internal),
-             observability::field("redeem_status",
-                                  static_cast<int>(redeemed.status))}));
+        if (ticket_valid) {
+            // 票据验签通过、只是 realm 声明不符:唯一能归因到账号的拒绝
+            // 分支(无效/重放的 redeem 不返回 claims,只留 redeem_status)。
+            static_cast<void>(logger.warn(
+                "realm_enter_realm_mismatch",
+                "enter realm ticket is for another realm",
+                {observability::field("session_id",
+                                      event.session_id.value,
+                                      observability::DataClass::Internal),
+                 observability::field("account_id",
+                                      redeemed.claims.account_id,
+                                      observability::DataClass::Pseudonymous),
+                 observability::field("realm_id",
+                                      redeemed.claims.realm_id)}));
+        } else {
+            static_cast<void>(logger.warn(
+                "realm_enter_rejected",
+                "enter realm ticket rejected",
+                {observability::field("session_id",
+                                      event.session_id.value,
+                                      observability::DataClass::Internal),
+                 observability::field("redeem_status",
+                                      static_cast<int>(redeemed.status))}));
+        }
         return;
     }
     authenticated_[event.session_id] = redeemed.claims;
