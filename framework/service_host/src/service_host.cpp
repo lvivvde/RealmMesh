@@ -126,7 +126,11 @@ ServiceHost::ServiceHost(
         config.downstream_port,
         config.max_events_per_frame,
         EdgePipelineCaps{
-            pipeline_conn_capacity, config.pipeline_fetch_capacity},
+            pipeline_conn_capacity,
+            // fetch 容量仅 gateway 拉取管线存在,其余身份(含 realm)
+            // 置 0,与快照 has_fetch=false 同一不变量。
+            service_name_ == "gateway" ? config.pipeline_fetch_capacity
+                                       : 0},
         EdgePipelineTuning{
             std::chrono::milliseconds{config.fetch_retry_base_ms},
             config.fetch_retry_max,
@@ -313,12 +317,12 @@ void ServiceHost::tick() {
     if (publisher_ == nullptr) return;
     if (!publisher_->tick()) return;
     // 注册成功后装配额度上报器(#43 gateway / #46 realm):required=false
-    // 时首注册可能失败,注册成功后的首个 tick 补齐。
-    const auto budget_type = service_name_ == "gateway"
-                                 ? std::optional{cluster::ServiceType::Gateway}
-                             : service_name_ == "realm"
-                                 ? std::optional{cluster::ServiceType::Realm}
-                                 : std::nullopt;
+    // 时首注册可能失败,注册成功后的首个 tick 补齐。身份映射复用
+    // parse_service_identity,仅帧形态服务(gateway|realm)上报。
+    std::optional<cluster::ServiceType> budget_type;
+    if (service_name_ == "gateway" || service_name_ == "realm") {
+        budget_type = parse_service_identity(service_name_);
+    }
     if (budget_reporter_ == nullptr && budget_type.has_value() &&
         publisher_->registered()) {
         budget_reporter_ = std::make_unique<cluster::InstanceBudgetReporter>(
