@@ -29,10 +29,11 @@ void print_usage() {
         "      tickets  验证 + 取号\n"
         "      poll     验证 + 取号 + progress 轮询到放行兑换\n"
         "      gateway  单趟链路到 handed-off(1303)\n"
-        "      all      循环链路到 --duration(soak 水位保持)\n"
+        "      all      链路到 handed-off 后保持连接到 --duration\n"
+        "               (soak 水位)\n"
         "  --robots N            机器人数(默认 1)\n"
         "  --ramp-seconds F      爬坡时长,按序错峰(默认 0)\n"
-        "  --duration-seconds F  总时长/截止(默认 10)\n"
+        "  --duration F         总时长/截止,秒(默认 10)\n"
         "  --concurrency N       并发机器人上限(默认 32)\n"
         "  --poll-interval-ms N  progress 轮询间隔(默认 100)\n"
         "  --login-verify H:P    健全服地址\n"
@@ -153,12 +154,15 @@ int main(int argc, char** argv) {
             }
             config.ramp_seconds = *seconds;
             ramp_given = true;
-        } else if (argument == "--duration-seconds") {
+        } else if (argument == "--duration" ||
+                   argument == "--duration-seconds") {
+            // --duration 为 spec 名;--duration-seconds 是单位显式的旧拼法
+            // (同 --ramp-seconds 风格),两者同一消费路径。
             const auto value = value_of();
             const auto seconds =
                 value.has_value() ? parse_double(*value) : std::nullopt;
             if (!seconds.has_value()) {
-                std::cerr << "invalid --duration-seconds\n";
+                std::cerr << "invalid --duration\n";
                 return 2;
             }
             config.duration_seconds = *seconds;

@@ -36,7 +36,7 @@ struct RobotOptions final {
     std::string credential;
     /// progress 轮询间隔。
     std::chrono::milliseconds poll_interval{100};
-    /// 总截止:超时未走完链路 → RobotTimeout。
+    /// 总截止:各相位共享的上限,过期后的下一次网络动作即失败折算。
     std::chrono::steady_clock::time_point deadline{
         std::chrono::steady_clock::time_point::max()};
     /// all 阶段:到 handed-off 后保持连接至此(soak 水位)。
@@ -56,15 +56,21 @@ struct RobotOutcome final {
     std::string number_token;
 };
 
+/// 机器人五相位计数器的打包;各计数器仍由调用方持有(线程本地累计,
+/// 便于按相位归并进报告)。
+struct RobotCounters final {
+    PhaseCounters& verify;
+    PhaseCounters& tickets;
+    PhaseCounters& poll;
+    PhaseCounters& attach;
+    PhaseCounters& handoff;
+};
+
 /// 驱动一个机器人走完其阶段的链路;相位计数写入 counters(verify/
 /// tickets/poll/attach/handoff 五相位)。异常不外抛:网络层失败折算
-/// 为 ConnectionError 计数。
+/// 为 ConnectionError 计数;终态失败分型取自实际失败相位的计数器。
 [[nodiscard]] RobotOutcome run_robot(
     const RobotOptions& options,
-    PhaseCounters& verify,
-    PhaseCounters& tickets,
-    PhaseCounters& poll,
-    PhaseCounters& attach,
-    PhaseCounters& handoff);
+    RobotCounters counters);
 
 }  // namespace realm::loadgen

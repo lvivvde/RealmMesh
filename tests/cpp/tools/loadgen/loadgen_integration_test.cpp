@@ -591,11 +591,18 @@ TEST(LoadgenIntegrationTest, L1TicketsIssueTokensAllValidate) {
     config.collect_number_tokens = true;
     config.endpoints = loadgen_endpoints(login_verify_port, queue_port, 0);
 
+    const auto started = std::chrono::steady_clock::now();
     const auto report = run_loadgen(config);
+    const auto wall_seconds = std::chrono::duration<double>(
+                                  std::chrono::steady_clock::now() - started)
+                                  .count();
 
     EXPECT_EQ(report.completed, 300);
     EXPECT_EQ(report.tickets.attempts, 300);
     EXPECT_EQ(report.tickets.failures, 0);
+    // 吞吐下限(spec L1):300 号牌 30s 上限 ≈ 10/s 数量级守门;本机
+    // 参考亚秒。压在计数断言之后,失败时输出顺序不误导。
+    EXPECT_LT(wall_seconds, 30);
 
     const auto metrics =
         parse_metrics_text(mesh.service("queue").prometheus_metrics());
@@ -617,7 +624,8 @@ TEST(LoadgenIntegrationTest, L1TicketsIssueTokensAllValidate) {
 /// L1 网关 soak 缩减版:预热 → fd 基线 → 基线跑(attach p50 对照)→
 /// 主跑(100 机器人 handed-off 保持水位,150ms 采样)→ 排空 → fd 回归。
 /// 断言:三段水位快照与额度账自洽(段和 + conn_free 恒等管线容量)、
-/// handed-off 水位真实存在、attach 时延相对自身基线无漂移、fd 不泄漏。
+/// handed-off 水位真实存在、attach 时延与边缘拉取时延(edge_fetch 增量
+/// 均值)相对自身基线均无漂移、fd 不泄漏。
 TEST(LoadgenIntegrationTest, L1GatewaySoakHoldsWaterLevelWithoutFdLeak) {
     const ScopedLoadgenEnvironment environment;
     const std::filesystem::path source = REALMMESH_SOURCE_DIR "/configs";
@@ -655,7 +663,7 @@ TEST(LoadgenIntegrationTest, L1GatewaySoakHoldsWaterLevelWithoutFdLeak) {
 
     const auto fd_before = count_open_fds();
 
-    // 基线跑:小规模取 attach p50,作无漂移对照。
+    // 基线跑:小规模取 attach p50 + 服务侧 fetch 均值,作无漂移对照。
     LoadgenConfig baseline;
     baseline.phase = RobotPhase::All;
     baseline.robots = 30;
@@ -663,8 +671,14 @@ TEST(LoadgenIntegrationTest, L1GatewaySoakHoldsWaterLevelWithoutFdLeak) {
     baseline.duration_seconds = 4;
     baseline.poll_interval = std::chrono::milliseconds{50};
     baseline.endpoints = endpoints;
-    const auto base_p50 =
-        run_loadgen(baseline).attach.latency.summary().p50_ms;
+    const auto base_report = run_loadgen(baseline);
+    const auto base_p50 = base_report.attach.latency.summary().p50_ms;
+    const auto base_metrics =
+        parse_metrics_text(mesh.service("gateway").prometheus_metrics());
+    const auto base_fetch_sum =
+        base_metrics.total("edge_fetch_duration_seconds_sum");
+    const auto base_fetch_count =
+        base_metrics.total("edge_fetch_duration_seconds_count");
 
     // 采样线程:主跑期间 150ms 一次抓网关水位。
     std::vector<WaterSample> samples;
@@ -721,6 +735,23 @@ TEST(LoadgenIntegrationTest, L1GatewaySoakHoldsWaterLevelWithoutFdLeak) {
         EXPECT_LT(main_p50, base_p50 * 5);
     }
 
+    // 服务侧拉取时延同口径对照(spec:soak 看的是服务时延,不只是客户
+    // 端 attach 代理):主跑相对基线的 edge_fetch 增量均值不劣化超过
+    // 5 倍 + 50ms 绝对余量(小样本噪声防护;增量口径排除基线摊薄)。
+    const auto main_metrics =
+        parse_metrics_text(mesh.service("gateway").prometheus_metrics());
+    const auto main_fetch_sum =
+        main_metrics.total("edge_fetch_duration_seconds_sum");
+    const auto main_fetch_count =
+        main_metrics.total("edge_fetch_duration_seconds_count");
+    const auto fetch_delta_count = main_fetch_count - base_fetch_count;
+    if (base_fetch_count > 0 && fetch_delta_count > 0) {
+        const auto base_mean = base_fetch_sum / base_fetch_count;
+        const auto main_mean =
+            (main_fetch_sum - base_fetch_sum) / fetch_delta_count;
+        EXPECT_LT(main_mean, base_mean * 5.0 + 0.05);
+    }
+
     // 排空:机器人已断连,帧尾把会话清干净(宽限回收兜底 ≤ 30s,这里
     // 15s 内应到位);conn_free 回到满容量。
     bool drained = false;
@@ -737,8 +768,18 @@ TEST(LoadgenIntegrationTest, L1GatewaySoakHoldsWaterLevelWithoutFdLeak) {
     EXPECT_TRUE(drained);
 
     // fd 不泄漏:压测前后进程 fd 数只许回落不许增长(keep-alive 短连
-    // 的关闭会让 fd 数合法减少,故查方向而非求等)。
-    EXPECT_LE(count_open_fds(), fd_before);
+    // 的关闭会让 fd 数合法减少,故查方向而非求等)。异步关闭有抖动
+    // (对端 RST 的回收落在计数之后),给 2s 让在途关闭落定;真泄漏
+    // 不会随等待消失。
+    bool fds_settled = false;
+    for (int attempt = 0; attempt < 20; ++attempt) {
+        if (count_open_fds() <= fd_before) {
+            fds_settled = true;
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds{100});
+    }
+    EXPECT_TRUE(fds_settled);
 }
 
 /// M2 缩减版:250 机器人单趟全链路(verify → handed-off),断言完成率
@@ -819,8 +860,9 @@ TEST(LoadgenIntegrationTest, M3SmokeTenThousandTicketsAndConcurrentPolls) {
     ASSERT_TRUE(mesh.start_all());
     const TickDriver driver(mesh);
 
-    // 两轮并发 125 都 < 监听 backlog(128):并发突发超过 backlog 会吃
-    // SYN 重传税(1s/次),吞吐反而塌掉——M3 走中低并发、拉长时间预算。
+    // 两轮并发 100:低于监听 backlog(128)且留 28 位余量(两服务共用
+    // tick 线程,accept 不保证即时排空)。并发即吞吐,但更高并发在本机
+    // 未验证稳定,M3 冒烟走中低并发、拉长时间预算。
     LoadgenConfig tickets_run;
     tickets_run.phase = RobotPhase::Tickets;
     tickets_run.robots = 10000;

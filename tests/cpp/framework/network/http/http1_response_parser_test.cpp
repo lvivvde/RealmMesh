@@ -153,6 +153,48 @@ TEST(Http1ResponseParserTest, RejectsHeadBeyondLimit) {
     EXPECT_EQ(result.status, Http1ResponseParseStatus::HeadersTooLarge);
 }
 
+TEST(Http1ResponseParserTest, HoldsBodyUntilContentLengthSatisfied) {
+    // Content-Length 截断专用用例:头 + 半截 body 只报 NeedMoreData 且
+    // 不产出响应;补齐剩余字节后整段 body 一次到位。
+    constexpr std::string_view head =
+        "HTTP/1.1 200 OK\r\n"
+        "Content-Length: 17\r\n"
+        "\r\n";
+    const auto text = std::string{head} + R"({"queued":"true"})";
+    Http1ResponseParser parser;
+    auto buffer = make_buffer(text.substr(0, head.size() + 5));
+    auto result = parser.try_parse(buffer);
+    EXPECT_EQ(result.status, Http1ResponseParseStatus::NeedMoreData);
+    EXPECT_FALSE(result.response.has_value());
+    EXPECT_TRUE(buffer.empty());
+
+    buffer.append(
+        std::as_bytes(std::span{text}.subspan(head.size() + 5)));
+    result = parser.try_parse(buffer);
+    ASSERT_EQ(result.status, Http1ResponseParseStatus::ResponseReady);
+    ASSERT_TRUE(result.response.has_value());
+    EXPECT_EQ(result.response->body, R"({"queued":"true"})");
+    EXPECT_TRUE(buffer.empty());
+}
+
+TEST(Http1ResponseParserTest, SlowDripHeadStillHitsSizeLimit) {
+    // 慢速投喂不绕开头块上限:逐字节喂、终止符始终缺席,累计字节一超
+    // max_head_bytes 立即 HeadersTooLarge,而非无限 NeedMoreData。
+    Http1ResponseParser parser{16, 1024};
+    ByteBuffer buffer;
+    std::optional<Http1ResponseParseResult> result;
+    for (std::size_t sent = 0; sent < 17; ++sent) {
+        buffer.append(std::as_bytes(std::span{
+            "HTTP/1.1 200 OK\r\nX-Long: aaaa\r\n"}.subspan(sent, 1)));
+        result = parser.try_parse(buffer);
+        if (sent + 1 < 17) {
+            ASSERT_EQ(result->status, Http1ResponseParseStatus::NeedMoreData);
+        }
+    }
+    EXPECT_EQ(result->status, Http1ResponseParseStatus::HeadersTooLarge);
+    EXPECT_FALSE(result->response.has_value());
+}
+
 TEST(Http1ResponseParserTest, RejectsHttp10Response) {
     Http1ResponseParser parser;
     auto buffer = make_buffer(

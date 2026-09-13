@@ -67,7 +67,8 @@ TEST(FailureKindNameTest, NamesEveryKind) {
               "handoff_timeout");
     EXPECT_EQ(failure_kind_name(FailureKind::ConnectionError),
               "connection_error");
-    EXPECT_EQ(failure_kind_name(FailureKind::RobotTimeout), "robot_timeout");
+    EXPECT_EQ(failure_kind_name(FailureKind::HandoffRejected),
+              "handoff_rejected");
 }
 
 TEST(ParseRobotPhaseTest, AcceptsSpecifiedValues) {

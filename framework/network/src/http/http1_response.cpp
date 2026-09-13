@@ -1,27 +1,15 @@
 #include "realmmesh/network/http/http1_response.hpp"
 
+#include "http1_lexing.hpp"
+
 #include <algorithm>
 #include <string_view>
 
 namespace realm::network {
 namespace {
 
-char to_lower(char value) {
-    return value >= 'A' && value <= 'Z'
-               ? static_cast<char>(value - 'A' + 'a')
-               : value;
-}
-
-bool equals_ignore_case(std::string_view left, std::string_view right) {
-    return left.size() == right.size() && std::equal(
-                                              left.begin(),
-                                              left.end(),
-                                              right.begin(),
-                                              [](char lhs, char rhs) {
-                                                  return to_lower(lhs) ==
-                                                      to_lower(rhs);
-                                              });
-}
+// 词法助手收敛在 http1_lexing.hpp(请求侧/响应侧共用)。
+using lexing::equals_ignore_case;
 
 std::string_view reason_phrase(int status) {
     switch (status) {

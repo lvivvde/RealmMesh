@@ -26,10 +26,10 @@ enum class FailureKind {
     AttachTimeout,
     /// 受理后未在时限内收到 EnterRealmGranted(1303)。
     HandoffTimeout,
+    /// 交付相位收到坏帧或被 EdgeError 拒绝。
+    HandoffRejected,
     /// TLS/网络层失败(拨号、握手、读写、解析)。
     ConnectionError,
-    /// 总截止(超过 --duration)未走完链路。
-    RobotTimeout,
 };
 
 [[nodiscard]] std::string_view failure_kind_name(FailureKind kind);
@@ -68,6 +68,10 @@ struct PhaseCounters final {
     void record_success(double milliseconds);
     void record_failure(FailureKind kind, double milliseconds);
     void merge(const PhaseCounters& other);
+
+    /// 最近一次失败的分型(record_success 不清零):机器人终态失败
+    /// 直接取这里,避免外层把网络层故障错记成相位拒绝。
+    FailureKind last_failure{FailureKind::None};
 };
 
 /// 服务端地址(回环压测语境:host 为点分 IPv4 或主机名)。

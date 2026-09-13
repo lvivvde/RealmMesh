@@ -23,10 +23,10 @@ std::string_view failure_kind_name(FailureKind kind) {
         return "attach_timeout";
     case FailureKind::HandoffTimeout:
         return "handoff_timeout";
+    case FailureKind::HandoffRejected:
+        return "handoff_rejected";
     case FailureKind::ConnectionError:
         return "connection_error";
-    case FailureKind::RobotTimeout:
-        return "robot_timeout";
     }
     return "unknown";
 }
@@ -79,6 +79,7 @@ void PhaseCounters::record_failure(FailureKind kind, double milliseconds) {
     ++failures;
     latency.record(milliseconds);
     ++by_kind[kind];
+    last_failure = kind;
 }
 
 void PhaseCounters::merge(const PhaseCounters& other) {
@@ -88,6 +89,9 @@ void PhaseCounters::merge(const PhaseCounters& other) {
         by_kind[kind] += count;
     }
     latency.merge(other.latency);
+    if (other.last_failure != FailureKind::None) {
+        last_failure = other.last_failure;
+    }
 }
 
 }  // namespace realm::loadgen

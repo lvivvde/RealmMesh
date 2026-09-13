@@ -199,7 +199,7 @@ namespace edge_v1 = ::realmmesh::protocol::edge::v1;
         const auto message_id = common::edge_message_id(*payload);
         if (!message_id.has_value()) {
             handoff.record_failure(
-                FailureKind::AttachRejected, elapsed_ms(started));
+                FailureKind::HandoffRejected, elapsed_ms(started));
             return false;
         }
         if (*message_id == edge_v1::MESSAGE_ID_S2C_ENTER_REALM_GRANTED) {
@@ -208,7 +208,7 @@ namespace edge_v1 = ::realmmesh::protocol::edge::v1;
         }
         if (*message_id == edge_v1::MESSAGE_ID_S2C_ERROR) {
             handoff.record_failure(
-                FailureKind::AttachRejected, elapsed_ms(started));
+                FailureKind::HandoffRejected, elapsed_ms(started));
             return false;
         }
     }
@@ -227,14 +227,15 @@ std::optional<RobotPhase> parse_robot_phase(std::string_view text) {
 
 RobotOutcome run_robot(
     const RobotOptions& options,
-    PhaseCounters& verify,
-    PhaseCounters& tickets,
-    PhaseCounters& poll,
-    PhaseCounters& attach,
-    PhaseCounters& handoff) {
-    // Gateway = 单趟链路到 handed-off;All = 循环链路到总截止
-    // (soak 语境:handoff 宽限由服务端关闭,客户端以重连续持水位,
-    // 每圈新 jti/新号牌,重放即拒)。
+    RobotCounters counters) {
+    PhaseCounters& verify = counters.verify;
+    PhaseCounters& tickets = counters.tickets;
+    PhaseCounters& poll = counters.poll;
+    PhaseCounters& attach = counters.attach;
+    PhaseCounters& handoff = counters.handoff;
+    // Gateway = 单趟链路到 handed-off;All = handed-off 后保持连接到
+    // 保持截止(soak 语境:会话停在 handed-off 段撑在线水位,由服务端
+    // 宽限或保持到点收尾),单趟即返回。
     std::string number_token;
     // 队列连接按机器人复用(keep-alive):取号、轮询、兑换同连接,
     // 万级短连下的握手总量减半;连接随机器人结束关闭(RST)。
@@ -243,7 +244,7 @@ RobotOutcome run_robot(
         auto identity = run_verify(options, verify);
         if (!identity.has_value()) {
             return {.completed = false,
-                    .failure = FailureKind::VerifyRejected,
+                    .failure = verify.last_failure,
                     .number_token = std::move(number_token)};
         }
         if (options.phase == RobotPhase::Verify) {
@@ -260,7 +261,7 @@ RobotOutcome run_robot(
                     FailureKind::ConnectionError,
                     elapsed_ms(std::chrono::steady_clock::now()));
                 return {.completed = false,
-                        .failure = FailureKind::ConnectionError,
+                        .failure = tickets.last_failure,
                         .number_token = std::move(number_token)};
             }
         }
@@ -268,7 +269,7 @@ RobotOutcome run_robot(
             run_tickets(options, *queue_connection, *identity, tickets);
         if (!issued.has_value()) {
             return {.completed = false,
-                    .failure = FailureKind::TicketsRejected,
+                    .failure = tickets.last_failure,
                     .number_token = std::move(number_token)};
         }
         if (options.collect_artifacts) {
@@ -284,7 +285,7 @@ RobotOutcome run_robot(
             options, *queue_connection, issued->first, issued->second, poll);
         if (!grant.has_value()) {
             return {.completed = false,
-                    .failure = FailureKind::AdmitTimeout,
+                    .failure = poll.last_failure,
                     .number_token = std::move(number_token)};
         }
         if (options.phase == RobotPhase::Poll) {
@@ -300,17 +301,17 @@ RobotOutcome run_robot(
                 FailureKind::ConnectionError,
                 elapsed_ms(std::chrono::steady_clock::now()));
             return {.completed = false,
-                    .failure = FailureKind::ConnectionError,
+                    .failure = attach.last_failure,
                     .number_token = std::move(number_token)};
         }
         if (!run_attach(options, *connection, *identity, *grant, attach)) {
             return {.completed = false,
-                    .failure = FailureKind::AttachRejected,
+                    .failure = attach.last_failure,
                     .number_token = std::move(number_token)};
         }
         if (!run_handoff(options, *connection, handoff)) {
             return {.completed = false,
-                    .failure = FailureKind::HandoffTimeout,
+                    .failure = handoff.last_failure,
                     .number_token = std::move(number_token)};
         }
         if (options.phase == RobotPhase::Gateway) {

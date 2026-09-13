@@ -44,9 +44,6 @@ public:
     /// 从 buffer 消费至多一个响应。
     [[nodiscard]] Http1ResponseParseResult try_parse(ByteBuffer& buffer);
 
-    /// 单响应总投入上限(头块 + body);客户端边以此约束每连接输入缓冲。
-    [[nodiscard]] std::size_t max_input_bytes() const noexcept;
-
 private:
     enum class Phase { Head, Body };
 

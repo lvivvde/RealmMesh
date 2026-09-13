@@ -59,6 +59,16 @@ std::string LoadgenReport::render() const {
         metric(*service_metrics, "edge_fetch_retry_total");
         metric(*service_metrics, "edge_fetch_duration_seconds_count");
         metric(*service_metrics, "edge_jti_replay_rejected_total");
+        // 拉取失败率 = retry/(retry+count),#34 口径的门槛判定直读数。
+        const auto fetch_retry =
+            service_metrics->total("edge_fetch_retry_total");
+        const auto fetch_done =
+            service_metrics->total("edge_fetch_duration_seconds_count");
+        if (fetch_retry + fetch_done > 0) {
+            text += "  fetch_failure_rate: " +
+                    std::to_string(fetch_retry / (fetch_retry + fetch_done)) +
+                    "\n";
+        }
     }
     return text;
 }
@@ -113,8 +123,9 @@ LoadgenReport run_loadgen(const LoadgenConfig& config) {
             PhaseCounters poll;
             PhaseCounters attach;
             PhaseCounters handoff;
-            auto outcome =
-                run_robot(options, verify, tickets, poll, attach, handoff);
+            auto outcome = run_robot(
+                options,
+                RobotCounters{verify, tickets, poll, attach, handoff});
 
             std::scoped_lock lock{report_mutex};
             report.verify.merge(verify);
