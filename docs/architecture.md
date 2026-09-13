@@ -107,6 +107,7 @@ MsQuic 自有调度不会直接调用业务逻辑。回调只完成长度帧组�
 - `game/queue`：排队调度服(号牌签发、放行阀门、etcd 额度/快照存取)。
 - `game/common`：Envelope 编解码、业务票据与账号数据源抽象（AccountStore）。
 - `framework/cluster`：多协议端点注册与发现。
+- `framework/client`：客户端登录链路（七态状态机、分档轮询、两段竞速）与其 HTTPS/网关/业务服生产传输绑定。
 - `framework/service_host`：把服务名、分层配置与集群接线装配成一个可运行服务。
 - `apps/mesh_host`：`realm_mesh` 单一入口，以 `--service` 区分服务与信号处理。
 

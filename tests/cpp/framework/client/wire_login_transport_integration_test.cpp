@@ -76,8 +76,12 @@ public:
 
     void poll(milliseconds timeout) { server_.poll_once(timeout); }
 
-    /// tickets/me 前 N 次回 401 + 2001(号牌过期)。
+    /// tickets/me 前 N 次回 401 + unauthorized_code(默认 2001 号牌过期)。
     std::atomic<int> unauthorized_remaining{1};
+    /// 401 体里的错误码:2001 = 号牌过期(触发重取),其余是瞬时失败。
+    std::atomic<int> unauthorized_code{2001};
+    /// 401 之后、放行之前回 N 次 status=queued(位次 100)。
+    std::atomic<int> queued_remaining{1};
     /// 注入的放行宽限(tickets/me 的 expires_in)。
     int admit_grace_seconds{300};
 
@@ -148,7 +152,15 @@ private:
             if (unauthorized_remaining.load() > 0) {
                 --unauthorized_remaining;
                 return json_response(
-                    401, R"({"code":2001,"message":"number token expired"})");
+                    401, "{\"code\":" + std::to_string(unauthorized_code.load()) +
+                             ",\"message\":\"number token rejected\"}");
+            }
+            if (queued_remaining.load() > 0) {
+                --queued_remaining;
+                return json_response(
+                    200,
+                    R"({"status":"queued","position":100,)"
+                    R"("estimated_wait_seconds":1})");
             }
             return json_response(
                 200,
@@ -451,12 +463,13 @@ TEST(WireLoginTransportIntegrationTest, DrivesLoginChainOverRealTls) {
     EXPECT_EQ(result.stage, LoginStage::InGame);
     EXPECT_EQ(result.number, 100U);
 
-    // HTTP 段:verify 一次;progress 三次(首次未放行,第二次放行但号牌
-    // 被判过期,重取后第三次放行);tickets 两次;查号两次。
+    // HTTP 段:verify 一次;查号三次(首查被 401+2001 判号牌过期→重取号,
+    // 新号首查仍 queued,progress 追上号值后第三次拿到放行凭证);
+    // progress 两次(首次未放行,第二次放行);tickets 两次(重取)。
     EXPECT_EQ(http.count_of("/v1/login/verify"), 1);
     EXPECT_EQ(http.count_of("/v1/queue/tickets"), 2);
-    EXPECT_EQ(http.count_of("/v1/queue/progress"), 3);
-    EXPECT_EQ(http.count_of("/v1/queue/tickets/me"), 2);
+    EXPECT_EQ(http.count_of("/v1/queue/progress"), 2);
+    EXPECT_EQ(http.count_of("/v1/queue/tickets/me"), 3);
 
     // 凭据纯内存传递:取号带身份 token,查号带当期号牌。
     const auto observed = http.observed();
@@ -497,6 +510,8 @@ TEST(WireLoginTransportIntegrationTest, AttachRejectionRetakesNumberToken) {
 
     HttpStub http;
     http.unauthorized_remaining.store(0);
+    // 首查直接放行,不必等 progress。
+    http.queued_remaining.store(0);
     EdgeStub edge(*transports.at(0), realm_port);
     edge.reject_attach_remaining.store(1);
     RealmStub realm(*transports.at(1));
@@ -524,6 +539,33 @@ TEST(WireLoginTransportIntegrationTest, AttachRejectionRetakesNumberToken) {
     EXPECT_EQ(http.count_of("/v1/queue/tickets"), 2);
     EXPECT_EQ(chain.credentials().number, 100U);
     EXPECT_EQ(realm.received(), "ert-1");
+}
+
+/// 401 不一律等于号牌过期:只有错误码 2001 才触发自动重取(spec §5.1
+/// 错误模型);其余 401 是瞬时失败,交给下一次轮询而不是回排队重取。
+TEST(WireLoginTransportIntegrationTest, NonExpiryUnauthorizedIsTransient) {
+    HttpStub http;
+    http.unauthorized_remaining.store(1);
+    http.unauthorized_code.store(1001);
+    std::jthread driver([&http](std::stop_token stop) {
+        while (!stop.stop_requested()) {
+            http.poll(milliseconds{1});
+        }
+    });
+
+    WireEndpoints endpoints;
+    endpoints.login_verify_port = http.port();
+    endpoints.queue_port = http.port();
+    endpoints.verify_peer = false;
+
+    StubRedeemer redeemer;
+    WireLoginTransport transport(endpoints, redeemer, fast_wire_options());
+    const auto me =
+        transport.ticket_me("number-token-1", Clock::now() + std::chrono::seconds{2});
+
+    EXPECT_FALSE(me.status.ok);
+    EXPECT_FALSE(me.status.credential_expired);
+    EXPECT_EQ(me.status.failure, ChainFailure::ProgressFailed);
 }
 
 /// #46 落地前的默认兑换口必须明确判失败(不得猜协议):不写字节、不回执。

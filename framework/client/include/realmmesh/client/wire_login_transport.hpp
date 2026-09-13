@@ -112,8 +112,11 @@ private:
         int status{0};
         std::string body;
     };
+    /// HTTP 段的两台服务(各自独立保活连接)。
+    enum class HttpSegment { LoginVerify, Queue };
+
     [[nodiscard]] std::optional<HttpResponse> call(
-        bool queue,
+        HttpSegment segment,
         std::string_view method,
         std::string_view target,
         const std::optional<std::string>& bearer,

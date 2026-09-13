@@ -33,28 +33,31 @@ struct PortStatus final {
         bool credential_expired = false);
 };
 
+/// 带值的端口调用结果:status 失败时 value 无意义(保持默认值)。
 template <typename T>
 struct PortValue final {
     PortStatus status;
     T value{};
 };
 
+/// 健全服应答(spec §5.1 #1)。
 struct VerifyResult final {
     std::string identity_token;
-    std::string account_id;
 };
 
+/// 排队服取号应答(spec §5.1 #2)。
 struct TicketResult final {
     std::string queue_number_token;
     std::uint64_t number{0};
-    std::chrono::seconds estimated_wait{0};
 };
 
+/// 全局进度应答(spec §5.1 #3):放行号与放行速率(ETA 本地插值用)。
 struct ProgressResult final {
     std::uint64_t released_number{0};
     double admit_rate{0};
 };
 
+/// 查号应答(spec §5.1 #4):未放行时给位次,放行时给重签号牌与宽限。
 struct TicketMeResult final {
     bool admitted{false};
     std::uint64_t position{0};
@@ -110,6 +113,8 @@ public:
     virtual void drop_connections() = 0;
 };
 
+/// 链路配置:竞速候选由部署侧注入,其余是可压缩的时标(规格数值见
+/// AdaptivePoller 与 spec §4/§7)。
 struct LoginChainConfig final {
     PollTierConfig poll;
     /// 网关竞速候选(部署侧注入;QUIC/TLS 两项各带优先级)。
@@ -132,6 +137,8 @@ struct ChainCredentials final {
     std::string enter_realm_ticket;
 };
 
+/// 一次登录的结局:stage 是收尾时的七态位置,failure 与 detail 只在
+/// 未成功时有效;eta 是最后一次进度轮询的本地插值(未知时缺席)。
 struct LoginChainResult final {
     LoginStage stage{LoginStage::Idle};
     ChainFailure failure{ChainFailure::None};
@@ -158,7 +165,6 @@ public:
         std::string_view credential,
         TimePoint deadline);
 
-    [[nodiscard]] LoginStage stage() const noexcept { return stage_; }
     [[nodiscard]] const ChainCredentials& credentials() const noexcept {
         return credentials_;
     }
@@ -171,12 +177,12 @@ public:
 
 private:
     /// 子阶段结局:推进 / 号牌过期需重取 / 窗口内失败。
-    enum class Step { Advanced, RetakeTicket, Failed };
+    enum class Action { Advanced, RetakeTicket, Failed };
 
-    [[nodiscard]] Step poll_until_admitted(TimePoint deadline);
-    [[nodiscard]] Step connect_gateway_and_handoff(TimePoint deadline);
-    [[nodiscard]] Step redeem_realm(TimePoint deadline);
-    [[nodiscard]] Step take_ticket(TimePoint deadline);
+    [[nodiscard]] Action poll_until_admitted(TimePoint deadline);
+    [[nodiscard]] Action connect_gateway_and_handoff(TimePoint deadline);
+    [[nodiscard]] Action redeem_realm(TimePoint deadline);
+    [[nodiscard]] Action take_ticket(TimePoint deadline);
 
     [[nodiscard]] bool within_admit_grace(TimePoint now) const;
     [[nodiscard]] LoginChainResult finish(LoginStage stage) const;

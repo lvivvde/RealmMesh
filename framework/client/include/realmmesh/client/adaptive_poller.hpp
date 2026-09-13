@@ -21,7 +21,10 @@ struct PollTierConfig final {
     std::uint32_t backoff_after_failures{3};
     std::chrono::milliseconds backoff_cap{30000};
     /// 间隔硬下限:progress 的 Cache-Control max-age(规格 §7、ADR-0006
-    /// 缓存 1~2s)。位次再近也不得比缓存更新更快。
+    /// 缓存 1~2s)。位次再近也不得比缓存更新更快。近档 1s 本身就在这个
+    /// 下限上,所以近档的 ±20% 抖动被下限吃掉了负向部分——实际只向正侧
+    /// 生效(0..+20%),这是有意的取平:宁可多等一会儿,也不重读同一份
+    /// 缓存(下限与抖动冲突时,缓存窗口优先)。
     std::chrono::milliseconds min_interval{1000};
     /// 抖动幅度(规格 ±20%)。
     double jitter_ratio{0.2};
@@ -41,7 +44,8 @@ public:
         JitterSource jitter = make_random_jitter_source());
 
     /// 下一次轮询的等待时长。失败计数 ≥ 阈值时按 2^(失败数-阈值+1) 翻倍,
-    /// 抖动后封顶 backoff_cap;下限 min_interval。
+    /// 抖动后封顶 backoff_cap;下限 min_interval(缓存窗口优先,见该字段
+    /// 说明:近档的负向抖动被下限吃掉)。
     [[nodiscard]] std::chrono::milliseconds next_interval(
         std::uint64_t position) const;
 

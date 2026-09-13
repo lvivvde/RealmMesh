@@ -47,7 +47,7 @@ namespace net_client = ::realm::network::client;
 }
 
 /// 1303 下发的业务服端点 → 竞速候选(协议与优先级原样带过)。
-[[nodiscard]] net_client::EndpointCandidate translate(
+[[nodiscard]] net_client::EndpointCandidate to_endpoint_candidate(
     const common::ServiceEndpoint& endpoint) {
     net_client::EndpointCandidate candidate;
     candidate.protocol =
@@ -92,12 +92,13 @@ WireLoginTransport::WireLoginTransport(WireEndpoints endpoints,
 WireLoginTransport::~WireLoginTransport() = default;
 
 std::optional<WireLoginTransport::HttpResponse> WireLoginTransport::call(
-    bool queue,
+    HttpSegment segment,
     std::string_view method,
     std::string_view target,
     const std::optional<std::string>& bearer,
     std::string_view body,
     TimePoint deadline) {
+    const bool queue = segment == HttpSegment::Queue;
     auto& connection = queue ? queue_connection_ : login_connection_;
     const std::string& host =
         queue ? endpoints_.queue_host : endpoints_.login_verify_host;
@@ -135,8 +136,8 @@ PortValue<VerifyResult> WireLoginTransport::verify(
     const std::string body = "{\"account\":\"" + std::string{account} +
                              "\",\"credential\":\"" +
                              std::string{credential} + "\"}";
-    const auto response = call(false, "POST", "/v1/login/verify", std::nullopt,
-                               body, deadline);
+    const auto response = call(HttpSegment::LoginVerify, "POST",
+                               "/v1/login/verify", std::nullopt, body, deadline);
     if (!response.has_value()) {
         result.status =
             PortStatus::error(ChainFailure::VerifyRejected, "健全服请求失败");
@@ -151,9 +152,6 @@ PortValue<VerifyResult> WireLoginTransport::verify(
         return result;
     }
     result.value.identity_token = *token;
-    result.value.account_id =
-        net_client::extract_json_string_field(response->body, "account_id")
-            .value_or(std::string{});
     result.status = PortStatus::success();
     return result;
 }
@@ -162,7 +160,7 @@ PortValue<TicketResult> WireLoginTransport::take_ticket(
     std::string_view identity_token,
     TimePoint deadline) {
     PortValue<TicketResult> result;
-    const auto response = call(true, "POST", "/v1/queue/tickets",
+    const auto response = call(HttpSegment::Queue, "POST", "/v1/queue/tickets",
                                std::string{identity_token}, "", deadline);
     if (!response.has_value()) {
         result.status =
@@ -182,11 +180,6 @@ PortValue<TicketResult> WireLoginTransport::take_ticket(
     }
     result.value.queue_number_token = *token;
     result.value.number = static_cast<std::uint64_t>(*number);
-    if (const auto wait = net_client::extract_json_int_field(
-            response->body, "estimated_wait_seconds");
-        wait.has_value() && *wait >= 0) {
-        result.value.estimated_wait = std::chrono::seconds{*wait};
-    }
     result.status = PortStatus::success();
     return result;
 }
@@ -194,8 +187,8 @@ PortValue<TicketResult> WireLoginTransport::take_ticket(
 PortValue<ProgressResult> WireLoginTransport::poll_progress(
     TimePoint deadline) {
     PortValue<ProgressResult> result;
-    const auto response =
-        call(true, "GET", "/v1/queue/progress", std::nullopt, "", deadline);
+    const auto response = call(HttpSegment::Queue, "GET", "/v1/queue/progress",
+                               std::nullopt, "", deadline);
     if (!response.has_value()) {
         result.status =
             PortStatus::error(ChainFailure::ProgressFailed, "进度请求失败");
@@ -223,7 +216,8 @@ PortValue<TicketMeResult> WireLoginTransport::ticket_me(
     std::string_view queue_number_token,
     TimePoint deadline) {
     PortValue<TicketMeResult> result;
-    const auto response = call(true, "GET", "/v1/queue/tickets/me",
+    const auto response = call(HttpSegment::Queue, "GET",
+                               "/v1/queue/tickets/me",
                                std::string{queue_number_token}, "", deadline);
     if (!response.has_value()) {
         result.status =
@@ -232,12 +226,24 @@ PortValue<TicketMeResult> WireLoginTransport::ticket_me(
     }
     const auto status =
         net_client::extract_json_string_field(response->body, "status");
-    // 401(排队段错误码 2001):号牌无效/过期 → 上层自动重取(spec §7);
-    // 与瞬时失败区分,不能靠"再查一次"绕过。
+    // 401 不一律等于号牌过期:只有错误码 2001(invalid number,spec §5.1
+    // 错误模型)才是「号牌无效/过期」→ 上层自动重取(spec §7)。其余
+    // 401 按瞬时失败处理(可由下一次轮询重试),不能误触发重取号。
     if (response->status == 401) {
-        result.status =
-            PortStatus::error(ChainFailure::TicketRejected, "号牌无效或已过期",
-                              /*credential_expired=*/true);
+        const auto code =
+            net_client::extract_json_int_field(response->body, "code");
+        if (code.has_value() &&
+            *code == static_cast<std::int64_t>(
+                         common::edge_error_invalid_queue_number)) {
+            result.status = PortStatus::error(
+                ChainFailure::TicketRejected, "号牌无效或已过期",
+                /*credential_expired=*/true);
+            return result;
+        }
+        result.status = PortStatus::error(
+            ChainFailure::ProgressFailed,
+            "查号被拒: http_status=401 code=" +
+                (code.has_value() ? std::to_string(*code) : std::string{"?"}));
         return result;
     }
     if (response->status != 200 || !status.has_value()) {
@@ -399,7 +405,8 @@ PortValue<HandoffResult> WireLoginTransport::await_handoff(TimePoint deadline) {
             result.value.realm_endpoints.reserve(
                 static_cast<std::size_t>(granted->realm_endpoints_size()));
             for (const auto& endpoint : granted->realm_endpoints()) {
-                result.value.realm_endpoints.push_back(translate(endpoint));
+                result.value.realm_endpoints.push_back(
+                    to_endpoint_candidate(endpoint));
             }
             result.status = PortStatus::success();
             return result;

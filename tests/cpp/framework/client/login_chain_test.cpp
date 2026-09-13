@@ -43,7 +43,6 @@ template <typename T>
 [[nodiscard]] PortValue<VerifyResult> verified(std::string identity_token) {
     VerifyResult value;
     value.identity_token = std::move(identity_token);
-    value.account_id = "account-1";
     return ok_value(std::move(value));
 }
 
@@ -52,7 +51,6 @@ template <typename T>
     TicketResult value;
     value.queue_number_token = std::move(token);
     value.number = number;
-    value.estimated_wait = std::chrono::seconds{5};
     return ok_value(std::move(value));
 }
 
@@ -240,7 +238,7 @@ public:
 TEST(LoginChainTest, HappyPathWalksSevenStatesAndFillsCredentials) {
     ScriptedTransport transport;
     transport.progress_results = {progress(0, 10.0), progress(100, 10.0)};
-    transport.me_results = {admitted_with("grant-1")};
+    transport.me_results = {queued_at(100), admitted_with("grant-1")};
 
     LoginChain chain(transport, fast_config());
     std::vector<LoginStage> trace;
@@ -280,7 +278,9 @@ TEST(LoginChainTest, HappyPathWalksSevenStatesAndFillsCredentials) {
 
     EXPECT_EQ(transport.verify_calls, 1);
     EXPECT_EQ(transport.ticket_calls, 1);
-    EXPECT_EQ(transport.me_calls, 1);
+    // 首查 tickets/me(位次以查询为准)+ progress 追上号值后的兜底查。
+    EXPECT_EQ(transport.progress_calls, 2);
+    EXPECT_EQ(transport.me_calls, 2);
     EXPECT_EQ(transport.gateway_calls, 1);
     EXPECT_EQ(transport.attach_calls, 1);
     EXPECT_EQ(transport.handoff_calls, 1);
@@ -494,7 +494,7 @@ TEST(LoginChainTest, EtaComesFromLatestProgress) {
         progress(0, 25.0),
         failed_value<ProgressResult>(ChainFailure::ProgressFailed, "瞬时失败"),
     };
-    transport.me_results = {admitted_with("grant-1")};
+    transport.me_results = {queued_at(500), admitted_with("grant-1")};
 
     LoginChain chain(transport, fast_config());
     const auto result = chain.run("alice", "secret", few_seconds_from_now());
@@ -502,6 +502,48 @@ TEST(LoginChainTest, EtaComesFromLatestProgress) {
     EXPECT_TRUE(result.succeeded());
     ASSERT_TRUE(result.eta.has_value());
     EXPECT_EQ(*result.eta, std::chrono::seconds{20});
+}
+
+/// 首查 tickets/me:号值已进放行区间时立刻拿凭证,不必先白等一个轮询
+/// 间隔(spec §5.1 #4「首查」)。
+TEST(LoginChainTest, FirstQueryAdmitsWithoutWaitingForProgress) {
+    ScriptedTransport transport;
+    transport.progress_results = {};
+    transport.me_results = {admitted_with("grant-1")};
+
+    LoginChain chain(transport, fast_config());
+    const auto result = chain.run("alice", "secret", few_seconds_from_now());
+
+    EXPECT_TRUE(result.succeeded());
+    EXPECT_EQ(result.stage, LoginStage::InGame);
+    EXPECT_EQ(transport.progress_calls, 0);
+    EXPECT_EQ(transport.me_calls, 1);
+    EXPECT_EQ(transport.last_number_token, "grant-1");
+}
+
+/// 号牌被网关判过期(attach 2001)→ 回排队重取前先释放本段的 Edge
+/// Session:重取号后连接没有任何复用价值,留着就是悬挂连接。
+TEST(LoginChainTest, CredentialExpiryOnAttachReleasesGatewaySession) {
+    ScriptedTransport transport;
+    transport.ticket_results = {ticketed("number-token-1", 100),
+                               ticketed("number-token-2", 200)};
+    transport.progress_results = {progress(100, 10.0), progress(200, 10.0)};
+    transport.me_results = {admitted_with("grant-1"),
+                            admitted_with("grant-2")};
+    transport.attach_results = {
+        failure_of(ChainFailure::AttachRejected, "号牌过期",
+                   /*credential_expired=*/true),
+        PortStatus::success(),
+    };
+
+    LoginChain chain(transport, fast_config());
+    const auto result = chain.run("alice", "secret", few_seconds_from_now());
+
+    EXPECT_TRUE(result.succeeded());
+    EXPECT_EQ(transport.ticket_calls, 2);
+    // 两次释放:重取号前释放旧会话 + 交付到手后释放(交付成功路径)。
+    // 重取路径若不释放,这里只会看到 1 次。
+    EXPECT_EQ(transport.drop_calls, 2);
 }
 
 /// 总窗口耗尽:排队等不到放行 → AdmitTimeout 回 idle(spec §7)。
