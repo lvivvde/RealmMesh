@@ -29,6 +29,7 @@ add_subdirectory(game/gateway)
 add_subdirectory(game/login_verify)
 add_subdirectory(game/queue)
 add_subdirectory(apps/mesh_host)
+add_subdirectory(tools/loadgen)
 # detach 辅助程序只为缺少 setsid(1) 的平台而建(macOS;见 scripts/lib/dev-process.sh)。
 # 其它平台系统自带 setsid,建了也不会被用到。
 if(APPLE)
