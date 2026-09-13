@@ -215,6 +215,10 @@ GatewayConfig GatewayConfigLoader::parse(const sol::table& root) {
         optional_integer(root, "downstream_port", config.downstream_port);
     config.pipeline_fetch_capacity = optional_integer(
         root, "pipeline_fetch_capacity", config.pipeline_fetch_capacity);
+    config.fetch_retry_base_ms = optional_integer(
+        root, "fetch_retry_base_ms", config.fetch_retry_base_ms);
+    config.fetch_retry_max = static_cast<unsigned>(optional_integer<unsigned>(
+        root, "fetch_retry_max", config.fetch_retry_max));
 
     const sol::object runtime_value = root.raw_get<sol::object>("runtime");
     if (runtime_value != sol::lua_nil) {
@@ -351,6 +355,12 @@ GatewayConfig GatewayConfigLoader::parse(const sol::table& root) {
     if (config.pipeline_fetch_capacity == 0) {
         throw std::invalid_argument(
             "gateway pipeline fetch capacity must be positive");
+    }
+    if (config.fetch_retry_base_ms == 0 || config.fetch_retry_max == 0 ||
+        config.fetch_retry_max > 10) {
+        throw std::invalid_argument(
+            "gateway fetch retry base must be positive and retry max "
+            "within 1..10");
     }
     if (config.logging.file_path.empty() ||
         config.logging_identity.service_name.empty() ||

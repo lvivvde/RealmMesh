@@ -20,6 +20,11 @@ realm_add_gtest(gateway_runtime_test
     DEPENDS realmmesh_test_tls_identity
 )
 
+realm_add_gtest(edge_fetch_scheduler_test
+    SOURCES edge_fetch_scheduler_test.cpp
+    LIBS realm_gateway_service
+)
+
 realm_add_gtest(edge_attach_chain_test
     SOURCES edge_attach_chain_test.cpp
     LIBS realm_gateway_service

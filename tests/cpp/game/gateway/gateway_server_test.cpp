@@ -7,7 +7,11 @@
 #include <chrono>
 #include <cstdlib>
 #include <filesystem>
+#include <fstream>
+#include <iterator>
+#include <stdexcept>
 #include <string>
+#include <string_view>
 #include <system_error>
 
 namespace realm::game::gateway {
@@ -65,6 +69,8 @@ TEST(GatewayConfigLoaderTest, LoadsQuicPrimaryAndTlsTcpFallbackFromLua) {
 
     ASSERT_EQ(config.transports.size(), 2U);
     EXPECT_EQ(config.tick_rate, 20U);
+    EXPECT_EQ(config.fetch_retry_base_ms, 2500U);
+    EXPECT_EQ(config.fetch_retry_max, 5U);
     EXPECT_TRUE(config.service_discovery.enabled);
     EXPECT_EQ(config.runtime.inbound_capacity, 65536U);
     EXPECT_EQ(config.logging.min_severity, observability::Severity::Info);
@@ -176,6 +182,9 @@ TEST(LayeredConfigLoaderTest, MergesAuthoritativeGatewayTreeFieldByField) {
     EXPECT_EQ(config.logging_metrics.port, 9103U);
     EXPECT_EQ(config.tick_rate, 20U);
     EXPECT_EQ(config.max_events_per_frame, 4096U);
+    // 服务层提供的拉取重试参数(#44):基数 2s、最多重试 3 次。
+    EXPECT_EQ(config.fetch_retry_base_ms, 2000U);
+    EXPECT_EQ(config.fetch_retry_max, 3U);
     EXPECT_EQ(config.runtime.inbound_capacity, 65536U);
     EXPECT_EQ(config.runtime.outbound_capacity, 65536U);
     EXPECT_EQ(config.runtime.max_commands_per_cycle, 4096U);
@@ -203,6 +212,56 @@ TEST(LayeredConfigLoaderTest, MergesAuthoritativeGatewayTreeFieldByField) {
     EXPECT_EQ(quic.tls->alpn, "realmmesh-edge/1");
     EXPECT_EQ(quic.tls->certificate_chain_file, REALMMESH_TEST_TLS_CERTIFICATE);
     EXPECT_EQ(tls_tcp.tls->private_key_file, REALMMESH_TEST_TLS_PRIVATE_KEY);
+}
+
+/// 原位改写临时树 services/gateway.lua 里的一行键值,构造越界的拉取
+/// 重试参数(直接替换既有键:lua 表构造器中后出现的同名键会覆盖前者)。
+void rewrite_gateway_service_line(
+    const std::filesystem::path& configs_root,
+    std::string_view from,
+    std::string_view to) {
+    const auto service = configs_root / "services" / "gateway.lua";
+    std::ifstream input(service);
+    std::string content{
+        std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>()};
+    input.close();
+    const auto position = content.find(from);
+    EXPECT_NE(position, std::string::npos);
+    content.replace(position, from.size(), to);
+    std::ofstream output(service);
+    output << content;
+}
+
+/// 拉取重试参数越界(#44):基数必须为正,重试次数上限 10。
+TEST(LayeredConfigLoaderTest, RejectsInvalidFetchRetryTuning) {
+    const ScopedTlsEnvironment tls_environment;
+    const auto authoritative_root =
+        std::filesystem::path(REALMMESH_TEST_SOURCE_DIR) / "configs";
+
+    {
+        const test_support::TemporaryDirectory configs(
+            "realmmesh-gateway-config-");
+        copy_layered_configs(authoritative_root, configs.path());
+        rewrite_gateway_service_line(
+            configs.path(),
+            "fetch_retry_base_ms = 2000,",
+            "fetch_retry_base_ms = 0,");
+        EXPECT_THROW(
+            service_host::LayeredConfigLoader::load(
+                configs.path(), "gateway"),
+            std::invalid_argument);
+    }
+    {
+        const test_support::TemporaryDirectory configs(
+            "realmmesh-gateway-config-");
+        copy_layered_configs(authoritative_root, configs.path());
+        rewrite_gateway_service_line(
+            configs.path(), "fetch_retry_max = 3,", "fetch_retry_max = 11,");
+        EXPECT_THROW(
+            service_host::LayeredConfigLoader::load(
+                configs.path(), "gateway"),
+            std::invalid_argument);
+    }
 }
 
 /// CLI 覆盖优先级最高,并参与日志文件名的实例身份。

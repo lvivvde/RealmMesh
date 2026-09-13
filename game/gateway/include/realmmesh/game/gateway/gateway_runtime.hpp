@@ -58,6 +58,10 @@ struct GatewayConfig {
     /// conn 容量不单独配置,由启用传输的 max_sessions 之和同源注入
     /// (管线满 ⟺ 传输满,满额拒绝语义不依赖两处配置的一致性)。
     std::uint64_t pipeline_fetch_capacity{1'000};
+    /// 拉取重试参数(#44):语义与不变量见 EdgeFetchScheduler;耗尽即
+    /// 断开会话,双预算随关闭路径归还。
+    std::uint64_t fetch_retry_base_ms{2'000};
+    unsigned fetch_retry_max{3};
 };
 
 enum class GatewayEventKind : std::uint8_t {

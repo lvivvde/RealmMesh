@@ -1,5 +1,6 @@
 add_library(realm_gateway_service
     src/edge_attach_chain.cpp
+    src/edge_fetch_scheduler.cpp
     src/edge_session_pipeline.cpp
     src/edge_session_table.cpp
     src/gateway_config_loader.cpp

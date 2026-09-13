@@ -5,6 +5,7 @@
 #include "realmmesh/game/common/edge_protocol.hpp"
 #include "realmmesh/game/common/identity_token.hpp"
 #include "realmmesh/game/common/queue_number.hpp"
+#include "realmmesh/game/gateway/edge_fetch.hpp"
 #include "realmmesh/game/gateway/gateway_runtime.hpp"
 #include "realmmesh/network/codec/length_field_codec.hpp"
 #include "realmmesh/observability/logger.hpp"
@@ -185,6 +186,24 @@ private:
     };
 }
 
+/// 定结果拉取源(#44 测试桩):每次尝试返回构造期给定的结果。
+/// 恒失败(0 耗时)保持 #43 用例终态不漂移;恒成功下一帧即迁
+/// handed-off 并还槽。
+class FixedOutcomeFetchSource final :
+    public game::gateway::EdgeFetchSource {
+public:
+    explicit FixedOutcomeFetchSource(game::gateway::EdgeFetchOutcome outcome)
+        : outcome_(outcome) {}
+
+    [[nodiscard]] game::gateway::EdgeFetchOutcome fetch(
+        std::uint64_t) override {
+        return outcome_;
+    }
+
+private:
+    game::gateway::EdgeFetchOutcome outcome_;
+};
+
 class ServiceFrameEdgeBudgetTest : public ::testing::Test {
 protected:
     void SetUp() override {
@@ -227,12 +246,9 @@ protected:
                 .io_poll_interval = std::chrono::milliseconds{1}});
         runtime_->start();
 
-        frame_.emplace(
-            "gateway",
-            "",
-            0,
-            64,
-            EdgePipelineCaps{.conn_capacity = 4, .fetch_capacity = 2});
+        fetch_source_.emplace(
+            game::gateway::EdgeFetchOutcome{false, std::chrono::milliseconds{0}});
+        rebuild_frame(*fetch_source_, std::chrono::seconds{5});
 
         identity_codec_.emplace(
             game::common::parse_identity_seed_hex(identity_seed_hex),
@@ -247,6 +263,22 @@ protected:
         runtime_->stop();
         reporter_.reset();
         environment_.reset();
+    }
+
+    /// 以指定拉取源/重试基数重建帧:默认夹具注入恒失败源 + 5s 基数,
+    /// 保持 #43 用例确定性;#44 用例按需换源、缩基数。
+    void rebuild_frame(
+        game::gateway::EdgeFetchSource& source,
+        std::chrono::milliseconds retry_base) {
+        frame_.reset();
+        frame_.emplace(
+            "gateway",
+            "",
+            0,
+            64,
+            EdgePipelineCaps{.conn_capacity = 4, .fetch_capacity = 2},
+            EdgeFetchTuning{retry_base, 3},
+            &source);
     }
 
     /// 客户端连接并发送 attach 帧;返回保持连接的客户端(析构即断开)。
@@ -304,6 +336,7 @@ protected:
     std::optional<observability::Logger> logger_;
     std::optional<cluster::InstanceBudgetReporter> reporter_;
     std::optional<game::gateway::GatewayRuntime> runtime_;
+    std::optional<FixedOutcomeFetchSource> fetch_source_;
     std::optional<ServiceFrame> frame_;
     std::optional<game::common::IdentityTokenCodec> identity_codec_;
     std::optional<game::common::QueueNumberCodec> number_codec_;
@@ -403,6 +436,49 @@ TEST_F(ServiceFrameEdgeBudgetTest, OutOfBudgetAttachIsRejectedWithoutConsuming) 
     EXPECT_EQ(
         *observed_budget(),
         InstanceBudgetSnapshot({2, 0, true}));
+}
+
+/// 拉取成功(#44):fetching → handed-off,拉取槽即还,conn 保持占用
+/// (会话仍在管,#45 才做直连凭证收尾)。
+TEST_F(ServiceFrameEdgeBudgetTest, FetchSuccessTransitionsToHandedOff) {
+    FixedOutcomeFetchSource source(
+        game::gateway::EdgeFetchOutcome{true, std::chrono::milliseconds{0}});
+    rebuild_frame(source, std::chrono::seconds{2});
+
+    const auto client = attach("aaaa000000000006aaaa000000000006");
+    ASSERT_TRUE(drive_until(
+        [](const std::optional<InstanceBudgetSnapshot>& budget) {
+            return budget.has_value() && budget->conn_free == 3 &&
+                   budget->fetch_free == 2;
+        },
+        std::chrono::seconds{2}));
+    EXPECT_EQ(
+        *observed_budget(),
+        InstanceBudgetSnapshot({3, 2, true}));
+}
+
+/// 重试耗尽(#44):基数 30ms 连挂 4 次(首发 + 3 次重试)后上报耗尽,
+/// 调用方断开会话 —— conn 与 fetch 双预算随 #43 关闭路径归还。
+TEST_F(ServiceFrameEdgeBudgetTest, ExhaustedFetchClosesAndReturnsBudgets) {
+    FixedOutcomeFetchSource source(
+        game::gateway::EdgeFetchOutcome{false, std::chrono::milliseconds{0}});
+    rebuild_frame(source, std::chrono::milliseconds{30});
+
+    const auto client = attach("aaaa000000000007aaaa000000000007");
+    ASSERT_TRUE(drive_until(
+        [](const std::optional<InstanceBudgetSnapshot>& budget) {
+            return budget.has_value() && budget->fetch_free == 1;
+        },
+        std::chrono::seconds{2}));
+    ASSERT_TRUE(drive_until(
+        [](const std::optional<InstanceBudgetSnapshot>& budget) {
+            return budget.has_value() && budget->conn_free == 4 &&
+                   budget->fetch_free == 2;
+        },
+        std::chrono::seconds{2}));
+    EXPECT_EQ(
+        *observed_budget(),
+        InstanceBudgetSnapshot({4, 2, true}));
 }
 
 }  // namespace

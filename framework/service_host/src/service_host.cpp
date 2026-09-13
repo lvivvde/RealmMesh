@@ -123,7 +123,10 @@ ServiceHost::ServiceHost(
         config.downstream_port,
         config.max_events_per_frame,
         EdgePipelineCaps{
-            pipeline_conn_capacity, config.pipeline_fetch_capacity});
+            pipeline_conn_capacity, config.pipeline_fetch_capacity},
+        EdgeFetchTuning{
+            std::chrono::milliseconds{config.fetch_retry_base_ms},
+            config.fetch_retry_max});
     budget_policy_.conn_capacity = pipeline_conn_capacity;
     budget_policy_.fetch_capacity = config.pipeline_fetch_capacity;
     runtime_ = std::make_unique<game::gateway::GatewayRuntime>(

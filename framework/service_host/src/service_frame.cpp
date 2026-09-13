@@ -3,6 +3,8 @@
 #include "realmmesh/cluster/budget_publisher.hpp"
 #include "realmmesh/cluster/service_resolver.hpp"
 #include "realmmesh/game/common/edge_protocol.hpp"
+#include "realmmesh/game/gateway/edge_fetch.hpp"
+#include "realmmesh/game/gateway/edge_fetch_scheduler.hpp"
 #include "realmmesh/game/gateway/gateway_runtime.hpp"
 #include "realmmesh/observability/logger.hpp"
 
@@ -97,7 +99,9 @@ ServiceFrame::ServiceFrame(
     std::string downstream_address,
     std::uint16_t downstream_port,
     std::size_t max_events_per_frame,
-    EdgePipelineCaps edge_pipeline_caps)
+    EdgePipelineCaps edge_pipeline_caps,
+    EdgeFetchTuning edge_fetch_tuning,
+    game::gateway::EdgeFetchSource* edge_fetch_source)
     : service_name_(service_name),
       downstream_address_(std::move(downstream_address)),
       downstream_port_(downstream_port),
@@ -114,8 +118,21 @@ ServiceFrame::ServiceFrame(
         pipeline_.emplace(
             edge_pipeline_caps.conn_capacity,
             edge_pipeline_caps.fetch_capacity);
+        // 拉取管线(#44):外部源由宿主注入生命周期,缺省用延迟桩
+        // (缺省时延 100ms,即规格的 fetch_latency_ms)。
+        if (edge_fetch_source == nullptr) {
+            default_fetch_source_ =
+                std::make_unique<game::gateway::DelayedFetchSource>();
+            edge_fetch_source = default_fetch_source_.get();
+        }
+        fetch_scheduler_.emplace(
+            edge_fetch_tuning.retry_base,
+            edge_fetch_tuning.retry_max,
+            *edge_fetch_source);
     }
 }
+
+ServiceFrame::~ServiceFrame() = default;
 
 ServiceFrame::EdgeAttachContext::EdgeAttachContext(
     game::common::Ed25519Seed identity_seed,
@@ -412,6 +429,34 @@ void ServiceFrame::handle_gateway_events(
     observability::Logger& logger,
     game::gateway::GatewayRuntime& runtime,
     cluster::InstanceBudgetReporter* budget_reporter) {
+    // 拉取调度器先行驱动(#44):结算事件先落(handed-off / 耗尽断开),
+    // 本帧的 attach 与关闭再按最新阶段处理;帧尾发布额度快照。
+    if (fetch_scheduler_.has_value() && pipeline_.has_value()) {
+        for (const auto& fetch_event : fetch_scheduler_->tick(
+                 std::chrono::steady_clock::now())) {
+            if (fetch_event.kind ==
+                game::gateway::EdgeFetchEventKind::Succeeded) {
+                static_cast<void>(pipeline_->mark_handed_off(
+                    fetch_event.session_id));
+                static_cast<void>(logger.info(
+                    "edge_fetch_completed",
+                    "edge fetch completed",
+                    {observability::field(
+                        "session_id",
+                        fetch_event.session_id.value,
+                        observability::DataClass::Internal)}));
+            } else {
+                static_cast<void>(logger.warn(
+                    "edge_fetch_exhausted",
+                    "edge fetch exhausted; closing session",
+                    {observability::field(
+                        "session_id",
+                        fetch_event.session_id.value,
+                        observability::DataClass::Internal)}));
+                static_cast<void>(runtime.try_close(fetch_event.session_id));
+            }
+        }
+    }
     for (auto& event : runtime.drain_events(max_events_per_frame_)) {
         // 管线登记/注销先于其余分支:SessionClosed 的额度归还不依赖
         // 业务处理,SessionOpened 只登记不回包。
@@ -419,6 +464,9 @@ void ServiceFrame::handle_gateway_events(
             pipeline_->on_session_opened(event.session_id);
         } else if (
             event.kind == game::gateway::GatewayEventKind::SessionClosed) {
+            if (fetch_scheduler_.has_value()) {
+                fetch_scheduler_->cancel(event.session_id);
+            }
             static_cast<void>(pipeline_->on_session_closed(event.session_id));
         }
         if (!absorb_lifecycle(event)) {
@@ -546,6 +594,13 @@ void ServiceFrame::handle_edge_attach(
         attach.queue_number_token(),
         std::chrono::system_clock::now())) {
     case game::gateway::EdgeAttachVerdict::Accepted: {
+        // fetch 槽已由验签链扣下(#43):登记首发,到期由帧头驱动(#44)。
+        if (fetch_scheduler_.has_value()) {
+            fetch_scheduler_->register_session(
+                event.session_id,
+                attach_->chain.last_account_id(),
+                std::chrono::steady_clock::now());
+        }
         game::common::EdgeAttachAccepted accepted;
         accepted.set_account_id(attach_->chain.last_account_id());
         const auto response = game::common::encode(accepted, request_id);

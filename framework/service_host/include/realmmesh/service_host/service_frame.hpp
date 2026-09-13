@@ -7,11 +7,14 @@
 #include "realmmesh/game/common/queue_number.hpp"
 #include "realmmesh/game/common/session_ticket.hpp"
 #include "realmmesh/game/gateway/edge_attach_chain.hpp"
+#include "realmmesh/game/gateway/edge_fetch_scheduler.hpp"
 #include "realmmesh/game/gateway/edge_session_pipeline.hpp"
 #include "realmmesh/game/gateway/edge_session_table.hpp"
 
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -25,6 +28,7 @@ class InstanceBudgetReporter;
 namespace realm::game::gateway {
 class GatewayRuntime;
 struct GatewayEvent;
+class EdgeFetchSource;
 }  // namespace realm::game::gateway
 
 namespace realm::observability {
@@ -45,6 +49,12 @@ struct EdgePipelineCaps {
     std::uint64_t fetch_capacity{1'000};
 };
 
+/// 拉取重试参数(#44):语义与不变量见 EdgeFetchScheduler。
+struct EdgeFetchTuning {
+    std::chrono::milliseconds retry_base{2'000};
+    unsigned retry_max{3};
+};
+
 /// 单服务业务帧:搬运自旧 apps/{login,realm,gateway}/main.cpp 的消息循环。
 /// 构造时把服务名解析为身份;无身份的服务名不处理业务消息(帧循环空转)。
 /// 已知服务要求 REALMMESH_SESSION_TICKET_KEY 已设置(与旧 main 一致,
@@ -54,12 +64,18 @@ struct EdgePipelineCaps {
 class ServiceFrame final {
 public:
     /// downstream 为静态兜底下游(login→realm、realm→gateway;gateway 不用)。
+    /// edge_fetch_source(#44):拉取源由宿主注入;空则用内部延迟桩
+    /// (恒成功、100ms 自报耗时,真 DB 接入前的过渡形态)。
     ServiceFrame(
         std::string_view service_name,
         std::string downstream_address,
         std::uint16_t downstream_port,
         std::size_t max_events_per_frame,
-        EdgePipelineCaps edge_pipeline_caps = {});
+        EdgePipelineCaps edge_pipeline_caps = {},
+        EdgeFetchTuning edge_fetch_tuning = {},
+        game::gateway::EdgeFetchSource* edge_fetch_source = nullptr);
+    /// 成员含前置声明的调度器/源,析构收敛到 cpp(完整类型可见处)。
+    ~ServiceFrame();
 
     /// service_started(gateway 另发每 transport 的 listener_started)。
     void started(
@@ -118,6 +134,11 @@ private:
     /// Edge 登录管线(仅 gateway):与 EdgeSessionTable 并存的业务帧
     /// 线程镜像,conn 占用自会话打开起计、关闭归还。
     std::optional<game::gateway::EdgeSessionPipeline> pipeline_;
+
+    /// 限流拉取(仅 gateway,#44):默认源由帧自持、外部源归宿主;
+    /// 声明顺序即析构逆序 —— 调度器引用源,必须先于源析构。
+    std::unique_ptr<game::gateway::EdgeFetchSource> default_fetch_source_;
+    std::optional<game::gateway::EdgeFetchScheduler> fetch_scheduler_;
 
     /// attach 验签上下文:codec 依赖环境注入的签名种子,首条 attach 时
     /// 惰性构造(缺种子的既有部署/测试不受影响);构造失败置
