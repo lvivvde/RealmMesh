@@ -43,6 +43,8 @@ struct LoadgenConfig final {
 struct LoadgenReport final {
     std::uint64_t robots{0};
     std::uint64_t completed{0};
+    /// 窗口关闭时还没起跑的机器人:不计链路成败,也不伪装成完成。
+    std::uint64_t skipped{0};
     PhaseCounters verify;
     PhaseCounters tickets;
     PhaseCounters poll;
@@ -55,8 +57,8 @@ struct LoadgenReport final {
     [[nodiscard]] std::string render() const;
 };
 
-/// 起跑 robots 个机器人(线程模型:一机器人一线程,并发度受
-/// concurrency 信号量约束;爬坡按序错峰)。阻塞至全部结束。
+/// 起跑 robots 个机器人(线程模型:线程数 = 并发槽数,机器人从原子
+/// 游标依次领号;爬坡按序错峰)。阻塞至窗口关闭或全部结束。
 [[nodiscard]] LoadgenReport run_loadgen(const LoadgenConfig& config);
 
 }  // namespace realm::loadgen

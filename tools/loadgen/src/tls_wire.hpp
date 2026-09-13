@@ -188,7 +188,7 @@ struct Stream final {
         SSL_set_alpn_protos(
             out.ssl.get(),
             reinterpret_cast<const unsigned char*>(alpn_wire.data()),
-            alpn_wire.size()) != 0) {
+            static_cast<unsigned int>(alpn_wire.size())) != 0) {
         ++dial_failures.ssl_setup;
         return false;
     }

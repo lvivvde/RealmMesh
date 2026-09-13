@@ -892,11 +892,10 @@ TEST(LoadgenIntegrationTest, M3SmokeTenThousandTicketsAndConcurrentPolls) {
     ASSERT_TRUE(mesh.start_all());
     const TickDriver driver(mesh);
 
-    // 取号并发 32:1 万机器人冲链路时,跑得越快的机器波形越密——
-    // CI runner 上 100 并发的毫秒级连发会把 tick 驱动的 accept 打满
-    // backlog(128),SYN 成片被丢(Linux 实测 8459/10000 拨号失败,
-    // 成功拨号 p50 仅 36µs)。32 并发的突发远小于 backlog,2ms 一拍
-    // 的 tick 足以排空;万号规模不变(spec M3),靠拉长时间预算兜底。
+    // 取号并发 32(线程数 = 并发槽,不再一机器人一线程):并发突发
+    // 保持在 tick 驱动 accept 的 backlog(128)之下。1 万号要在 45s
+    // 窗口内跑完,吞吐是硬约束;窗口关闭时没起跑的机器人记 skipped
+    // 单列(此前会被记成拨号超时,掩盖真实吞吐),完成率门槛照旧。
     LoadgenConfig tickets_run;
     tickets_run.phase = RobotPhase::Tickets;
     tickets_run.robots = 10000;

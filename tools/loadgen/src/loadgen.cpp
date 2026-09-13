@@ -1,11 +1,12 @@
 #include "realmmesh/loadgen/loadgen.hpp"
 #include "tls_wire.hpp"
 
+#include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <mutex>
-#include <semaphore>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -19,6 +20,10 @@ std::string LoadgenReport::render() const {
     text += "loadgen report\n";
     text += "robots: " + std::to_string(robots) +
             "  completed: " + std::to_string(completed) + "\n";
+    if (skipped > 0) {
+        text += "skipped: " + std::to_string(skipped) +
+                "  (窗口关闭时未起跑)\n";
+    }
 
     auto render_phase = [&text](std::string_view name,
                                 const PhaseCounters& counters) {
@@ -101,6 +106,21 @@ std::string LoadgenReport::render() const {
     return text;
 }
 
+/// 异常安全收尾:unwind 时先 join 全部工作线程,再让异常继续传播。
+/// vector<thread> 若带着 joinable 线程析构是裸 terminate,会把真正
+/// 的异常类型吞掉(实测 CI 上只剩一行 libc++abi: terminating)。
+struct ThreadJoiner final {
+    std::vector<std::thread>& threads;
+
+    ~ThreadJoiner() {
+        for (auto& worker : threads) {
+            if (worker.joinable()) {
+                worker.join();
+            }
+        }
+    }
+};
+
 LoadgenReport run_loadgen(const LoadgenConfig& config) {
     LoadgenReport report;
     report.robots = config.robots;
@@ -111,70 +131,92 @@ LoadgenReport run_loadgen(const LoadgenConfig& config) {
             std::chrono::duration<double>(config.duration_seconds));
 
     std::mutex report_mutex;
-    std::counting_semaphore<> slots{
-        static_cast<std::ptrdiff_t>(
-            config.concurrency == 0 ? 1 : config.concurrency)};
+    // 线程数 = 并发槽数,机器人从原子游标依次领号,而非一机器人一线程:
+    // 万号档一机器人一线程会把上万线程压进调度器(本地实测 M3 全程
+    // 烧掉数百 CPU 秒系统态),macOS 还有每进程线程数上限,线程创建
+    // 失败抛 system_error 会在 unwind 里裸 terminate。
+    const auto slot_count = static_cast<std::uint64_t>(
+        config.concurrency == 0 ? 1 : config.concurrency);
+    const auto worker_count = std::min(slot_count, config.robots);
+    std::atomic<std::uint64_t> next_robot{0};
     std::vector<std::thread> workers;
-    workers.reserve(static_cast<std::size_t>(config.robots));
+    workers.reserve(static_cast<std::size_t>(worker_count));
+    const ThreadJoiner joiner{workers};
 
-    for (std::uint64_t index = 0; index < config.robots; ++index) {
-        workers.emplace_back([&, index] {
-            // 爬坡错峰:第 i 个机器人延迟 i*ramp/robots 起跑。
-            if (config.ramp_seconds > 0 && config.robots > 1) {
-                const auto delay = std::chrono::duration_cast<
-                    std::chrono::steady_clock::duration>(
-                    std::chrono::duration<double>(
-                        config.ramp_seconds *
-                        static_cast<double>(index) /
-                        static_cast<double>(config.robots - 1)));
-                std::this_thread::sleep_for(delay);
-            }
-            RobotOptions options;
-            options.phase = config.phase;
-            options.endpoints = config.endpoints;
-            options.account = config.account_prefix + "-" +
-                std::to_string(config.accounts == 0
-                                   ? index
-                                   : index % config.accounts);
-            options.credential = config.credential;
-            options.poll_interval = config.poll_interval;
-            options.deadline = deadline;
-            if (config.phase == RobotPhase::All) {
-                // soak 水位:handed-off 会话保持到总截止。
-                options.hold_until = deadline;
-            }
-            options.collect_artifacts = config.collect_number_tokens;
-            slots.acquire();
+    for (std::uint64_t slot = 0; slot < worker_count; ++slot) {
+        workers.emplace_back([&] {
+            for (;;) {
+                const std::uint64_t index =
+                    next_robot.fetch_add(1, std::memory_order_relaxed);
+                if (index >= config.robots) {
+                    return;
+                }
+                // 爬坡错峰:第 i 个机器人不早于 started+i*ramp/robots
+                // 起跑;落在窗口之外的不再空等。
+                if (config.ramp_seconds > 0 && config.robots > 1) {
+                    const auto delay = std::chrono::duration_cast<
+                        std::chrono::steady_clock::duration>(
+                        std::chrono::duration<double>(
+                            config.ramp_seconds *
+                            static_cast<double>(index) /
+                            static_cast<double>(config.robots - 1)));
+                    if (started + delay >= deadline) {
+                        std::scoped_lock lock{report_mutex};
+                        ++report.skipped;
+                        continue;
+                    }
+                    std::this_thread::sleep_until(started + delay);
+                }
+                if (std::chrono::steady_clock::now() >= deadline) {
+                    // 窗口已关:没起跑的记 skipped,不伪造链路失败。
+                    std::scoped_lock lock{report_mutex};
+                    ++report.skipped;
+                    continue;
+                }
 
-            PhaseCounters verify;
-            PhaseCounters tickets;
-            PhaseCounters poll;
-            PhaseCounters attach;
-            PhaseCounters handoff;
-            auto outcome = run_robot(
-                options,
-                RobotCounters{verify, tickets, poll, attach, handoff});
+                RobotOptions options;
+                options.phase = config.phase;
+                options.endpoints = config.endpoints;
+                options.account = config.account_prefix + "-" +
+                    std::to_string(config.accounts == 0
+                                       ? index
+                                       : index % config.accounts);
+                options.credential = config.credential;
+                options.poll_interval = config.poll_interval;
+                options.deadline = deadline;
+                if (config.phase == RobotPhase::All) {
+                    // soak 水位:handed-off 会话保持到总截止。
+                    options.hold_until = deadline;
+                }
+                options.collect_artifacts = config.collect_number_tokens;
 
-            std::scoped_lock lock{report_mutex};
-            report.verify.merge(verify);
-            report.tickets.merge(tickets);
-            report.poll.merge(poll);
-            report.attach.merge(attach);
-            report.handoff.merge(handoff);
-            if (outcome.completed) {
-                ++report.completed;
+                PhaseCounters verify;
+                PhaseCounters tickets;
+                PhaseCounters poll;
+                PhaseCounters attach;
+                PhaseCounters handoff;
+                auto outcome = run_robot(
+                    options,
+                    RobotCounters{verify, tickets, poll, attach, handoff});
+
+                std::scoped_lock lock{report_mutex};
+                report.verify.merge(verify);
+                report.tickets.merge(tickets);
+                report.poll.merge(poll);
+                report.attach.merge(attach);
+                report.handoff.merge(handoff);
+                if (outcome.completed) {
+                    ++report.completed;
+                }
+                if (config.collect_number_tokens &&
+                    !outcome.number_token.empty()) {
+                    report.number_tokens.push_back(
+                        std::move(outcome.number_token));
+                }
             }
-            if (config.collect_number_tokens &&
-                !outcome.number_token.empty()) {
-                report.number_tokens.push_back(
-                    std::move(outcome.number_token));
-            }
-            slots.release();
         });
     }
-    for (auto& worker : workers) {
-        worker.join();
-    }
+    // 正常路径在 joiner 析构处 join;异常路径已在 unwind 中 join。
 
     if (config.metrics_endpoint.has_value()) {
         report.service_metrics = scrape_metrics(
