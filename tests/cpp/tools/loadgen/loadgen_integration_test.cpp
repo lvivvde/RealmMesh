@@ -18,6 +18,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstdint>
+#include <cstdio>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -418,14 +419,24 @@ void use_loadgen_free_ports(
 }
 
 /// MeshHost 不自转线程(帧尾指标发布与 HTTPS poll 循环都靠外部 tick
-/// 驱动);测试期间 2ms 节拍持续驱动。
+/// 驱动);测试期间 2ms 节拍持续驱动。tick 线程里的异常不允许逃逸成
+/// 裸 std::terminate(CI 上缓冲的日志会随 abort 丢光):捕获后落
+/// unbuffered stderr 并停摆驱动,让后续断言失败时还能看到 what()。
 class TickDriver final {
 public:
     explicit TickDriver(service_host::MeshHost& mesh)
         : thread_([this, &mesh] {
-              while (running_.load(std::memory_order_relaxed)) {
-                  mesh.tick();
-                  std::this_thread::sleep_for(std::chrono::milliseconds{2});
+              try {
+                  while (running_.load(std::memory_order_relaxed)) {
+                      mesh.tick();
+                      std::this_thread::sleep_for(
+                          std::chrono::milliseconds{2});
+                  }
+              } catch (const std::exception& error) {
+                  std::fprintf(
+                      stderr, "tick thread exception: %s\n", error.what());
+                  std::fflush(stderr);
+                  running_.store(false, std::memory_order_relaxed);
               }
           }) {}
     ~TickDriver() {

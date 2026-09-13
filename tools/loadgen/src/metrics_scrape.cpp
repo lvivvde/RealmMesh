@@ -2,6 +2,7 @@
 
 #include "realmmesh/loadgen/http_client.hpp"
 
+#include <cstdint>
 #include <string>
 
 namespace realm::loadgen {
