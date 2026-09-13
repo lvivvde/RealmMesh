@@ -1,0 +1,153 @@
+#pragma once
+
+// LoginChainTransport 的生产绑定:HTTP 段(verify/取号/轮询/兑换)走
+// TLS/TCP + HTTP/1.1(自研栈,ADR-0007),网关段与 Realm 段各自跑一次
+// 「QUIC 主 + TLS/TCP 降级」竞速(0ms + 350ms 分级,ADR 见 0008)。
+//
+// Realm 段的兑换帧归 #46(edge.proto 只定义了 1303 的下行票据,没有
+// 对应的 C2S 兑换消息),故以 EnterRealmRedeemer 注入缝留白:#49 把
+// 直连竞速、60s 票窗重试与回退接好,协议细节由 #46 的实现补上。
+
+#include "realmmesh/client/login_chain.hpp"
+#include "realmmesh/network/client/edge_client_connection.hpp"
+#include "realmmesh/network/client/http1_client_connection.hpp"
+#include "realmmesh/network/client/preferred_transport_connector.hpp"
+#include "realmmesh/network/client/tls_tcp_client_dialer.hpp"
+
+#include <chrono>
+#include <cstdint>
+#include <memory>
+#include <optional>
+#include <string>
+#include <string_view>
+#include <vector>
+
+namespace realm::client {
+
+/// HTTP 段端点(登录健全服 / 排队调度服)。
+struct WireEndpoints final {
+    std::string login_verify_host{"127.0.0.1"};
+    std::uint16_t login_verify_port{0};
+    std::string queue_host{"127.0.0.1"};
+    std::uint16_t queue_port{0};
+    /// Realm 直连的 ALPN(#46 定案后填;空 = 不提议)。
+    std::string realm_alpn;
+    /// 校验服务端证书;自签部署/测试显式关闭。
+    bool verify_peer{true};
+};
+
+struct WireTransportOptions final {
+    /// 单次 HTTP 请求上限(与链路总窗口取小:一个挂死的请求不得吃光
+    /// 整个登录窗口)。
+    std::chrono::milliseconds request_timeout{10'000};
+    /// 当前网络标识(竞速的 QUIC 负缓存按网络切换失效)。
+    std::string network_id{"default"};
+    network::client::ConnectorOptions connector;
+};
+
+/// EnterRealm 兑换口:在已直连的 Realm 流上兑换 1303 下发的票据。
+class EnterRealmRedeemer {
+public:
+    virtual ~EnterRealmRedeemer() = default;
+
+    [[nodiscard]] virtual PortStatus redeem(
+        network::client::ISecureByteStream& stream,
+        std::string_view enter_realm_ticket,
+        TimePoint deadline) = 0;
+};
+
+/// #46 落地前的默认实现:明确判失败,不猜协议。
+class PendingEnterRealmRedeemer final : public EnterRealmRedeemer {
+public:
+    [[nodiscard]] PortStatus redeem(
+        network::client::ISecureByteStream& stream,
+        std::string_view enter_realm_ticket,
+        TimePoint deadline) override;
+};
+
+class WireLoginTransport final : public LoginChainTransport {
+public:
+    WireLoginTransport(WireEndpoints endpoints,
+                       EnterRealmRedeemer& redeemer,
+                       WireTransportOptions options = {});
+    ~WireLoginTransport() override;
+    WireLoginTransport(const WireLoginTransport&) = delete;
+    WireLoginTransport& operator=(const WireLoginTransport&) = delete;
+
+    [[nodiscard]] PortValue<VerifyResult> verify(
+        std::string_view account,
+        std::string_view credential,
+        TimePoint deadline) override;
+    [[nodiscard]] PortValue<TicketResult> take_ticket(
+        std::string_view identity_token,
+        TimePoint deadline) override;
+    [[nodiscard]] PortValue<ProgressResult> poll_progress(
+        TimePoint deadline) override;
+    [[nodiscard]] PortValue<TicketMeResult> ticket_me(
+        std::string_view queue_number_token,
+        TimePoint deadline) override;
+
+    [[nodiscard]] PortStatus connect_gateway(
+        std::span<const network::client::EndpointCandidate> candidates,
+        TimePoint deadline) override;
+    [[nodiscard]] PortStatus attach(
+        std::string_view identity_token,
+        std::string_view queue_number_token,
+        TimePoint deadline) override;
+    [[nodiscard]] PortValue<HandoffResult> await_handoff(
+        TimePoint deadline) override;
+
+    [[nodiscard]] PortStatus connect_realm(
+        std::span<const network::client::EndpointCandidate> candidates,
+        TimePoint deadline) override;
+    [[nodiscard]] PortStatus enter_realm(
+        std::string_view enter_realm_ticket,
+        TimePoint deadline) override;
+
+    void drop_connections() override;
+
+private:
+    /// 一次 JSON 请求;连接按需拨号 + 保活复用,网络层失败重拨一次。
+    struct HttpResponse final {
+        int status{0};
+        std::string body;
+    };
+    [[nodiscard]] std::optional<HttpResponse> call(
+        bool queue,
+        std::string_view method,
+        std::string_view target,
+        const std::optional<std::string>& bearer,
+        std::string_view body,
+        TimePoint deadline);
+
+    /// 竞速的两段(网关段与 Realm 段各自独立:独立拨号器、独立负缓存)。
+    enum class Segment { Gateway, Realm };
+
+    [[nodiscard]] PortStatus connect_racing(
+        Segment segment,
+        std::span<const network::client::EndpointCandidate> candidates,
+        std::shared_ptr<network::client::ISecureConnection>& connection_out,
+        std::shared_ptr<network::client::ISecureByteStream>& stream_out,
+        TimePoint deadline);
+
+    void drop_gateway();
+    void drop_realm();
+
+    WireEndpoints endpoints_;
+    EnterRealmRedeemer& redeemer_;
+    WireTransportOptions options_;
+    network::client::TlsClientOptions tls_options_;
+    network::client::TlsTcpClientDialer gateway_dialer_;
+    network::client::TlsTcpClientDialer realm_dialer_;
+    network::client::PreferredTransportConnector gateway_connector_;
+    network::client::PreferredTransportConnector realm_connector_;
+
+    std::unique_ptr<network::client::Http1ClientConnection> login_connection_;
+    std::unique_ptr<network::client::Http1ClientConnection> queue_connection_;
+    std::shared_ptr<network::client::ISecureConnection> gateway_connection_;
+    std::unique_ptr<network::client::EdgeClientConnection> gateway_edge_;
+    std::shared_ptr<network::client::ISecureConnection> realm_connection_;
+    std::shared_ptr<network::client::ISecureByteStream> realm_stream_;
+};
+
+}  // namespace realm::client
