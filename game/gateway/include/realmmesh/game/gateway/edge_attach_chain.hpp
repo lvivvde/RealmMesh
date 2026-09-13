@@ -47,6 +47,12 @@ public:
         return last_account_id_;
     }
 
+    /// jti 重放拒绝累计(单调;#47 帧尾轮询发布
+    /// edge_jti_replay_rejected_total 用)。
+    [[nodiscard]] std::uint64_t replay_rejections() const noexcept {
+        return replay_rejections_;
+    }
+
 private:
     const common::IdentityTokenCodec* identity_codec_;
     const common::QueueNumberCodec* number_codec_;
@@ -54,6 +60,7 @@ private:
     common::IdentityReplayGuard replay_guard_;
     std::string identity_issuer_;
     std::uint64_t last_account_id_{0};
+    std::uint64_t replay_rejections_{0};
 };
 
 }  // namespace realm::game::gateway

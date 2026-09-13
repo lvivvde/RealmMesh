@@ -8,6 +8,7 @@
 
 #include "realmmesh/game/common/identity_token.hpp"
 #include "realmmesh/game/common/json.hpp"
+#include "realmmesh/observability/metrics_registry.hpp"
 
 #include <gtest/gtest.h>
 #include <openssl/ssl.h>
@@ -244,7 +245,7 @@ protected:
             .private_key_file = REALMMESH_TEST_TLS_PRIVATE_KEY,
             .alpn = "http/1.1"};
         service_ = std::make_unique<QueueService>(
-            std::move(config), store_);
+            std::move(config), store_, &metrics_);
         service_->start();
         driver_ = std::jthread([this] {
             while (!stopping_.load()) {
@@ -328,6 +329,8 @@ protected:
     static constexpr std::string_view kKid = "queue-test-1";
     static constexpr std::string_view kIdentityKid = "login-verify-test-1";
 
+    // 注册表声明在首位(成员逆序析构):服务持有的指针最后失效。
+    observability::MetricsRegistry metrics_;
     std::shared_ptr<FakeStore> store_;
     std::unique_ptr<QueueService> service_;
     std::jthread driver_;
@@ -395,6 +398,48 @@ TEST_F(QueueServiceTest, IssuesAndReleasesByBudgetFrame) {
     ASSERT_TRUE(progress_payload.has_value());
     EXPECT_EQ(
         std::get<std::int64_t>(progress_payload->at("released_number")), 1);
+}
+
+TEST_F(QueueServiceTest, MetricsTrackIssueAdmitAndProgress) {
+    // tick 尾部轮询发布:空闲水位 0 的基线先就绪。
+    wait_for([this] {
+        return metrics_.render().find("tickets_issued_total 0\n") !=
+               std::string::npos;
+    });
+    const std::string idle = metrics_.render();
+    EXPECT_NE(idle.find("released_number 0\n"), std::string::npos);
+    EXPECT_NE(idle.find("queue_length_est 0\n"), std::string::npos);
+    EXPECT_NE(idle.find("admit_rate "), std::string::npos);
+
+    const auto token = post_number("01");
+    ASSERT_TRUE(token.has_value());
+    wait_for([this] {
+        return metrics_.render().find("tickets_issued_total 1\n") !=
+               std::string::npos;
+    });
+    const std::string issued = metrics_.render();
+    EXPECT_NE(issued.find("queue_length_est 1\n"), std::string::npos);
+    // 未发生放行:批次计数不出现(计数器只在首次 add/set 后渲染)。
+    EXPECT_EQ(issued.find("admit_batches_total"), std::string::npos);
+
+    // 放行帧发生:批次计数与水位随核心外显。
+    store_->set_budgets(
+        BudgetAggregate{.gateway_admission = 100, .realm_connections = 100});
+    wait_for([this] {
+        const std::string text = metrics_.render();
+        return text.find("admit_batches_total 1\n") != std::string::npos &&
+               text.find("released_number 1\n") != std::string::npos;
+    });
+    const std::string admitted = metrics_.render();
+    EXPECT_NE(admitted.find("queue_length_est 0\n"), std::string::npos);
+
+    // progress 请求计数经 handler 上报(告警 6 的 CDN 卸载监测源)。
+    ASSERT_TRUE(
+        https_exchange(port_, get_request("/v1/queue/progress")).has_value());
+    wait_for([this] {
+        return metrics_.render().find("progress_requests_total 1\n") !=
+               std::string::npos;
+    });
 }
 
 TEST_F(QueueServiceTest, FailClosedWhenBudgetsUnavailable) {

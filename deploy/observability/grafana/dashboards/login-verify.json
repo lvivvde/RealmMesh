@@ -1,0 +1,193 @@
+{
+  "uid": "realmmesh-login-verify",
+  "title": "RealmMesh / 健全服",
+  "description": "登录健全服:验签请求、分档拒绝与签发时延(#34 指标清单)。",
+  "tags": [
+    "realmmesh"
+  ],
+  "timezone": "browser",
+  "editable": false,
+  "graphTooltip": 1,
+  "schemaVersion": 39,
+  "version": 1,
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "refresh": "30s",
+  "panels": [
+    {
+      "type": "stat",
+      "title": "verify QPS",
+      "description": "验签请求速率(1m 窗口)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "realmmesh-prometheus"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 0,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "realmmesh-prometheus"
+          },
+          "expr": "sum(rate(verify_requests_total[1m]))",
+          "legendFormat": "verify",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "拒绝速率(按原因)",
+      "description": "invalid=凭据无效/请求性错误;banned=封禁;whitelist=未入白名单",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "realmmesh-prometheus"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 18,
+        "x": 0,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "realmmesh-prometheus"
+          },
+          "expr": "sum by (reason) (rate(verify_reject_total[1m]))",
+          "legendFormat": "{{reason}}",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "签发时延 p50 / p95",
+      "description": "身份 Token 签发(Ed25519)耗时分布",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "realmmesh-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 6
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "realmmesh-prometheus"
+          },
+          "expr": "histogram_quantile(0.5, sum by (le) (rate(verify_issue_duration_seconds_bucket[5m])))",
+          "legendFormat": "p50",
+          "refId": "C"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "realmmesh-prometheus"
+          },
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(verify_issue_duration_seconds_bucket[5m])))",
+          "legendFormat": "p95",
+          "refId": "D"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "请求守恒(未决探测)",
+      "description": "请求 − 签发 − 分档拒绝;持续非零即 5xx/超时类路径(告警 5 同源)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "realmmesh-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 6
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "realmmesh-prometheus"
+          },
+          "expr": "(sum(increase(verify_requests_total[5m])) - sum(increase(verify_issue_duration_seconds_count[5m])) - sum(increase(verify_reject_total[5m])))",
+          "legendFormat": "未决请求",
+          "refId": "E"
+        }
+      ]
+    }
+  ]
+}

@@ -36,6 +36,7 @@ EdgeAttachVerdict EdgeAttachChain::handle(
         return EdgeAttachVerdict::InvalidNumber;
     }
     if (!replay_guard_.consume(*identity, now)) {
+        ++replay_rejections_;  // #47:重放拒绝计数,帧尾轮询发布。
         return EdgeAttachVerdict::InvalidCredentials;
     }
 

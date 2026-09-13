@@ -1,0 +1,266 @@
+{
+  "uid": "realmmesh-queue",
+  "title": "RealmMesh / 排队调度服",
+  "description": "排队调度服:取号/放行/队列水位与 CDN 卸载监测(#34 指标清单)。",
+  "tags": [
+    "realmmesh"
+  ],
+  "timezone": "browser",
+  "editable": false,
+  "graphTooltip": 1,
+  "schemaVersion": 39,
+  "version": 1,
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "refresh": "30s",
+  "panels": [
+    {
+      "type": "stat",
+      "title": "取号速率",
+      "description": "tickets_issued_total 速率",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "realmmesh-prometheus"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 0,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "realmmesh-prometheus"
+          },
+          "expr": "sum(rate(tickets_issued_total[1m]))",
+          "legendFormat": "取号/s",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "放行速率",
+      "description": "released_number(gauge)速率",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "realmmesh-prometheus"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 0,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "realmmesh-prometheus"
+          },
+          "expr": "sum(rate(released_number[1m]))",
+          "legendFormat": "放行/s",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "放行批次(1h)",
+      "description": "发生实际放行的阀门帧计数",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "realmmesh-prometheus"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 0,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "realmmesh-prometheus"
+          },
+          "expr": "sum(increase(admit_batches_total[1h]))",
+          "legendFormat": "批次",
+          "refId": "C"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "源站直查 QPS",
+      "description": "CDN 卸载监测:源站直查量(告警 6)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "realmmesh-prometheus"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 0,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "realmmesh-prometheus"
+          },
+          "expr": "sum(rate(progress_requests_total[1m]))",
+          "legendFormat": "progress QPS",
+          "refId": "D"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "队列长度估算",
+      "description": "queue_length_est = 已发未放行余量",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "realmmesh-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 6
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "realmmesh-prometheus"
+          },
+          "expr": "queue_length_est",
+          "legendFormat": "{{instance}}",
+          "refId": "E"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "admit_rate(服务滑动窗口)",
+      "description": "服务自算的放行速率 gauge;告警 1/2 直接使用,不经 rate()",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "realmmesh-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 6
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "realmmesh-prometheus"
+          },
+          "expr": "admit_rate",
+          "legendFormat": "{{instance}}",
+          "refId": "F"
+        }
+      ]
+    }
+  ]
+}

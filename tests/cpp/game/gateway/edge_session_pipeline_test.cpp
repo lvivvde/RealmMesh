@@ -105,5 +105,32 @@ TEST_F(EdgeSessionPipelineTest, UnknownSessionStageReadsAsClosed) {
     EXPECT_EQ(pipeline_->stage(sid(42)), EdgeSessionStage::Closed);
 }
 
+TEST_F(EdgeSessionPipelineTest, StageCountsReflectLiveSessionsPerStage) {
+    pipeline_->on_session_opened(sid(1));
+    pipeline_->on_session_opened(sid(2));
+    pipeline_->on_session_opened(sid(3));
+    pipeline_->on_session_opened(sid(4));
+    ASSERT_EQ(pipeline_->try_enter_fetching(sid(1)),
+              EnterFetchingResult::Entered);
+    ASSERT_EQ(pipeline_->mark_handed_off(sid(1)), true);
+    ASSERT_EQ(pipeline_->try_enter_fetching(sid(3)),
+              EnterFetchingResult::Entered);
+
+    const auto counts = pipeline_->stage_counts();
+    EXPECT_EQ(counts.pending, 2U);
+    EXPECT_EQ(counts.fetching, 1U);
+    EXPECT_EQ(counts.handed_off, 1U);
+
+    // closed 会话不在任何活动阶段计数里:pending 的 sid(4) 迁入
+    // fetching 后被关闭,pending 与 fetching 计数双双回落。
+    ASSERT_EQ(pipeline_->try_enter_fetching(sid(4)),
+              EnterFetchingResult::Entered);
+    static_cast<void>(pipeline_->on_session_closed(sid(4)));
+    const auto after = pipeline_->stage_counts();
+    EXPECT_EQ(after.pending, 1U);
+    EXPECT_EQ(after.fetching, 1U);
+    EXPECT_EQ(after.handed_off, 1U);
+}
+
 }  // namespace
 }  // namespace realm::game::gateway

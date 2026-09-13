@@ -1,0 +1,266 @@
+{
+  "uid": "realmmesh-gateway",
+  "title": "RealmMesh / 网关",
+  "description": "边缘网关:准入漏斗、双预算、拉取健康与重放拒绝(#34 指标清单)。",
+  "tags": [
+    "realmmesh"
+  ],
+  "timezone": "browser",
+  "editable": false,
+  "graphTooltip": 1,
+  "schemaVersion": 39,
+  "version": 1,
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "refresh": "30s",
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "漏斗水位(按阶段)",
+      "description": "edge_sessions{stage=pending|fetching|handed_off};fetching 占用超预算 90% 触发告警 3",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "realmmesh-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "realmmesh-prometheus"
+          },
+          "expr": "sum by (stage) (edge_sessions)",
+          "legendFormat": "{{stage}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "双预算余量",
+      "description": "edge_budget{kind=conn_free|fetch_free}:实例余量总和",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "realmmesh-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "realmmesh-prometheus"
+          },
+          "expr": "sum by (kind) (edge_budget)",
+          "legendFormat": "{{kind}}",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "拉取时延 p95",
+      "description": "单次拉取尝试时长(成功交付时上报)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "realmmesh-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "realmmesh-prometheus"
+          },
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(edge_fetch_duration_seconds_bucket[5m])))",
+          "legendFormat": "p95",
+          "refId": "C"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "拉取重试速率",
+      "description": "首次尝试之外的拉取重试(告警 4 分子)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "realmmesh-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "realmmesh-prometheus"
+          },
+          "expr": "sum(rate(edge_fetch_retry_total[1m]))",
+          "legendFormat": "重试/s",
+          "refId": "D"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "jti 重放拒绝(24h)",
+      "description": "重放攻击在指标面的可见性(#34)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "realmmesh-prometheus"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 12,
+        "x": 0,
+        "y": 16
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "realmmesh-prometheus"
+          },
+          "expr": "sum(increase(edge_jti_replay_rejected_total[24h]))",
+          "legendFormat": "拒绝",
+          "refId": "E"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "服务就绪",
+      "description": "实例就绪 gauge",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "realmmesh-prometheus"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 12,
+        "x": 0,
+        "y": 16
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "realmmesh-prometheus"
+          },
+          "expr": "realmmesh_service_ready",
+          "legendFormat": "{{service_name}}",
+          "refId": "F"
+        }
+      ]
+    }
+  ]
+}

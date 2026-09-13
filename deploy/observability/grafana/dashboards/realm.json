@@ -1,0 +1,184 @@
+{
+  "uid": "realmmesh-realm",
+  "title": "RealmMesh / 业务服 Realm",
+  "description": "入场服:enter_realm_* 为 #34 规划指标,接线落地前显示为空(#46 后续)。",
+  "tags": [
+    "realmmesh"
+  ],
+  "timezone": "browser",
+  "editable": false,
+  "graphTooltip": 1,
+  "schemaVersion": 39,
+  "version": 1,
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "refresh": "30s",
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "入场速率(待接线)",
+      "description": "realm 侧指标接线属 #46 后续:接线前面板为空,不阻塞",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "realmmesh-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "realmmesh-prometheus"
+          },
+          "expr": "sum(rate(enter_realm_total[1m]))",
+          "legendFormat": "入场/s",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "入场拒绝(按原因,待接线)",
+      "description": "enter_realm_rejected_total{reason};realm 接线后生效",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "realmmesh-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "realmmesh-prometheus"
+          },
+          "expr": "sum by (reason) (rate(enter_realm_rejected_total[1m]))",
+          "legendFormat": "{{reason}}",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "当前会话(待接线)",
+      "description": "sessions_current;realm 接线后生效",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "realmmesh-prometheus"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 12,
+        "x": 0,
+        "y": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "realmmesh-prometheus"
+          },
+          "expr": "sum(sessions_current)",
+          "legendFormat": "sessions",
+          "refId": "C"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "服务就绪",
+      "description": "实例就绪 gauge(已可用)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "realmmesh-prometheus"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 12,
+        "x": 0,
+        "y": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "realmmesh-prometheus"
+          },
+          "expr": "realmmesh_service_ready",
+          "legendFormat": "{{service_name}}",
+          "refId": "D"
+        }
+      ]
+    }
+  ]
+}

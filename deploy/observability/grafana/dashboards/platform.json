@@ -1,0 +1,243 @@
+{
+  "uid": "realmmesh-platform",
+  "title": "RealmMesh / 平台与日志管道",
+  "description": "平台侧 v1:抓取健康 + 日志管道(etcd/HTTP 网络栈指标后续票补齐)。",
+  "tags": [
+    "realmmesh"
+  ],
+  "timezone": "browser",
+  "editable": false,
+  "graphTooltip": 1,
+  "schemaVersion": 39,
+  "version": 1,
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "refresh": "30s",
+  "panels": [
+    {
+      "type": "stat",
+      "title": "抓取目标存活",
+      "description": "Prometheus 内建 up:1=存活",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "realmmesh-prometheus"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "realmmesh-prometheus"
+          },
+          "expr": "up{job=~\"realmmesh-services|vector-agent|vector-gateways|loki\"}",
+          "legendFormat": "{{job}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "服务就绪",
+      "description": "各服务就绪 gauge",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "realmmesh-prometheus"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "realmmesh-prometheus"
+          },
+          "expr": "realmmesh_service_ready",
+          "legendFormat": "{{service_name}}",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "日志事件速率",
+      "description": "日志管道吞吐(Vector→Loki 链路上游)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "realmmesh-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 6
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "realmmesh-prometheus"
+          },
+          "expr": "sum by (job) (rate(realmmesh_log_events_emitted_total[1m]))",
+          "legendFormat": "{{job}} emitted",
+          "refId": "C"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "realmmesh-prometheus"
+          },
+          "expr": "sum by (job) (rate(realmmesh_log_events_accepted_total[1m]))",
+          "legendFormat": "{{job}} accepted",
+          "refId": "D"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "日志丢弃 / 写入错误",
+      "description": "非零即日志可靠性退化",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "realmmesh-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 6
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "realmmesh-prometheus"
+          },
+          "expr": "sum(rate(realmmesh_log_events_dropped_total[5m]))",
+          "legendFormat": "dropped",
+          "refId": "E"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "realmmesh-prometheus"
+          },
+          "expr": "sum(rate(realmmesh_log_write_errors_total[5m]))",
+          "legendFormat": "write_errors",
+          "refId": "F"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "普通队列积压",
+      "description": "agent 内存队列长度(_reserved 队列见 Vector 面板)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "realmmesh-prometheus"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 12,
+        "x": 0,
+        "y": 14
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "realmmesh-prometheus"
+          },
+          "expr": "realmmesh_log_normal_queue_size",
+          "legendFormat": "{{instance}}",
+          "refId": "G"
+        }
+      ]
+    }
+  ]
+}

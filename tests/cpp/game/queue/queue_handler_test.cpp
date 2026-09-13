@@ -4,6 +4,7 @@
 #include "realmmesh/game/common/json.hpp"
 #include "realmmesh/game/queue/queue_core.hpp"
 #include "realmmesh/game/common/queue_number.hpp"
+#include "realmmesh/observability/metrics_registry.hpp"
 
 #include <gtest/gtest.h>
 
@@ -59,7 +60,8 @@ protected:
             [this] { return now_; },
             std::string{kIssuer},
             std::chrono::seconds{3600},
-            std::chrono::seconds{300});
+            std::chrono::seconds{300},
+            &metrics_);
     }
 
     /// jti 需 32 字符小写 hex;suffix 变体保证不同身份。
@@ -113,6 +115,7 @@ protected:
     std::unique_ptr<IdentityTokenCodec> identity_codec_;
     std::unique_ptr<common::QueueNumberCodec> number_codec_;
     std::unique_ptr<QueueCore> core_;
+    observability::MetricsRegistry metrics_;
     std::unique_ptr<QueueHandler> handler_;
 };
 
@@ -403,6 +406,20 @@ TEST_F(QueueHandlerTest, HealthzAndQueryStrings) {
     const auto progress =
         handler_->handle(request("GET", "/v1/queue/progress?brief=1"));
     EXPECT_EQ(progress.status, 200);
+}
+
+/// progress 判定点直写源站直查量(#34/#47):仅 GET 命中计数,
+/// 方法不符(405)不计。
+TEST_F(QueueHandlerTest, MetricsCountProgressRequests) {
+    static_cast<void>(handler_->handle(request("GET", "/v1/queue/progress")));
+    static_cast<void>(handler_->handle(
+        request("GET", "/v1/queue/progress?brief=1")));
+    EXPECT_EQ(
+        handler_->handle(request("POST", "/v1/queue/progress")).status, 405);
+
+    const auto text = metrics_.render();
+    EXPECT_NE(
+        text.find("progress_requests_total 2\n"), std::string::npos);
 }
 
 }  // namespace

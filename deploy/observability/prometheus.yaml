@@ -2,6 +2,11 @@ global:
   scrape_interval: 15s
   evaluation_interval: 15s
 
+# 六条 v1 告警(#34 定案):容器内挂载 deploy/observability/prometheus
+# 到 /etc/prometheus/rules(见 compose.yaml)。
+rule_files:
+  - /etc/prometheus/rules/*.yaml
+
 scrape_configs:
   - job_name: realmmesh-services
     static_configs:

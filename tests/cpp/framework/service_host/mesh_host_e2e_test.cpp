@@ -12,12 +12,14 @@
 
 #include <cstdint>
 #include <cstdlib>
+#include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <memory>
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <thread>
 #include <vector>
 
 namespace realm::service_host {
@@ -211,6 +213,29 @@ TEST(MeshHostE2ETest, AllInOneStartsAndStopsCleanly) {
     EXPECT_TRUE(mesh.entry_ready());
     // 依赖服务端口可连:realm 的监听端口 TCP 探活成功。
     EXPECT_TRUE(tcp_port_accepts_connections(realm_port));
+
+    // /metrics 组装(#47):帧尾发布依赖 tick 节拍(MeshHost 不自转
+    // 线程,由外部驱动),注册表渲染的 edge_* 段落先于既有 service_ready
+    // gauge(拼接顺序不变)。
+    std::string metrics_text;
+    for (int attempt = 0; attempt < 1000; ++attempt) {
+        mesh.tick();
+        metrics_text = mesh.service("gateway").prometheus_metrics();
+        if (metrics_text.find("edge_sessions{stage=") != std::string::npos) {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds{2});
+    }
+    const auto sessions_at = metrics_text.find("edge_sessions{stage=");
+    const auto ready_at =
+        metrics_text.find("# TYPE realmmesh_service_ready gauge");
+    ASSERT_NE(ready_at, std::string::npos);
+    ASSERT_NE(sessions_at, std::string::npos);
+    EXPECT_TRUE(sessions_at < ready_at);
+    EXPECT_NE(
+        metrics_text.find("edge_budget{kind=\"conn_free\"}"),
+        std::string::npos);
+
     mesh.shutdown();
     EXPECT_FALSE(mesh.service("realm").runtime().running());
 }

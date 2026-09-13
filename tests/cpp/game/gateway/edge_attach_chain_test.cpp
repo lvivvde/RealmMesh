@@ -136,9 +136,13 @@ TEST_F(EdgeAttachChainTest, ReplayedJtiIsRejectedOnceConsumed) {
     EXPECT_EQ(pipeline_->stage(second), EdgeSessionStage::Pending);
     EXPECT_EQ(pipeline_->stage(first), EdgeSessionStage::Fetching);
 
+    // #47 观测缝:重放拒绝被累计(其余裁决不计入)。
+    EXPECT_EQ(chain().replay_rejections(), 1U);
+
     // 不同 jti 各自独立
     EXPECT_EQ(attach(second, jti_b), EdgeAttachVerdict::Accepted);
     EXPECT_EQ(pipeline_->stage(second), EdgeSessionStage::Fetching);
+    EXPECT_EQ(chain().replay_rejections(), 1U);
 }
 
 TEST_F(EdgeAttachChainTest, AtCapacityRejectsWithoutBurningCredentials) {

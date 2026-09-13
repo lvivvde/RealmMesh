@@ -79,13 +79,14 @@ ServiceHost::ServiceHost(
             config_root, service_name, overrides);
         login_verify =
             std::make_unique<game::login_verify::LoginVerifyService>(
-                std::move(login_verify_config.login_verify));
+                std::move(login_verify_config.login_verify),
+                &metrics_registry_);
         config = std::move(login_verify_config.host);
     } else if (service_name_ == "queue") {
         auto queue_config = LayeredConfigLoader::load_queue(
             config_root, service_name, overrides);
         queue = std::make_unique<game::queue::QueueService>(
-            std::move(queue_config.queue));
+            std::move(queue_config.queue), &metrics_registry_);
         config = std::move(queue_config.host);
     } else {
         config =
@@ -129,7 +130,9 @@ ServiceHost::ServiceHost(
         EdgePipelineTuning{
             std::chrono::milliseconds{config.fetch_retry_base_ms},
             config.fetch_retry_max,
-            std::chrono::milliseconds{config.handoff_grace_ms}});
+            std::chrono::milliseconds{config.handoff_grace_ms}},
+        nullptr,
+        &metrics_registry_);
     budget_policy_.conn_capacity = pipeline_conn_capacity;
     budget_policy_.fetch_capacity = config.pipeline_fetch_capacity;
     runtime_ = std::make_unique<game::gateway::GatewayRuntime>(
@@ -335,6 +338,9 @@ void ServiceHost::tick() {
 
 std::string ServiceHost::prometheus_metrics() const {
     std::string output = logger_->prometheus_metrics();
+    // 领域指标(#47):日志管道指标之后、service_ready 之前,拼接顺序
+    // 既有约定不变。
+    output += metrics_registry_.render();
     output += "# TYPE realmmesh_service_ready gauge\n";
     output += "realmmesh_service_ready{service_name=\"";
     output += prometheus_label(service_name_);

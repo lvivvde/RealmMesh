@@ -7,6 +7,7 @@
 #include "realmmesh/game/gateway/edge_fetch_scheduler.hpp"
 #include "realmmesh/game/gateway/gateway_runtime.hpp"
 #include "realmmesh/observability/logger.hpp"
+#include "realmmesh/observability/metrics_registry.hpp"
 
 #include <chrono>
 #include <cstdlib>
@@ -101,14 +102,16 @@ ServiceFrame::ServiceFrame(
     std::size_t max_events_per_frame,
     EdgePipelineCaps edge_pipeline_caps,
     EdgePipelineTuning edge_pipeline_tuning,
-    game::gateway::EdgeFetchSource* edge_fetch_source)
+    game::gateway::EdgeFetchSource* edge_fetch_source,
+    observability::MetricsRegistry* metrics)
     : service_name_(service_name),
       downstream_address_(std::move(downstream_address)),
       downstream_port_(downstream_port),
       max_events_per_frame_(max_events_per_frame),
       identity_(parse_service_identity(service_name)),
       tickets_(make_ticket_key(identity_)),
-      handoff_grace_(edge_pipeline_tuning.handoff_grace) {
+      handoff_grace_(edge_pipeline_tuning.handoff_grace),
+      metrics_(metrics) {
     if (identity_.has_value() &&
         identity_ != cluster::ServiceType::Gateway &&
         (downstream_address_.empty() || downstream_port_ == 0)) {
@@ -468,6 +471,14 @@ void ServiceFrame::handle_gateway_events(
                         fetch_event.session_id,
                         fetch_event.account_id);
                 }
+                // 拉取耗时直方图(#47):成功交付的这次尝试耗时。
+                if (metrics_ != nullptr) {
+                    metrics_->histogram_observe(
+                        "edge_fetch_duration_seconds",
+                        std::chrono::duration<double>(
+                            fetch_event.attempt_duration)
+                            .count());
+                }
                 static_cast<void>(logger.info(
                     "edge_fetch_completed",
                     "edge fetch completed",
@@ -580,6 +591,40 @@ void ServiceFrame::handle_gateway_events(
         static_cast<void>(budget_reporter->publish(
             cluster::InstanceBudgetSnapshot{
                 pipeline_->conn_free(), pipeline_->fetch_free(), true}));
+    }
+    // 帧尾指标发布(#47):edge_sessions / edge_budget / 重试与重放计数。
+    publish_edge_metrics();
+}
+
+void ServiceFrame::publish_edge_metrics() {
+    if (metrics_ == nullptr || !pipeline_.has_value()) {
+        return;
+    }
+    const auto counts = pipeline_->stage_counts();
+    metrics_->gauge_set(
+        "edge_sessions", static_cast<double>(counts.pending),
+        {{"stage", "pending"}});
+    metrics_->gauge_set(
+        "edge_sessions", static_cast<double>(counts.fetching),
+        {{"stage", "fetching"}});
+    metrics_->gauge_set(
+        "edge_sessions", static_cast<double>(counts.handed_off),
+        {{"stage", "handed_off"}});
+    metrics_->gauge_set(
+        "edge_budget", static_cast<double>(pipeline_->conn_free()),
+        {{"kind", "conn_free"}});
+    metrics_->gauge_set(
+        "edge_budget", static_cast<double>(pipeline_->fetch_free()),
+        {{"kind", "fetch_free"}});
+    if (fetch_scheduler_.has_value()) {
+        metrics_->counter_set(
+            "edge_fetch_retry_total",
+            static_cast<double>(fetch_scheduler_->retry_total()));
+    }
+    if (attach_.has_value()) {
+        metrics_->counter_set(
+            "edge_jti_replay_rejected_total",
+            static_cast<double>(attach_->chain.replay_rejections()));
     }
 }
 

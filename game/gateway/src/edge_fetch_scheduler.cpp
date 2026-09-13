@@ -30,9 +30,13 @@ std::vector<EdgeFetchEvent> EdgeFetchScheduler::tick(
     for (auto& [session, attempt] : attempts_) {
         if (!attempt.in_flight && attempt.due <= now) {
             const auto outcome = source_->fetch(attempt.account_id);
+            if (attempt.attempts_made > 0U) {
+                ++retry_total_;  // 非首发的尝试即重试(#47 观测)。
+            }
             ++attempt.attempts_made;
             attempt.in_flight = true;
             attempt.last_ok = outcome.ok;
+            attempt.last_duration = outcome.duration;
             attempt.completes_at = now + outcome.duration;
         }
     }
@@ -48,7 +52,8 @@ std::vector<EdgeFetchEvent> EdgeFetchScheduler::tick(
             events.push_back(
                 {session,
                  EdgeFetchEventKind::Succeeded,
-                 attempt.account_id});
+                 attempt.account_id,
+                 attempt.last_duration});
             finished.push_back(session);
             continue;
         }

@@ -13,6 +13,7 @@ class HttpServer;
 
 namespace realm::observability {
 class Logger;
+class MetricsRegistry;
 }  // namespace observability
 
 namespace realm::game::common {
@@ -27,7 +28,10 @@ namespace realm::game::login_verify {
 /// 服务边轮询,由 ServiceHost 每帧调用。
 class LoginVerifyService final {
 public:
-    explicit LoginVerifyService(LoginVerifyConfig config);
+    /// metrics(#47):宿主持有的指标注册表;可空(测试装配)。
+    explicit LoginVerifyService(
+        LoginVerifyConfig config,
+        observability::MetricsRegistry* metrics = nullptr);
     ~LoginVerifyService();
 
     LoginVerifyService(const LoginVerifyService&) = delete;
@@ -47,6 +51,7 @@ public:
 
 private:
     LoginVerifyConfig config_;
+    observability::MetricsRegistry* metrics_{nullptr};
     std::unique_ptr<common::AccountStore> store_;
     std::unique_ptr<common::IdentityTokenCodec> codec_;
     std::unique_ptr<LoginVerifyHandler> handler_;

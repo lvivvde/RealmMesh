@@ -12,6 +12,10 @@
 #include <string>
 #include <string_view>
 
+namespace realm::observability {
+class MetricsRegistry;
+}  // namespace observability
+
 namespace realm::game::queue {
 
 /// 排队 HTTP 路由(§5.1 行 2/3/4 + /healthz):POST /v1/queue/tickets
@@ -34,7 +38,8 @@ public:
         Clock clock,
         std::string_view identity_issuer,
         std::chrono::seconds queued_number_ttl,
-        std::chrono::seconds admit_grace);
+        std::chrono::seconds admit_grace,
+        observability::MetricsRegistry* metrics = nullptr);
 
     [[nodiscard]] network::Http1Response handle(
         const network::Http1Request& request) const;
@@ -47,6 +52,8 @@ private:
     std::string identity_issuer_;
     std::chrono::seconds queued_number_ttl_;
     std::chrono::seconds admit_grace_;
+    /// 指标注册表(#47):progress 判定点直写源站直查量;可空。
+    observability::MetricsRegistry* metrics_{nullptr};
 };
 
 }  // namespace realm::game::queue

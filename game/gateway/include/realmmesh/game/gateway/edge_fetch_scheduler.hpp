@@ -23,6 +23,9 @@ struct EdgeFetchEvent {
     EdgeFetchEventKind kind{EdgeFetchEventKind::Succeeded};
     /// 登记时携带的拉取账号:帧侧签发 handoff 直连凭证免查表(#45)。
     std::uint64_t account_id{0};
+    /// 成功交付的这次尝试耗时(源自报);失败路径无意义。#47 观测缝,
+    /// 帧侧据此累计 edge_fetch_duration_seconds。
+    std::chrono::milliseconds attempt_duration{0};
 };
 
 /// 拉取调度器(spec #44 域内核):每 fetching 会话至多一次在途尝试;
@@ -58,6 +61,12 @@ public:
         return attempts_.size();
     }
 
+    /// 已发起的重试尝试累计(不含首发;单调,冷启动归零)。
+    /// #47 帧尾轮询发布 edge_fetch_retry_total 用。
+    [[nodiscard]] std::uint64_t retry_total() const noexcept {
+        return retry_total_;
+    }
+
 private:
     struct Attempt {
         std::uint64_t account_id{0};
@@ -65,6 +74,7 @@ private:
         std::chrono::steady_clock::time_point due{};
         bool in_flight{false};
         bool last_ok{false};
+        std::chrono::milliseconds last_duration{0};
         std::chrono::steady_clock::time_point completes_at{};
     };
 
@@ -72,6 +82,7 @@ private:
     unsigned retry_max_;
     EdgeFetchSource* source_;
     std::unordered_map<EdgeSessionId, Attempt> attempts_;
+    std::uint64_t retry_total_{0};
 };
 
 }  // namespace realm::game::gateway

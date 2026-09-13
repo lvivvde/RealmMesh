@@ -1,0 +1,14 @@
+apiVersion: 1
+
+providers:
+  # 六块仪表盘(#34 定案):五服务 + 洪峰总览;JSON 位于
+  # /var/lib/grafana/dashboards(compose 挂载 deploy/observability/
+  # grafana/dashboards)。
+  - name: realmmesh
+    folder: RealmMesh
+    type: file
+    updateIntervalSeconds: 30
+    allowUiUpdates: false
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: false

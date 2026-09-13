@@ -18,6 +18,7 @@ class HttpServer;
 
 namespace realm::observability {
 class Logger;
+class MetricsRegistry;
 }  // namespace observability
 
 namespace realm::game::queue {
@@ -28,11 +29,17 @@ namespace realm::game::queue {
 /// 快照落盘),由 ServiceHost 每帧调用。
 class QueueService final {
 public:
-    explicit QueueService(QueueConfig config);
+    /// metrics(#47):宿主持有的指标注册表;可空(测试装配)。
+    explicit QueueService(
+        QueueConfig config,
+        observability::MetricsRegistry* metrics = nullptr);
     /// 存取注入构造(测试用 fake store;生产路径走 etcd)。shared_ptr
     /// 语义:测试侧需在 stop() 清空后仍持引用观测 save 调用。
+    /// metrics(#47):宿主持有的指标注册表;可空(测试装配)。
     QueueService(
-        QueueConfig config, std::shared_ptr<QueueStateStore> store);
+        QueueConfig config,
+        std::shared_ptr<QueueStateStore> store,
+        observability::MetricsRegistry* metrics = nullptr);
     ~QueueService();
 
     QueueService(const QueueService&) = delete;
@@ -54,8 +61,12 @@ public:
 private:
     /// 单个放行帧:取缓存的额度聚合(fail-closed)→ 批放行 → 快照落盘。
     void release_frame();
+    /// 帧尾指标发布(#47):取号/水位/速率/队列估算进注册表(轮询
+    /// 读权威核心,域内核零污染);registry 为空时是空操作。
+    void publish_metrics();
 
     QueueConfig config_;
+    observability::MetricsRegistry* metrics_{nullptr};
     std::shared_ptr<QueueStateStore> store_;
     std::unique_ptr<common::IdentityTokenCodec> identity_codec_;
     std::unique_ptr<common::QueueNumberCodec> number_codec_;

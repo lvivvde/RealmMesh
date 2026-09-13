@@ -4,6 +4,7 @@ realm_add_gtest(service_host_test
         mesh_host_e2e_test.cpp
         mesh_host_test.cpp
         mode2_test.cpp
+        observability_artifacts_test.cpp
         service_frame_edge_budget_test.cpp
         service_host_test.cpp
         startup_topology_test.cpp

@@ -11,6 +11,7 @@
 #include "realmmesh/game/gateway/gateway_runtime.hpp"
 #include "realmmesh/network/codec/length_field_codec.hpp"
 #include "realmmesh/observability/logger.hpp"
+#include "realmmesh/observability/metrics_registry.hpp"
 #include "realmmesh/test_support/fake_service_registry.hpp"
 #include "realmmesh/test_support/temporary_directory.hpp"
 
@@ -368,7 +369,7 @@ protected:
 
     /// 以指定拉取源/重试基数重建帧:默认夹具注入恒失败源 + 5s 基数,
     /// 保持 #43 用例确定性;#44/#45 用例按需换源、缩基数、缩宽限或
-    /// 注入静态兜底下游。
+    /// 注入静态兜底下游。帧尾指标发布断言经成员注册表(#47)。
     void rebuild_frame(
         game::gateway::EdgeFetchSource& source,
         std::chrono::milliseconds retry_base,
@@ -383,7 +384,8 @@ protected:
             64,
             EdgePipelineCaps{.conn_capacity = 4, .fetch_capacity = 2},
             EdgePipelineTuning{retry_base, 3, handoff_grace},
-            &source);
+            &source,
+            &metrics_);
     }
 
     /// 客户端连接并发送 attach 帧;返回保持连接的客户端(析构即断开)。
@@ -474,6 +476,23 @@ protected:
         return false;
     }
 
+    /// 反复推帧直到帧尾发布的指标文本满足谓词(#47);超时返回 false。
+    template <typename Pred>
+    bool drive_until_metrics(
+        Pred matches,
+        std::chrono::milliseconds budget,
+        cluster::ServiceResolver* resolver = nullptr) {
+        const auto deadline = std::chrono::steady_clock::now() + budget;
+        while (std::chrono::steady_clock::now() < deadline) {
+            frame_->tick(*logger_, *runtime_, resolver, &*reporter_);
+            if (matches(metrics_.render())) {
+                return true;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds{2});
+        }
+        return false;
+    }
+
     std::string instance_id_{"gateway-test-01"};
     cluster::RegistrationId registration_id_{
         cluster::invalid_registration_id};
@@ -487,6 +506,7 @@ protected:
     std::optional<cluster::ServiceResolver> realm_resolver_;
     AttachClient* client_{nullptr};
     std::optional<ServiceFrame> frame_;
+    observability::MetricsRegistry metrics_;
     std::optional<game::common::IdentityTokenCodec> identity_codec_;
     std::optional<game::common::QueueNumberCodec> number_codec_;
 
@@ -757,6 +777,99 @@ TEST_F(ServiceFrameEdgeBudgetTest, ExhaustedFetchClosesAndReturnsBudgets) {
     EXPECT_EQ(
         *observed_budget(),
         InstanceBudgetSnapshot({4, 2, true}));
+}
+
+/// 帧尾指标发布(#47):慢拉取源下会话可见 fetching 水位与 fetch_free
+/// 消耗;成功交付后迁 handed-off,拉取耗时进直方图,重试计数为 0。
+TEST_F(ServiceFrameEdgeBudgetTest, MetricsFollowPipelineStagesAndFetch) {
+    register_realm_endpoint();
+    FixedOutcomeFetchSource source(
+        game::gateway::EdgeFetchOutcome{true, std::chrono::milliseconds{600}});
+    rebuild_frame(source, std::chrono::seconds{2});
+
+    // attach 前:空管线,三阶段 gauge 全 0,双预算满 {4,2}。
+    frame_->tick(*logger_, *runtime_, nullptr, &*reporter_);
+    const auto idle = metrics_.render();
+    EXPECT_NE(idle.find("edge_sessions{stage=\"pending\"} 0\n"),
+              std::string::npos);
+    EXPECT_NE(idle.find("edge_sessions{stage=\"fetching\"} 0\n"),
+              std::string::npos);
+    EXPECT_NE(idle.find("edge_sessions{stage=\"handed_off\"} 0\n"),
+              std::string::npos);
+    EXPECT_NE(idle.find("edge_budget{kind=\"conn_free\"} 4\n"),
+              std::string::npos);
+    EXPECT_NE(idle.find("edge_budget{kind=\"fetch_free\"} 2\n"),
+              std::string::npos);
+    EXPECT_NE(idle.find("edge_fetch_retry_total 0\n"), std::string::npos);
+
+    // attach 受理后进入 fetching:fetching 水位 1、fetch_free 1。
+    const auto client = attach("aaaa000000000011aaaa000000000011");
+    ASSERT_TRUE(drive_until_metrics(
+        [](const std::string& text) {
+            return text.find("edge_sessions{stage=\"fetching\"} 1\n") !=
+                   std::string::npos &&
+                   text.find("edge_budget{kind=\"fetch_free\"} 1\n") !=
+                   std::string::npos;
+        },
+        std::chrono::seconds{2},
+        &*realm_resolver_));
+
+    // 交付后迁 handed-off:fetching 回 0,handed_off 1,fetch_free 回满;
+    // 600ms 尝试耗时进直方图(le=1 档 1 个,sum 0.6)。
+    ASSERT_TRUE(drive_until_metrics(
+        [](const std::string& text) {
+            return text.find("edge_sessions{stage=\"handed_off\"} 1\n") !=
+                   std::string::npos &&
+                   text.find("edge_fetch_duration_seconds_count 1\n") !=
+                   std::string::npos;
+        },
+        std::chrono::seconds{2},
+        &*realm_resolver_));
+    const auto delivered = metrics_.render();
+    EXPECT_NE(delivered.find("edge_sessions{stage=\"fetching\"} 0\n"),
+              std::string::npos);
+    EXPECT_NE(delivered.find("edge_budget{kind=\"fetch_free\"} 2\n"),
+              std::string::npos);
+    EXPECT_NE(
+        delivered.find("edge_fetch_duration_seconds_bucket{le=\"1\"} 1\n"),
+        std::string::npos);
+    EXPECT_NE(delivered.find("edge_fetch_duration_seconds_sum 0.6\n"),
+              std::string::npos);
+}
+
+/// 重试与重放计数(#47):30ms 基数耗尽(3 次重试)计入
+/// edge_fetch_retry_total;同 jti 新连接重放被拒后计入
+/// edge_jti_replay_rejected_total。
+TEST_F(ServiceFrameEdgeBudgetTest, MetricsCountRetriesAndReplayRejections) {
+    FixedOutcomeFetchSource source(
+        game::gateway::EdgeFetchOutcome{false, std::chrono::milliseconds{0}});
+    rebuild_frame(source, std::chrono::milliseconds{30});
+
+    const auto first = attach("aaaa000000000012aaaa000000000012");
+    ASSERT_TRUE(drive_until_metrics(
+        [](const std::string& text) {
+            return text.find("edge_fetch_retry_total 3\n") !=
+                   std::string::npos;
+        },
+        std::chrono::seconds{2}));
+    // 耗尽断开后双预算归还。
+    ASSERT_TRUE(drive_until_metrics(
+        [](const std::string& text) {
+            return text.find("edge_budget{kind=\"conn_free\"} 4\n") !=
+                   std::string::npos &&
+                   text.find("edge_budget{kind=\"fetch_free\"} 2\n") !=
+                   std::string::npos;
+        },
+        std::chrono::seconds{2}));
+
+    // 同 jti 新连接重放:凭据无效拒绝,重放计数 1。
+    const auto replayed = attach("aaaa000000000012aaaa000000000012");
+    ASSERT_TRUE(drive_until_metrics(
+        [](const std::string& text) {
+            return text.find("edge_jti_replay_rejected_total 1\n") !=
+                   std::string::npos;
+        },
+        std::chrono::seconds{2}));
 }
 
 }  // namespace

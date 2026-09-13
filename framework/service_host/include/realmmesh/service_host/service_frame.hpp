@@ -33,6 +33,7 @@ class EdgeFetchSource;
 
 namespace realm::observability {
 class Logger;
+class MetricsRegistry;
 }  // namespace observability
 
 namespace realm::service_host {
@@ -76,7 +77,8 @@ public:
         std::size_t max_events_per_frame,
         EdgePipelineCaps edge_pipeline_caps = {},
         EdgePipelineTuning edge_pipeline_tuning = {},
-        game::gateway::EdgeFetchSource* edge_fetch_source = nullptr);
+        game::gateway::EdgeFetchSource* edge_fetch_source = nullptr,
+        observability::MetricsRegistry* metrics = nullptr);
     /// 成员含前置声明的调度器/源,析构收敛到 cpp(完整类型可见处)。
     ~ServiceFrame();
 
@@ -130,6 +132,10 @@ private:
         const game::gateway::GatewayEvent& event,
         const game::common::EdgeAttach& attach);
 
+    /// 帧尾指标发布(#47):从既有缝轮询读管线阶段/双预算/调度器重试/
+    /// 链重放计数并写入注册表(域内核零污染);registry 为空时是空操作。
+    void publish_edge_metrics();
+
     std::string service_name_;
     std::string downstream_address_;
     std::uint16_t downstream_port_{0};
@@ -178,6 +184,10 @@ private:
     };
     std::optional<EdgeAttachContext> attach_;
     bool attach_unavailable_{false};
+
+    /// Prometheus 指标注册表(#47):可空(测试/无暴露场景),帧尾
+    /// 轮询发布 edge_* 指标。
+    observability::MetricsRegistry* metrics_{nullptr};
 };
 
 }  // namespace realm::service_host

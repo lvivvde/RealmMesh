@@ -2,6 +2,7 @@
 
 #include "realmmesh/cluster/budget_publisher.hpp"
 #include "realmmesh/cluster/service_discovery_config.hpp"
+#include "realmmesh/observability/metrics_registry.hpp"
 #include "realmmesh/service_host/layered_config_loader.hpp"
 #include "realmmesh/service_host/service_frame.hpp"
 
@@ -90,6 +91,9 @@ private:
     // 声明序即析构序:budget_reporter → resolver → publisher → registry
     // (budget_reporter 与 publisher 持 registry 引用),
     // 再到 frame → login_verify/runtime → metrics → logger。
+    /// 领域指标注册表(#47):首个对象成员(析构最后),业务帧与
+    /// HTTPS 服务经指针写入,/metrics 抓取时渲染。
+    observability::MetricsRegistry metrics_registry_;
     std::unique_ptr<observability::Logger> logger_;
     std::unique_ptr<observability::LoggerMetricsServer> metrics_;
     std::unique_ptr<game::gateway::GatewayRuntime> runtime_;

@@ -2,14 +2,17 @@
 
 #include "realmmesh/network/http/http_server.hpp"
 #include "realmmesh/observability/logger.hpp"
+#include "realmmesh/observability/metrics_registry.hpp"
 
 #include <chrono>
 #include <utility>
 
 namespace realm::game::queue {
 
-QueueService::QueueService(QueueConfig config)
-    : config_(std::move(config)) {
+QueueService::QueueService(
+    QueueConfig config,
+    observability::MetricsRegistry* metrics)
+    : config_(std::move(config)), metrics_(metrics) {
     // 生产存取:etcd 客户端与额度前缀/快照键按配置装配(存取注入构造
     // 供测试换 fake;这里成员初始化已完成,直接读 config_)。
     store_ = std::make_shared<EtcdQueueStore>(
@@ -22,8 +25,11 @@ QueueService::QueueService(QueueConfig config)
 }
 
 QueueService::QueueService(
-    QueueConfig config, std::shared_ptr<QueueStateStore> store)
+    QueueConfig config,
+    std::shared_ptr<QueueStateStore> store,
+    observability::MetricsRegistry* metrics)
     : config_(std::move(config)),
+      metrics_(metrics),
       store_(std::move(store)) {}
 
 QueueService::~QueueService() = default;
@@ -51,7 +57,8 @@ void QueueService::start(observability::Logger* logger) {
         [] { return std::chrono::system_clock::now(); },
         config_.identity_issuer,
         config_.queued_number_ttl,
-        config_.admit_grace);
+        config_.admit_grace,
+        metrics_);
 
     // 冷备恢复(§10):有快照即整体替换水位;无快照(确属空状态)从零
     // 开始;etcd 不可达或快照损坏抛出——不得在未知水位上从零重发存量
@@ -130,13 +137,38 @@ void QueueService::release_frame() {
     const auto now = std::chrono::system_clock::now();
     // 额度取最近一次额度帧的缓存(独立按 budget_interval 轮询);未知
     // (fail-closed)即零额度过阀:本批停放,不误放。
-    if (core_->release_batch(budgets_.value_or(BudgetAggregate{}), now) == 0) {
+    const auto released =
+        core_->release_batch(budgets_.value_or(BudgetAggregate{}), now);
+    if (released == 0) {
         return;
+    }
+    // 实际发生放行的批次才计数(#34 admit_batches_total)。
+    if (metrics_ != nullptr) {
+        metrics_->counter_add("admit_batches_total");
     }
     static_cast<void>(store_->save_snapshot(
         core_->snapshot(now),
         std::chrono::duration_cast<std::chrono::seconds>(now.time_since_epoch())
             .count()));
+}
+
+void QueueService::publish_metrics() {
+    if (metrics_ == nullptr) {
+        return;
+    }
+    // 权威核心是唯一事实源:轮询读水位与速率(域内核零污染)。
+    const auto issued = core_->next_number() - 1;
+    const auto released = core_->released_number();
+    metrics_->counter_set(
+        "tickets_issued_total", static_cast<double>(issued));
+    metrics_->gauge_set(
+        "released_number", static_cast<double>(released));
+    metrics_->gauge_set(
+        "admit_rate",
+        static_cast<double>(core_->admit_rate(std::chrono::system_clock::now())));
+    // 队列估算 = 已发未放行余量(spec §5.1 的 queue_length_est 口径)。
+    metrics_->gauge_set(
+        "queue_length_est", static_cast<double>(issued - released));
 }
 
 void QueueService::tick() {
@@ -154,6 +186,8 @@ void QueueService::tick() {
         next_release_ = now + config_.release_interval;
         release_frame();
     }
+    // 帧尾指标发布(#47)。
+    publish_metrics();
 }
 
 bool QueueService::running() const noexcept {

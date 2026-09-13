@@ -9,6 +9,10 @@
 #include <string>
 #include <string_view>
 
+namespace realm::observability {
+class MetricsRegistry;
+}  // namespace observability
+
 namespace realm::game::login_verify {
 
 /// 身份 Token 的 iss(主规格 §4)与 TTL:值恒定,轮换只作用于 kid。
@@ -36,7 +40,8 @@ public:
         const common::IdentityTokenCodec& codec,
         Clock clock,
         std::string_view issuer = identity_token_issuer,
-        std::chrono::seconds ttl = identity_token_ttl);
+        std::chrono::seconds ttl = identity_token_ttl,
+        observability::MetricsRegistry* metrics = nullptr);
 
     [[nodiscard]] network::Http1Response handle(
         std::string_view method,
@@ -49,6 +54,9 @@ private:
     Clock clock_;
     std::string issuer_;
     std::chrono::seconds ttl_;
+    /// 指标注册表(#47):验签/签发判定点直写 verify_* 指标;
+    /// 可空(既有单测装配不受影响)。
+    observability::MetricsRegistry* metrics_{nullptr};
 };
 
 }  // namespace realm::game::login_verify

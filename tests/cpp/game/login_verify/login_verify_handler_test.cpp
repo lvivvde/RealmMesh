@@ -3,6 +3,7 @@
 #include "realmmesh/game/common/account_store.hpp"
 #include "realmmesh/game/common/identity_token.hpp"
 #include "realmmesh/game/common/json.hpp"
+#include "realmmesh/observability/metrics_registry.hpp"
 #include "realmmesh/test_support/temporary_directory.hpp"
 
 #include <gtest/gtest.h>
@@ -39,7 +40,8 @@ protected:
             *codec_,
             [this] { return clock_(); },
             identity_token_issuer,
-            identity_token_ttl);
+            identity_token_ttl,
+            &metrics_);
     }
 
     [[nodiscard]] static std::chrono::system_clock::time_point clock_() {
@@ -71,6 +73,7 @@ return {
     test_support::TemporaryDirectory directory_{"login-verify-handler-test-"};
     std::unique_ptr<common::ConfigAccountStore> store_;
     std::unique_ptr<common::IdentityTokenCodec> codec_;
+    observability::MetricsRegistry metrics_;
     std::unique_ptr<LoginVerifyHandler> handler_;
 };
 
@@ -224,6 +227,35 @@ TEST_F(LoginVerifyHandlerTest, JtiDiffersPerIssuance) {
     ASSERT_TRUE(first_claims.has_value());
     ASSERT_TRUE(second_claims.has_value());
     EXPECT_NE(first_claims->jti, second_claims->jti);
+}
+
+/// 验签判定点直写 verify_* 指标(#47):请求计数、分档拒绝、签发
+/// 时延直方图;1000 请求性错误并入 reason=invalid。
+TEST_F(LoginVerifyHandlerTest, MetricsCountRequestsRejectsAndIssueLatency) {
+    verify(R"({"account":"player","credential":"dev"})");
+    verify(R"({"account":"ghost","credential":"dev"})");
+    verify(R"({"account":"banned","credential":"dev"})");
+    verify(R"({"account":"outsider","credential":"dev"})");
+    verify("not-json");
+
+    const auto text = metrics_.render();
+    EXPECT_NE(text.find("verify_requests_total 5\n"), std::string::npos);
+    EXPECT_NE(
+        text.find("verify_reject_total{reason=\"invalid\"} 2\n"),
+        std::string::npos);
+    EXPECT_NE(
+        text.find("verify_reject_total{reason=\"banned\"} 1\n"),
+        std::string::npos);
+    EXPECT_NE(
+        text.find("verify_reject_total{reason=\"whitelist\"} 1\n"),
+        std::string::npos);
+    // 成功签发恰好一次:直方图 count 1、sum 为非负有限值(文本可渲染)。
+    EXPECT_NE(
+        text.find("verify_issue_duration_seconds_count 1\n"),
+        std::string::npos);
+    EXPECT_NE(
+        text.find("verify_issue_duration_seconds_bucket{le=\"+Inf\"} 1\n"),
+        std::string::npos);
 }
 
 }  // namespace

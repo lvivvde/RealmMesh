@@ -76,4 +76,24 @@ EdgeSessionStage EdgeSessionPipeline::stage(EdgeSessionId session_id) const {
                                     : found->second.stage;
 }
 
+EdgeStageCounts EdgeSessionPipeline::stage_counts() const {
+    EdgeStageCounts counts;
+    for (const auto& [session_id, entry] : sessions_) {
+        switch (entry.stage) {
+        case EdgeSessionStage::Pending:
+            ++counts.pending;
+            break;
+        case EdgeSessionStage::Fetching:
+            ++counts.fetching;
+            break;
+        case EdgeSessionStage::HandedOff:
+            ++counts.handed_off;
+            break;
+        case EdgeSessionStage::Closed:
+            break;
+        }
+    }
+    return counts;
+}
+
 }  // namespace realm::game::gateway

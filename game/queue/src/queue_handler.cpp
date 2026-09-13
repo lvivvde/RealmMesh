@@ -1,6 +1,7 @@
 #include "realmmesh/game/queue/queue_handler.hpp"
 
 #include "realmmesh/game/common/json.hpp"
+#include "realmmesh/observability/metrics_registry.hpp"
 
 #include <chrono>
 #include <cstdint>
@@ -102,14 +103,16 @@ QueueHandler::QueueHandler(
     Clock clock,
     std::string_view identity_issuer,
     std::chrono::seconds queued_number_ttl,
-    std::chrono::seconds admit_grace)
+    std::chrono::seconds admit_grace,
+    observability::MetricsRegistry* metrics)
     : core_(&core),
       identity_codec_(&identity_codec),
       number_codec_(&number_codec),
       clock_(std::move(clock)),
       identity_issuer_(identity_issuer),
       queued_number_ttl_(queued_number_ttl),
-      admit_grace_(admit_grace) {}
+      admit_grace_(admit_grace),
+      metrics_(metrics) {}
 
 network::Http1Response QueueHandler::handle(
     const network::Http1Request& request) const {
@@ -153,6 +156,10 @@ network::Http1Response QueueHandler::handle(
         if (request.method != "GET") {
             return error_response(
                 405, error_invalid_request, "method not allowed");
+        }
+        // 源站直查量(#34):CDN 卸载失效告警的输入,判定点直写。
+        if (metrics_ != nullptr) {
+            metrics_->counter_add("progress_requests_total");
         }
         const auto now = clock_();
         network::Http1Response response = json_response(

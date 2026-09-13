@@ -10,8 +10,9 @@
 
 namespace realm::game::login_verify {
 
-LoginVerifyService::LoginVerifyService(LoginVerifyConfig config)
-    : config_(std::move(config)) {}
+LoginVerifyService::LoginVerifyService(
+    LoginVerifyConfig config, observability::MetricsRegistry* metrics)
+    : config_(std::move(config)), metrics_(metrics) {}
 
 LoginVerifyService::~LoginVerifyService() = default;
 
@@ -22,7 +23,8 @@ void LoginVerifyService::start(observability::Logger* logger) {
     store_ = std::make_unique<common::ConfigAccountStore>(
         common::ConfigAccountStore::load(config_.accounts_file));
     handler_ = std::make_unique<LoginVerifyHandler>(
-        *store_, *codec_, [] { return std::chrono::system_clock::now(); });
+        *store_, *codec_, [] { return std::chrono::system_clock::now(); },
+        identity_token_issuer, identity_token_ttl, metrics_);
 
     network::HttpServerConfig http_config;
     http_config.tls_identity = config_.tls;

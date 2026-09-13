@@ -34,6 +34,15 @@ struct ClosedPipelineSession {
     EdgeSessionStage stage{EdgeSessionStage::Closed};
 };
 
+/// 各活动阶段的会话数快照(#47 观测缝,closed 不计入)。
+struct EdgeStageCounts {
+    std::uint64_t pending{0};
+    std::uint64_t fetching{0};
+    std::uint64_t handed_off{0};
+
+    bool operator==(const EdgeStageCounts&) const = default;
+};
+
 /// Edge Session 登录管线阶段机 + 实例额度会计(spec #43)。
 /// 与 EdgeSessionTable(传输层状态,IO 线程)并存:本表只活在业务帧
 /// 线程,由 GatewayEvent 驱动登记/注销,由 attach/拉取完成驱动迁移;
@@ -63,6 +72,9 @@ public:
 
     /// 未知会话读作 closed(未登记即不在管线内)。
     [[nodiscard]] EdgeSessionStage stage(EdgeSessionId session_id) const;
+
+    /// 活动阶段计数快照(#47 帧尾轮询发布 edge_sessions{stage} 用)。
+    [[nodiscard]] EdgeStageCounts stage_counts() const;
 
     [[nodiscard]] std::uint64_t conn_used() const noexcept { return conn_used_; }
     [[nodiscard]] std::uint64_t fetch_used() const noexcept {

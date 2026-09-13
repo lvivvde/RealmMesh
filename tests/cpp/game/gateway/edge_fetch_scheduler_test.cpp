@@ -161,5 +161,51 @@ TEST(EdgeFetchSchedulerTest, RetryMaxOneExhaustsOnSecondAttempt) {
     EXPECT_EQ(scheduler.active(), 0U);
 }
 
+TEST(EdgeFetchSchedulerTest, RetryTotalCountsRetriesBeyondFirstAttempt) {
+    constexpr auto fail_now = EdgeFetchOutcome{
+        false, std::chrono::milliseconds{0}};
+    ScriptedFetchSource source(
+        {fail_now, fail_now, fail_now, {true, std::chrono::milliseconds{0}}});
+    EdgeFetchScheduler scheduler(std::chrono::milliseconds{500}, 3, source);
+
+    const EdgeSessionId session{6};
+    scheduler.register_session(session, 42, t0);
+    EXPECT_EQ(scheduler.retry_total(), 0U);
+
+    // 首发(重试数 0)失败 → 退避重试 #1/#2(各再失败),第 4 次尝试
+    // 成功(0 耗时,发起当帧即结算)。
+    EXPECT_TRUE(scheduler.tick(t0).empty());
+    EXPECT_TRUE(scheduler.tick(t0 + std::chrono::milliseconds{500}).empty());
+    EXPECT_EQ(scheduler.retry_total(), 1U);
+    EXPECT_TRUE(scheduler.tick(t0 + std::chrono::milliseconds{1'500}).empty());
+    EXPECT_EQ(scheduler.retry_total(), 2U);
+
+    auto events =
+        scheduler.tick(t0 + std::chrono::milliseconds{3'500});
+    ASSERT_EQ(events.size(), 1U);
+    EXPECT_EQ(events[0].kind, EdgeFetchEventKind::Succeeded);
+    // 成功的第 4 次尝试也是重试(第 3 次):全程累计 3。
+    EXPECT_EQ(scheduler.retry_total(), 3U);
+
+    // 下一会话的重试继续累计(全程单调)。
+    ScriptedFetchSource empty_source({});
+    EdgeFetchScheduler another(std::chrono::milliseconds{500}, 0, empty_source);
+    another.register_session(session, 42, t0);
+    EXPECT_EQ(another.retry_total(), 0U);
+}
+
+TEST(EdgeFetchSchedulerTest, SucceededEventCarriesAttemptDuration) {
+    ScriptedFetchSource source({{true, std::chrono::milliseconds{120}}});
+    EdgeFetchScheduler scheduler(std::chrono::milliseconds{2'000}, 3, source);
+
+    const EdgeSessionId session{8};
+    scheduler.register_session(session, 42, t0);
+    EXPECT_TRUE(scheduler.tick(t0).empty());
+    auto events = scheduler.tick(t0 + std::chrono::milliseconds{120});
+    ASSERT_EQ(events.size(), 1U);
+    EXPECT_EQ(events[0].kind, EdgeFetchEventKind::Succeeded);
+    EXPECT_EQ(events[0].attempt_duration, std::chrono::milliseconds{120});
+}
+
 }  // namespace
 }  // namespace realm::game::gateway

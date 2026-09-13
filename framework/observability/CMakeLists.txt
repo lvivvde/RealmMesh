@@ -1,5 +1,6 @@
 add_library(realm_observability
     src/logger.cpp
+    src/metrics_registry.cpp
 )
 
 add_library(RealmMesh::Observability ALIAS realm_observability)
