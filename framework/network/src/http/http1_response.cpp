@@ -1,9 +1,27 @@
 #include "realmmesh/network/http/http1_response.hpp"
 
+#include <algorithm>
 #include <string_view>
 
 namespace realm::network {
 namespace {
+
+char to_lower(char value) {
+    return value >= 'A' && value <= 'Z'
+               ? static_cast<char>(value - 'A' + 'a')
+               : value;
+}
+
+bool equals_ignore_case(std::string_view left, std::string_view right) {
+    return left.size() == right.size() && std::equal(
+                                              left.begin(),
+                                              left.end(),
+                                              right.begin(),
+                                              [](char lhs, char rhs) {
+                                                  return to_lower(lhs) ==
+                                                      to_lower(rhs);
+                                              });
+}
 
 std::string_view reason_phrase(int status) {
     switch (status) {
@@ -25,6 +43,15 @@ std::string_view reason_phrase(int status) {
 }
 
 }  // namespace
+
+const std::string* Http1Response::header(std::string_view name) const {
+    for (const auto& [key, value] : headers) {
+        if (equals_ignore_case(key, name)) {
+            return &value;
+        }
+    }
+    return nullptr;
+}
 
 std::string serialize_http1_response(
     const Http1Response& response,

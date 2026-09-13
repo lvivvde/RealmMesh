@@ -3,6 +3,11 @@ realm_add_gtest(http1_codec_test
     LIBS realm_network
 )
 
+realm_add_gtest(http1_response_parser_test
+    SOURCES http1_response_parser_test.cpp
+    LIBS realm_network
+)
+
 # 真实 TLS loopback 占临时端口,见 tests/README.md:不进快速子集。
 realm_add_gtest(http_server_test
     SOURCES http_server_test.cpp
