@@ -23,8 +23,10 @@ struct IgnoreSigpipeOnStartup {
 /// 创建流式套接字并置为非阻塞、close-on-exec;失败抛 std::system_error。
 [[nodiscard]] int create_stream_socket(bool ipv6);
 
-/// 接受一个连接并置为非阻塞。无待处理连接时返回 -1(不抛异常);
-/// EINTR 在实现内部重试,其它失败抛 std::system_error。
+/// 接受一个连接并置为非阻塞。无待处理连接时返回 -1(不抛异常);EINTR 在
+/// 实现内部重试;对端在 accept 前后一瞬已 RST 的夭折连接被静默丢弃
+/// (Linux 经 accept 报 ECONNABORTED,macOS 上表现为首组套接字选项
+/// EINVAL),其余失败抛 std::system_error。
 [[nodiscard]] int accept_nonblocking(int listener);
 
 }  // namespace realm::network::detail

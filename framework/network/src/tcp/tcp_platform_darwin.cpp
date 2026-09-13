@@ -65,16 +65,27 @@ int accept_nonblocking(int listener) {
     while (true) {
         const int client = ::accept(listener, nullptr, nullptr);
         if (client >= 0) {
+            // 对端可能在 accept 返回前后的一瞬发来 RST:macOS 对已断开的
+            // TCP 套接字做 setsockopt 直接 EINVAL。刚接回来就死掉的连接
+            // 只能跳过,不能掀翻调用方的事件循环(实测一万取号并发下
+            // 客户端 RST 会稳定命中这个窗口)。
             try {
                 make_nonblocking_and_cloexec(client);
                 disable_sigpipe_on_socket(client);
-            } catch (...) {
+            } catch (const std::system_error& error) {
                 ::close(client);
+                if (error.code() == std::errc::invalid_argument) {
+                    continue;
+                }
                 throw;
             }
             return client;
         }
         if (errno == EINTR) {
+            continue;
+        }
+        if (errno == ECONNABORTED) {
+            // 完成队列里的连接已被对端中止,等同无连接,继续收下一个。
             continue;
         }
         if (errno == EAGAIN || errno == EWOULDBLOCK) {

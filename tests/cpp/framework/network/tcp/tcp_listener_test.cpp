@@ -13,6 +13,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <stdexcept>
+#include <thread>
 
 namespace realm::network {
 namespace {
@@ -101,6 +102,42 @@ TEST(TcpPlatformTest, IgnoresSigpipeProcessWide) {
     const auto previous = std::signal(SIGPIPE, SIG_IGN);
     ASSERT_NE(previous, SIG_ERR);
     EXPECT_EQ(previous, SIG_IGN);
+}
+
+/// 客户端在三次握手完成后、服务端 accept 之前就 RST 掉连接:内核仍会把这条
+/// 夭折连接从完成队列交出来(macOS 上对它做的首组套接字选项立即 EINVAL,
+/// Linux 则由 accept4 直接报 ECONNABORTED)。accept 路径必须把这类死连接
+/// 静默丢弃,而不是掀翻调用方的事件循环——M3 规模冒烟下客户端 RST 很常见,
+/// 该缺陷曾被定位为服务 tick 线程 terminate 的元凶。
+TEST(TcpListenerTest, AcceptDropsConnectionResetBeforeAccept) {
+    using namespace std::chrono_literals;
+
+    TcpListener listener("127.0.0.1", 0);
+    auto event_loop = make_default_event_loop();
+    ASSERT_NE(event_loop, nullptr);
+    event_loop->add(to_event_loop_handle(listener.native_handle()), EventInterest::Read);
+
+    for (int round = 0; round < 8; ++round) {
+        // 连接先落进完成队列,停一小拍再以 SO_LINGER{1,0} 发 RST,保证
+        // accept 之前内核已经见过复位。
+        const int client_descriptor = connect_to_loopback(listener.local_port());
+        const SocketGuard client{client_descriptor};
+        std::this_thread::sleep_for(20ms);
+        const struct linger reset_close{1, 0};
+        ASSERT_EQ(
+            ::setsockopt(
+                client_descriptor, SOL_SOCKET, SO_LINGER, &reset_close,
+                sizeof(reset_close)),
+            0);
+        ASSERT_FALSE(event_loop->wait(500ms).empty());
+
+        // 夭折连接要么被 accept 交出来(内部跳过),要么已被内核丢弃
+        // (返回 nullopt);无论哪种,都不得抛异常。
+        const auto accepted = listener.accept();
+        if (accepted.has_value()) {
+            const SocketGuard discarded{accepted->native_handle()};
+        }
+    }
 }
 
 }  // namespace

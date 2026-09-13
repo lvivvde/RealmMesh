@@ -35,6 +35,12 @@ int accept_nonblocking(int listener) {
         if (errno == EINTR) {
             continue;
         }
+        if (errno == ECONNABORTED) {
+            // accept(2):已挂起连接上的网络错误会经 accept 吐出;对端在
+            // accept 前已中止的连接等同无连接,继续收下一个,不能掀翻
+            // 调用方的事件循环。
+            continue;
+        }
         if (errno == EAGAIN || errno == EWOULDBLOCK) {
             return -1;
         }
