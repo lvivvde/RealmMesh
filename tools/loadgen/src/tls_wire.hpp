@@ -21,6 +21,7 @@
 #include <unistd.h>
 
 #include <array>
+#include <atomic>
 #include <cerrno>
 #include <chrono>
 #include <cstddef>
@@ -30,6 +31,26 @@
 #include <string_view>
 
 namespace realm::loadgen::tls_wire {
+
+/// 拨号失败分型计数(诊断口径):机器人侧只看得到 connection_error,
+/// 内核层/握手层的细分计数进报告才能定位失败原因(CI runner 与本机
+/// 网络栈默认值差异大,connect_refused / port 不可用 / 握手中断是
+/// 三种完全不同的处置)。inline 全局:进程内聚合,报告收尾读一次。
+struct DialFailureCounters final {
+    std::atomic<std::uint64_t> getaddrinfo{0};
+    std::atomic<std::uint64_t> socket{0};
+    std::atomic<std::uint64_t> fcntl{0};
+    std::atomic<std::uint64_t> connect{0};
+    std::atomic<std::uint64_t> connect_poll_timeout{0};
+    std::atomic<std::uint64_t> connect_soerror{0};
+    std::atomic<std::uint64_t> ssl_setup{0};
+    std::atomic<std::uint64_t> ssl_connect{0};
+    /// connect/soerror 失败路径最近一次的 errno(数值;分型计数之外
+    /// 的补充线索,如 EADDRNOTAVAIL=49/99、ECONNREFUSED=61/111)。
+    std::atomic<int> last_errno{0};
+};
+
+inline DialFailureCounters dial_failures;
 
 struct SslContextDeleter {
     void operator()(SSL_CTX* value) const noexcept { SSL_CTX_free(value); }
@@ -95,11 +116,13 @@ struct Stream final {
             &hints,
             &resolved) != 0 ||
         resolved == nullptr) {
+        ++dial_failures.getaddrinfo;
         return false;
     }
     const int descriptor = ::socket(
         resolved->ai_family, resolved->ai_socktype, resolved->ai_protocol);
     if (descriptor < 0) {
+        ++dial_failures.socket;
         ::freeaddrinfo(resolved);
         return false;
     }
@@ -118,6 +141,7 @@ struct Stream final {
     // 非阻塞拨号:连接与握手全程受截止约束,坏地址不挂死机器人。
     const int flags = ::fcntl(descriptor, F_GETFL, 0);
     if (flags < 0 || ::fcntl(descriptor, F_SETFL, flags | O_NONBLOCK) < 0) {
+        ++dial_failures.fcntl;
         ::freeaddrinfo(resolved);
         return false;
     }
@@ -126,11 +150,14 @@ struct Stream final {
     ::freeaddrinfo(resolved);
     if (connected != 0) {
         if (errno != EINPROGRESS) {
+            dial_failures.last_errno = errno;
+            ++dial_failures.connect;
             return false;
         }
         std::array<::pollfd, 1> fds{{{descriptor, POLLOUT, 0}}};
         const int timeout = remaining_ms(deadline);
         if (timeout <= 0 || ::poll(fds.data(), 1, timeout) != 1) {
+            ++dial_failures.connect_poll_timeout;
             return false;
         }
         int socket_error = 0;
@@ -139,6 +166,9 @@ struct Stream final {
                 descriptor, SOL_SOCKET, SO_ERROR, &socket_error,
                 &error_size) != 0 ||
             socket_error != 0) {
+            dial_failures.last_errno =
+                socket_error != 0 ? socket_error : errno;
+            ++dial_failures.connect_soerror;
             return false;
         }
     }
@@ -159,6 +189,7 @@ struct Stream final {
             out.ssl.get(),
             reinterpret_cast<const unsigned char*>(alpn_wire.data()),
             alpn_wire.size()) != 0) {
+        ++dial_failures.ssl_setup;
         return false;
     }
     for (;;) {
@@ -171,6 +202,7 @@ struct Stream final {
             wait_ssl_ready(descriptor, error, deadline)) {
             continue;
         }
+        ++dial_failures.ssl_connect;
         return false;
     }
     return true;

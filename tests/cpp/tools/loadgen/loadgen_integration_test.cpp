@@ -14,11 +14,14 @@
 #include <sys/fcntl.h>
 #include <sys/resource.h>
 
+#include <execinfo.h>
+
 #include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
+#include <exception>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -36,6 +39,24 @@ namespace {
 
 namespace service_host = ::realm::service_host;
 namespace common = ::realm::game::common;
+
+/// terminate 处理器(静态安装):裸 std::terminate(macOS 的 noexcept
+/// 违约等场景)不打印异常类型,CI 上只剩一行 "libc++abi: terminating",
+/// 无从定位;落一份 backtrace 到 stderr(无缓冲,随 abort 保留)。
+struct TerminateBacktraceInstaller final {
+    TerminateBacktraceInstaller() {
+        std::set_terminate([] {
+            void* frames[64];
+            const int depth = ::backtrace(frames, 64);
+            std::fprintf(stderr, "terminate backtrace (depth=%d):\n", depth);
+            std::fflush(stderr);
+            ::backtrace_symbols_fd(frames, depth, 2);
+            std::abort();
+        });
+    }
+};
+
+const TerminateBacktraceInstaller terminate_backtrace_installer;
 
 // 固定测试种子(64 位十六进制 = 32 字节):identity 与 queue 两把键同源
 // 注入服务进程,测试侧用同一份构造 codec 做号牌验签断言。
@@ -871,13 +892,15 @@ TEST(LoadgenIntegrationTest, M3SmokeTenThousandTicketsAndConcurrentPolls) {
     ASSERT_TRUE(mesh.start_all());
     const TickDriver driver(mesh);
 
-    // 两轮并发 100:低于监听 backlog(128)且留 28 位余量(两服务共用
-    // tick 线程,accept 不保证即时排空)。并发即吞吐,但更高并发在本机
-    // 未验证稳定,M3 冒烟走中低并发、拉长时间预算。
+    // 取号并发 32:1 万机器人冲链路时,跑得越快的机器波形越密——
+    // CI runner 上 100 并发的毫秒级连发会把 tick 驱动的 accept 打满
+    // backlog(128),SYN 成片被丢(Linux 实测 8459/10000 拨号失败,
+    // 成功拨号 p50 仅 36µs)。32 并发的突发远小于 backlog,2ms 一拍
+    // 的 tick 足以排空;万号规模不变(spec M3),靠拉长时间预算兜底。
     LoadgenConfig tickets_run;
     tickets_run.phase = RobotPhase::Tickets;
     tickets_run.robots = 10000;
-    tickets_run.concurrency = 100;
+    tickets_run.concurrency = 32;
     tickets_run.duration_seconds = 45;
     tickets_run.endpoints = loadgen_endpoints(login_verify_port, queue_port, 0);
     const auto tickets_report = run_loadgen(tickets_run);
