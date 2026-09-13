@@ -30,6 +30,11 @@ enum MessageId {
   // EnterRealm 票据 + realm 端点;无对应 C2S,客户端凭票据直连业务服。
   MESSAGE_ID_S2C_ENTER_REALM_GRANTED = 1303;
 
+  // Realm 直连入场(#46):客户端向 realm 提交 1303 下发的票据;
+  // realm 单次兑换(回放保护)后受理,会话迁入 established。
+  MESSAGE_ID_C2S_ENTER_REALM = 1304;
+  MESSAGE_ID_S2C_ENTER_REALM_ACCEPTED = 1305;
+
   MESSAGE_ID_S2C_ERROR = 1999;
 }
 
@@ -109,6 +114,16 @@ message EdgeAttachAccepted {
 message EnterRealmGranted {
   bytes enter_realm_ticket = 1;
   repeated ServiceEndpoint realm_endpoints = 2;
+}
+
+// Realm 直连入场(#46):客户端向 realm 提交的兑换请求。
+message EnterRealm {
+  bytes enter_realm_ticket = 1;
+}
+
+// Realm 直连入场(#46):兑换成功受理,会话即业务直连长连接。
+message EnterRealmAccepted {
+  uint64 account_id = 1;
 }
 
 message EdgeError {

@@ -6,6 +6,7 @@ realm_add_gtest(service_host_test
         mode2_test.cpp
         observability_artifacts_test.cpp
         service_frame_edge_budget_test.cpp
+        service_frame_realm_enter_test.cpp
         service_host_test.cpp
         startup_topology_test.cpp
         ${PROJECT_SOURCE_DIR}/tests/cpp/support/src/fake_service_registry.cpp

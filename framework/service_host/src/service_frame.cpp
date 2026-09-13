@@ -110,6 +110,7 @@ ServiceFrame::ServiceFrame(
       max_events_per_frame_(max_events_per_frame),
       identity_(parse_service_identity(service_name)),
       tickets_(make_ticket_key(identity_)),
+      conn_capacity_(edge_pipeline_caps.conn_capacity),
       handoff_grace_(edge_pipeline_tuning.handoff_grace),
       metrics_(metrics) {
     if (identity_.has_value() &&
@@ -197,7 +198,7 @@ void ServiceFrame::tick(
         handle_login_events(logger, runtime, resolver);
         break;
     case cluster::ServiceType::Realm:
-        handle_realm_events(logger, runtime, resolver);
+        handle_realm_events(logger, runtime, resolver, budget_reporter);
         break;
     case cluster::ServiceType::Gateway:
         handle_gateway_events(logger, runtime, resolver, budget_reporter);
@@ -307,9 +308,29 @@ void ServiceFrame::handle_login_events(
 void ServiceFrame::handle_realm_events(
     observability::Logger& logger,
     game::gateway::GatewayRuntime& runtime,
-    cluster::ServiceResolver* resolver) {
+    cluster::ServiceResolver* resolver,
+    cluster::InstanceBudgetReporter* budget_reporter) {
     for (auto& event : runtime.drain_events(max_events_per_frame_)) {
+        // 连接计数先于其余分支:SessionOpened/SessionClosed 不产生业务
+        // 事件,只增减活动连接数(#46 conn_free 快照的容量基准)。
+        if (event.kind == game::gateway::GatewayEventKind::SessionOpened) {
+            ++realm_conn_active_;
+        } else if (
+            event.kind == game::gateway::GatewayEventKind::SessionClosed) {
+            if (realm_conn_active_ > 0) {
+                --realm_conn_active_;
+            }
+        }
         if (!absorb_lifecycle(event)) {
+            continue;
+        }
+
+        // 直连入场(#46):1304 是 1303 下发票据的消费端,客户端连接
+        // 后即刻提交,此时会话通常仍在 pending 阶段。
+        if (const auto request =
+                game::common::decode_enter_realm(event.payload);
+            request.has_value()) {
+            handle_enter_realm(logger, runtime, event, *request);
             continue;
         }
 
@@ -427,6 +448,74 @@ void ServiceFrame::handle_realm_events(
         }
         static_cast<void>(runtime.try_send(session, response));
     }
+    // 帧尾发布额度快照(#46):realm 仅 conn_free(has_fetch=false),
+    // 策略节流在 InstanceBudgetReporter 内,写失败不更新已发布状态,
+    // 后续帧自动重试。
+    if (budget_reporter != nullptr) {
+        const auto conn_free =
+            conn_capacity_ > realm_conn_active_ ? conn_capacity_ -
+                                                      realm_conn_active_
+                                                : 0;
+        static_cast<void>(budget_reporter->publish(
+            cluster::InstanceBudgetSnapshot{conn_free, 0, false}));
+    }
+}
+
+void ServiceFrame::handle_enter_realm(
+    observability::Logger& logger,
+    game::gateway::GatewayRuntime& runtime,
+    const game::gateway::GatewayEvent& event,
+    const game::common::EnterRealm& request) {
+    const auto request_id =
+        game::common::edge_request_id(event.payload).value_or(0);
+    const auto redeemed = tickets_.redeem(
+        game::common::protobuf_bytes(request.enter_realm_ticket()),
+        game::common::TicketPurpose::EnterRealm);
+    // realm 固定 1 的不变量与旧链一致;character_id 占位 0(#46 不校验,
+    // 选角业务后续票落地)。回放保护在 redeem 处烧票:同票据二次提交
+    // 自然落 Replayed,与无效/过期同路拒绝。
+    const bool entered =
+        redeemed.status == game::common::RedeemStatus::Accepted &&
+        redeemed.claims.realm_id == 1;
+    if (!entered) {
+        game::common::EdgeError error;
+        error.set_code(game::common::edge_error_invalid_enter_realm_ticket);
+        error.set_message("invalid enter realm ticket");
+        const auto response = game::common::encode(error, request_id);
+        if (event.established) {
+            static_cast<void>(runtime.try_send(event.session_id, response));
+            static_cast<void>(runtime.try_close(event.session_id));
+        } else {
+            static_cast<void>(
+                runtime.try_decline(event.session_id, response));
+        }
+        static_cast<void>(logger.warn(
+            "realm_enter_rejected",
+            "enter realm ticket rejected",
+            {observability::field("session_id",
+                                  event.session_id.value,
+                                  observability::DataClass::Internal),
+             observability::field("redeem_status",
+                                  static_cast<int>(redeemed.status))}));
+        return;
+    }
+    authenticated_[event.session_id] = redeemed.claims;
+    game::common::EnterRealmAccepted accepted;
+    accepted.set_account_id(redeemed.claims.account_id);
+    const auto response = game::common::encode(accepted, request_id);
+    if (event.established) {
+        static_cast<void>(runtime.try_send(event.session_id, response));
+    } else {
+        static_cast<void>(runtime.try_accept(event.session_id, response));
+    }
+    static_cast<void>(logger.info(
+        "player_session_established",
+        "realm accepted direct entry",
+        {observability::field(
+            "account_id",
+            redeemed.claims.account_id,
+            observability::DataClass::Pseudonymous)},
+        observability::EventContext{.request_id = request_id}));
 }
 
 void ServiceFrame::handle_gateway_events(
