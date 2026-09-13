@@ -110,7 +110,16 @@ private:
     void handle_realm_events(
         observability::Logger& logger,
         game::gateway::GatewayRuntime& runtime,
-        cluster::ServiceResolver* resolver);
+        cluster::ServiceResolver* resolver,
+        cluster::InstanceBudgetReporter* budget_reporter);
+    /// 直连入场兑换(#46):EnterRealm 票据单次消费,受理即迁入
+    /// established;任何失败回 3002 并终结(未建立会话 decline,
+    /// 已建立会话回包后 close)。
+    void handle_enter_realm(
+        observability::Logger& logger,
+        game::gateway::GatewayRuntime& runtime,
+        const game::gateway::GatewayEvent& event,
+        const game::common::EnterRealm& request);
     void handle_gateway_events(
         observability::Logger& logger,
         game::gateway::GatewayRuntime& runtime,
@@ -152,6 +161,12 @@ private:
     /// Edge 登录管线(仅 gateway):与 EdgeSessionTable 并存的业务帧
     /// 线程镜像,conn 占用自会话打开起计、关闭归还。
     std::optional<game::gateway::EdgeSessionPipeline> pipeline_;
+
+    /// realm 连接额度簿记(#46):conn_capacity 为启用传输 max_sessions
+    /// 之和(与 gateway 同源注入);realm 不做接入门禁(传输层已是硬
+    /// 上限),只按活动连接数上报 conn_free 供放行阀门评估。
+    std::uint64_t conn_capacity_{0};
+    std::uint64_t realm_conn_active_{0};
 
     /// 限流拉取(仅 gateway,#44):默认源由帧自持、外部源归宿主;
     /// 声明顺序即析构逆序 —— 调度器引用源,必须先于源析构。

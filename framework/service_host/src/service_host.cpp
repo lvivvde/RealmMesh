@@ -134,7 +134,11 @@ ServiceHost::ServiceHost(
         nullptr,
         &metrics_registry_);
     budget_policy_.conn_capacity = pipeline_conn_capacity;
-    budget_policy_.fetch_capacity = config.pipeline_fetch_capacity;
+    // fetch 容量是回满判定基准,仅 gateway 拉取管线存在;realm 无
+    // fetch 维度(§5.2 只上报 conn_free),置 0 与快照 has_fetch=false
+    // 保持一致。
+    budget_policy_.fetch_capacity =
+        service_name_ == "gateway" ? config.pipeline_fetch_capacity : 0;
     runtime_ = std::make_unique<game::gateway::GatewayRuntime>(
         std::move(config), logger_.get());
 }
@@ -308,14 +312,19 @@ void ServiceHost::tick() {
     }
     if (publisher_ == nullptr) return;
     if (!publisher_->tick()) return;
-    // gateway 注册成功后装配额度上报器(#43):required=false 时首注册
-    // 可能失败,注册成功后的首个 tick 补齐。
-    if (budget_reporter_ == nullptr && service_name_ == "gateway" &&
+    // 注册成功后装配额度上报器(#43 gateway / #46 realm):required=false
+    // 时首注册可能失败,注册成功后的首个 tick 补齐。
+    const auto budget_type = service_name_ == "gateway"
+                                 ? std::optional{cluster::ServiceType::Gateway}
+                             : service_name_ == "realm"
+                                 ? std::optional{cluster::ServiceType::Realm}
+                                 : std::nullopt;
+    if (budget_reporter_ == nullptr && budget_type.has_value() &&
         publisher_->registered()) {
         budget_reporter_ = std::make_unique<cluster::InstanceBudgetReporter>(
             *registry_,
             publisher_->registration_id(),
-            cluster::ServiceType::Gateway,
+            *budget_type,
             instance_,
             budget_policy_);
         budget_reporter_->set_failure_sink([this](const std::string& key) {
