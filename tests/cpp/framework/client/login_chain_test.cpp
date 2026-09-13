@@ -546,21 +546,32 @@ TEST(LoginChainTest, CredentialExpiryOnAttachReleasesGatewaySession) {
     EXPECT_EQ(transport.drop_calls, 2);
 }
 
-/// 总窗口耗尽:排队等不到放行 → AdmitTimeout 回 idle(spec §7)。
+/// 总窗口耗尽:排队等不到放行 → AdmitTimeout 回 idle(spec §7),期间
+/// 反复轮询而不是查一次就放弃。
 TEST(LoginChainTest, AdmitTimeoutReturnsToIdle) {
     ScriptedTransport transport;
     transport.ticket_results = {ticketed("number-token-1", 1000)};
     transport.progress_results = {progress(0, 1.0)};
     transport.me_results = {queued_at(1000)};
 
-    LoginChain chain(transport, fast_config());
+    // 档位压到 1ms、窗口给足:首查占掉第一轮,轮询节奏要在窗口内跑出
+    // 多次才说明"反复轮询"(20ms 档 + 60ms 窗口在慢机器上只够一次,断言
+    // 会变成时序彩票——macOS CI 上就栽在这)。
+    auto config = fast_config();
+    config.poll.initial_interval = milliseconds{1};
+    config.poll.far_interval = milliseconds{1};
+
+    LoginChain chain(transport, config);
     const auto result = chain.run("alice", "secret",
-                                  Clock::now() + milliseconds{60});
+                                  Clock::now() + milliseconds{250});
 
     EXPECT_FALSE(result.succeeded());
     EXPECT_EQ(result.stage, LoginStage::Idle);
     EXPECT_EQ(result.failure, ChainFailure::AdmitTimeout);
     EXPECT_GT(transport.progress_calls, 1);
+    // 首查一次;此后 progress 报 released=0,号值 1000 没进放行区间,
+    // 不再查号。
+    EXPECT_EQ(transport.me_calls, 1);
     EXPECT_EQ(transport.gateway_calls, 0);
 }
 
