@@ -69,11 +69,11 @@ flowchart LR
 | 5 | `GET /.well-known/jwks.json` | 健全服 | — | JWKS |
 | 6 | `/healthz`、`/metrics` | 两服务 | — | 健康 / Prometheus |
 
-错误模型：`{code, message, retry_after_seconds?}`；HTTP `401`/`403`/`429`（必带 retry_after）/`202`/`200`。code 分段：`1xxx` 沿用 edge.proto（`1001` 凭据无效、`1002` 封禁、`1003` 白名单外）、`2xxx` 排队（`2001` 号牌无效/过期）；排队中非错误态用 `200+status=queued`。**边缘 block 行为不保证我方错误体**（如 Cloudflare 默认 403 HTML）。封禁/白名单 v1 显式细分，上线前评估切模糊拒绝（配置开关，TODO）。
+错误模型：`{code, message, retry_after_seconds?}`；HTTP `401`/`403`/`429`（必带 retry_after）/`202`/`200`。code 分段沿用 edge.proto 的段号约定：`1xxx` 凭据段（`1001` 凭据无效、`1002` 封禁、`1003` 白名单外）、`2xxx` 排队段（`2001` 号牌无效/过期）；排队中非错误态用 `200+status=queued`。**这套 code 与 `Envelope.message_id` 是两个独立编号空间**，数值相同不代表同一含义（`edge.proto` 的 `1001`/`1002` 是已退役的消息编号）。网关边另有一套 `EdgeError.code`：`1001` 身份凭据无效、`1004` 满额拒绝 attach、`2001` 号牌无效、`2002` 未认证、`3002` 入场票据无效。**边缘 block 行为不保证我方错误体**（如 Cloudflare 默认 403 HTML）。封禁/白名单 v1 显式细分，上线前评估切模糊拒绝（配置开关，TODO）。
 
 ### 5.2 etcd 额度结构
 
-- key：`service/<gateway|realm>/<instance_id>/budget`，值 `{conn_free, fetch_free, updated_at}`（realm 仅 conn_free）；key 挂实例注册同一租约（实例死→额度消失）。
+- key：`/realmmesh/budgets/service/<gateway|realm>/<instance_id>/budget`，值 `{conn_free, fetch_free?, updated_at}`（`fetch_free` 只在有拉取管线的 `gateway` 上出现，realm 仅 conn_free）；key 挂实例注册同一租约（实例死→额度消失）。
 - 写：阈值触发（±10% 或 ≥1s 间隔）；读：排队服 Watch 前缀。
 - 放行阀门：`min(Σ网关 fetch_free/conn_free, Σ业务服 conn_free, 配置步长)` 定时放批（≥2s 一批）。
 
@@ -125,7 +125,7 @@ stateDiagram-v2
 ## 10. 部署拓扑初稿（折叠自地图迷雾）
 
 - 进程编排：全部服务沿用 `realm_mesh --service` 单入口（`login_verify`/`queue` 实现时新增 ServiceType）；健全服与网关按实例数水平扩，排队服单实例+冷备（同机或邻机）。
-- etcd 布局：服务注册（现有）+ 额度前缀 `service/<type>/<instance>/budget`（与实例同租约）；排队服快照 key 随放行批次更新。
+- etcd 布局：服务注册（现有）+ 额度前缀 `/realmmesh/budgets/service/<type>/<instance>/budget`（与实例同租约）；排队服快照 key 随放行批次更新。
 - 多区：v1 单区；健全服无状态可多区前置 CDN；排队服冷备跨机不跨区（TODO：多区时号牌签发键与进度端点的区间一致性）。
 - 边缘：CDN/WAF 契约＝Bearer + EdDSA 白名单 + JWKS URL + 边缘拒绝非保证性；按验签能力分级选型——可编程边缘（Workers/Compute 类）做边缘验签（可选明文回源），其余拓扑仅 TLS 终结 + 回源 HTTPS 验签（ADR-0004）。
 

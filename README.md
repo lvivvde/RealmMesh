@@ -110,11 +110,12 @@ JSON over HTTP/1.1，keep-alive 必开：
 | `GET /.well-known/jwks.json` | 健全服 | — | JWKS |
 | `/healthz` | 两个服务 | — | 健康检查 |
 
-错误模型为 `{code, message, retry_after_seconds?}`（HTTP 状态与 `code` 并存）。`code`
-分段：`1xxx` 账号与准入（`1001` 凭据无效、`1002` 封禁、`1003` 白名单外、`1004` 额度外），
-`2xxx` 排队与网关鉴权（`2001` 号牌无效/过期、`2002` 未鉴权），`3xxx` 业务服（`3002`
-入场票据无效）。这些 code 与 `Envelope.message_id` 是两个独立编号空间，数值相同不代表
-同一含义。各服务在独立 metrics 端口暴露 Prometheus 指标（见“运行”）。
+错误模型为 `{code, message, retry_after_seconds?}`（HTTP 状态与 `code` 并存），段号约定
+沿用 `edge.proto`：`1xxx` 凭据段（`1001` 凭据无效、`1002` 封禁、`1003` 白名单外）、
+`2xxx` 排队段（`2001` 号牌无效/过期）。网关边另有一套 `EdgeError.code`：`1001` 凭据无效、
+`1004` 满额拒绝 attach、`2001` 号牌无效、`2002` 未认证、`3002` 入场票据无效。这两套 code
+与 `Envelope.message_id` 是三个独立编号空间，数值相同不代表同一含义。各服务在独立
+metrics 端口暴露 Prometheus 指标（见“运行”）。
 
 ## 网关登录管线
 
