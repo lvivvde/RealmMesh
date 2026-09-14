@@ -11,9 +11,10 @@
 
 namespace realm::cluster {
 
+/// 服务身份。线名(注册 KV、额度路径、拓扑配置)是它的线上标识,已退役
+/// 的线名永不复用;枚举数值不上线。
 enum class ServiceType : std::uint8_t {
     Gateway,
-    Login,
     Realm,
     LoginVerify,
     Queue,

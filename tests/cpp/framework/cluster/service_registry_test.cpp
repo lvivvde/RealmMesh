@@ -48,7 +48,7 @@ TEST(ServiceRegistryTest, RegistersAndDiscoversByServiceType) {
     EXPECT_NE(gateway_registration.id, realm_registration.id);
     EXPECT_EQ(registry.discover(ServiceType::Gateway), std::vector{gateway});
     EXPECT_EQ(registry.discover(ServiceType::Realm), std::vector{realm});
-    EXPECT_TRUE(registry.discover(ServiceType::Login).empty());
+    EXPECT_TRUE(registry.discover(ServiceType::LoginVerify).empty());
 }
 
 TEST(ServiceRegistryTest, RejectsDuplicateServiceInstanceKey) {
@@ -155,15 +155,17 @@ TEST(ServiceRegistryTest, PublisherRegistersAndUnregistersWithItsLifetime) {
     using namespace std::chrono_literals;
 
     test_support::FakeServiceRegistry registry;
-    const auto instance = make_instance(ServiceType::Login, "login-01", 7000);
+    const auto instance =
+        make_instance(ServiceType::LoginVerify, "login-verify-01", 7002);
     {
         ServicePublisher publisher(registry, instance, 10s);
         EXPECT_TRUE(publisher.tick());
         EXPECT_TRUE(publisher.registered());
-        EXPECT_EQ(registry.discover(ServiceType::Login), std::vector{instance});
+        EXPECT_EQ(
+            registry.discover(ServiceType::LoginVerify), std::vector{instance});
     }
 
-    EXPECT_TRUE(registry.discover(ServiceType::Login).empty());
+    EXPECT_TRUE(registry.discover(ServiceType::LoginVerify).empty());
 }
 
 }  // namespace

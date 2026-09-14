@@ -19,22 +19,6 @@
 namespace realm::service_host {
 namespace {
 
-/// 开发账号派生(login:credential == "dev" 即通过,账号 ID 为 FNV-1a)。
-[[nodiscard]] std::uint64_t development_account_id(std::string_view account) {
-    std::uint64_t hash = 14695981039346656037ULL;
-    for (const char character : account) {
-        const auto value = static_cast<unsigned char>(character);
-        hash ^= value;
-        hash *= 1099511628211ULL;
-    }
-    return hash == 0 ? 1 : hash;
-}
-
-/// 开发角色派生(realm:每个账号固定一个英雄角色)。
-[[nodiscard]] std::uint64_t development_character_id(std::uint64_t account_id) {
-    return account_id ^ 0x524d434841524143ULL;
-}
-
 [[nodiscard]] game::common::SessionTicketKey load_ticket_key() {
     const char* value = std::getenv("REALMMESH_SESSION_TICKET_KEY");
     if (value == nullptr) {
@@ -87,7 +71,6 @@ void decline_attach(
 std::optional<cluster::ServiceType> parse_service_identity(
     std::string_view service_name) {
     if (service_name == "gateway") return cluster::ServiceType::Gateway;
-    if (service_name == "login") return cluster::ServiceType::Login;
     if (service_name == "realm") return cluster::ServiceType::Realm;
     if (service_name == "login_verify")
         return cluster::ServiceType::LoginVerify;
@@ -194,11 +177,8 @@ void ServiceFrame::tick(
         return;
     }
     switch (*identity_) {
-    case cluster::ServiceType::Login:
-        handle_login_events(logger, runtime, resolver);
-        break;
     case cluster::ServiceType::Realm:
-        handle_realm_events(logger, runtime, resolver, budget_reporter);
+        handle_realm_events(logger, runtime, budget_reporter);
         break;
     case cluster::ServiceType::Gateway:
         handle_gateway_events(logger, runtime, resolver, budget_reporter);
@@ -235,80 +215,9 @@ void ServiceFrame::stopped(
         logger.info("service_stopped", service_name_ + " service stopped"));
 }
 
-void ServiceFrame::handle_login_events(
-    observability::Logger& logger,
-    game::gateway::GatewayRuntime& runtime,
-    cluster::ServiceResolver* resolver) {
-    for (auto& event : runtime.drain_events(max_events_per_frame_)) {
-        if (!absorb_lifecycle(event)) {
-            continue;
-        }
-
-        const auto request = game::common::decode_login_request(event.payload);
-        const auto request_id =
-            game::common::edge_request_id(event.payload).value_or(0);
-        std::vector<std::byte> response;
-        const bool authenticated = request.has_value() &&
-                                   !request->account().empty() &&
-                                   request->credential() == "dev";
-        if (!authenticated) {
-            game::common::EdgeError error;
-            error.set_code(game::common::edge_error_invalid_credentials);
-            error.set_message("invalid credentials");
-            response = game::common::encode(error, request_id);
-        } else {
-            const auto account_id = development_account_id(request->account());
-            const auto correlation_id = game::common::make_correlation_id();
-            const auto correlation_text =
-                game::common::correlation_id_hex(correlation_id);
-            const auto discovered =
-                resolver != nullptr ? resolver->endpoint() : std::nullopt;
-            const auto realm_address = discovered.has_value()
-                                           ? discovered->address
-                                           : downstream_address_;
-            const auto realm_port =
-                discovered.has_value() ? discovered->port : downstream_port_;
-            const auto ticket = tickets_.issue(
-                game::common::TicketPurpose::Login,
-                account_id,
-                1,
-                0,
-                correlation_id,
-                std::chrono::seconds(60));
-            game::common::LoginSucceeded success;
-            success.set_account_id(account_id);
-            success.set_login_ticket(ticket.data(), ticket.size());
-            auto* endpoint = success.add_realm_endpoints();
-            endpoint->set_protocol(
-                ::realmmesh::protocol::edge::v1::TRANSPORT_PROTOCOL_TLS_TCP);
-            endpoint->set_address(realm_address);
-            endpoint->set_port(realm_port);
-            endpoint->set_priority(0);
-            response = game::common::encode(success, request_id);
-            static_cast<void>(logger.info(
-                "player_session_established",
-                "login authenticated player session",
-                {observability::field(
-                    "account_id",
-                    account_id,
-                    observability::DataClass::Pseudonymous)},
-                observability::EventContext{
-                    .correlation_id = correlation_text,
-                    .request_id = request_id,
-                }));
-        }
-        if (event.established) {
-            static_cast<void>(runtime.try_send(event.session_id, response));
-        } else {
-            static_cast<void>(runtime.try_accept(event.session_id, response));
-        }
-    }
-}
-
 void ServiceFrame::handle_realm_events(
     observability::Logger& logger,
     game::gateway::GatewayRuntime& runtime,
-    cluster::ServiceResolver* resolver,
     cluster::InstanceBudgetReporter* budget_reporter) {
     for (auto& event : runtime.drain_events(max_events_per_frame_)) {
         // 连接计数先于其余分支:SessionOpened/SessionClosed 不产生业务
@@ -336,117 +245,35 @@ void ServiceFrame::handle_realm_events(
 
         const auto request_id =
             game::common::edge_request_id(event.payload).value_or(0);
-        std::vector<std::byte> response;
+        const auto session = event.session_id;
+        // 未建立会话只受理 1304 直连入场(#46):其余消息一律按未认证
+        // 拒绝。退役编号在解码层已不可识别,同样落到这里。
         if (!event.established) {
-            const auto request =
-                game::common::decode_realm_authenticate(event.payload);
-            const auto redeemed = tickets_.redeem(
-                request.has_value()
-                    ? game::common::protobuf_bytes(request->login_ticket())
-                    : std::span<const std::byte>{},
-                game::common::TicketPurpose::Login);
-            const bool authenticated =
-                redeemed.status == game::common::RedeemStatus::Accepted &&
-                redeemed.claims.realm_id == 1;
-            if (!authenticated) {
-                game::common::EdgeError error;
-                error.set_code(game::common::edge_error_invalid_login_ticket);
-                error.set_message("invalid login ticket");
-                response = game::common::encode(error, request_id);
-            } else {
-                authenticated_[event.session_id] = redeemed.claims;
-                game::common::CharacterList characters;
-                auto* character = characters.add_characters();
-                character->set_id(
-                    development_character_id(redeemed.claims.account_id));
-                character->set_name("Development Hero");
-                response = game::common::encode(characters, request_id);
-                observability::EventContext context{
-                    .correlation_id = std::nullopt,
-                    .request_id = request_id,
-                };
-                if (redeemed.claims.correlation_id.has_value()) {
-                    context.correlation_id = game::common::correlation_id_hex(
-                        *redeemed.claims.correlation_id);
-                }
-                static_cast<void>(logger.info(
-                    "player_session_established",
-                    "realm authenticated player session",
-                    {observability::field(
-                        "account_id",
-                        redeemed.claims.account_id,
-                        observability::DataClass::Pseudonymous)},
-                    std::move(context)));
-            }
-            if (authenticated) {
-                static_cast<void>(
-                    runtime.try_accept(event.session_id, response));
-            } else {
-                static_cast<void>(
-                    runtime.try_decline(event.session_id, response));
-            }
+            game::common::EdgeError error;
+            error.set_code(game::common::edge_error_not_authenticated);
+            error.set_message("enter realm before any other message");
+            static_cast<void>(runtime.try_decline(
+                session, game::common::encode(error, request_id)));
             continue;
         }
-
-        const auto session = event.session_id;
         if (game::common::decode_heartbeat_request(event.payload).has_value() &&
             authenticated_.contains(session)) {
             game::common::HeartbeatResponse heartbeat;
-            response = game::common::encode(heartbeat, request_id);
-            static_cast<void>(runtime.try_send(session, response));
+            static_cast<void>(runtime.try_send(
+                session, game::common::encode(heartbeat, request_id)));
             continue;
         }
-        if (const auto request =
-                game::common::decode_select_character(event.payload);
-            request.has_value() && authenticated_.contains(session) &&
-            request->character_id() ==
-                development_character_id(authenticated_[session].account_id)) {
-            const auto& session_claims = authenticated_[session];
-            const auto account_id = session_claims.account_id;
-            const auto discovered =
-                resolver != nullptr ? resolver->endpoint() : std::nullopt;
-            const auto gateway_address = discovered.has_value()
-                                             ? discovered->address
-                                             : downstream_address_;
-            const auto gateway_port =
-                discovered.has_value() ? discovered->port : downstream_port_;
-            const auto ticket =
-                session_claims.correlation_id.has_value()
-                    ? tickets_.issue(
-                          game::common::TicketPurpose::EnterGame,
-                          account_id,
-                          1,
-                          request->character_id(),
-                          *session_claims.correlation_id,
-                          std::chrono::seconds(30))
-                    : tickets_.issue(
-                          game::common::TicketPurpose::EnterGame,
-                          account_id,
-                          1,
-                          request->character_id(),
-                          std::chrono::seconds(30));
-            game::common::EnterGameIssued issued;
-            issued.set_enter_game_ticket(ticket.data(), ticket.size());
-            auto* quic_endpoint = issued.add_gateway_endpoints();
-            quic_endpoint->set_protocol(
-                ::realmmesh::protocol::edge::v1::TRANSPORT_PROTOCOL_QUIC);
-            quic_endpoint->set_address(gateway_address);
-            quic_endpoint->set_port(gateway_port);
-            quic_endpoint->set_priority(0);
-            auto* tcp_endpoint = issued.add_gateway_endpoints();
-            tcp_endpoint->set_protocol(
-                ::realmmesh::protocol::edge::v1::TRANSPORT_PROTOCOL_TLS_TCP);
-            tcp_endpoint->set_address(gateway_address);
-            tcp_endpoint->set_port(gateway_port);
-            tcp_endpoint->set_priority(1);
-            response = game::common::encode(issued, request_id);
-        } else {
-            game::common::EdgeError error;
-            error.set_code(game::common::edge_error_not_authenticated);
-            error.set_message("authenticate before selecting character");
-            response = game::common::encode(error, request_id);
+        // 已建立会话:未认证的回 2002 后终结;已认证的业务消息在选角等
+        // 真实玩法落地前没有可转发去处,同样回 2002 并保持会话。
+        game::common::EdgeError error;
+        error.set_code(game::common::edge_error_not_authenticated);
+        error.set_message("unsupported message");
+        const bool authenticated = authenticated_.contains(session);
+        static_cast<void>(runtime.try_send(
+            session, game::common::encode(error, request_id)));
+        if (!authenticated) {
+            static_cast<void>(runtime.try_close(session));
         }
-        static_cast<void>(runtime.try_send(session, response));
     }
     // 帧尾发布额度快照(#46):realm 仅 conn_free(has_fetch=false),
     // 策略节流在 InstanceBudgetReporter 内,写失败不更新已发布状态,
@@ -471,8 +298,8 @@ void ServiceFrame::handle_enter_realm(
     const auto redeemed = tickets_.redeem(
         game::common::protobuf_bytes(request.enter_realm_ticket()),
         game::common::TicketPurpose::EnterRealm);
-    // realm 固定 1 的不变量与旧链一致;character_id 占位 0(#46 不校验,
-    // 选角业务后续票落地)。回放保护在 redeem 处烧票:同票据二次提交
+    // realm 固定 1 是当前单 Realm 拓扑的不变量;character_id 占位 0(#46
+    // 不校验,选角业务后续票落地)。回放保护在 redeem 处烧票:同票据二次提交
     // 自然落 Replayed,与无效/过期同路拒绝。
     const bool ticket_valid =
         redeemed.status == game::common::RedeemStatus::Accepted;
@@ -627,68 +454,22 @@ void ServiceFrame::handle_gateway_events(
             continue;
         }
 
+        const auto session = event.session_id;
+        // 未建立会话只受理 1301 attach(#43):其余消息(退役编号在解码层
+        // 已不可识别)一律按未认证拒绝并终结。
         if (!event.established) {
-            const auto request = game::common::decode_enter_game(event.payload);
-            const auto redeemed = tickets_.redeem(
-                request.has_value()
-                    ? game::common::protobuf_bytes(request->enter_game_ticket())
-                    : std::span<const std::byte>{},
-                game::common::TicketPurpose::EnterGame);
+            game::common::EdgeError error;
+            error.set_code(game::common::edge_error_not_authenticated);
+            error.set_message("attach before any other message");
             const auto request_id =
                 game::common::edge_request_id(event.payload).value_or(0);
-            const bool accepted_ticket =
-                redeemed.status == game::common::RedeemStatus::Accepted &&
-                redeemed.claims.realm_id == 1 &&
-                redeemed.claims.character_id != 0;
-            std::vector<std::byte> response;
-            if (!accepted_ticket) {
-                game::common::EdgeError error;
-                error.set_code(
-                    game::common::edge_error_invalid_enter_game_ticket);
-                error.set_message("invalid or replayed enter-game ticket");
-                response = game::common::encode(error, request_id);
-            } else {
-                authenticated_[event.session_id] = redeemed.claims;
-                game::common::EnterGameAccepted accepted;
-                accepted.set_account_id(redeemed.claims.account_id);
-                accepted.set_character_id(redeemed.claims.character_id);
-                response = game::common::encode(accepted, request_id);
-                observability::EventContext context{
-                    .correlation_id = std::nullopt,
-                    .request_id = request_id,
-                };
-                if (redeemed.claims.correlation_id.has_value()) {
-                    context.correlation_id = game::common::correlation_id_hex(
-                        *redeemed.claims.correlation_id);
-                }
-                static_cast<void>(logger.info(
-                    "player_session_established",
-                    "gateway accepted player session",
-                    {observability::field(
-                         "account_id",
-                         redeemed.claims.account_id,
-                         observability::DataClass::Pseudonymous),
-                     observability::field(
-                         "character_id",
-                         redeemed.claims.character_id,
-                         observability::DataClass::Pseudonymous)},
-                    std::move(context)));
-            }
-            if (accepted_ticket) {
-                static_cast<void>(
-                    runtime.try_accept(event.session_id, response));
-            } else {
-                static_cast<void>(
-                    runtime.try_decline(event.session_id, response));
-            }
-        } else {
-            const auto session = event.session_id;
-            if (authenticated_.contains(session)) {
-                static_cast<void>(runtime.try_send(session, event.payload));
-            } else {
-                static_cast<void>(runtime.try_close(session));
-            }
+            static_cast<void>(runtime.try_decline(
+                session, game::common::encode(error, request_id)));
+            continue;
         }
+        // 已建立会话:attach 之外的客户端消息不经网关转发(handoff 后
+        // 业务流量直连 Realm),一律终结。
+        static_cast<void>(runtime.try_close(session));
     }
     // 帧尾发布额度快照(#43):策略节流在 InstanceBudgetReporter 内,
     // 写失败不更新已发布状态,后续帧自动重试。

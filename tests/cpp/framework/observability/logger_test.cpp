@@ -93,7 +93,7 @@ TEST(LoggerTest, WorkerMakesAcceptedEventsVisibleWithoutExplicitFlush) {
     TemporaryLogFile file;
     LoggerConfig config;
     config.file_path = file.path();
-    Logger logger(config, ServiceIdentity{.service_name = "login"});
+    Logger logger(config, ServiceIdentity{.service_name = "realm"});
 
     ASSERT_EQ(logger.info("service_started"), LogResult::Accepted);
     const auto deadline =
@@ -177,8 +177,8 @@ TEST(LoggerTest, MetricsExposeDeliveryAndValidationState) {
     config.file_path = file.path();
     config.max_string_size = 4;
     ServiceIdentity identity{
-        .service_name = "login",
-        .service_instance = "login-test-1",
+        .service_name = "realm",
+        .service_instance = "realm-test-1",
     };
     Logger logger(config, identity);
 
@@ -192,8 +192,8 @@ TEST(LoggerTest, MetricsExposeDeliveryAndValidationState) {
     const auto metrics = logger.prometheus_metrics();
     EXPECT_NE(
         metrics.find(
-            "realmmesh_log_events_accepted_total{service_name=\"login\","
-            "service_instance=\"login-test-1\"} 1"),
+            "realmmesh_log_events_accepted_total{service_name=\"realm\","
+            "service_instance=\"realm-test-1\"} 1"),
         std::string::npos);
     EXPECT_NE(
         metrics.find("realmmesh_log_events_rejected_total"), std::string::npos);
@@ -274,7 +274,7 @@ TEST(LoggerTest, DevelopmentCanFallBackToStderrButProductionFailsClosed) {
             config,
             ServiceIdentity{
                 .environment = "development",
-                .service_name = "login",
+                .service_name = "realm",
             });
         EXPECT_EQ(logger.stats().write_errors, 1U);
     });
@@ -284,7 +284,7 @@ TEST(LoggerTest, DevelopmentCanFallBackToStderrButProductionFailsClosed) {
             config,
             ServiceIdentity{
                 .environment = "production",
-                .service_name = "login",
+                .service_name = "realm",
             }),
         std::filesystem::filesystem_error);
 }

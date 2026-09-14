@@ -72,12 +72,7 @@ void replace_text(
 
 void use_test_ports(
     const std::filesystem::path& root,
-    std::uint16_t login_port,
     std::uint16_t realm_port) {
-    replace_text(
-        root / "services" / "login.lua",
-        "listen_port = 7000",
-        "listen_port = " + std::to_string(login_port));
     replace_text(
         root / "services" / "realm.lua",
         "listen_port = 7100",
@@ -152,8 +147,7 @@ void use_test_ports(
 [[nodiscard]] std::vector<ServiceSpec> full_topology() {
     return {
         {"realm", {}, false},
-        {"login", {"realm"}, false},
-        {"gateway", {"login"}, true},
+        {"gateway", {"realm"}, true},
     };
 }
 
@@ -161,9 +155,9 @@ void use_test_ports(
 /// 拓扑收窄为仅该服务,depends_on 清空;未知服务名抛 invalid_argument。
 TEST(Mode2Test, SingleServiceNarrowsTopologyAndAppliesOverrides) {
     const auto specs =
-        MeshHost::narrow_single_service(full_topology(), "login");
+        MeshHost::narrow_single_service(full_topology(), "realm");
     ASSERT_EQ(specs.size(), std::size_t{1});
-    EXPECT_EQ(specs.at(0).name, "login");
+    EXPECT_EQ(specs.at(0).name, "realm");
     EXPECT_TRUE(specs.at(0).depends_on.empty());
 
     EXPECT_THROW(
@@ -172,7 +166,33 @@ TEST(Mode2Test, SingleServiceNarrowsTopologyAndAppliesOverrides) {
         std::invalid_argument);
 }
 
-/// 单服务 MeshHost(temp configs,服务 login,discovery off):
+/// 退役身份不留后门:残留的 `login` 引用必须在启动期明确失败。
+/// `--service login` 走收窄入口,直接抛 invalid_argument(main 捕获后 exit 1);
+/// 即使有人把 `login` 写回拓扑,缺 `services/login.lua` 也让 start_all 在当前
+/// 波次立刻失败,不会静默跳过或降级到别的服务。
+TEST(Mode2Test, RetiredLoginServiceFailsAtStartup) {
+    const ScopedTlsEnvironment tls_environment;
+    EXPECT_THROW(
+        static_cast<void>(
+            MeshHost::narrow_single_service(full_topology(), "login")),
+        std::invalid_argument);
+
+    const std::filesystem::path source = REALMMESH_SOURCE_DIR "/configs";
+    const test_support::TemporaryDirectory scratch("mode2-test-");
+    ASSERT_TRUE(copy_configs_with_discovery_disabled(source, scratch.path()));
+    EXPECT_FALSE(
+        std::filesystem::exists(scratch.path() / "services" / "login.lua"));
+
+    // login 无依赖排在第一波次:它在 realm 之前失败,realm 不会启动,
+    // 也不会打开任何监听端口。
+    MeshHost mesh(
+        scratch.path(),
+        {{"login", {}, false}, {"realm", {"login"}, false}});
+    EXPECT_FALSE(mesh.start_all());
+    EXPECT_THROW(static_cast<void>(mesh.service("realm")), std::out_of_range);
+}
+
+/// 单服务 MeshHost(temp configs,服务 realm,discovery off):
 /// start_all 成功、entry_ready 放行、runtime 运行、shutdown 干净;
 /// CliOverrides.instance_id 经 prometheus 指标的 service_instance 标签生效。
 TEST(Mode2Test, SingleServiceMeshStartsAndRuns) {
@@ -181,39 +201,38 @@ TEST(Mode2Test, SingleServiceMeshStartsAndRuns) {
     const test_support::TemporaryDirectory scratch("mode2-test-");
     ASSERT_TRUE(copy_configs_with_discovery_disabled(source, scratch.path()));
     replace_text(
-        scratch.path() / "services" / "login.lua",
-        "metrics_port = 9101",
+        scratch.path() / "services" / "realm.lua",
+        "metrics_port = 9102",
         "metrics_port = 0");
-    // 7000 is routinely occupied on macOS (ControlCenter's AirPlay Receiver
-    // listens there), so use a port the host actually has free.
+    // 配置里的固定端口在本机可能被占用,改用宿主确实空闲的端口。
     replace_text(
-        scratch.path() / "services" / "login.lua",
-        "listen_port = 7000",
+        scratch.path() / "services" / "realm.lua",
+        "listen_port = 7100",
         "listen_port = " + std::to_string(unused_tcp_port()));
 
     CliOverrides overrides;
-    overrides.instance_id = "login-mode2-77";
+    overrides.instance_id = "realm-mode2-77";
     MeshHost mesh(
         scratch.path(),
-        MeshHost::narrow_single_service(full_topology(), "login"),
+        MeshHost::narrow_single_service(full_topology(), "realm"),
         overrides);
     ASSERT_TRUE(mesh.start_all());
     EXPECT_TRUE(mesh.entry_ready());
-    EXPECT_TRUE(mesh.service("login").runtime().running());
+    EXPECT_TRUE(mesh.service("realm").runtime().running());
     EXPECT_NE(
-        mesh.service("login").prometheus_metrics().find(
-            "service_instance=\"login-mode2-77\""),
+        mesh.service("realm").prometheus_metrics().find(
+            "service_instance=\"realm-mode2-77\""),
         std::string::npos);
     mesh.shutdown();
-    EXPECT_FALSE(mesh.service("login").runtime().running());
+    EXPECT_FALSE(mesh.service("realm").runtime().running());
 }
 
-TEST(Mode2Test, GatewayDoesNotStartWithoutLoginAndRealm) {
+TEST(Mode2Test, GatewayDoesNotStartWithoutRealm) {
     const ScopedTlsEnvironment tls_environment;
     const std::filesystem::path source = REALMMESH_SOURCE_DIR "/configs";
     const test_support::TemporaryDirectory scratch("mode2-test-");
     ASSERT_TRUE(copy_configs_with_discovery_disabled(source, scratch.path()));
-    use_test_ports(scratch.path(), unused_tcp_port(), unused_tcp_port());
+    use_test_ports(scratch.path(), unused_tcp_port());
 
     MeshHost mesh(
         scratch.path(),
@@ -227,9 +246,8 @@ TEST(Mode2Test, GatewayStartsAfterFallbackDependenciesAreReachable) {
     const std::filesystem::path source = REALMMESH_SOURCE_DIR "/configs";
     const test_support::TemporaryDirectory scratch("mode2-test-");
     ASSERT_TRUE(copy_configs_with_discovery_disabled(source, scratch.path()));
-    const network::TcpListener login("127.0.0.1", 0);
     const network::TcpListener realm("127.0.0.1", 0);
-    use_test_ports(scratch.path(), login.local_port(), realm.local_port());
+    use_test_ports(scratch.path(), realm.local_port());
 
     MeshHost mesh(
         scratch.path(),

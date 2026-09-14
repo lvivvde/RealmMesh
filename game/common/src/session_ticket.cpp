@@ -8,6 +8,7 @@
 #include <string>
 
 #include "hex.hpp"
+#include "realmmesh/game/common/compact_jws.hpp"
 
 namespace realm::game::common {
 namespace {
@@ -189,7 +190,12 @@ std::optional<SessionTicketClaims> SessionTicketCodec::validate(
     }
     claims.expires_at = std::chrono::system_clock::time_point(
         std::chrono::milliseconds(static_cast<std::int64_t>(expiry_ms)));
-    if (claims.account_id == 0 || claims.expires_at <= now) {
+    // 跨机部署的服务间时钟偏差:与身份 Token、号牌同一容差取值,否则几秒
+    // 漂移就会让一张刚签发的票据在对方机器上被判过期。容差只放宽「可接受
+    // 的过期余量」,不放宽「可兑换次数」——回放守卫的持有期与这条判定严格
+    // 对齐,见 TicketReplayGuard::consume。
+    if (claims.account_id == 0 ||
+        claims.expires_at + jws_clock_leeway < now) {
         return std::nullopt;
     }
     return claims;
@@ -207,8 +213,11 @@ std::size_t TicketReplayGuard::TicketIdHash::operator()(
 bool TicketReplayGuard::consume(
     const SessionTicketClaims& claims,
     std::chrono::system_clock::time_point now) {
+    // 条目寿命必须覆盖校验侧的完整接受窗口(到期 + 容差):只要一张票据
+    // 还可能通过 validate,它的 ticket_id 就必须还在册,否则容差会变成
+    // 「票据过期后守卫先释放、票据仍可再兑换」的重放窗口。
     std::erase_if(consumed_, [now](const auto& entry) {
-        return entry.second <= now;
+        return entry.second + jws_clock_leeway < now;
     });
     return consumed_.emplace(claims.ticket_id, claims.expires_at).second;
 }

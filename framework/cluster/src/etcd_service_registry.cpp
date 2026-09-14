@@ -21,8 +21,6 @@ std::string_view service_type_name(ServiceType type) {
     switch (type) {
     case ServiceType::Gateway:
         return "gateway";
-    case ServiceType::Login:
-        return "login";
     case ServiceType::Realm:
         return "realm";
     case ServiceType::LoginVerify:
@@ -151,7 +149,6 @@ std::optional<std::string> base64_decode(std::string_view input) {
 
 std::optional<ServiceType> parse_service_type(std::string_view value) {
     if (value == "gateway") return ServiceType::Gateway;
-    if (value == "login") return ServiceType::Login;
     if (value == "realm") return ServiceType::Realm;
     if (value == "login_verify") return ServiceType::LoginVerify;
     if (value == "queue") return ServiceType::Queue;

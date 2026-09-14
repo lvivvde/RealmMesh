@@ -185,8 +185,6 @@ bool MeshHost::mode2_gateway_dependencies_ready() const {
             cluster::make_etcd_registry_options(gateway.service_discovery));
         do {
             if (has_tls_endpoint(
-                    registry.discover(cluster::ServiceType::Login)) &&
-                has_tls_endpoint(
                     registry.discover(cluster::ServiceType::Realm))) {
                 return true;
             }
@@ -195,16 +193,12 @@ bool MeshHost::mode2_gateway_dependencies_ready() const {
         return false;
     }
 
-    std::vector<network::TransportEndpoint> endpoints;
-    for (const std::string_view service : {"login", "realm"}) {
-        const auto config =
-            LayeredConfigLoader::load(config_root_, service, overrides_);
-        const auto endpoint = tls_listener(config);
-        if (!endpoint.has_value()) return false;
-        endpoints.push_back(*endpoint);
-    }
+    const auto realm_config =
+        LayeredConfigLoader::load(config_root_, "realm", overrides_);
+    const auto realm_endpoint = tls_listener(realm_config);
+    if (!realm_endpoint.has_value()) return false;
     do {
-        if (std::ranges::all_of(endpoints, endpoint_is_reachable)) return true;
+        if (endpoint_is_reachable(*realm_endpoint)) return true;
         std::this_thread::sleep_for(std::chrono::milliseconds(25));
     } while (std::chrono::steady_clock::now() < deadline);
     return false;

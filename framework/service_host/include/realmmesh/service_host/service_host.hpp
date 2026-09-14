@@ -39,16 +39,16 @@ class LoggerMetricsServer;
 
 namespace realm::service_host {
 
-/// 单服务装配:封装原三个 main 的公共链与业务帧循环。login_verify 与
+/// 单服务装配:封装消息服务的公共链与业务帧循环。login_verify 与
 /// queue 是 HTTPS 请求循环形态的服务(不走 ServiceFrame/EdgeSession 管线)。
 /// 发现关闭时 ready() = runtime 监听成功;发现开启时还需注册 tick 成功
 /// (required=true 注册失败 → start() 抛出);
-/// 发现开启且服务名非 gateway/realm/login/login_verify/queue 时 start()
+/// 发现开启且服务名非 gateway/realm/login_verify/queue 时 start()
 /// 抛 std::invalid_argument。
 class ServiceHost final {
 public:
     /// service_name/instance_id 驱动 LayeredConfigLoader;构造失败抛异常
-    /// (login/realm/gateway 另要求 REALMMESH_SESSION_TICKET_KEY 已设置)。
+    /// (realm/gateway 另要求 REALMMESH_SESSION_TICKET_KEY 已设置)。
     ServiceHost(
         const std::filesystem::path& config_root,
         std::string_view service_name,

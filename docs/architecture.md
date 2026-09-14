@@ -6,27 +6,28 @@
 flowchart LR
     Client[Windows 客户端参考目标]
     LoginVerify[Login Verify HTTPS/JSON]
-    Login[Login :7000 TLS/TCP]
+    Queue[Queue HTTPS/JSON]
     Realm[Realm :7100 TLS/TCP]
     Gateway[Gateway :8000]
     Quic[QUIC + TLS 1.3]
     TlsTcp[TLS 1.3 / TCP fallback]
     Etcd[etcd v3 Lease / Watch]
 
-    Client -->|HTTPS 登录校验| LoginVerify --> Client
-    Client --> Login --> Client
-    Client --> Realm --> Client
+    Client -->|HTTPS 账号校验| LoginVerify --> Client
+    Client -->|HTTPS 取号/轮询| Queue --> Client
     Client -->|0ms| Quic --> Gateway
     Client -->|350ms staged race| TlsTcp --> Gateway
+    Client -->|直连票据入场| Realm --> Client
     LoginVerify <--> Etcd
-    Login <--> Etcd
+    Queue <--> Etcd
     Realm <--> Etcd
     Gateway <--> Etcd
 ```
 
-LoginVerify 是登录链路第一站(无状态 HTTPS JSON 服务,#41);Login 返回一个
-Realm TLS/TCP 候选；Realm 返回 Gateway 的 QUIC 与 TLS/TCP 候选，
-两者主机名和数字端口相同，协议和优先级显式编码，不依赖客户端隐式约定。
+LoginVerify 是登录链路第一站(无状态 HTTPS JSON 服务,#41):校验账号后签发身份
+Token。Queue 负责取号与放行(#42)。客户端带身份 Token 与放行号牌 attach 到
+Gateway,Gateway 拉取完成后下发 Realm 直连票据与候选端点;Realm 单次兑换票据即
+完成入场。候选端点含主机名、数字端口、协议与优先级,不依赖客户端隐式约定。
 
 ## Gateway 建连与会话
 
@@ -35,7 +36,7 @@ stateDiagram-v2
     [*] --> SecureHandshake
     SecureHandshake --> Pending: TLS 1.3 + ALPN 成功
     SecureHandshake --> Closed: 超时/证书/ALPN/协议失败
-    Pending --> Established: EnterGameTicket 单次消费成功
+    Pending --> Established: 身份 Token 与放行号牌校验通过
     Pending --> Closed: 鉴权失败或过载
     Established --> Established: QUIC 地址迁移
     Established --> Closed: primary transport 断开
@@ -46,9 +47,9 @@ primary transport 与阶段(pending/established)。QUIC 和 TLS/TCP 是初次连
 二选一候选，不是一个会话里的双通道。当前没有恢复 token、序列号或重放窗口，因此
 已建立连接中断不会透明迁移到另一传输。
 
-两种用途的 Session Ticket 都只在各自的兑换点单次消费(重放防护):Login 票据在
-Realm 兑换，EnterGame 票据在 Gateway 兑换；兑换成功响应与 pending→established
-迁移由同一个 I/O 命令完成，重放或无效票据按鉴权失败处理并断开。
+`EnterRealmGranted.enter_realm_ticket` 只在 Realm 一处单次消费(重放防护):兑换
+成功响应与入场(进入已认证会话态)由同一个 I/O 命令完成,重放或无效票据按鉴权
+失败处理并断开。
 
 ## 客户端竞速
 
@@ -119,17 +120,19 @@ MsQuic 自有调度不会直接调用业务逻辑。回调只完成长度帧组�
 
 服务身份的权威列表在 `realm::cluster::ServiceType`
 (`framework/cluster/include/realmmesh/cluster/service_registry.hpp`),线名映射在
-`service_type_name` / `parse_service_type`。枚举只包含已接线的 5 个身份:
+`service_type_name` / `parse_service_type`。枚举只包含已接线的 4 个身份:
 
 | ServiceType | 线名 | 状态 |
 |---|---|---|
 | `Gateway` | `gateway` | 已接线,Gateway 入口,端口 8000,QUIC 优先 |
-| `Login` | `login` | 已接线,端口 7000(旧 Login,随 #50 退役) |
 | `Realm` | `realm` | 已接线,端口 7100 |
 | `LoginVerify` | `login_verify` | 已接线,HTTPS 服务边(端口见服务配置) |
 | `Queue` | `queue` | 已接线,HTTPS 服务边,排队调度(端口见服务配置) |
 
-`login` 与 `realm` 没有独立的业务库:三者在 `framework/service_host` 中共用
+旧 Login 链路(身份 `login`、端口 7000,以及登录票据与网关重入消息)已整体退役,
+线名 `login` 永不复用。
+
+`gateway` 与 `realm` 没有独立的业务库:两者在 `framework/service_host` 中共用
 `game::gateway::GatewayRuntime`,差异只在传输配置与 `ServiceFrame` 的事件处理分支。
 `login_verify` 与 `queue` 是第二种服务形态:独立业务库,走 HTTPS 请求循环,
 不经 `ServiceFrame`/EdgeSession 管线。

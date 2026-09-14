@@ -26,8 +26,8 @@ add_dev_services_test(ChildFailureStopsGroup child_failure_stops_group 20)
 add_dev_services_test(StopIsReverseOrdered stop_is_reverse_ordered 20)
 add_dev_services_test(CommandsManageServiceGroup commands_manage_service_group 30)
 add_dev_services_test(
-    ThreeStageFlowUsesServiceGroup
-    three_stage_flow_uses_service_group
+    NewChainFlowUsesServiceGroup
+    new_chain_flow_uses_service_group
     30
-    "$<TARGET_FILE:three_stage_flow_test>"
+    "$<TARGET_FILE:new_chain_flow_test>"
 )

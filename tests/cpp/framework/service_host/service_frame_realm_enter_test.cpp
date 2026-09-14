@@ -2,11 +2,14 @@
 
 #include "realmmesh/cluster/budget_publisher.hpp"
 #include "realmmesh/cluster/service_registry.hpp"
+#include "realmmesh/common/v1/envelope.pb.h"
+#include "realmmesh/game/common/compact_jws.hpp"
 #include "realmmesh/game/common/edge_protocol.hpp"
 #include "realmmesh/game/common/session_ticket.hpp"
 #include "realmmesh/game/gateway/gateway_runtime.hpp"
 #include "realmmesh/network/codec/length_field_codec.hpp"
 #include "realmmesh/observability/logger.hpp"
+#include "realmmesh/test_support/edge_raw_frame.hpp"
 #include "realmmesh/test_support/fake_service_registry.hpp"
 #include "realmmesh/test_support/temporary_directory.hpp"
 
@@ -526,10 +529,47 @@ TEST_F(ServiceFrameRealmEnterTest, InvalidTicketBytesDecline) {
     EXPECT_TRUE(client->saw_close(std::chrono::seconds{2}));
 }
 
-/// 用途不符(旧链 EnterGame 票据)→ 3002,不烧票不迁移。
+/// 已退役编号(#50):1101 曾在旧链承载 Realm 认证,新代码在解码层不再
+/// 识别它 —— 未入场会话发它落未认证/拒绝,而不是被当成业务消息处理。
+/// request_id 随编号一起解不出,回包恒 0。
+TEST_F(ServiceFrameRealmEnterTest, RetiredMessageIdIsRefused) {
+    auto client = connect();
+    client_ = client.get();
+    const network::LengthFieldCodec codec(1024);
+    client->send(codec.encode(test_support::edge_raw_frame(1101, 11)));
+
+    const auto response = receive_while_driving(std::chrono::seconds{2});
+    ASSERT_TRUE(response.has_value());
+    const auto error = game::common::decode_edge_error(*response);
+    ASSERT_TRUE(error.has_value());
+    EXPECT_EQ(error->code(), game::common::edge_error_not_authenticated);
+    EXPECT_EQ(game::common::edge_request_id(*response), 0U);
+    EXPECT_TRUE(client->saw_close(std::chrono::seconds{2}));
+}
+
+/// 未入场会话只受理 1304(#50 后不变):编号仍现役的心跳在入场前同样
+/// 落未认证/拒绝分支,不得被当成业务消息处理。
+TEST_F(ServiceFrameRealmEnterTest, MessageBeforeEnterRealmIsRefused) {
+    auto client = connect();
+    client_ = client.get();
+    game::common::HeartbeatRequest heartbeat;
+    const network::LengthFieldCodec codec(1024);
+    client->send(codec.encode(game::common::encode(heartbeat, 12)));
+
+    const auto response = receive_while_driving(std::chrono::seconds{2});
+    ASSERT_TRUE(response.has_value());
+    const auto error = game::common::decode_edge_error(*response);
+    ASSERT_TRUE(error.has_value());
+    EXPECT_EQ(error->code(), game::common::edge_error_not_authenticated);
+    EXPECT_EQ(game::common::edge_request_id(*response), 12U);
+    EXPECT_TRUE(client->saw_close(std::chrono::seconds{2}));
+}
+
+/// 用途不符(已退役的入场票据用途数值 2)→ 3002,不烧票不迁移。
+/// 枚举里已无该取值,只能用整数构造:退役数值不得被当作活用途接受。
 TEST_F(ServiceFrameRealmEnterTest, WrongPurposeTicketDeclines) {
     const auto ticket = tickets_->issue(
-        game::common::TicketPurpose::EnterGame,
+        static_cast<game::common::TicketPurpose>(2),
         42,
         1,
         7,
@@ -546,7 +586,7 @@ TEST_F(ServiceFrameRealmEnterTest, WrongPurposeTicketDeclines) {
     EXPECT_TRUE(client->saw_close(std::chrono::seconds{2}));
 }
 
-/// realm 声明不符(≠1)→ 3002:与旧链一致的不变量(#46 兑换时校验)。
+/// realm 声明不符(≠1)→ 3002:redeem 侧的 realm 不变量。
 TEST_F(ServiceFrameRealmEnterTest, ForeignRealmClaimDeclines) {
     const auto ticket = enter_ticket(42, 2);
     auto client = connect();
@@ -561,11 +601,16 @@ TEST_F(ServiceFrameRealmEnterTest, ForeignRealmClaimDeclines) {
     EXPECT_TRUE(client->saw_close(std::chrono::seconds{2}));
 }
 
-/// 过期票据(60s 期限签发于 61s 前)→ 3002。
+/// 过期票据 → 3002。过期判定含跨机时钟容差(now ≤ expires_at + leeway),
+/// 所以「过期」必须越过容差窗口才算:签发于 60s 期限 + 容差 + 1s 之前。
 TEST_F(ServiceFrameRealmEnterTest, ExpiredTicketDeclines) {
+    constexpr auto ttl = std::chrono::seconds{60};
     const auto ticket = enter_ticket(
-        42, 1, std::chrono::seconds{60},
-        std::chrono::system_clock::now() - std::chrono::seconds{61});
+        42,
+        1,
+        ttl,
+        std::chrono::system_clock::now() - (ttl + game::common::jws_clock_leeway +
+                                            std::chrono::seconds{1}));
     auto client = connect();
     client_ = client.get();
     submit_enter_realm(*client, ticket, 7);
@@ -606,31 +651,6 @@ TEST_F(ServiceFrameRealmEnterTest, ConnFreeBudgetTracksConnections) {
             return budget.has_value() && budget->conn_free == 4;
         },
         std::chrono::seconds{2}));
-}
-
-/// 旧链回归(#50 前不变):1101 Login 票据 → CharacterList,会话照常
-/// accept;共享密钥下新旧票据同源验签。
-TEST_F(ServiceFrameRealmEnterTest, LegacyAuthenticatePathUnchanged) {
-    const auto ticket = tickets_->issue(
-        game::common::TicketPurpose::Login,
-        42,
-        1,
-        0,
-        std::chrono::seconds{60});
-    auto client = connect();
-    client_ = client.get();
-    game::common::RealmAuthenticate request;
-    request.set_login_ticket(
-        reinterpret_cast<const char*>(ticket.data()),
-        ticket.size());
-    const network::LengthFieldCodec codec(1024);
-    client->send(codec.encode(game::common::encode(request, 7)));
-
-    const auto response = receive_while_driving(std::chrono::seconds{2});
-    ASSERT_TRUE(response.has_value());
-    const auto characters = game::common::decode_character_list(*response);
-    ASSERT_TRUE(characters.has_value());
-    EXPECT_EQ(characters->characters_size(), 1);
 }
 
 }  // namespace

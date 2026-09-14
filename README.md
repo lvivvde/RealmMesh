@@ -3,7 +3,7 @@
 RealmMesh 是一个 C++20 帧驱动游戏服务器。当前公网接入统一使用标准加密传输：
 
 - Gateway：QUIC + TLS 1.3 主通道，同端口 TLS 1.3/TCP 兜底。
-- Login、Realm：TLS 1.3/TCP。
+- Realm：TLS 1.3/TCP。
 - 业务消息：4 字节大端长度 + Protocol Buffers `Envelope`。
 - 不支持裸 TCP、裸 UDP、KCP、自研传输加密或逐消息协议回退。
 
@@ -63,7 +63,7 @@ export REALMMESH_SESSION_TICKET_KEY="$(openssl rand -hex 32)"
 统一入口当前会忽略 `SIGHUP`，证书和私钥只在进程启动时加载。轮换开发或生产凭据
 后，需要重启对应进程。
 
-## 运行三段服务
+## 运行开发拓扑
 
 开发环境可使用管理脚本一键启动或重启全部服务：
 
@@ -84,12 +84,12 @@ export REALMMESH_SESSION_TICKET_KEY="$(openssl rand -hex 32)"
 日志写入 `.runtime/logs/supervisor/console.log`，各服务输出追加到
 `.runtime/logs/<service>/console.log`。首次运行前需要完成构建和开发证书生成。
 
-多进程脚本由后台 supervisor 按 `Realm → Login → Gateway` 启动，每个服务的
+多进程脚本由后台 supervisor 按 `Realm → Gateway` 启动，每个服务的
 `realmmesh_service_ready` 指标变为 `1` 后才启动下一个服务。默认每项最多等待
 10 秒，可用 `REALMMESH_STARTUP_TIMEOUT_SECONDS` 调整。任一服务启动失败或运行中
-退出时，supervisor 会按 `Gateway → Login → Realm` 回收整组进程。
+退出时，supervisor 会按 `Gateway → Realm` 回收整组进程。
 
-这里的“多进程”只表示同一开发机上的三个独立服务进程，仍使用 Lua 中的环回地址，
+这里的“多进程”只表示同一开发机上的两个独立服务进程，仍使用 Lua 中的环回地址，
 不代表已经支持跨机器生产部署、服务多副本或高可用。
 
 也可以手动启动：
@@ -102,9 +102,11 @@ export REALMMESH_SESSION_TICKET_KEY="$(openssl rand -hex 32)"
 
 | 服务 | 端口 | 传输 |
 |---|---:|---|
-| Login | 7000 | TLS/TCP |
 | Realm | 7100 | TLS/TCP |
 | Gateway | 8000 | QUIC 优先，TLS/TCP 兜底 |
+
+入场只经 Gateway：客户端先连 Gateway 完成准入，再持 Gateway 下发的直连票据连
+Realm。旧的独立 Login 服务与它的消息编号已一并退役。
 
 Gateway 会把两个候选端点一并下发，候选项包含 `protocol/address/port/priority`。QUIC
 与 TLS/TCP 使用相同主机名和数字端口（分别占用 UDP 与 TCP 端口空间）。
@@ -134,7 +136,7 @@ Gateway 会把两个候选端点一并下发，候选项包含 `protocol/address
 服务发现默认关闭，此时使用 Lua 中的固定下游地址。开启后，服务会在运行时监听器就绪后
 通过 etcd v3 Lease 发布端点并 Watch 下游；首次注册成功才会进入 ready。
 `required = true` 会将注册失败显式报错；`false` 会记录告警并保持 not-ready，统一启动器
-不会放行未就绪服务。`startup_timeout_ms` 控制单独启动 Gateway 时对 Login 和 Realm
+不会放行未就绪服务。`startup_timeout_ms` 控制单独启动 Gateway 时对 Realm
 的启动前探测时限，默认为 5000ms。
 
 ## 会话与线程模型
@@ -155,8 +157,9 @@ ctest --preset dev
 
 测试覆盖真实 TLS 1.3/ALPN 往返、真实 MsQuic 往返、无 ALPN 不创建业务连接、QUIC
 竞速与安全降级分类、IPv6 双栈、端点序列化、pending→session 原子晋升，以及完整的
-Login→Realm→Gateway TLS 链路。同时覆盖 all-in-one 和同机三进程启动、就绪门禁、
-失败整组回收与反序停机。测试证书和私钥只生成在 `build/` 中。
+Gateway 准入→直连票据→Realm 入场链路。同时覆盖 all-in-one 和同机多进程启动、
+就绪门禁、失败整组回收与反序停机，以及已退役消息编号在 Realm 与 Gateway 两侧
+被拒。测试证书和私钥只生成在 `build/` 中。
 
 ## License
 

@@ -44,8 +44,8 @@ realm_add_gtest(session_ticket_test
     LIBS realm_game_common
 )
 
-realm_add_gtest(three_stage_flow_test
-    SOURCES three_stage_flow_test.cpp
+realm_add_gtest(new_chain_flow_test
+    SOURCES new_chain_flow_test.cpp
     LIBS
         nlohmann_json::nlohmann_json
         realm_game_common
@@ -58,7 +58,8 @@ realm_add_gtest(three_stage_flow_test
     DEPENDS
         realm_mesh
         realmmesh_test_tls_identity
-    # 拉起真实 realm_mesh 三阶段流程,属集成测试:不进快速子集,见 test_helpers.cmake。
+    # 拉起真实 realm_mesh 走新链(attach → 1303 → Realm 兑换),属集成测试:
+    # 不进快速子集,见 test_helpers.cmake。
     LABELS integration
     DISCOVER_PROPERTIES RUN_SERIAL TRUE TIMEOUT 15
 )

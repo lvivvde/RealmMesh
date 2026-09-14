@@ -3,6 +3,7 @@
 #include "realmmesh/cluster/budget_publisher.hpp"
 #include "realmmesh/cluster/service_registry.hpp"
 #include "realmmesh/cluster/service_resolver.hpp"
+#include "realmmesh/common/v1/envelope.pb.h"
 #include "realmmesh/game/common/edge_protocol.hpp"
 #include "realmmesh/game/common/identity_token.hpp"
 #include "realmmesh/game/common/queue_number.hpp"
@@ -12,6 +13,7 @@
 #include "realmmesh/network/codec/length_field_codec.hpp"
 #include "realmmesh/observability/logger.hpp"
 #include "realmmesh/observability/metrics_registry.hpp"
+#include "realmmesh/test_support/edge_raw_frame.hpp"
 #include "realmmesh/test_support/fake_service_registry.hpp"
 #include "realmmesh/test_support/temporary_directory.hpp"
 
@@ -572,6 +574,23 @@ TEST_F(ServiceFrameEdgeBudgetTest, ReplayedNumberIsRejectedOnNewConnection) {
     EXPECT_EQ(
         *observed_budget(),
         InstanceBudgetSnapshot({3, 1, true}));
+}
+
+/// 已退役编号(#50):1101 曾在旧链承载 Realm 认证;未 attach 的会话发它
+/// (或任何非 1301 消息)一律未认证拒绝并终结,不当业务消息处理。
+TEST_F(ServiceFrameEdgeBudgetTest, RetiredMessageIdIsRefused) {
+    auto client = std::make_unique<AttachClient>(
+        static_cast<std::uint16_t>(runtime_->local_endpoints().front().port));
+    client_ = client.get();
+    const network::LengthFieldCodec codec(1024);
+    client->send(codec.encode(test_support::edge_raw_frame(1101, 6)));
+
+    const auto response = receive_while_driving(std::chrono::seconds{2});
+    ASSERT_TRUE(response.has_value());
+    const auto error = game::common::decode_edge_error(*response);
+    ASSERT_TRUE(error.has_value());
+    EXPECT_EQ(error->code(), game::common::edge_error_not_authenticated);
+    EXPECT_TRUE(client->saw_close(std::chrono::seconds{2}));
 }
 
 TEST_F(ServiceFrameEdgeBudgetTest, OutOfBudgetAttachIsRejectedWithoutConsuming) {

@@ -7,6 +7,9 @@
 #include <chrono>
 #include <cstdlib>
 #include <filesystem>
+#include <fstream>
+#include <iterator>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -58,7 +61,27 @@ protected:
         }
         return names;
     }
+
+    static std::string read_file(const std::filesystem::path& path) {
+        std::ifstream input(path);
+        return std::string(
+            std::istreambuf_iterator<char>(input),
+            std::istreambuf_iterator<char>());
+    }
 };
+
+/// 旧 Login 身份已退役:生产配置树里没有它的服务配置,加载 `login` 在
+/// 启动期明确失败,而不是落回默认值静默起来;启动拓扑也不再声明它。
+TEST_F(ConfigsLoadSmokeTest, LoginServiceConfigIsGone) {
+    EXPECT_FALSE(
+        std::filesystem::exists(configs_root() / "services" / "login.lua"));
+    EXPECT_THROW(
+        static_cast<void>(LayeredConfigLoader::load(configs_root(), "login")),
+        std::runtime_error);
+    const auto topology = read_file(configs_root() / "main.config");
+    EXPECT_EQ(topology.find("\"login\""), std::string::npos);
+    EXPECT_NE(topology.find("\"login_verify\""), std::string::npos);
+}
 
 TEST_F(ConfigsLoadSmokeTest, EveryServiceConfigLoadsThroughLayeredLoader) {
     const auto names = service_names();

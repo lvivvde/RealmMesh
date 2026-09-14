@@ -12,18 +12,12 @@ namespace {
 namespace common_v1 = ::realmmesh::protocol::common::v1;
 namespace edge_v1 = ::realmmesh::protocol::edge::v1;
 
+/// 本协议当前接受的 message_id。已退役编号 1001/1002/1101/1102/1103/
+/// 1104/1201/1202 在此没有分支,parse_envelope 一律按未知消息拒绝。
 bool is_known_message_id(std::uint32_t value) {
     switch (static_cast<EdgeMessageId>(value)) {
-    case edge_v1::MESSAGE_ID_C2S_LOGIN_REQUEST:
-    case edge_v1::MESSAGE_ID_S2C_LOGIN_SUCCEEDED:
-    case edge_v1::MESSAGE_ID_C2S_REALM_AUTHENTICATE:
-    case edge_v1::MESSAGE_ID_S2C_CHARACTER_LIST:
-    case edge_v1::MESSAGE_ID_C2S_SELECT_CHARACTER:
-    case edge_v1::MESSAGE_ID_S2C_ENTER_GAME_ISSUED:
     case edge_v1::MESSAGE_ID_C2S_HEARTBEAT_REQUEST:
     case edge_v1::MESSAGE_ID_S2C_HEARTBEAT_RESPONSE:
-    case edge_v1::MESSAGE_ID_C2S_ENTER_GAME:
-    case edge_v1::MESSAGE_ID_S2C_ENTER_GAME_ACCEPTED:
     case edge_v1::MESSAGE_ID_C2S_EDGE_ATTACH:
     case edge_v1::MESSAGE_ID_S2C_EDGE_ATTACH_ACCEPTED:
     case edge_v1::MESSAGE_ID_S2C_ENTER_REALM_GRANTED:
@@ -117,42 +111,6 @@ std::optional<std::uint64_t> edge_request_id(
 }
 
 std::vector<std::byte> encode(
-    const LoginRequest& message, std::uint64_t request_id) {
-    return encode_message(
-        message, edge_v1::MESSAGE_ID_C2S_LOGIN_REQUEST, request_id);
-}
-
-std::vector<std::byte> encode(
-    const LoginSucceeded& message, std::uint64_t request_id) {
-    return encode_message(
-        message, edge_v1::MESSAGE_ID_S2C_LOGIN_SUCCEEDED, request_id);
-}
-
-std::vector<std::byte> encode(
-    const RealmAuthenticate& message, std::uint64_t request_id) {
-    return encode_message(
-        message, edge_v1::MESSAGE_ID_C2S_REALM_AUTHENTICATE, request_id);
-}
-
-std::vector<std::byte> encode(
-    const CharacterList& message, std::uint64_t request_id) {
-    return encode_message(
-        message, edge_v1::MESSAGE_ID_S2C_CHARACTER_LIST, request_id);
-}
-
-std::vector<std::byte> encode(
-    const SelectCharacter& message, std::uint64_t request_id) {
-    return encode_message(
-        message, edge_v1::MESSAGE_ID_C2S_SELECT_CHARACTER, request_id);
-}
-
-std::vector<std::byte> encode(
-    const EnterGameIssued& message, std::uint64_t request_id) {
-    return encode_message(
-        message, edge_v1::MESSAGE_ID_S2C_ENTER_GAME_ISSUED, request_id);
-}
-
-std::vector<std::byte> encode(
     const HeartbeatRequest& message, std::uint64_t request_id) {
     return encode_message(
         message, edge_v1::MESSAGE_ID_C2S_HEARTBEAT_REQUEST, request_id);
@@ -162,18 +120,6 @@ std::vector<std::byte> encode(
     const HeartbeatResponse& message, std::uint64_t request_id) {
     return encode_message(
         message, edge_v1::MESSAGE_ID_S2C_HEARTBEAT_RESPONSE, request_id);
-}
-
-std::vector<std::byte> encode(
-    const EnterGame& message, std::uint64_t request_id) {
-    return encode_message(
-        message, edge_v1::MESSAGE_ID_C2S_ENTER_GAME, request_id);
-}
-
-std::vector<std::byte> encode(
-    const EnterGameAccepted& message, std::uint64_t request_id) {
-    return encode_message(
-        message, edge_v1::MESSAGE_ID_S2C_ENTER_GAME_ACCEPTED, request_id);
 }
 
 std::vector<std::byte> encode(
@@ -211,42 +157,6 @@ std::vector<std::byte> encode(
     return encode_message(message, edge_v1::MESSAGE_ID_S2C_ERROR, request_id);
 }
 
-std::optional<LoginRequest> decode_login_request(
-    std::span<const std::byte> payload) {
-    return decode_message<LoginRequest>(
-        payload, edge_v1::MESSAGE_ID_C2S_LOGIN_REQUEST);
-}
-
-std::optional<LoginSucceeded> decode_login_succeeded(
-    std::span<const std::byte> payload) {
-    return decode_message<LoginSucceeded>(
-        payload, edge_v1::MESSAGE_ID_S2C_LOGIN_SUCCEEDED);
-}
-
-std::optional<RealmAuthenticate> decode_realm_authenticate(
-    std::span<const std::byte> payload) {
-    return decode_message<RealmAuthenticate>(
-        payload, edge_v1::MESSAGE_ID_C2S_REALM_AUTHENTICATE);
-}
-
-std::optional<CharacterList> decode_character_list(
-    std::span<const std::byte> payload) {
-    return decode_message<CharacterList>(
-        payload, edge_v1::MESSAGE_ID_S2C_CHARACTER_LIST);
-}
-
-std::optional<SelectCharacter> decode_select_character(
-    std::span<const std::byte> payload) {
-    return decode_message<SelectCharacter>(
-        payload, edge_v1::MESSAGE_ID_C2S_SELECT_CHARACTER);
-}
-
-std::optional<EnterGameIssued> decode_enter_game_issued(
-    std::span<const std::byte> payload) {
-    return decode_message<EnterGameIssued>(
-        payload, edge_v1::MESSAGE_ID_S2C_ENTER_GAME_ISSUED);
-}
-
 std::optional<HeartbeatRequest> decode_heartbeat_request(
     std::span<const std::byte> payload) {
     return decode_message<HeartbeatRequest>(
@@ -257,17 +167,6 @@ std::optional<HeartbeatResponse> decode_heartbeat_response(
     std::span<const std::byte> payload) {
     return decode_message<HeartbeatResponse>(
         payload, edge_v1::MESSAGE_ID_S2C_HEARTBEAT_RESPONSE);
-}
-
-std::optional<EnterGame> decode_enter_game(std::span<const std::byte> payload) {
-    return decode_message<EnterGame>(
-        payload, edge_v1::MESSAGE_ID_C2S_ENTER_GAME);
-}
-
-std::optional<EnterGameAccepted> decode_enter_game_accepted(
-    std::span<const std::byte> payload) {
-    return decode_message<EnterGameAccepted>(
-        payload, edge_v1::MESSAGE_ID_S2C_ENTER_GAME_ACCEPTED);
 }
 
 std::optional<EdgeAttach> decode_edge_attach(

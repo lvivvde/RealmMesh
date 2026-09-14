@@ -111,22 +111,13 @@ public:
     return ports;
 }
 
-/// 把服务配置里的固定端口改写成一组空闲端口。login → realm → gateway 的
-/// downstream 指向必须同步改写,否则依赖探活会连到错误的服务。
+/// 把服务配置里的固定端口改写成一组空闲端口。两处静态下游指向(realm →
+/// gateway、gateway → realm)必须随监听端口同步改写,否则按配置直连的
+/// 路径会落到别的进程或空端口。
 void use_free_ports(
     const std::filesystem::path& root,
-    std::uint16_t login_port,
     std::uint16_t realm_port,
     std::uint16_t gateway_port) {
-    const auto login_path = root / "services" / "login.lua";
-    auto login = read_file(login_path);
-    login = replace_all(login, "listen_port = 7000",
-                        "listen_port = " + std::to_string(login_port));
-    login = replace_all(login, "downstream_port = 7100",
-                        "downstream_port = " + std::to_string(realm_port));
-    login = replace_all(login, "metrics_port = 9101", "metrics_port = 0");
-    ASSERT_TRUE(write_file(login_path, login));
-
     const auto realm_path = root / "services" / "realm.lua";
     auto realm = read_file(realm_path);
     realm = replace_all(realm, "listen_port = 7100",
@@ -142,6 +133,8 @@ void use_free_ports(
     auto gateway = read_file(gateway_path);
     gateway = replace_all(gateway, "listen_port = 8000",
                           "listen_port = " + std::to_string(gateway_port));
+    gateway = replace_all(gateway, "downstream_port = 7100",
+                          "downstream_port = " + std::to_string(realm_port));
     gateway = replace_all(gateway, "metrics_port = 9103", "metrics_port = 0");
     ASSERT_TRUE(write_file(gateway_path, gateway));
 }
@@ -187,7 +180,7 @@ void use_free_ports(
     return static_cast<bool>(output);
 }
 
-/// 模式 1(全拓扑一体)E2E:真实配置起 realm → login → gateway,
+/// 模式 1(全拓扑一体)E2E:真实配置起 realm → gateway,
 /// entry 放行、依赖端口可连、整体关停后全部停止。
 TEST(MeshHostE2ETest, AllInOneStartsAndStopsCleanly) {
     const ScopedTlsEnvironment tls_environment;
@@ -195,18 +188,17 @@ TEST(MeshHostE2ETest, AllInOneStartsAndStopsCleanly) {
     const test_support::TemporaryDirectory scratch("mesh-host-e2e-");
     ASSERT_TRUE(copy_configs_with_discovery_disabled(source, scratch.path()));
 
-    // 7000/7100/8000 在本机常被占用(macOS ControlCenter 的 AirPlay Receiver
-    // 监听 7000),所以改用一组当前空闲的端口,而不是依赖配置里的默认值。
-    const auto ports = unused_tcp_ports(3);
-    const auto login_port = ports.at(0);
-    const auto realm_port = ports.at(1);
-    const auto gateway_port = ports.at(2);
-    use_free_ports(scratch.path(), login_port, realm_port, gateway_port);
+    // 配置里的固定端口在本机可能被占用(macOS ControlCenter 的 AirPlay
+    // Receiver 就常占 7000 附近),所以改用一组当前空闲的端口,而不是依赖
+    // 配置里的默认值。
+    const auto ports = unused_tcp_ports(2);
+    const auto realm_port = ports.at(0);
+    const auto gateway_port = ports.at(1);
+    use_free_ports(scratch.path(), realm_port, gateway_port);
 
     const std::vector<ServiceSpec> specs{
         {"realm", {}, false},
-        {"login", {"realm"}, false},
-        {"gateway", {"login"}, true},
+        {"gateway", {"realm"}, true},
     };
     MeshHost mesh(scratch.path(), specs);
     ASSERT_TRUE(mesh.start_all());

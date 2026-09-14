@@ -42,11 +42,13 @@ protected:
     }
 };
 
+/// 扁平加载路径(LayeredConfigLoader::load)的服务名用 realm:login_verify
+/// 与 queue 走各自的 load_* 重载,拿它们做 fixture 会读成同一路径。
 TEST_F(LayeredConfigTest, ServiceLayerOverridesCommon) {
     write(
-        root_ / "services" / "login.lua",
+        root_ / "services" / "realm.lua",
         "return { logging = { level = \"debug\" }, tick_rate = 30 }");
-    const auto config = LayeredConfigLoader::load(root_, "login");
+    const auto config = LayeredConfigLoader::load(root_, "realm");
     EXPECT_EQ(
         config.logging.min_severity,
         observability::Severity::Debug);  // 服务层覆盖
@@ -58,17 +60,17 @@ TEST_F(LayeredConfigTest, ServiceLayerOverridesCommon) {
 
 TEST_F(LayeredConfigTest, CliOverridesInstanceIdentity) {
     write(
-        root_ / "services" / "login.lua",
+        root_ / "services" / "realm.lua",
         "return { service_discovery = { instance_id = \"file-id\", node_id = \"file-node\" } }");
     const auto config = LayeredConfigLoader::load(
         root_,
-        "login",
+        "realm",
         CliOverrides{.instance_id = "cli-id", .node_id = "cli-node"});
     EXPECT_EQ(config.service_discovery.instance_id, "cli-id");
     EXPECT_EQ(config.service_discovery.node_id, "cli-node");
-    /// file_path 按实例生成:<root>/logs/login/login-cli-id.jsonl
+    /// file_path 按实例生成:<root>/logs/realm/realm-cli-id.jsonl
     EXPECT_NE(
-        config.logging.file_path.string().find("login-cli-id.jsonl"),
+        config.logging.file_path.string().find("realm-cli-id.jsonl"),
         std::string::npos);
 }
 

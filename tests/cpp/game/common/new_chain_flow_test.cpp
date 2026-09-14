@@ -1,10 +1,11 @@
 #include "realmmesh/game/common/edge_protocol.hpp"
+#include "realmmesh/game/common/identity_token.hpp"
+#include "realmmesh/game/common/queue_number.hpp"
 #include "realmmesh/network/codec/length_field_codec.hpp"
 #include "realmmesh/network/tcp/tcp_listener.hpp"
 
 #include <gtest/gtest.h>
 #include <openssl/ssl.h>
-#include <nlohmann/json.hpp>
 
 #include <arpa/inet.h>
 #include <signal.h>
@@ -23,7 +24,6 @@
 #include <memory>
 #include <optional>
 #include <span>
-#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -34,6 +34,7 @@
 namespace realm::game::common {
 namespace {
 
+/// 自起进程的用例:fork 出 realm_mesh 后以 SIGINT 收尾并回收。
 class ChildProcess final {
 public:
     ChildProcess(
@@ -115,24 +116,13 @@ private:
     return ports;
 }
 
-/// 把服务配置里的固定端口改写成一组空闲端口。login → realm → gateway 的
-/// downstream 指向必须同步改写,否则依赖探活会连到错误的服务。
+/// 把服务配置里的固定端口改写成一组空闲端口。gateway 的静态兜底下游
+/// 就是 realm,必须同步指向改写后的 realm 端口,否则 handoff 签发的端点
+/// 指向错误端口;realm 的下游(静态兜底)指向 gateway,同理。
 void use_free_ports(
     const std::filesystem::path& root,
-    std::uint16_t login_port,
     std::uint16_t realm_port,
     std::uint16_t gateway_port) {
-    const auto login_path = root / "services" / "login.lua";
-    auto login = read_file(login_path);
-    login = replace_all(login, "listen_port = 7000",
-                        "listen_port = " + std::to_string(login_port));
-    login = replace_all(login, "downstream_port = 7100",
-                        "downstream_port = " + std::to_string(realm_port));
-    login = replace_all(login, "metrics_port = 9101", "metrics_port = 0");
-    if (!write_file(login_path, login)) {
-        throw std::runtime_error("cannot rewrite login.lua");
-    }
-
     const auto realm_path = root / "services" / "realm.lua";
     auto realm = read_file(realm_path);
     realm = replace_all(realm, "listen_port = 7100",
@@ -150,9 +140,26 @@ void use_free_ports(
     auto gateway = read_file(gateway_path);
     gateway = replace_all(gateway, "listen_port = 8000",
                           "listen_port = " + std::to_string(gateway_port));
+    gateway = replace_all(gateway, "downstream_port = 7100",
+                          "downstream_port = " + std::to_string(realm_port));
     gateway = replace_all(gateway, "metrics_port = 9103", "metrics_port = 0");
     if (!write_file(gateway_path, gateway)) {
         throw std::runtime_error("cannot rewrite gateway.lua");
+    }
+
+    // HTTP 边服务(mode 1 拓扑随组启动)的固定指标端口同样让开,避免与其
+    // 他测试或开发机上已占的端口冲突;它们不参与入场链路。
+    const std::pair<std::string_view, std::string_view> http_services[] = {
+        {"login_verify", "metrics_port = 9104"},
+        {"queue", "metrics_port = 9105"},
+    };
+    for (const auto& [service, fixed_port] : http_services) {
+        const auto path = root / "services" / (std::string(service) + ".lua");
+        auto contents = read_file(path);
+        contents = replace_all(contents, fixed_port, "metrics_port = 0");
+        if (!write_file(path, contents)) {
+            throw std::runtime_error("cannot rewrite service metrics port");
+        }
     }
 }
 
@@ -163,7 +170,7 @@ class ScratchConfigRoot final {
 public:
     explicit ScratchConfigRoot(const std::filesystem::path& source) {
         path_ = std::filesystem::temp_directory_path() /
-                ("three-stage-flow-" +
+                ("new-chain-flow-" +
                  std::to_string(static_cast<long long>(::getpid())));
         std::error_code error;
         std::filesystem::remove_all(path_, error);
@@ -191,20 +198,6 @@ public:
 private:
     std::filesystem::path path_;
 };
-
-[[nodiscard]] std::optional<std::string> correlation_for_event(
-    std::string_view contents, std::string_view event_name) {
-    std::istringstream input{std::string(contents)};
-    std::string line;
-    while (std::getline(input, line)) {
-        const auto event = nlohmann::json::parse(line);
-        if (event.value("event_name", "") == event_name &&
-            event.contains("correlation_id")) {
-            return event.at("correlation_id").get<std::string>();
-        }
-    }
-    return std::nullopt;
-}
 
 /// 统计日志内容中某事件名的出现条数(每行一条 JSON 事件)。
 [[nodiscard]] std::size_t count_events(
@@ -409,24 +402,59 @@ std::vector<std::byte> receive_message(TlsSocket& socket) {
     return receive_exactly(socket.ssl(), size);
 }
 
-TEST(ThreeStageFlowTest, LogsInSelectsACharacterAndEntersTheGateway) {
+/// 子进程与测试共用同一份签名种子(经环境注入):测试内直接签出网关
+/// attach 需要的身份 Token 与排队号牌,不必经 HTTP 边服务取票。
+[[nodiscard]] Ed25519Seed seed_from_env(const char* name) {
+    const char* value = std::getenv(name);
+    if (value == nullptr) {
+        throw std::runtime_error(std::string(name) + " is not set");
+    }
+    return parse_identity_seed_hex(value);
+}
+
+[[nodiscard]] std::string identity_token(std::string_view jti) {
+    const IdentityTokenCodec codec(
+        seed_from_env("REALMMESH_IDENTITY_KEY_SEED"), "login-verify-v1");
+    const auto now = std::chrono::system_clock::now();
+    return codec.issue(IdentityClaims{
+        .issuer = "realmmesh/login-verify",
+        .account_id = 42,
+        .jti = std::string(jti),
+        .issued_at = now,
+        .expires_at = now + std::chrono::minutes{30}});
+}
+
+[[nodiscard]] std::string number_token() {
+    const QueueNumberCodec codec(
+        seed_from_env("REALMMESH_QUEUE_KEY_SEED"), "queue-v1");
+    const auto now = std::chrono::system_clock::now();
+    return codec.issue(QueueNumberClaims{
+        .number = 7,
+        .admitted = true,
+        .issued_at = now,
+        .expires_at = now + std::chrono::seconds{300}});
+}
+
+/// 新链端到端(跨进程):客户端 attach 到 Gateway → Gateway 拉取后下发
+/// 1303(直连票据 + Realm 端点)→ 客户端持票据到 Realm 兑换 1305 入场。
+/// 这是唯一跨服务进程的入场回归覆盖;旧的三阶段(登录 → Realm 认证 →
+/// 网关重入)链路已随其消息编号一并退役。
+TEST(NewChainFlowTest, AttachesToGatewayAndEntersRealm) {
     const bool external_service_group =
-        std::getenv("REALMMESH_THREE_STAGE_EXTERNAL") != nullptr;
+        std::getenv("REALMMESH_NEW_CHAIN_EXTERNAL") != nullptr;
     const char* external_config_root =
-        std::getenv("REALMMESH_THREE_STAGE_CONFIG_ROOT");
+        std::getenv("REALMMESH_NEW_CHAIN_CONFIG_ROOT");
 
     // 自起进程时用临时配置树 + 当空闲端口:固定端口不再成为测试前提
     // (7000 在 macOS 上常被 AirPlay Receiver 占用),日志也不再写进源码树。
     std::optional<ScratchConfigRoot> scratch;
     std::filesystem::path config_root;
-    std::uint16_t login_port = 0;
     std::uint16_t realm_port = 0;
     std::uint16_t gateway_port = 0;
     if (external_service_group) {
-        login_port = environment_port("REALMMESH_THREE_STAGE_LOGIN_PORT", 7000);
-        realm_port = environment_port("REALMMESH_THREE_STAGE_REALM_PORT", 7100);
+        realm_port = environment_port("REALMMESH_NEW_CHAIN_REALM_PORT", 7100);
         gateway_port =
-            environment_port("REALMMESH_THREE_STAGE_GATEWAY_PORT", 8000);
+            environment_port("REALMMESH_NEW_CHAIN_GATEWAY_PORT", 8000);
         config_root = external_config_root == nullptr
                           ? std::filesystem::path(REALMMESH_TEST_SOURCE_DIR) /
                                 "configs"
@@ -435,36 +463,35 @@ TEST(ThreeStageFlowTest, LogsInSelectsACharacterAndEntersTheGateway) {
         scratch.emplace(
             std::filesystem::path(REALMMESH_TEST_SOURCE_DIR) / "configs");
         config_root = scratch->path();
-        const auto ports = unused_tcp_ports(3);
-        login_port = ports.at(0);
-        realm_port = ports.at(1);
-        gateway_port = ports.at(2);
-        use_free_ports(config_root, login_port, realm_port, gateway_port);
+        const auto ports = unused_tcp_ports(2);
+        realm_port = ports.at(0);
+        gateway_port = ports.at(1);
+        use_free_ports(config_root, realm_port, gateway_port);
         // 自行启动进程时先清理上次日志;外部服务组已经打开当前日志文件,
         // 此时 unlink 会让后续事件只写入已删除的 inode。
-        for (const std::string_view service : {"login", "realm", "gateway"}) {
+        for (const std::string_view service : {"realm", "gateway"}) {
             std::error_code error;
             std::filesystem::remove(
                 service_log_path(config_root, service), error);
         }
     }
-    constexpr auto key =
-        "0102030405060708090a0b0c0d0e0f10"
-        "1112131415161718191a1b1c1d1e1f20";
-    ASSERT_EQ(::setenv("REALMMESH_SESSION_TICKET_KEY", key, 1), 0);
+    ASSERT_EQ(
+        ::setenv(
+            "REALMMESH_SESSION_TICKET_KEY",
+            "0102030405060708090a0b0c0d0e0f10"
+            "1112131415161718191a1b1c1d1e1f20",
+            1),
+        0);
     ASSERT_EQ(
         ::setenv(
             "REALMMESH_IDENTITY_KEY_SEED",
-            "00112233445566778899aabbccddeeff"
-            "00112233445566778899aabbccddeeff",
+            "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60",
             1),
         0);
-    // queue 节点自 mode-1 拓扑起随组启动,号牌签名种子与身份种子同批注入。
     ASSERT_EQ(
         ::setenv(
             "REALMMESH_QUEUE_KEY_SEED",
-            "00112233445566778899aabbccddeeff"
-            "00112233445566778899aabbccddeeff",
+            "4ccd089b28ff96da9db6c346ec114e0f5b8a319f35aba624da8cf6ed4fb8a6fb",
             1),
         0);
     ASSERT_EQ(
@@ -485,95 +512,67 @@ TEST(ThreeStageFlowTest, LogsInSelectsACharacterAndEntersTheGateway) {
         mesh = std::make_unique<ChildProcess>(
             REALMMESH_MESH_EXECUTABLE, config_root);
     }
-    wait_for_tcp_ready(login_port);
     wait_for_tcp_ready(realm_port);
     wait_for_tcp_ready(gateway_port);
 
-    auto login_socket = connect_when_ready(login_port);
-    LoginRequest login_request;
-    login_request.set_account("alice");
-    login_request.set_credential("dev");
-    send_message(login_socket, encode(login_request, 1));
-    const auto login_wire = receive_message(login_socket);
-    EXPECT_EQ(edge_request_id(login_wire), 1);
-    const auto login_response = decode_login_succeeded(login_wire);
-    ASSERT_TRUE(login_response.has_value());
-    ASSERT_EQ(login_response->realm_endpoints_size(), 1);
-    EXPECT_EQ(login_response->realm_endpoints(0).port(), realm_port);
-
-    auto realm_socket = connect_when_ready(
-        static_cast<std::uint16_t>(login_response->realm_endpoints(0).port()));
-    RealmAuthenticate authenticate;
-    authenticate.set_login_ticket(login_response->login_ticket());
-    send_message(realm_socket, encode(authenticate, 2));
-    const auto character_wire = receive_message(realm_socket);
-    EXPECT_EQ(edge_request_id(character_wire), 2);
-    const auto characters = decode_character_list(character_wire);
-    ASSERT_TRUE(characters.has_value());
-    ASSERT_EQ(characters->characters_size(), 1);
-
-    // Login 票据一次性:同一票据在第二条连接上再次兑换必须被拒(2001)并断开。
-    auto replay_socket = connect_when_ready(
-        static_cast<std::uint16_t>(login_response->realm_endpoints(0).port()));
-    send_message(replay_socket, encode(authenticate, 6));
-    const auto replay_wire = receive_message(replay_socket);
-    EXPECT_EQ(edge_request_id(replay_wire), 6);
-    const auto replay_error = decode_edge_error(replay_wire);
-    ASSERT_TRUE(replay_error.has_value());
-    EXPECT_EQ(replay_error->code(), 2001);
-
-    HeartbeatRequest heartbeat;
-    send_message(realm_socket, encode(heartbeat, 5));
-    const auto heartbeat_wire = receive_message(realm_socket);
-    EXPECT_EQ(edge_request_id(heartbeat_wire), 5);
-    EXPECT_TRUE(decode_heartbeat_response(heartbeat_wire).has_value());
-
-    SelectCharacter select_character;
-    select_character.set_character_id(characters->characters(0).id());
-    send_message(realm_socket, encode(select_character, 3));
-    const auto enter_wire = receive_message(realm_socket);
-    EXPECT_EQ(edge_request_id(enter_wire), 3);
-    const auto enter = decode_enter_game_issued(enter_wire);
-    ASSERT_TRUE(enter.has_value());
-    ASSERT_EQ(enter->gateway_endpoints_size(), 2);
-    const auto& tcp_gateway = enter->gateway_endpoints(1);
-    EXPECT_EQ(
-        tcp_gateway.protocol(),
-        ::realmmesh::protocol::edge::v1::TRANSPORT_PROTOCOL_TLS_TCP);
-    EXPECT_EQ(tcp_gateway.port(), gateway_port);
-
-    auto gateway_socket =
-        connect_when_ready(static_cast<std::uint16_t>(tcp_gateway.port()));
-    EnterGame enter_game;
-    enter_game.set_enter_game_ticket(enter->enter_game_ticket());
-    send_message(gateway_socket, encode(enter_game, 4));
+    // 客户端 → Gateway:1301 attach(身份 Token + 放行号牌)→ 1302 受理。
+    auto gateway_socket = connect_when_ready(gateway_port);
+    EdgeAttach attach;
+    attach.set_identity_token(identity_token("bbbb000000000001bbbb000000000001"));
+    attach.set_queue_number_token(number_token());
+    send_message(gateway_socket, encode(attach, 1));
     const auto accepted_wire = receive_message(gateway_socket);
-    EXPECT_EQ(edge_request_id(accepted_wire), 4);
-    const auto accepted = decode_enter_game_accepted(accepted_wire);
+    EXPECT_EQ(edge_request_id(accepted_wire), 1);
+    const auto accepted = decode_edge_attach_accepted(accepted_wire);
     ASSERT_TRUE(accepted.has_value());
-    EXPECT_EQ(accepted->account_id(), login_response->account_id());
-    EXPECT_EQ(accepted->character_id(), characters->characters(0).id());
+    EXPECT_EQ(accepted->account_id(), 42U);
+
+    // Gateway 拉取完成后主动推送 1303(request_id 恒 0):直连票据 + 端点。
+    const auto granted_wire = receive_message(gateway_socket);
+    const auto granted = decode_enter_realm_granted(granted_wire);
+    ASSERT_TRUE(granted.has_value());
+    ASSERT_GE(granted->realm_endpoints_size(), 1);
+    const auto& realm_endpoint = granted->realm_endpoints(0);
+    EXPECT_EQ(realm_endpoint.address(), "127.0.0.1");
+    EXPECT_EQ(realm_endpoint.port(), realm_port);
+
+    // 客户端 → Realm:持 1303 票据发 1304,会话自此入场(1305)。
+    auto realm_socket =
+        connect_when_ready(static_cast<std::uint16_t>(realm_endpoint.port()));
+    EnterRealm enter_realm;
+    enter_realm.set_enter_realm_ticket(granted->enter_realm_ticket());
+    send_message(realm_socket, encode(enter_realm, 2));
+    const auto entered_wire = receive_message(realm_socket);
+    EXPECT_EQ(edge_request_id(entered_wire), 2);
+    const auto entered = decode_enter_realm_accepted(entered_wire);
+    ASSERT_TRUE(entered.has_value());
+    EXPECT_EQ(entered->account_id(), 42U);
+
+    // 入场后 Realm 会话心跳照常:票据消费把会话迁入已认证态。
+    HeartbeatRequest heartbeat;
+    send_message(realm_socket, encode(heartbeat, 3));
+    const auto beat_wire = receive_message(realm_socket);
+    EXPECT_EQ(edge_request_id(beat_wire), 3);
+    EXPECT_TRUE(decode_heartbeat_response(beat_wire).has_value());
 
     if (mesh != nullptr) mesh->stop();
 
     if (external_service_group) {
-        for (const std::string_view service : {"login", "realm", "gateway"}) {
-            wait_for_event(
-                service_log_path(config_root, service),
-                "player_session_established");
-        }
+        // 外部服务组由脚本异步拉起,日志落盘可能晚于客户端读到最后一帧响应:
+        // 分别等各自链路末端的事件出现,再读整份日志做计数断言。Realm 的
+        // 末端事件是入场成功,网关的是 handoff 下发——网关不承载会话,不发
+        // player_session_established。
+        wait_for_event(
+            service_log_path(config_root, "realm"), "player_session_established");
+        wait_for_event(
+            service_log_path(config_root, "gateway"), "edge_handoff_granted");
     }
 
-    const auto login_log = read_file(service_log_path(config_root, "login"));
     const auto realm_log = read_file(service_log_path(config_root, "realm"));
     const auto gateway_log =
         read_file(service_log_path(config_root, "gateway"));
     // 关停幂等:MeshHost::shutdown() 与 ServiceHost 析构双停只生效首次,
     // 每服务恰好一条 service_started 配对一条 service_stopped。
-    EXPECT_EQ(count_events(login_log, "service_started"), 1);
-    EXPECT_EQ(
-        count_events(login_log, "service_stopped"),
-        external_service_group ? 0 : 1);
     EXPECT_EQ(count_events(realm_log, "service_started"), 1);
     EXPECT_EQ(
         count_events(realm_log, "service_stopped"),
@@ -582,19 +581,15 @@ TEST(ThreeStageFlowTest, LogsInSelectsACharacterAndEntersTheGateway) {
     EXPECT_EQ(
         count_events(gateway_log, "service_stopped"),
         external_service_group ? 0 : 1);
-    const auto login_correlation =
-        correlation_for_event(login_log, "player_session_established");
-    const auto realm_correlation =
-        correlation_for_event(realm_log, "player_session_established");
-    const auto gateway_correlation =
-        correlation_for_event(gateway_log, "player_session_established");
-    ASSERT_TRUE(login_correlation.has_value());
-    ASSERT_TRUE(realm_correlation.has_value());
-    ASSERT_TRUE(gateway_correlation.has_value());
-    EXPECT_EQ(*realm_correlation, *login_correlation);
-    EXPECT_EQ(*gateway_correlation, *login_correlation);
+    EXPECT_GE(count_events(realm_log, "player_session_established"), 1);
+    EXPECT_EQ(count_events(gateway_log, "edge_session_attached"), 1);
+    EXPECT_EQ(count_events(gateway_log, "edge_handoff_granted"), 1);
+    // 旧 Login 服务已退役:配置树里不再有它的身份,也不再生成它的日志目录。
+    EXPECT_FALSE(std::filesystem::exists(config_root / "logs" / "login"));
+
     static_cast<void>(::unsetenv("REALMMESH_SESSION_TICKET_KEY"));
     static_cast<void>(::unsetenv("REALMMESH_IDENTITY_KEY_SEED"));
+    static_cast<void>(::unsetenv("REALMMESH_QUEUE_KEY_SEED"));
     static_cast<void>(::unsetenv("REALMMESH_TLS_CERTIFICATE_FILE"));
     static_cast<void>(::unsetenv("REALMMESH_TLS_PRIVATE_KEY_FILE"));
 }

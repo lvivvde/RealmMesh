@@ -22,8 +22,8 @@ RealmMesh 是 20 FPS 帧驱动服务。日志调用不得执行网络 I/O 或磁
 
 第一阶段目标：
 
-- 集中收集 Login、Realm、Gateway 的结构化诊断日志。
-- 通过稳定的 `correlation_id` 关联 Login -> Realm -> Gateway 登录旅程。
+- 集中收集 Gateway、Realm 的结构化诊断日志。
+- 通过稳定的 `correlation_id` 关联 Gateway -> Realm 入场旅程。
 - 日志平台故障时业务继续运行，并通过本地有界缓冲恢复发送。
 - 稳态支持 1,000 events/s，支持 10,000 events/s、最长 5 分钟的突发。
 - 生产日志可搜索延迟 p95 不超过 15 秒，p99 不超过 30 秒。
@@ -35,14 +35,13 @@ RealmMesh 是 20 FPS 帧驱动服务。日志调用不得执行网络 I/O 或磁
 - 不自研日志索引、对象存储、查询 UI 或告警引擎。
 - 不提供 exactly-once、跨节点严格全局顺序或无限期缓冲。
 - 不把普通诊断日志提升等级后当作审计日志使用。
-- 不在第一阶段引入分布式 trace/span；当前三段流程是客户端持票跳转，
+- 不在第一阶段引入分布式 trace/span；当前入场流程是客户端持票跳转，
   不是服务间 RPC 调用链。
 
 ## 总体架构
 
 ```mermaid
 flowchart LR
-    Login[realm_mesh<br/>login]
     Realm[realm_mesh<br/>realm]
     Gateway[realm_mesh<br/>gateway]
     Logging[framework/observability<br/>有界异步队列]
@@ -55,7 +54,6 @@ flowchart LR
     Grafana[Grafana]
     Prometheus[Prometheus]
 
-    Login --> Logging
     Realm --> Logging
     Gateway --> Logging
     Logging --> Jsonl --> Agent
@@ -226,27 +224,19 @@ Schema 约束：
 
 ## Correlation ID 与票据迁移
 
-当前 `Envelope.request_id` 只关联一次连接上的请求，不能贯穿 Login -> Realm ->
-Gateway。第一阶段不允许客户端任意填写全链路关联 ID。
+当前 `Envelope.request_id` 只关联一次连接上的请求。全线关联 ID 通过签名票据携带，
+不允许客户端任意填写全链路关联 ID。
 
-关联方式：
+票据 codec 支持 v2 格式，v2 明文包含可选的 128-bit `correlation_id`：签发方传入时
+写入并参与验签，验签方读出后放入服务端会话上下文，相关日志自动附加该 ID。
 
-1. Login 为一次登录旅程生成随机 128-bit `correlation_id`。
-2. Login 将它写入签名的 login ticket。
-3. Realm 验证 ticket 后，把 ID 放入服务端会话上下文。
-4. Realm 签发 enter-game ticket 时继续携带同一个 ID。
-5. Gateway 验证 ticket 后，把 ID 放入 Gateway 会话上下文。
-6. 三个服务产生的相关日志自动附加该 ID。
+旧三段流程（Login -> Realm -> Gateway 逐段转交 ID）随旧 Login 链路退役；现役
+网关 → Realm 链路签发的 EnterRealm 票据尚未携带 `correlation_id`，跨服务关联在该段
+处于未接线状态（编码与解码能力保留，接入点是签发侧的 `issue` 调用）。
 
-票据格式升级为 v2，并采用双读单写迁移：
-
-1. Login、Realm、Gateway 先部署可验证 v1/v2 的 codec，但继续签发 v1。
-2. 所有验证端升级完成后，Login 开始签发 v2。
-3. Realm 验证 v2 后继续签发携带相同 `correlation_id` 的 v2 enter-game ticket。
-4. 等待旧票据最大 TTL 加安全余量后停止接受 v1。
-5. 迁移期间签发版本可配置回退。
-
-不需要给客户端可控的 `Envelope` 增加 `correlation_id` 字段。
+票据格式的 v1/v2 双读已就位：v1 为无 `correlation_id` 的短格式，v2 为带关联 ID 的
+格式，二者由验签方按长度自动判别。现役签发路径仍写 v1，因此上面那条关联缺口只要把
+签发点换到带 `correlation_id` 的 `issue` 重载即可闭合。
 
 ## 日志等级与防洪
 
@@ -437,7 +427,8 @@ Loki 大规模生产采用 distributed 模式和对象存储：
 
 集成和故障测试：
 
-- Login -> Realm -> Gateway 三段日志使用同一 `correlation_id`。
+- Gateway -> Realm 入场两端日志使用同一 `correlation_id`（前置条件：签发侧接入
+  `correlation_id`，见「Correlation ID 与票据迁移」）。
 - Agent、单个 Gateway、两个 Gateway 和 Loki 分别中断与恢复。
 - Agent checkpoint、磁盘缓冲、重试、重复和乱序。
 - 磁盘满、错误 CA、证书过期和 Loki 限流。
@@ -456,7 +447,8 @@ Loki 大规模生产采用 distributed 模式和对象存储：
    暂时只输出本地 JSONL。
 2. [已完成] 替换 `apps/login`、`apps/realm`、`apps/gateway` 和根示例中的
    `std::cout`/`std::cerr`，并记录当前被吞掉的 runtime I/O 异常。
-3. [已完成] 完成票据 v2 双读和 v2 写入，再启用 `correlation_id`。
+3. [已完成] 完成票据 v1/v2 双读与按长度判别的验签路径；`correlation_id` 在签发侧
+   尚未接线（见「Correlation ID 与票据迁移」）。
 4. [已完成] 添加 Vector Gateway x2、Loki、Grafana、Prometheus 本地参考栈。
 5. [待生产环境] 完成仪表盘、告警、泄密测试、故障注入和容量测试。
 6. [待生产环境] 从单个 canary 节点开始，观察缓冲水位、丢弃率和帧耗时后分批扩大。
@@ -472,7 +464,7 @@ Loki 大规模生产采用 distributed 模式和对象存储：
 - `game/common/session_ticket.*`：票据 v2 和 `correlation_id`。
 - `apps/mesh_host/main.cpp`：初始化、上下文和调用点。
 - `game/gateway/src/gateway_runtime.cpp`：记录当前被吞掉的 I/O 异常。
-- `tests/cpp/`：日志、票据、过载、故障和三段流程测试。
+- `tests/cpp/`：日志、票据、过载、故障和入场流程测试。
 - 新的部署目录：本地 Compose、Vector、Loki、Grafana 和 Prometheus 配置。
 
 ## 已拒绝的替代方案

@@ -7,7 +7,7 @@ realmmesh_source_root="${2:?source root is required}"
 realmmesh_mesh_binary="${3:?realm_mesh binary is required}"
 realmmesh_tls_certificate="${4:?TLS certificate is required}"
 realmmesh_tls_private_key="${5:?TLS private key is required}"
-realmmesh_three_stage_test="${6:-}"
+realmmesh_new_chain_test="${6:-}"
 
 realmmesh_scratch="$(mktemp -d)"
 realmmesh_test_root="${realmmesh_scratch}/RealmMesh"
@@ -91,7 +91,7 @@ fi
 # macOS 自带 bash 3.2,没有 mapfile;用逐行读取保持同一行为。
 # 在临时端口范围(49152-65535)之外选端口:supervisor 的就绪探测用 curl
 # 反复建出站连接,其源端口恰好从这个池子分配,刚释放的临时端口可能在
-# 服务 bind 前被抢走,login 会以 EADDRINUSE 启动失败(CI 上偶发)。
+# 服务 bind 前被抢走,服务会以 EADDRINUSE 启动失败(CI 上偶发)。
 realmmesh_ports=()
 while IFS= read -r realmmesh_port; do
     realmmesh_ports+=("${realmmesh_port}")
@@ -101,7 +101,7 @@ import socket
 
 chosen = []
 sockets = []
-while len(chosen) < 6:
+while len(chosen) < 4:
     port = random.randint(20000, 30000)
     if port in chosen:
         continue
@@ -118,11 +118,9 @@ PY
 )
 
 realmmesh_realm_port="${realmmesh_ports[0]}"
-realmmesh_login_port="${realmmesh_ports[1]}"
-realmmesh_gateway_port="${realmmesh_ports[2]}"
-realmmesh_realm_metrics_port="${realmmesh_ports[3]}"
-realmmesh_login_metrics_port="${realmmesh_ports[4]}"
-realmmesh_gateway_metrics_port="${realmmesh_ports[5]}"
+realmmesh_gateway_port="${realmmesh_ports[1]}"
+realmmesh_realm_metrics_port="${realmmesh_ports[2]}"
+realmmesh_gateway_metrics_port="${realmmesh_ports[3]}"
 
 # BSD sed 的 -i 需要一个后缀参数,多段 -e 会被当成文件名("sed: -e: No such
 # file or directory")。用重定向 + mv 重写配置,在 GNU/BSD sed 上行为一致。
@@ -137,19 +135,21 @@ rewrite_config "${realmmesh_test_root}/configs/services/realm.lua" \
     -e "s/listen_port = 7100/listen_port = ${realmmesh_realm_port}/" \
     -e "s/downstream_port = 8000/downstream_port = ${realmmesh_gateway_port}/" \
     -e "s/metrics_port = 9102/metrics_port = ${realmmesh_realm_metrics_port}/"
-rewrite_config "${realmmesh_test_root}/configs/services/login.lua" \
-    -e "s/listen_port = 7000/listen_port = ${realmmesh_login_port}/" \
-    -e "s/downstream_port = 7100/downstream_port = ${realmmesh_realm_port}/" \
-    -e "s/metrics_port = 9101/metrics_port = ${realmmesh_login_metrics_port}/"
+# gateway 的静态兜底下游就是 realm:必须一起改写,否则 handoff 签发的
+# 端点会指向配置里的固定 7100。
 rewrite_config "${realmmesh_test_root}/configs/services/gateway.lua" \
     -e "s/listen_port = 8000/listen_port = ${realmmesh_gateway_port}/g" \
+    -e "s/downstream_port = 7100/downstream_port = ${realmmesh_realm_port}/" \
     -e "s/metrics_port = 9103/metrics_port = ${realmmesh_gateway_metrics_port}/"
 
 export REALMMESH_TLS_CERTIFICATE_FILE="${realmmesh_tls_certificate}"
 export REALMMESH_TLS_PRIVATE_KEY_FILE="${realmmesh_tls_private_key}"
 export REALMMESH_SESSION_TICKET_KEY="0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20"
+# 新链端到端用例要在测试内直接签身份 Token 与号牌:种子必须与网关验签
+# 用的同一份,经环境传进服务组与用例进程。
+export REALMMESH_IDENTITY_KEY_SEED="9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60"
+export REALMMESH_QUEUE_KEY_SEED="4ccd089b28ff96da9db6c346ec114e0f5b8a319f35aba624da8cf6ed4fb8a6fb"
 export REALMMESH_REALM_METRICS_URL="http://127.0.0.1:${realmmesh_realm_metrics_port}/metrics"
-export REALMMESH_LOGIN_METRICS_URL="http://127.0.0.1:${realmmesh_login_metrics_port}/metrics"
 export REALMMESH_GATEWAY_METRICS_URL="http://127.0.0.1:${realmmesh_gateway_metrics_port}/metrics"
 
 case "${realmmesh_case}" in
@@ -168,17 +168,15 @@ case "${realmmesh_case}" in
             exit 1
         fi
         [[ ! -f "${realmmesh_test_root}/.runtime/pids/realm.pid" ]]
-        [[ ! -f "${realmmesh_test_root}/.runtime/pids/login.pid" ]]
         [[ ! -f "${realmmesh_test_root}/.runtime/pids/gateway.pid" ]]
         ;;
     child_failure_stops_group)
         bash "${realmmesh_script}" start
         realmmesh_supervisor_pid="$(<"${realmmesh_test_root}/.runtime/pids/supervisor.pid")"
         realmmesh_realm_pid="$(<"${realmmesh_test_root}/.runtime/pids/realm.pid")"
-        realmmesh_login_pid="$(<"${realmmesh_test_root}/.runtime/pids/login.pid")"
         realmmesh_gateway_pid="$(<"${realmmesh_test_root}/.runtime/pids/gateway.pid")"
 
-        kill -KILL "${realmmesh_login_pid}"
+        kill -KILL "${realmmesh_realm_pid}"
         for realmmesh_attempt in {1..100}; do
             if ! kill -0 "${realmmesh_supervisor_pid}" 2>/dev/null &&
                 ! kill -0 "${realmmesh_realm_pid}" 2>/dev/null &&
@@ -187,7 +185,7 @@ case "${realmmesh_case}" in
             fi
             sleep 0.1
         done
-        printf 'service group survived a Login process failure\n' >&2
+        printf 'service group survived a Realm process failure\n' >&2
         exit 1
         ;;
     stop_is_reverse_ordered)
@@ -195,17 +193,14 @@ case "${realmmesh_case}" in
         bash "${realmmesh_script}" stop >/dev/null
         realmmesh_supervisor_log="${realmmesh_test_root}/.runtime/logs/supervisor/console.log"
         realmmesh_gateway_line="$(grep -n '^Stopping gateway$' "${realmmesh_supervisor_log}" | tail -1 | cut -d: -f1)"
-        realmmesh_login_line="$(grep -n '^Stopping login$' "${realmmesh_supervisor_log}" | tail -1 | cut -d: -f1)"
         realmmesh_realm_line="$(grep -n '^Stopping realm$' "${realmmesh_supervisor_log}" | tail -1 | cut -d: -f1)"
-        [[ "${realmmesh_gateway_line}" -lt "${realmmesh_login_line}" ]]
-        [[ "${realmmesh_login_line}" -lt "${realmmesh_realm_line}" ]]
+        [[ "${realmmesh_gateway_line}" -lt "${realmmesh_realm_line}" ]]
         ;;
     commands_manage_service_group)
         bash "${realmmesh_script}" start
         realmmesh_status_output="$(bash "${realmmesh_script}" status)"
         grep -Eq '^manager +running' <<< "${realmmesh_status_output}"
         grep -Eq '^gateway +running' <<< "${realmmesh_status_output}"
-        grep -Eq '^login +running' <<< "${realmmesh_status_output}"
         grep -Eq '^realm +running' <<< "${realmmesh_status_output}"
 
         realmmesh_old_supervisor="$(<"${realmmesh_test_root}/.runtime/pids/supervisor.pid")"
@@ -220,16 +215,15 @@ case "${realmmesh_case}" in
             exit 1
         fi
         ;;
-    three_stage_flow_uses_service_group)
-        [[ -x "${realmmesh_three_stage_test}" ]]
+    new_chain_flow_uses_service_group)
+        [[ -x "${realmmesh_new_chain_test}" ]]
         bash "${realmmesh_script}" start
-        REALMMESH_THREE_STAGE_EXTERNAL=1 \
-        REALMMESH_THREE_STAGE_CONFIG_ROOT="${realmmesh_test_root}/configs" \
-        REALMMESH_THREE_STAGE_LOGIN_PORT="${realmmesh_login_port}" \
-        REALMMESH_THREE_STAGE_REALM_PORT="${realmmesh_realm_port}" \
-        REALMMESH_THREE_STAGE_GATEWAY_PORT="${realmmesh_gateway_port}" \
-            "${realmmesh_three_stage_test}" \
-            --gtest_filter=ThreeStageFlowTest.LogsInSelectsACharacterAndEntersTheGateway
+        REALMMESH_NEW_CHAIN_EXTERNAL=1 \
+        REALMMESH_NEW_CHAIN_CONFIG_ROOT="${realmmesh_test_root}/configs" \
+        REALMMESH_NEW_CHAIN_REALM_PORT="${realmmesh_realm_port}" \
+        REALMMESH_NEW_CHAIN_GATEWAY_PORT="${realmmesh_gateway_port}" \
+            "${realmmesh_new_chain_test}" \
+            --gtest_filter=NewChainFlowTest.AttachesToGatewayAndEntersRealm
         bash "${realmmesh_script}" stop >/dev/null
         ;;
     *)

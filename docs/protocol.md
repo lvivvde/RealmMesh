@@ -32,23 +32,15 @@ QUIC 在一个客户端发起的长期可靠双向流上承载该字节流；不
 | `port` | 端口；Gateway 两种协议使用同一数字 |
 | `priority` | 数字越小优先级越高 |
 
-`LoginSucceeded.realm_endpoints` 与 `EnterGameIssued.gateway_endpoints` 都是候选列表。
+`EnterRealmGranted.realm_endpoints` 是候选列表。
 客户端不得把证书或 ALPN 错误解释为“网络不支持 QUIC”。
 
 ## 消息 ID
 
 | ID | 方向 | 消息 |
 |---:|---|---|
-| 1001 | C2S | `LoginRequest` |
-| 1002 | S2C | `LoginSucceeded` |
-| 1101 | C2S | `RealmAuthenticate` |
-| 1102 | S2C | `CharacterList` |
-| 1103 | C2S | `SelectCharacter` |
-| 1104 | S2C | `EnterGameIssued` |
 | 1105 | C2S | `HeartbeatRequest` |
 | 1106 | S2C | `HeartbeatResponse` |
-| 1201 | C2S | `EnterGame` |
-| 1202 | S2C | `EnterGameAccepted` |
 | 1301 | C2S | `EdgeAttach` |
 | 1302 | S2C | `EdgeAttachAccepted` |
 | 1303 | S2C | `EnterRealmGranted` |
@@ -56,12 +48,17 @@ QUIC 在一个客户端发起的长期可靠双向流上承载该字节流；不
 | 1305 | S2C | `EnterRealmAccepted` |
 | 1999 | S2C | `EdgeError` |
 
-Realm 鉴权成功后，客户端每 10 秒发送一次 `HeartbeatRequest`，服务端使用相同的
-`request_id` 返回 `HeartbeatResponse`。进入 Gateway 或 Realm 连接断开时停止心跳。
-心跳用于刷新 Realm 的应用层连接活动时间，不能用 TCP KeepAlive 代替。
+已退役的 ID（1001、1002、1101、1102、1103、1104、1201、1202）永久作废、不得复用：
+`envelope.message_id` 落在这组编号上时，接收方按未知消息拒绝。
+
+客户端在 Realm 入场受理（`EnterRealmAccepted`）后每 10 秒发送一次
+`HeartbeatRequest`，服务端使用相同的 `request_id` 返回 `HeartbeatResponse`；
+连接断开时停止心跳。心跳用于刷新 Realm 的应用层连接活动时间，不能用 TCP
+KeepAlive 代替。Gateway 会话不承载心跳：attach 受理后网关只负责下发直连凭证。
 
 Gateway 的两个传输可以并行进行安全握手，但只有竞速胜出的连接可以发送
-`EnterGameTicket`。票据在 Gateway 单次消费，后到连接不得重发。
+`EdgeAttach`。身份 Token 的 `jti` 在 Gateway 的 pending→fetching 迁移处单次消费，
+后到连接不得重发；`EnterRealm` 直连凭证在 Realm 单次兑换，重复提交按重放拒绝。
 
 ## 初次降级规则
 

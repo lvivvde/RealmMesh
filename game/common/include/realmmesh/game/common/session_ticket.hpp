@@ -19,16 +19,16 @@ using SessionTicketKey = std::array<std::byte, session_ticket_key_size>;
 using SessionTicketId = std::array<std::byte, session_ticket_id_size>;
 using CorrelationId = std::array<std::byte, correlation_id_size>;
 
+/// 票据用途。用途字节写入票据明文并参与验签,是线上标识:已退役的数值
+/// 永久作废、不复用(1 为登录票据、2 为入场票据,两条路径都已删除)。
+/// 用途校验保留在编解码里作为纵深防御:票据声明值与期望值不符即拒绝。
 enum class TicketPurpose : std::uint8_t {
-    Login = 1,
-    EnterGame = 2,
-    /// 网关 handoff 直连凭证(#45;spec §4)。旧链 EnterGame 用途保留
-    /// 至 #50 退役。
+    /// 网关 handoff 直连凭证(#45;spec §4)。
     EnterRealm = 3,
 };
 
 struct SessionTicketClaims {
-    TicketPurpose purpose{TicketPurpose::Login};
+    TicketPurpose purpose{TicketPurpose::EnterRealm};
     SessionTicketId ticket_id{};
     std::uint64_t account_id{0};
     std::uint32_t realm_id{0};
@@ -90,7 +90,8 @@ private:
 
 enum class RedeemStatus : std::uint8_t {
     Accepted,
-    /// 签名、版本、用途、期限或可解码性任一不满足;票据未被消费。
+    /// 签名、版本、用途、期限(含时钟容差)或可解码性任一不满足;
+    /// 票据未被消费。
     InvalidTicket,
     /// 票据有效但 ticket_id 已消费过。
     Replayed,

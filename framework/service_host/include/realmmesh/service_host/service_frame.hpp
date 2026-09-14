@@ -38,7 +38,8 @@ class MetricsRegistry;
 
 namespace realm::service_host {
 
-/// 服务名 → 集群身份的唯一映射;gateway/realm/login 之外的名字无身份。
+/// 服务名 → 集群身份的唯一映射;gateway/realm/login_verify/queue 之外
+/// 的名字无身份。
 [[nodiscard]] std::optional<cluster::ServiceType> parse_service_identity(
     std::string_view service_name);
 
@@ -60,15 +61,15 @@ struct EdgePipelineTuning {
     std::chrono::milliseconds handoff_grace{5'000};
 };
 
-/// 单服务业务帧:搬运自旧 apps/{login,realm,gateway}/main.cpp 的消息循环。
-/// 构造时把服务名解析为身份;无身份的服务名不处理业务消息(帧循环空转)。
-/// 已知服务要求 REALMMESH_SESSION_TICKET_KEY 已设置(与旧 main 一致,
-/// 缺失时构造抛 std::runtime_error)。
+/// 单服务业务帧:承载 Realm 与 Gateway 的边协议消息循环。构造时把服务名
+/// 解析为身份;无身份的服务名不处理业务消息(帧循环空转)。
+/// 已知服务要求 REALMMESH_SESSION_TICKET_KEY 已设置(缺失时构造抛
+/// std::runtime_error)。
 /// gateway 身份额外持有 Edge 登录管线(阶段机 + 额度会计,#43):管线
 /// 只活在业务帧线程,由 GatewayEvent 驱动登记/注销,由 attach 驱动迁移。
 class ServiceFrame final {
 public:
-    /// downstream 为静态兜底下游(login→realm、realm→gateway;gateway 不用)。
+    /// downstream 为静态兜底下游(realm→gateway;gateway 不用)。
     /// edge_fetch_source(#44):拉取源由宿主注入;空则用内部延迟桩
     /// (恒成功、100ms 自报耗时,真 DB 接入前的过渡形态)。
     ServiceFrame(
@@ -102,17 +103,12 @@ public:
 
 private:
     /// 会话生命周期簿记:SessionClosed 清除票据 claims,SessionEstablished
-    /// 无携带状态(claims 在 authenticate 分支写入);返回是否为业务消息。
+    /// 无携带状态(claims 在入场兑换分支写入);返回是否为业务消息。
     [[nodiscard]] bool absorb_lifecycle(
         const game::gateway::GatewayEvent& event);
-    void handle_login_events(
-        observability::Logger& logger,
-        game::gateway::GatewayRuntime& runtime,
-        cluster::ServiceResolver* resolver);
     void handle_realm_events(
         observability::Logger& logger,
         game::gateway::GatewayRuntime& runtime,
-        cluster::ServiceResolver* resolver,
         cluster::InstanceBudgetReporter* budget_reporter);
     /// 直连入场兑换(#46):EnterRealm 票据单次消费,受理即迁入
     /// established;任何失败回 3002 并终结(未建立会话 decline,
@@ -153,7 +149,7 @@ private:
     std::size_t max_events_per_frame_{0};
     std::optional<cluster::ServiceType> identity_;
     game::common::SessionTickets tickets_;
-    /// 票据 claims 以 EdgeSessionId 寻址:authenticate 分支先写入,
+    /// 票据 claims 以 EdgeSessionId 寻址:Realm 的入场兑换分支先写入,
     /// accept 成功(SessionEstablished)后生效,SessionClosed 时清除。
     std::unordered_map<
         game::gateway::EdgeSessionId,

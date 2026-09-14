@@ -1,6 +1,6 @@
 # RealmMesh
 
-分布式的游戏服务端框架:Realm / Login / Gateway 服务经 etcd 服务发现组成拓扑,玩家客户端经 Gateway 入场。
+分布式的游戏服务端框架:Realm / Gateway 服务经 etcd 服务发现组成拓扑,登录验证与排队服务经 HTTPS 边服务接入,玩家客户端经 Gateway 入场。
 
 ## Language
 
@@ -25,7 +25,7 @@ _Avoid_: driver、provider
 ### Cluster
 
 **Service Instance**:
-一个服务进程在 etcd 里的一次注册:身份(取自 `realm::cluster::ServiceType` 枚举,线名 gateway/login/realm)、instance_id 与端点列表,随租约存活。
+一个服务进程在 etcd 里的一次注册:身份(取自 `realm::cluster::ServiceType` 枚举,线名 gateway/realm/login_verify/queue)、instance_id 与端点列表,随租约存活。
 _Avoid_: node(node_id 指承载它的机器)、endpoint(端点只是实例的字段)
 
 **Service Registry**:
@@ -37,7 +37,7 @@ _Avoid_: DNS、目录服务
 _Avoid_: 心跳(续约的载体是租约,不是独立的心跳通道)
 
 **Service Resolver**:
-订阅某一身份的实例变化并给出当前可用端点的组件;连接方用它取得 Login/Realm/Gateway 地址。
+订阅某一身份的实例变化并给出当前可用端点的组件;连接方用它取得 Realm/Gateway 地址。
 _Avoid_: load balancer(它只暴露端点,选择策略在连接层)
 
 **Lease**:
@@ -69,8 +69,8 @@ _Avoid_: backup channel、secondary transport、failover
 ### Access
 
 **Login Verifier**:
-登录链路的第一站:无状态、可水平扩展,只回答账号是否有效(有效、封禁、白名单),通过后签发身份 Token;取代旧 Login 服的对外职责。
-_Avoid_: 登录服(旧 Login 服已退役)、鉴权服(鉴权在本仓库专指票据兑换)、auth server
+登录链路的第一站:无状态、可水平扩展,只回答账号是否有效(有效、封禁、白名单),通过后签发身份 Token。
+_Avoid_: 登录服(登录由验票与排队两段承担)、鉴权服(鉴权在本仓库专指票据兑换)、auth server
 
 **Identity Token**:
 登录健全服签发的可验签凭据(JWT/EdDSA);边缘、排队调度服、网关各自本地验签,不引入共享状态。
@@ -104,8 +104,8 @@ _Avoid_: capacity(容量是规格层面的总量概念)、load(负载是原始�
 _Avoid_: packet、frame(frame 指传输层的长度帧概念)
 
 **Session Ticket**:
-libsodium 签发的一次性准入凭据(`TicketPurpose`),在兑换点单次消费(重放防护)。在新登录链路(Access 一节)中:Login 用途随旧 Login 服退役;EnterGame 用途更名 **EnterRealm**——网关在拉取完成后签发,客户端携带,Realm 兑换后直连入场(即直连凭证)。入场前置凭据为身份 Token + 放行凭证;网关入口的 `jti` 单次消费与之并行。
-_Avoid_: token、credential、cookie、EnterGameTicket(旧名)
+libsodium 签发的一次性准入凭据(`TicketPurpose`),在兑换点单次消费(重放防护)。唯一的活用途是 **EnterRealm**:网关在拉取完成后签发,客户端携带,Realm 兑换后直连入场(即直连凭证)。入场前置凭据为身份 Token + 放行凭证;网关入口的 `jti` 单次消费与之并行。用途数值 1、2 已随旧链退役,永不复用。
+_Avoid_: token、credential、cookie
 
 ### Client
 

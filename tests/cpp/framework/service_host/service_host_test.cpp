@@ -139,23 +139,26 @@ TEST_F(ServiceHostTest, UnknownServiceNameWithDiscoveryThrows) {
     EXPECT_THROW(static_cast<void>(host.start()), std::invalid_argument);
 }
 
+/// 注册被声明为必需而 etcd 不可达 → 启动抛错,且不留下半启动的日志痕迹。
+/// 用 realm 承载:它的配置是扁平形态(transports + service_discovery),
+/// 与 fixture 里写出的服务配置同形。
 TEST_F(ServiceHostTest, RequiredRegistrationFailureThrows) {
     const ScopedTlsEnvironment tls_environment;
     write(
-        root_ / "services" / "login.lua",
+        root_ / "services" / "realm.lua",
         "return { " + transport_lua() +
-            ", downstream_address = \"127.0.0.1\", downstream_port = 7100, "
+            ", downstream_address = \"127.0.0.1\", downstream_port = 8000, "
             "service_discovery = { enabled = true, required = true, "
-            "instance_id = \"login-test-01\", endpoint = "
+            "instance_id = \"realm-test-01\", endpoint = "
             "\"http://127.0.0.1:1\", request_timeout_ms = 200, "
             "watch_interval_ms = 200 } }");
-    ServiceHost host(root_, "login");
+    ServiceHost host(root_, "realm");
     EXPECT_THROW(static_cast<void>(host.start()), std::runtime_error);
     EXPECT_FALSE(host.ready());
     host.stop();  // 抛出后仍可安全关停。
     // 失败启动未写 service_started,关停不得补写无配对的 service_stopped。
     const auto log =
-        read_file(root_ / "logs" / "login" / "login-login-test-01.jsonl");
+        read_file(root_ / "logs" / "realm" / "realm-realm-test-01.jsonl");
     EXPECT_EQ(
         log.find("\"event_name\":\"service_stopped\""), std::string::npos);
     EXPECT_EQ(

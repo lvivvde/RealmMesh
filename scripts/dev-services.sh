@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# 用途：以分布式开发模式分别管理 realm、login、gateway 三个服务进程。
+# 用途：以分布式开发模式分别管理 realm、gateway 两个服务进程。
 # 用法：./scripts/dev-services.sh [start|stop|restart|status]（默认 restart）
 
 set -euo pipefail
@@ -15,8 +15,8 @@ realmmesh_runtime_dir="${realmmesh_root}/.runtime"
 realmmesh_pid_dir="${realmmesh_runtime_dir}/pids"
 realmmesh_action="${1:-restart}"
 # 停止/状态顺序(启动序的反转);启动按 realmmesh_start_services 依赖序。
-realmmesh_services=(gateway login realm)
-realmmesh_start_services=(realm login gateway)
+realmmesh_services=(gateway realm)
+realmmesh_start_services=(realm gateway)
 realmmesh_mesh_binary="${realmmesh_root}/build/dev/bin/realm_mesh"
 realmmesh_config_root="${realmmesh_root}/configs"
 realmmesh_supervisor_pid_file="${realmmesh_pid_dir}/supervisor.pid"
@@ -75,7 +75,7 @@ is_expected_service_process() {
     [[ "$(realmmesh_process_cwd "${realmmesh_pid}")" == "${realmmesh_root}" ]] ||
         return 1
 
-    # 三个服务共用 realm_mesh 二进制,以 --service <name> 参数区分。
+    # 两个服务共用 realm_mesh 二进制,以 --service <name> 参数区分。
     realmmesh_process_has_arguments \
         "${realmmesh_pid}" --service "${realmmesh_service}"
 }
@@ -120,10 +120,6 @@ service_metrics_url() {
         realm)
             printf '%s\n' \
                 "${REALMMESH_REALM_METRICS_URL:-http://127.0.0.1:9102/metrics}"
-            ;;
-        login)
-            printf '%s\n' \
-                "${REALMMESH_LOGIN_METRICS_URL:-http://127.0.0.1:9101/metrics}"
             ;;
         gateway)
             printf '%s\n' \
@@ -381,7 +377,7 @@ start_services() {
     fi
 
     mkdir -p "${realmmesh_pid_dir}"
-    # 模式 2 单服务进程:以依赖序 realm → login → gateway 依次拉起,
+    # 模式 2 单服务进程:以依赖序 realm → gateway 依次拉起,
     # cwd 固定为仓库根(is_expected_service_process 的 cwd 校验依赖它)。
     cd "${realmmesh_root}"
     for realmmesh_service in "${realmmesh_start_services[@]}"; do

@@ -22,7 +22,7 @@ struct CliOverrides {
 /// CLI 覆盖最后生效;日志 file_path 按实例身份生成。
 class LayeredConfigLoader final {
 public:
-    /// 消息服务(gateway/realm/login)的配置。
+    /// 消息服务(gateway/realm)的配置。
     [[nodiscard]] static game::gateway::GatewayConfig load(
         const std::filesystem::path& config_root,
         std::string_view service_name,
