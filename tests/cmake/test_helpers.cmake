@@ -13,10 +13,11 @@
 #
 # 标签约定(ctest -L 依赖它划分快速子集与全量):unit = 进程内 GTest,
 # 不拉子进程、不占固定端口;integration = 驱动真实二进制/真实端口或跨进程
-# (e2e、bash 脚本、RUN_SERIAL 性质)。新增测试必须带标签:常规 GTest 用
-# 缺省即可,占用固定端口或拉起 realm_mesh 的目标必须显式 LABELS integration,
-# 否则会混进 ctest -L unit 的快速子集里抢端口。快速子集 ctest -L unit,
-# 全量 ctest --preset dev。
+# (e2e、bash 脚本、RUN_SERIAL 性质)。分类标签只有这两个;Lua 套件
+# (realm_add_lua_test)在 unit 之外另带 lua 标签,只用于 ctest -L lua 单筛。
+# 新增测试必须带标签:常规 GTest 用缺省即可,占用固定端口或拉起
+# realm_mesh 的目标必须显式 LABELS integration,否则会混进 ctest -L unit
+# 的快速子集里抢端口。快速子集 ctest -L unit,全量 ctest --preset dev。
 #
 # 用例的工作目录固定在 tests/cpp 构建目录(REALMMESH_TEST_WORKING_DIRECTORY)。
 # 拆分前该目录是 gtest_discover_tests 的隐式默认值;现在显式传入,避免依赖

@@ -1,12 +1,17 @@
 # 双模式服务启动设计（拓扑驱动单一宿主）
 
+> 历史文档:记录 2026-08-23 成文时的设计与当时的三服务二进制拓扑,方案已实现。
+> 文中的 `realm_login` / `services/login.lua` 与 `main.config` 的
+> `{"realm","login","gateway"}` 已由 #50 退役,现行结构与拓扑见
+> [`docs/architecture.md`](../architecture.md)。
+
 - 日期:2026-08-23
-- 状态:已与用户对齐设计,待实现
+- 状态:已实现(成文当时待实现;下文 `login` 相关描述为历史形态,线名不复用)
 - 范围:apps/* 启动装配、配置体系、启动/关停编排
 
 ## 1. 背景与目标
 
-当前三个服务二进制(realm_gateway / realm_character / realm_login)由
+成文时三个服务二进制(realm_gateway / realm_character / realm_login)由
 `scripts/dev-services.sh` 无序并发拉起,依赖靠 etcd 发现 + Lua 静态地址
 兜底,存在启动窗口期客户端拿到"半成品"服务的问题。三个 main.cpp 的装配
 逻辑(配置→Logger→Metrics→发现→Runtime→主循环→关停)高度重复。

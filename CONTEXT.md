@@ -138,3 +138,7 @@ _Avoid_: 快速子集(那是运行时选择的名字,不是测试类别)
 **Integration Test**:
 驱动真实二进制、真实端口或跨进程协作的测试(e2e、bash 脚本驱动、RUN_SERIAL 性质);CTest 标签 `integration`,不进快速子集,全量与 CI 覆盖。
 _Avoid_: e2e(e2e 只是其中驱动完整二进制拓扑的形态,不是整类的别名)
+
+**Lua 业务模块测试**:
+`realm_add_lua_test` 注册的 Lua 套件,类别同 Unit Test;在 `unit` 之外另带 CTest 标签 `lua`,只用于 `ctest -L lua` 单筛。
+_Avoid_: 第三类测试(lua 是筛选用标签,不与 unit / integration 并列)

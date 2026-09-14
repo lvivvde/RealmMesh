@@ -306,9 +306,10 @@ UDP 与 TCP 端口空间）。
 
 ## 测试
 
-归置、注册与标签约定见 [tests/README.md](tests/README.md)。标签只有 `unit` 与
+归置、注册与标签约定见 [tests/README.md](tests/README.md)。分类标签只有 `unit` 与
 `integration` 两类：进程内单测与 Lua 模块测试归 `unit`（快速子集），占用固定端口
-或拉起 `realm_mesh` 的用例必须显式标 `integration`。
+或拉起 `realm_mesh` 的用例必须显式标 `integration`；Lua 套件另带的 `lua` 标签只作
+筛选（`ctest -L lua`）。
 
 ```bash
 ctest --preset dev            # 全量

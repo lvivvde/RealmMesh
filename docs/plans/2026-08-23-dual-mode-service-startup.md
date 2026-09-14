@@ -1,5 +1,11 @@
 # 双模式服务启动实现计划
 
+> 历史文档:本文是 2026-08-23 的实现计划,任务复选框保留成文时的原状(未回填)。所列工作已随实现落地,
+> 产物在 `framework/service_host`、`apps/mesh_host` 与 `tests/cpp/framework/service_host/` 的用例中,
+> 全量与 CI 均覆盖;**计划已执行完毕,不要按下面的任务清单重新执行**。文中的 `login` 服务与
+> `{"realm","login","gateway"}` 拓扑已由 #50 退役,现行结构与拓扑见
+> [`docs/architecture.md`](../architecture.md)。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 单一 `realm_mesh` 二进制以拓扑驱动方式支持 all-in-one(模式 1)与单服务分布式(模式 2)两种启动形态,DAG 波次启动 + 全员就绪门禁。

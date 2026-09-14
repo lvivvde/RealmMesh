@@ -26,4 +26,4 @@ Prefer `codebase-memory-mcp` tools (`search_graph`, `trace_path`, `get_code_snip
 
 ### Testing
 
-Tests live under `tests/`: C++ GTest in `tests/cpp` (mirrors the source tree), Lua suites in `tests/lua`, script-driven integration in `tests/scripts`. Read `tests/README.md` before adding tests — every test must carry a ctest label (`unit`/`integration`); fast subset is `ctest -L unit`, full run is `./scripts/build.sh`.
+Tests live under `tests/`: C++ GTest in `tests/cpp` (mirrors the source tree), Lua suites in `tests/lua`, script-driven integration in `tests/scripts`. Read `tests/README.md` before adding tests — every test must carry a ctest label (`unit`/`integration`; Lua suites additionally carry the `lua` filter label); fast subset is `ctest -L unit`, full run is `./scripts/build.sh`.
