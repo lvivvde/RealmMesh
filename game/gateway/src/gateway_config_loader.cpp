@@ -1,5 +1,6 @@
 #include "realmmesh/game/gateway/gateway_config_loader.hpp"
 
+#include "realmmesh/network/transport/transport_config.hpp"
 #include "realmmesh/scripting/lua_runtime.hpp"
 
 #include <cstdlib>
@@ -185,7 +186,7 @@ void read_logging_runtime_policy(
                 "certificate_chain_file_environment"),
             .private_key_file = path_from_config_or_environment(
                 table, "private_key_file", "private_key_file_environment"),
-            .alpn = optional_string(table, "alpn", "realmmesh-edge/1"),
+            .alpn = optional_string(table, "alpn", std::string{network::kEdgeAlpn}),
         };
     }
     return config;

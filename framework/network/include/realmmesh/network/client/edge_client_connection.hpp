@@ -35,6 +35,9 @@ public:
 
     /// 复用已建立的流(竞速胜出的连接);流须已按 realmmesh-edge/1 协商。
     explicit EdgeClientConnection(std::shared_ptr<ISecureByteStream> stream);
+    /// 借用流:不接管所有权,调用方保证流在对象生命周期内存活。兑换口在
+    /// 调用期内复用链路竞速出的 Realm 流,正是这种用法。
+    explicit EdgeClientConnection(ISecureByteStream& stream);
     ~EdgeClientConnection();
     EdgeClientConnection(const EdgeClientConnection&) = delete;
     EdgeClientConnection& operator=(const EdgeClientConnection&) = delete;
@@ -48,7 +51,9 @@ public:
         StreamDeadline deadline);
 
 private:
-    std::shared_ptr<ISecureByteStream> stream_;
+    /// 持有流的情形(自己拨号或接管);借用构造时为空。
+    std::shared_ptr<ISecureByteStream> owned_;
+    ISecureByteStream* stream_{};
     network::LengthFieldCodec codec_{kMaxEdgeFramePayload};
     /// 已收到但尚未成帧的字节(帧跨读边界时留存)。
     std::vector<std::byte> pending_;

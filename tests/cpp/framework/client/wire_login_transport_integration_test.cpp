@@ -1,20 +1,29 @@
 /// #49 集成档:真实 TLS loopback(临时端口)+ 生产 WireLoginTransport +
-/// LoginChain 驱动,断言两段竞速真的建上连、HTTP 段按契约携带凭据。
+/// LoginChain 驱动,断言两段竞速真的建上连、HTTP 段按契约携带凭据、Realm
+/// 段在生产兑换口上完成 1304/1305 兑换。
 ///
-/// 为什么用桩而不是 MeshHost:Realm 段的 EnterRealm 兑换协议归 #46
-/// (edge.proto 只有 1303 下行票据),业务服尚不存在。网关桩按真实
-/// 1301/1302/1303 帧交互、Realm 桩按真实 TLS 字节流交互,兑换内容由测试
-/// 注入;#46 落地后把桩换成真服务即可,链路代码不动。
+/// 两端的「真实」程度:#49 时 Realm 侧兑换协议(#46)未落地,故用桩注入
+/// 兑换内容。现在 Realm 段的服务端就是**真实 realm 服务**(GatewayRuntime +
+/// ServiceFrame + 共享票据键),网关桩签发的也是真实 EnterRealm 票据;客户端
+/// 不再有兑换桩——跑的就是生产 WireEnterRealmRedeemer。
 ///
 /// 帧约定说明:TlsTcpTransport 自带 4 字节长度前缀(message 语义:
 /// MessageReceived/ send() 收发的都是去帧的消息体),所以桩里直接按
 /// 信封字节处理,不需要也不允许再套一层长度前缀。
 
 #include "realmmesh/client/wire_login_transport.hpp"
+#include "realmmesh/common/v1/envelope.pb.h"
 #include "realmmesh/game/common/edge_protocol.hpp"
+#include "realmmesh/game/common/session_ticket.hpp"
+#include "realmmesh/game/gateway/gateway_runtime.hpp"
 #include "realmmesh/network/client/edge_client_connection.hpp"
+#include "realmmesh/network/codec/length_field_codec.hpp"
+#include "realmmesh/network/core/byte_buffer.hpp"
 #include "realmmesh/network/http/http_server.hpp"
 #include "realmmesh/network/transport/transport_factory.hpp"
+#include "realmmesh/observability/logger.hpp"
+#include "realmmesh/service_host/service_frame.hpp"
+#include "realmmesh/test_support/temporary_directory.hpp"
 
 #include <gtest/gtest.h>
 
@@ -24,6 +33,8 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
+#include <filesystem>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -43,6 +54,23 @@ namespace edge_v1 = ::realmmesh::protocol::edge::v1;
 namespace net_client = ::realm::network::client;
 
 using std::chrono::milliseconds;
+
+/// 测试侧共享票据键:网关桩用它签发真实 EnterRealm 票据,Realm 服务端用它
+/// 验签(#46 realm 测试同款键)。
+constexpr std::string_view kSharedTicketKeyHex =
+    "0102030405060708090a0b0c0d0e0f10"
+    "1112131415161718191a1b1c1d1e1f20";
+
+/// 以测试侧共享密钥签一张真实 EnterRealm 票据。
+[[nodiscard]] std::string mint_enter_realm_ticket(std::uint32_t realm_id) {
+    const common::SessionTickets tickets{
+        common::parse_ticket_key_hex(std::string{kSharedTicketKeyHex})};
+    const auto ticket = tickets.issue(
+        common::TicketPurpose::EnterRealm, /*account_id=*/42, realm_id,
+        /*character_id=*/0, std::chrono::seconds{60});
+    return std::string{reinterpret_cast<const char*>(ticket.data()),
+                       ticket.size()};
+}
 
 [[nodiscard]] network::Http1Response json_response(int status,
                                                   std::string body) {
@@ -200,6 +228,8 @@ public:
     std::atomic<int> reject_attach_remaining{0};
     std::atomic<int> attach_calls{0};
     std::atomic<int> handoff_sent{0};
+    /// 签发票据归属的 realm(负向用例注入别的 realm 以触发 Realm 侧拒绝)。
+    std::atomic<std::uint32_t> ticket_realm_id{1};
 
     [[nodiscard]] std::string last_identity_token() const {
         std::lock_guard lock(mutex_);
@@ -208,6 +238,10 @@ public:
     [[nodiscard]] std::string last_number_token() const {
         std::lock_guard lock(mutex_);
         return last_number_token_;
+    }
+    [[nodiscard]] std::string last_enter_realm_ticket() const {
+        std::lock_guard lock(mutex_);
+        return last_enter_realm_ticket_;
     }
 
 private:
@@ -244,7 +278,13 @@ private:
         send(session_id, common::encode(accepted));
 
         common::EnterRealmGranted granted;
-        granted.set_enter_realm_ticket("ert-1");
+        const std::string ticket =
+            mint_enter_realm_ticket(ticket_realm_id.load());
+        granted.set_enter_realm_ticket(ticket);
+        {
+            std::lock_guard lock(mutex_);
+            last_enter_realm_ticket_ = ticket;
+        }
         auto* quic = granted.add_realm_endpoints();
         quic->set_address("127.0.0.1");
         quic->set_port(realm_port_);
@@ -270,93 +310,103 @@ private:
     mutable std::mutex mutex_;
     std::string last_identity_token_;
     std::string last_number_token_;
+    std::string last_enter_realm_ticket_;
 };
 
-/// 业务服桩:真实 TLS(ALPN realmmesh-realm/1)。收到兑换字节即回执;
-/// 兑换内容归 #46(桩只证明字节真的到了业务服),帧约定沿用 mesh 服务
-/// 的 message 语义。
-class RealmStub final {
+/// Realm 段的服务端:真实 realm 服务帧(#46 的 1304/1305 处理器)+ 与网关桩
+/// 共享的票据键,监听真实 TLS。ALPN 与网关段一致 —— Realm 段就是 edge 段,
+/// 所以这里不配 `.alpn`,取传输层默认值。
+///
+/// 自持 Logger 与临时日志目录;构造期要求共享票据键在环境里(ServiceFrame
+/// 缺失即抛),故构造/析构自己管好这个 env(单进程内同一时刻至多一个实例)。
+class RealmNode final {
 public:
-    explicit RealmStub(network::IMessageTransport& transport)
-        : transport_(transport) {}
-
-    void poll(milliseconds timeout) {
-        for (const auto& event : transport_.poll_once(timeout)) {
-            if (event.kind != network::TransportEventKind::MessageReceived) {
-                continue;
-            }
-            std::lock_guard lock(mutex_);
-            received_.append(
-                reinterpret_cast<const char*>(event.payload.data()),
-                event.payload.size());
-            if (!replied_) {
-                replied_ = true;
-                const std::string ack{"WELCOME"};
-                static_cast<void>(transport_.send(
-                    event.session_id,
-                    std::span<const std::byte>(
-                        reinterpret_cast<const std::byte*>(ack.data()),
-                        ack.size())));
-            }
-        }
+    RealmNode() {
+        static_cast<void>(::setenv("REALMMESH_SESSION_TICKET_KEY",
+                                   std::string{kSharedTicketKeyHex}.c_str(),
+                                   1));
+        log_directory_.emplace("realmmesh-client-realm-");
+        observability::LoggerConfig logger_config;
+        logger_config.file_path = log_directory_->path() / "realm.log";
+        logger_.emplace(
+            logger_config,
+            observability::ServiceIdentity{.service_name = "realm"});
+        runtime_.emplace(
+            game::gateway::GatewayConfig{.transports = {realm_transport()}},
+            game::gateway::GatewayRuntimeOptions{
+                .inbound_capacity = 64,
+                .outbound_capacity = 64,
+                .io_poll_interval = milliseconds{1}});
+        runtime_->start();
+        frame_.emplace("realm", "127.0.0.1", 8443, 64,
+                       service_host::EdgePipelineCaps{.conn_capacity = 4,
+                                                      .fetch_capacity = 0});
     }
 
-    [[nodiscard]] std::string received() const {
-        std::lock_guard lock(mutex_);
-        return received_;
+    ~RealmNode() {
+        frame_.reset();
+        runtime_->stop();
+        static_cast<void>(::unsetenv("REALMMESH_SESSION_TICKET_KEY"));
+    }
+
+    RealmNode(const RealmNode&) = delete;
+    RealmNode& operator=(const RealmNode&) = delete;
+
+    [[nodiscard]] std::uint16_t port() const {
+        return runtime_->local_endpoints().front().port;
+    }
+
+    /// 驱动一帧业务(runtime 自己的 IO 线程负责传输轮询)。
+    void poll(milliseconds timeout) {
+        static_cast<void>(timeout);
+        frame_->tick(*logger_, *runtime_, nullptr);
     }
 
 private:
-    network::IMessageTransport& transport_;
-    mutable std::mutex mutex_;
-    std::string received_;
-    bool replied_{false};
-};
-
-/// 兑换口实现:在已直连的 Realm 流上按 mesh 帧约定写票据、读回执。
-/// 复用生产的 EdgeClientConnection(它就是「长度前缀帧 + 收发一帧」),
-/// 别名共享指针只是借用调用方的流,不接管生命周期。
-class StubRedeemer final : public EnterRealmRedeemer {
-public:
-    [[nodiscard]] PortStatus redeem(net_client::ISecureByteStream& stream,
-                                    std::string_view enter_realm_ticket,
-                                    TimePoint deadline) override {
-        last_ticket = std::string{enter_realm_ticket};
-        net_client::EdgeClientConnection connection{
-            std::shared_ptr<net_client::ISecureByteStream>(&stream,
-                                                           [](auto*) {})};
-        if (!connection.send_frame(common::protobuf_bytes(enter_realm_ticket),
-                                   deadline)) {
-            return PortStatus::error(ChainFailure::EnterRealmRejected,
-                                     "写票据失败");
-        }
-        const auto reply = connection.receive_frame(deadline);
-        if (!reply.has_value()) {
-            return PortStatus::error(ChainFailure::EnterRealmRejected,
-                                     "读回执失败");
-        }
-        const std::string text(reinterpret_cast<const char*>(reply->data()),
-                               reply->size());
-        if (text != "WELCOME") {
-            return PortStatus::error(ChainFailure::EnterRealmRejected,
-                                     "回执不符: " + text);
-        }
-        return PortStatus::success();
+    [[nodiscard]] static network::TransportConfig realm_transport() {
+        network::TransportConfig config{
+            .name = "realm",
+            .protocol = network::TransportProtocol::TlsTcp,
+            .listen_address = "127.0.0.1",
+            .listen_port = 0,
+            .max_sessions = 16,
+            .max_payload_size = 16 * 1024,
+        };
+        config.tls = network::TransportConfig::TlsServerIdentity{
+            .certificate_chain_file = REALMMESH_TEST_TLS_CERTIFICATE,
+            .private_key_file = REALMMESH_TEST_TLS_PRIVATE_KEY,
+        };
+        return config;
     }
 
-    std::string last_ticket;
+    std::optional<test_support::TemporaryDirectory> log_directory_;
+    std::optional<observability::Logger> logger_;
+    std::optional<game::gateway::GatewayRuntime> runtime_;
+    std::optional<service_host::ServiceFrame> frame_;
 };
 
-/// 三个桩共用一个驱动线程:HttpServer 与两条消息传输都是轮询模型
-/// (属主线程驱动 poll_once),与生产服务同形。
+/// 三个端共用一个驱动线程:HttpServer、网关传输与 realm 服务帧都是轮询
+/// 模型(属主线程驱动),与生产服务同形。nullptr 表示本用例不使用该端
+/// (端口级用例只驱动 realm 服务)。
 class PollDriver final {
 public:
-    PollDriver(HttpStub& http, EdgeStub& edge, RealmStub& realm)
-        : thread_([&http, &edge, &realm](std::stop_token stop) {
+    PollDriver(HttpStub* http, EdgeStub* edge, RealmNode* realm)
+        : thread_([http, edge, realm](std::stop_token stop) {
               while (!stop.stop_requested()) {
-                  http.poll(milliseconds{1});
-                  edge.poll(milliseconds{1});
-                  realm.poll(milliseconds{1});
+                  if (http == nullptr && edge == nullptr) {
+                      // 只剩 realm 服务帧时没有阻塞式 poll 兜底,补一个节拍
+                      // 避免空转吃满 CPU。
+                      std::this_thread::sleep_for(milliseconds{1});
+                  }
+                  if (http != nullptr) {
+                      http->poll(milliseconds{1});
+                  }
+                  if (edge != nullptr) {
+                      edge->poll(milliseconds{1});
+                  }
+                  if (realm != nullptr) {
+                      realm->poll(milliseconds{1});
+                  }
               }
           }) {}
 
@@ -364,9 +414,10 @@ private:
     std::jthread thread_;
 };
 
-/// 网关桩 + 业务服桩的传输配置(真实 TLS,ALPN 各自就位)。
-[[nodiscard]] std::array<network::TransportConfig, 2> stub_configs() {
-    auto gateway = network::TransportConfig{
+/// 网关桩的传输配置(真实 TLS;ALPN 取传输层默认的 edge 线)。Realm 段的
+/// 服务端由 RealmNode 自持 —— 它要挂真实 ServiceFrame,不是一条裸传输。
+[[nodiscard]] network::TransportConfig gateway_config() {
+    network::TransportConfig gateway{
         .name = "gateway-stub",
         .protocol = network::TransportProtocol::TlsTcp,
         .listen_address = "127.0.0.1",
@@ -375,20 +426,8 @@ private:
     gateway.tls = network::TransportConfig::TlsServerIdentity{
         .certificate_chain_file = REALMMESH_TEST_TLS_CERTIFICATE,
         .private_key_file = REALMMESH_TEST_TLS_PRIVATE_KEY,
-        .alpn = "realmmesh-edge/1",
     };
-    auto realm = network::TransportConfig{
-        .name = "realm-stub",
-        .protocol = network::TransportProtocol::TlsTcp,
-        .listen_address = "127.0.0.1",
-        .listen_port = 0,
-    };
-    realm.tls = network::TransportConfig::TlsServerIdentity{
-        .certificate_chain_file = REALMMESH_TEST_TLS_CERTIFICATE,
-        .private_key_file = REALMMESH_TEST_TLS_PRIVATE_KEY,
-        .alpn = "realmmesh-realm/1",
-    };
-    return {std::move(gateway), std::move(realm)};
+    return gateway;
 }
 
 /// 生产链路压真实 TLS 端口的旋钮:压缩轮询/重试时标(结构不变,规格数值
@@ -428,29 +467,27 @@ private:
 }
 
 /// 七态全走真实 TLS:HTTP 段(verify/取号/轮询/查号)按契约带凭据,
-/// 网关段用 attach 帧拿到 1303,Realm 段再起一次竞速并把票据写到业务服。
+/// 网关段用 attach 帧拿到 1303(真实 EnterRealm 票据),Realm 段再起一次
+/// 竞速,生产兑换口把票据兑换成 1305 并把链路推进 InGame。
 TEST(WireLoginTransportIntegrationTest, DrivesLoginChainOverRealTls) {
-    const auto configs = stub_configs();
+    const std::array<network::TransportConfig, 1> configs{gateway_config()};
     auto transports = network::TransportFactory::create_enabled(configs);
-    ASSERT_EQ(transports.size(), 2U);
-    const auto gateway_port = transports.at(0)->local_endpoint().port;
-    const auto realm_port = transports.at(1)->local_endpoint().port;
+    ASSERT_EQ(transports.size(), 1U);
+    const auto gateway_port = transports.front()->local_endpoint().port;
     ASSERT_NE(gateway_port, 0);
-    ASSERT_NE(realm_port, 0);
 
     HttpStub http;
-    EdgeStub edge(*transports.at(0), realm_port);
-    RealmStub realm(*transports.at(1));
-    const PollDriver driver(http, edge, realm);
+    RealmNode realm;
+    EdgeStub edge(*transports.front(), realm.port());
+    const PollDriver driver(&http, &edge, &realm);
 
     WireEndpoints endpoints;
     endpoints.login_verify_port = http.port();
     endpoints.queue_port = http.port();
-    endpoints.realm_alpn = "realmmesh-realm/1";
     // 测试证书自签:显式关闭校验(生产默认校验)。
     endpoints.verify_peer = false;
 
-    StubRedeemer redeemer;
+    WireEnterRealmRedeemer redeemer;
     WireLoginTransport transport(endpoints, redeemer, fast_wire_options());
 
     LoginChain chain(transport, fast_chain_config(gateway_port));
@@ -493,37 +530,36 @@ TEST(WireLoginTransportIntegrationTest, DrivesLoginChainOverRealTls) {
     EXPECT_EQ(edge.last_number_token(), "grant-1");
     EXPECT_EQ(edge.handoff_sent.load(), 1);
 
-    // Realm 段:第二次竞速真的把 1303 的票据写到了业务服桩上。
-    EXPECT_EQ(redeemer.last_ticket, "ert-1");
-    EXPECT_EQ(realm.received(), "ert-1");
-    EXPECT_EQ(chain.credentials().enter_realm_ticket, "ert-1");
+    // Realm 段:生产兑换口把网关签发的真实票据兑换成了 InGame;能到 InGame
+    // 就说明真实 realm 服务验签通过并回了 1305(拒绝分支不可能到 InGame)。
+    EXPECT_FALSE(chain.credentials().enter_realm_ticket.empty());
+    EXPECT_EQ(chain.credentials().enter_realm_ticket,
+              edge.last_enter_realm_ticket());
 }
 
 /// attach 被 1999 + 2001 拒(号牌过期):真实帧路径上同样自动重取号牌,
 /// 不需要人类重新登录(spec §7 回退规则)。
 TEST(WireLoginTransportIntegrationTest, AttachRejectionRetakesNumberToken) {
-    const auto configs = stub_configs();
+    const std::array<network::TransportConfig, 1> configs{gateway_config()};
     auto transports = network::TransportFactory::create_enabled(configs);
-    ASSERT_EQ(transports.size(), 2U);
-    const auto gateway_port = transports.at(0)->local_endpoint().port;
-    const auto realm_port = transports.at(1)->local_endpoint().port;
+    ASSERT_EQ(transports.size(), 1U);
+    const auto gateway_port = transports.front()->local_endpoint().port;
 
     HttpStub http;
     http.unauthorized_remaining.store(0);
     // 首查直接放行,不必等 progress。
     http.queued_remaining.store(0);
-    EdgeStub edge(*transports.at(0), realm_port);
+    RealmNode realm;
+    EdgeStub edge(*transports.front(), realm.port());
     edge.reject_attach_remaining.store(1);
-    RealmStub realm(*transports.at(1));
-    const PollDriver driver(http, edge, realm);
+    const PollDriver driver(&http, &edge, &realm);
 
     WireEndpoints endpoints;
     endpoints.login_verify_port = http.port();
     endpoints.queue_port = http.port();
-    endpoints.realm_alpn = "realmmesh-realm/1";
     endpoints.verify_peer = false;
 
-    StubRedeemer redeemer;
+    WireEnterRealmRedeemer redeemer;
     WireLoginTransport transport(endpoints, redeemer, fast_wire_options());
 
     LoginChain chain(transport, fast_chain_config(gateway_port));
@@ -538,7 +574,8 @@ TEST(WireLoginTransportIntegrationTest, AttachRejectionRetakesNumberToken) {
     EXPECT_EQ(edge.handoff_sent.load(), 1);
     EXPECT_EQ(http.count_of("/v1/queue/tickets"), 2);
     EXPECT_EQ(chain.credentials().number, 100U);
-    EXPECT_EQ(realm.received(), "ert-1");
+    // 第二次 attach 交付的真实票据同样被 Realm 段受理。
+    EXPECT_FALSE(chain.credentials().enter_realm_ticket.empty());
 }
 
 /// 401 不一律等于号牌过期:只有错误码 2001 才触发自动重取(spec §5.1
@@ -558,7 +595,7 @@ TEST(WireLoginTransportIntegrationTest, NonExpiryUnauthorizedIsTransient) {
     endpoints.queue_port = http.port();
     endpoints.verify_peer = false;
 
-    StubRedeemer redeemer;
+    WireEnterRealmRedeemer redeemer;
     WireLoginTransport transport(endpoints, redeemer, fast_wire_options());
     const auto me =
         transport.ticket_me("number-token-1", Clock::now() + std::chrono::seconds{2});
@@ -568,39 +605,186 @@ TEST(WireLoginTransportIntegrationTest, NonExpiryUnauthorizedIsTransient) {
     EXPECT_EQ(me.status.failure, ChainFailure::ProgressFailed);
 }
 
-/// #46 落地前的默认兑换口必须明确判失败(不得猜协议):不写字节、不回执。
-/// 链路侧的 Realm 段回退(窗口内重试、回网关重入)由 login_chain_test 覆盖。
-TEST(PendingEnterRealmRedeemerTest, FailsExplicitlyUntilProtocolLands) {
-    class CountingStream final : public net_client::ISecureByteStream {
-    public:
-        [[nodiscard]] bool write_all(std::span<const std::byte> data,
-                                     net_client::StreamDeadline deadline)
-            override {
-            static_cast<void>(deadline);
-            writes += static_cast<int>(data.size());
-            return true;
-        }
-        [[nodiscard]] std::optional<std::size_t> read_some(
-            std::span<std::byte> out,
-            net_client::StreamDeadline deadline) override {
-            static_cast<void>(out);
-            static_cast<void>(deadline);
+/// 帧级替身:记录写出的字节,并按需回放罐头帧(含长度前缀)。不起 socket,
+/// 只验兑换口对「一帧一答」的处理;canned 空 = 对端无数据(超时/断开路径)。
+class CannedStream final : public net_client::ISecureByteStream {
+public:
+    std::vector<std::byte> canned;
+    std::vector<std::byte> written;
+
+    [[nodiscard]] bool write_all(std::span<const std::byte> data,
+                                 net_client::StreamDeadline deadline) override {
+        static_cast<void>(deadline);
+        written.insert(written.end(), data.begin(), data.end());
+        return true;
+    }
+
+    [[nodiscard]] std::optional<std::size_t> read_some(
+        std::span<std::byte> out, net_client::StreamDeadline deadline) override {
+        static_cast<void>(deadline);
+        if (canned.empty()) {
             return std::nullopt;
         }
-        void shutdown() override {}
+        const std::size_t count = std::min(out.size(), canned.size());
+        std::copy_n(canned.begin(), count, out.begin());
+        canned.erase(canned.begin(),
+                     canned.begin() + static_cast<std::ptrdiff_t>(count));
+        return count;
+    }
 
-        int writes{0};
-    };
+    void shutdown() override {}
+};
 
-    CountingStream stream;
-    PendingEnterRealmRedeemer redeemer;
+/// 一帧的线上字节(补长度前缀,与 EdgeClientConnection 的收发同款)。
+[[nodiscard]] std::vector<std::byte> framed(
+    std::span<const std::byte> payload) {
+    return network::LengthFieldCodec{net_client::kMaxEdgeFramePayload}.encode(
+        payload);
+}
+
+/// 反解兑换口写出的请求:去前缀 → 信封 → 1304 请求体。取不到即 nullopt。
+[[nodiscard]] std::optional<common::EnterRealm> parse_enter_realm_request(
+    std::span<const std::byte> written) {
+    network::ByteBuffer buffer;
+    buffer.append(written);
+    const auto decoded = network::LengthFieldCodec{
+        net_client::kMaxEdgeFramePayload}.try_decode(buffer);
+    if (decoded.status != network::DecodeStatus::FrameReady) {
+        return std::nullopt;
+    }
+    const auto message_id = common::edge_message_id(decoded.payload);
+    if (!message_id.has_value() ||
+        *message_id != edge_v1::MESSAGE_ID_C2S_ENTER_REALM) {
+        return std::nullopt;
+    }
+    return common::decode_enter_realm(decoded.payload);
+}
+
+/// 写出的必须是一帧可解析的 1304(票据原样进 payload);收到 1305 即成功。
+TEST(WireEnterRealmRedeemerTest, Sends1304AndAccepts1305) {
+    common::EnterRealmAccepted accepted;
+    accepted.set_account_id(42);
+    CannedStream stream;
+    stream.canned = framed(common::encode(accepted));
+
+    WireEnterRealmRedeemer redeemer;
+    const auto status =
+        redeemer.redeem(stream, "ert-1", Clock::now() + std::chrono::seconds{1});
+
+    ASSERT_TRUE(status.ok) << status.detail;
+    const auto request = parse_enter_realm_request(stream.written);
+    ASSERT_TRUE(request.has_value());
+    EXPECT_EQ(request->enter_realm_ticket(), "ert-1");
+}
+
+/// 1999 EdgeError(3002 无效票据)→ EnterRealmRejected,detail 带服务端错误码。
+TEST(WireEnterRealmRedeemerTest, MapsEdgeErrorToEnterRealmRejected) {
+    common::EdgeError error;
+    error.set_code(static_cast<std::uint32_t>(
+        common::edge_error_invalid_enter_realm_ticket));
+    error.set_message("invalid enter realm ticket");
+    CannedStream stream;
+    stream.canned = framed(common::encode(error));
+
+    WireEnterRealmRedeemer redeemer;
     const auto status =
         redeemer.redeem(stream, "ert-1", Clock::now() + std::chrono::seconds{1});
 
     EXPECT_FALSE(status.ok);
     EXPECT_EQ(status.failure, ChainFailure::EnterRealmRejected);
-    EXPECT_NE(status.detail.find("#46"), std::string::npos) << status.detail;
-    EXPECT_EQ(stream.writes, 0);
+    EXPECT_NE(status.detail.find("3002"), std::string::npos) << status.detail;
+}
+
+/// 帧取不到信封(不可解析)→ 坏帧,同样是 EnterRealmRejected。
+TEST(WireEnterRealmRedeemerTest, MapsBadFrameToEnterRealmRejected) {
+    const std::vector<std::byte> garbage{std::byte{0xFF}};
+    CannedStream stream;
+    stream.canned = framed(garbage);
+
+    WireEnterRealmRedeemer redeemer;
+    const auto status =
+        redeemer.redeem(stream, "ert-1", Clock::now() + std::chrono::seconds{1});
+
+    EXPECT_FALSE(status.ok);
+    EXPECT_EQ(status.failure, ChainFailure::EnterRealmRejected);
+    EXPECT_NE(status.detail.find("坏帧"), std::string::npos) << status.detail;
+}
+
+/// 信封解得出 1305、但帧体不是合法 EnterRealmAccepted → 同样是坏帧:
+/// 消息号对不代表内容可信,不得当成功收下。
+TEST(WireEnterRealmRedeemerTest, MapsUndecodableAcceptedToEnterRealmRejected) {
+    ::realmmesh::protocol::common::v1::Envelope envelope;
+    envelope.set_protocol_version(common::kEdgeProtocolVersion);
+    envelope.set_message_id(
+        static_cast<std::uint32_t>(edge_v1::MESSAGE_ID_S2C_ENTER_REALM_ACCEPTED));
+    envelope.set_request_id(0);
+    envelope.set_payload("\xFF");  // 非法 wire type:EnterRealmAccepted 解不出
+    std::string bytes;
+    ASSERT_TRUE(envelope.SerializeToString(&bytes));
+    const auto* begin = reinterpret_cast<const std::byte*>(bytes.data());
+
+    CannedStream stream;
+    stream.canned = framed({begin, begin + bytes.size()});
+
+    WireEnterRealmRedeemer redeemer;
+    const auto status =
+        redeemer.redeem(stream, "ert-1", Clock::now() + std::chrono::seconds{1});
+
+    EXPECT_FALSE(status.ok);
+    EXPECT_EQ(status.failure, ChainFailure::EnterRealmRejected);
+    EXPECT_NE(status.detail.find("坏帧"), std::string::npos) << status.detail;
+}
+
+/// 对端无数据(超时/断开)→ EnterRealmRejected:不新增超时分型,请求仍然
+/// 被写出(证明确实尝试过兑换)。
+TEST(WireEnterRealmRedeemerTest, MapsTimeoutToEnterRealmRejected) {
+    CannedStream stream;  // canned 空:读即刻判空
+
+    WireEnterRealmRedeemer redeemer;
+    const auto status =
+        redeemer.redeem(stream, "ert-1", Clock::now() + std::chrono::seconds{1});
+
+    EXPECT_FALSE(status.ok);
+    EXPECT_EQ(status.failure, ChainFailure::EnterRealmRejected);
+    EXPECT_TRUE(parse_enter_realm_request(stream.written).has_value())
+        << status.detail;
+}
+
+/// Realm 拒绝票据:端口把 1999/3002 明确映射为 EnterRealmRejected。断言取
+/// 端口级——链路终态的分型会被后续回退阶段覆盖,不是这个映射的稳定观测点。
+/// 服务端是真实 realm 服务:realm_id 2 的票据在单 Realm 拓扑下被判 3002。
+TEST(WireLoginTransportIntegrationTest, RealmRejectsForeignTicketAtPortLevel) {
+    RealmNode realm;
+    const PollDriver driver(nullptr, nullptr, &realm);
+
+    WireEndpoints endpoints;
+    endpoints.verify_peer = false;
+    WireEnterRealmRedeemer redeemer;
+    WireLoginTransport transport(endpoints, redeemer, fast_wire_options());
+
+    const std::array<net_client::EndpointCandidate, 2> candidates{
+        net_client::EndpointCandidate{
+            .protocol = network::TransportProtocol::Quic,
+            .host = "127.0.0.1",
+            .port = realm.port(),
+            .priority = 0,
+        },
+        net_client::EndpointCandidate{
+            .protocol = network::TransportProtocol::TlsTcp,
+            .host = "127.0.0.1",
+            .port = realm.port(),
+            .priority = 1,
+        }};
+    const auto deadline = Clock::now() + std::chrono::seconds{5};
+    const auto connected = transport.connect_realm(candidates, deadline);
+    ASSERT_TRUE(connected.ok) << connected.detail;
+
+    const auto status =
+        transport.enter_realm(mint_enter_realm_ticket(2), deadline);
+
+    EXPECT_FALSE(status.ok);
+    EXPECT_EQ(status.failure, ChainFailure::EnterRealmRejected);
+    EXPECT_NE(status.detail.find("3002"), std::string::npos) << status.detail;
 }
 
 }  // namespace

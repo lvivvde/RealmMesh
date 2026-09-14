@@ -7,14 +7,19 @@
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <string_view>
 
 namespace realm::network {
+
+/// edge 线的 ALPN 名:网关段与 Realm 段共用同一条线(ADR-0008),故服务端
+/// 默认值与客户端两段拨号器同源一处,避免两段各自漂移。
+inline constexpr std::string_view kEdgeAlpn = "realmmesh-edge/1";
 
 struct TransportConfig {
     struct TlsServerIdentity {
         std::string certificate_chain_file;
         std::string private_key_file;
-        std::string alpn{"realmmesh-edge/1"};
+        std::string alpn{kEdgeAlpn};
     };
 
     std::string name;

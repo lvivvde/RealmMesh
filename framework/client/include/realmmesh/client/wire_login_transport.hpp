@@ -4,9 +4,9 @@
 // TLS/TCP + HTTP/1.1(自研栈,ADR-0007),网关段与 Realm 段各自跑一次
 // 「QUIC 主 + TLS/TCP 降级」竞速(0ms + 350ms 分级,ADR 见 0008)。
 //
-// Realm 段的兑换帧归 #46(edge.proto 只定义了 1303 的下行票据,没有
-// 对应的 C2S 兑换消息),故以 EnterRealmRedeemer 注入缝留白:#49 把
-// 直连竞速、60s 票窗重试与回退接好,协议细节由 #46 的实现补上。
+// 两段是同一条 edge 线(ALPN 与帧约定一致):网关段 1301/1302/1303,
+// Realm 段 1304 兑换 / 1305 入场成功。信封编解码共用 game/common,帧
+// 收发共用 network/client/EdgeClientConnection——不另起第二份线协议。
 
 #include "realmmesh/client/login_chain.hpp"
 #include "realmmesh/network/client/edge_client_connection.hpp"
@@ -30,8 +30,6 @@ struct WireEndpoints final {
     std::uint16_t login_verify_port{0};
     std::string queue_host{"127.0.0.1"};
     std::uint16_t queue_port{0};
-    /// Realm 直连的 ALPN(#46 定案后填;空 = 不提议)。
-    std::string realm_alpn;
     /// 校验服务端证书;自签部署/测试显式关闭。
     bool verify_peer{true};
 };
@@ -56,8 +54,11 @@ public:
         TimePoint deadline) = 0;
 };
 
-/// #46 落地前的默认实现:明确判失败,不猜协议。
-class PendingEnterRealmRedeemer final : public EnterRealmRedeemer {
+/// 生产兑换口:在已竞速建好的 Realm 流上发 1304 `EnterRealm` 帧、等 1305
+/// `EnterRealmAccepted`。被 1999 `EdgeError` 拒(3002 无效票据、2002 未认证
+/// 等)、坏帧或超时一律归 `ChainFailure::EnterRealmRejected`:链路在 Realm
+/// 段没有「按错误码重取」的回退语义,细分只落在 detail 里。
+class WireEnterRealmRedeemer final : public EnterRealmRedeemer {
 public:
     [[nodiscard]] PortStatus redeem(
         network::client::ISecureByteStream& stream,

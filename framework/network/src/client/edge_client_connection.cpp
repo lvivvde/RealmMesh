@@ -1,6 +1,7 @@
 #include "realmmesh/network/client/edge_client_connection.hpp"
 
 #include "realmmesh/network/core/byte_buffer.hpp"
+#include "realmmesh/network/transport/transport_config.hpp"
 
 #include <array>
 #include <cstddef>
@@ -12,7 +13,6 @@ namespace realm::network::client {
 namespace {
 
 constexpr std::size_t kReadChunk = 4096;
-constexpr std::string_view kEdgeAlpn = "realmmesh-edge/1";
 
 }  // namespace
 
@@ -33,7 +33,10 @@ ClientDialResult EdgeClientConnection::dial(std::string_view host,
 
 EdgeClientConnection::EdgeClientConnection(
     std::shared_ptr<ISecureByteStream> stream)
-    : stream_(std::move(stream)) {}
+    : owned_(std::move(stream)), stream_(owned_.get()) {}
+
+EdgeClientConnection::EdgeClientConnection(ISecureByteStream& stream)
+    : stream_(&stream) {}
 
 EdgeClientConnection::~EdgeClientConnection() = default;
 

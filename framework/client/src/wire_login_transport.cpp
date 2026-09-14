@@ -2,6 +2,7 @@
 
 #include "realmmesh/game/common/edge_protocol.hpp"
 #include "realmmesh/network/client/json_field.hpp"
+#include "realmmesh/network/transport/transport_config.hpp"
 
 #include <algorithm>
 #include <cstdint>
@@ -68,14 +69,45 @@ namespace net_client = ::realm::network::client;
 
 }  // namespace
 
-PortStatus PendingEnterRealmRedeemer::redeem(
-    net_client::ISecureByteStream& /*stream*/,
-    std::string_view /*enter_realm_ticket*/,
-    TimePoint /*deadline*/) {
-    // edge.proto 只有 1303 的下行票据,没有对应的 C2S 兑换消息:#46 拥有
-    // 该协议。这里不猜,直接判失败,让链路按回退规则处理。
-    return PortStatus::error(ChainFailure::EnterRealmRejected,
-                             "EnterRealm 兑换协议随 #46 落地");
+PortStatus WireEnterRealmRedeemer::redeem(
+    net_client::ISecureByteStream& stream,
+    std::string_view enter_realm_ticket,
+    TimePoint deadline) {
+    // 借用竞速胜出的 Realm 流:兑换口不接管所有权,流由链路持有到窗口结束。
+    net_client::EdgeClientConnection edge(stream);
+    common::EnterRealm request;
+    request.set_enter_realm_ticket(std::string{enter_realm_ticket});
+    // request_id 取 0:Realm 流上只跑这一个请求,服务端按 0 回执。
+    if (!edge.send_frame(common::encode(request, 0), deadline)) {
+        return PortStatus::error(ChainFailure::EnterRealmRejected,
+                                 "EnterRealm 帧发送失败");
+    }
+    for (;;) {
+        const auto payload = edge.receive_frame(deadline);
+        if (!payload.has_value()) {
+            return PortStatus::error(ChainFailure::EnterRealmRejected,
+                                     "未在窗口内收到入场回执");
+        }
+        const auto message_id = common::edge_message_id(*payload);
+        if (!message_id.has_value()) {
+            return PortStatus::error(ChainFailure::EnterRealmRejected, "坏帧");
+        }
+        if (*message_id == edge_v1::MESSAGE_ID_S2C_ENTER_REALM_ACCEPTED) {
+            if (!common::decode_enter_realm_accepted(*payload).has_value()) {
+                return PortStatus::error(ChainFailure::EnterRealmRejected,
+                                         "坏帧");
+            }
+            return PortStatus::success();
+        }
+        if (*message_id == edge_v1::MESSAGE_ID_S2C_ERROR) {
+            const auto error = common::decode_edge_error(*payload);
+            // 不按错误码分支:Realm 段没有「按码重取」的回退语义,码只进 detail。
+            return PortStatus::error(
+                ChainFailure::EnterRealmRejected,
+                error.has_value() ? edge_error_detail(*error) : "入场被拒");
+        }
+        // 其余帧(不应出现):忽略继续等入场回执。
+    }
 }
 
 WireLoginTransport::WireLoginTransport(WireEndpoints endpoints,
@@ -84,8 +116,10 @@ WireLoginTransport::WireLoginTransport(WireEndpoints endpoints,
     : endpoints_(std::move(endpoints)), redeemer_(redeemer),
       options_(std::move(options)),
       tls_options_{.verify_peer = endpoints_.verify_peer},
-      gateway_dialer_("realmmesh-edge/1", endpoints_.verify_peer),
-      realm_dialer_(endpoints_.realm_alpn, endpoints_.verify_peer),
+      gateway_dialer_(std::string{::realm::network::kEdgeAlpn},
+                      endpoints_.verify_peer),
+      realm_dialer_(std::string{::realm::network::kEdgeAlpn},
+                    endpoints_.verify_peer),
       gateway_connector_(gateway_dialer_, options_.connector),
       realm_connector_(realm_dialer_, options_.connector) {}
 
