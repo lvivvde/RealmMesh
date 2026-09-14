@@ -126,7 +126,7 @@ _Avoid_: 定时轮询(丢掉了「随位次与失败自适应」的要义)、退
 _Avoid_: 双通道(同一时刻只有一条通道存活,没有并行双路)、failover(不是故障切换,是建连竞赛)
 
 **EnterRealm Redeemer**(兑换口):
-Realm 段在已竞速建连的流上兑换 EnterRealm 票据的注入点;协议归 #46,默认实现显式判失败而不猜协议。
+Realm 段在已竞速建连的流上兑换 EnterRealm 票据的注入点;生产实现 `WireEnterRealmRedeemer` 发 1304 `EnterRealm`、等 1305 `EnterRealmAccepted`,被拒、坏帧与超时统一归 `EnterRealmRejected`(不新增分型)。
 _Avoid_: realm login(兑换是凭据消费,不是再登录一次)、handoff(handoff 指网关下发凭据与端点)
 
 ### Testing

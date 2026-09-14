@@ -9,6 +9,14 @@ realm_add_gtest(login_chain_test
     LIBS realm_client
 )
 
+# 兑换口的帧级处理:罐头字节替身,不起 socket → unit(缺省)。
+realm_add_gtest(wire_login_transport_test
+    SOURCES wire_login_transport_test.cpp
+    LIBS
+        realm_client
+        RealmMesh::GameCommon
+)
+
 # 真实 TLS loopback 上的整条登录链路(HttpStub + 网关桩 + 真实 realm 服务):
 # 占临时端口、带时钟等待 → integration,串行跑。
 realm_add_gtest(wire_login_transport_integration_test

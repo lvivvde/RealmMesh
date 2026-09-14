@@ -1,6 +1,6 @@
 #pragma once
 
-// LoginChainTransport 的生产绑定:HTTP 段(verify/取号/轮询/兑换)走
+// LoginChainTransport 的生产绑定:HTTP 段(verify/取号/轮询/查号)走
 // TLS/TCP + HTTP/1.1(自研栈,ADR-0007),网关段与 Realm 段各自跑一次
 // 「QUIC 主 + TLS/TCP 降级」竞速(0ms + 350ms 分级,ADR 见 0008)。
 //
