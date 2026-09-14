@@ -1,0 +1,3 @@
+# codebase-memory-mcp: project-specific index exclusions (gitignore syntax)
+# Vendored dependencies are not part of this project's call graph.
+/third_party/

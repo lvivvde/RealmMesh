@@ -31,3 +31,6 @@ compile_commands.json
 *.pid
 .superpowers/
 /configs/logs/
+
+# codebase-memory-mcp local artifact
+.codebase-memory/
