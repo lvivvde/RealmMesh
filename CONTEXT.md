@@ -50,12 +50,16 @@ _Avoid_: polling(轮询可以是底层实现,但不是这个概念的名字)、n
 
 ### Gateway
 
+**Gateway Login Pipeline**:
+网关接收 Edge Session 后,从凭据验讫、Fetching 到 Handoff 的权威管线;统一拥有阶段迁移、准入额度、拉取结算与会话收尾的顺序。它是网关内部的登录职责,不合并 Login Verifier、Queue Scheduler、网关与 Realm 的独立部署。
+_Avoid_: Login Chain(客户端概念)、Gateway(部署身份不等于管线)、登录服务(这里不是独立部署单元)
+
 **Edge Session**:
 一条边缘客户端连接在边缘服务内的统一寻址:以不透明的 EdgeSessionId 从连接打开标识到关闭;凭据验讫由 pending 阶段迁入 fetching 阶段,账号数据拉取完成、直连凭证下发后进入终态 handed-off 阶段。网关只承载登录管线,不承载业务长连接。
 _Avoid_: Client Session(旧名)、Pending Connection(旧名,pending 是阶段,不是另一种实体)、player(玩家是业务概念)、connection、handle、established(旧终态名:网关没有业务长连,终态是 handed-off)
 
 **Fetching**:
-Edge Session 的中间阶段:准入暂扣——凭据已验讫,正在限额拉取玩家账号数据;每次进出该阶段都是一次原子状态迁移。
+Edge Session 的中间阶段:准入暂扣——凭据已验讫,正在限额拉取玩家账号数据,或拉取已完成但 Handoff 尚未被 Primary Transport 接纳;fetch 额度在拉取完成时即可归还,阶段只在 Handoff 被接纳后迁出。每次进出该阶段都是一次原子状态迁移。
 _Avoid_: loading、provisioning、暂扣(是阶段名,不是动作)
 
 **Handoff**:
