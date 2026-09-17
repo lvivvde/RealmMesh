@@ -4,6 +4,10 @@
 status: accepted
 ---
 
+> **Amended by ADR-0009:** Queue Number 继续承担无状态排位与断线找回，
+> 但不再通过 `admitted` 重签兼任网关准入凭据；放行阶段改用独立的
+> Admission Grant。下文相关描述仅保留为历史背景。
+
 排队调度服把每客户端状态压到零:号牌是签名 JWT(号值+`admitted`),服务端唯一权威状态是"已放行号"与实测放行速率两个原子量;位次与预计等待由客户端凭全局 progress 端点(单调量、CDN 可缓存 1~2s)本地计算。百万客户端轮询因此被 CDN 卸载,源站只承担取号与放行切换;断线重连凭号牌找回位次,过期(放行+5min 宽限)即重排。
 
 ## Considered Options

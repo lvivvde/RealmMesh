@@ -89,9 +89,13 @@ _Avoid_: 用户表(账号集不含注册/计费语义)、account service(它是�
 _Avoid_: 排队服(可作口头简称,文档用全称)、matchmaking(没有匹配语义)
 
 **Queue Number**:
-排队调度服签发的含号值的签名凭据;客户端凭它轮询位次、断线找回,服务端不保存每客户端状态。
-_Avoid_: 号(裸号值不防伪)、ticket(与 Session Ticket 冲突;线路由
+排队调度服签发的排位凭据;归属于一次身份 Token(`identity_jti`)所代表的登录尝试且不晚于该身份过期,客户端凭它轮询位次、断线找回,但不能凭它进入网关。
+_Avoid_: 号(裸号值不防伪)、放行号牌、ticket(与 Session Ticket 冲突;线路由
 `/v1/queue/tickets*` 沿用主 spec 已发布契约,不属命名)
+
+**Admission Grant**:
+排队调度服在 Queue Number 获准后的固定放行窗口内签发的短期准入凭据;绑定同一次登录尝试、来源 Queue Number 与 deployment,且不晚于身份过期,该登录尝试在同一 deployment 的网关集群中只能成功消费一次。它与可重复查询的 Queue Number 是不同阶段的凭据。
+_Avoid_: admitted Queue Number、放行号牌、Gateway Ticket、Session Ticket
 
 **Admission Controller**:
 排队调度服内的速率阀门:按可用准入额度定时放一批号进网关集群。
@@ -108,7 +112,7 @@ _Avoid_: capacity(容量是规格层面的总量概念)、load(负载是原始�
 _Avoid_: packet、frame(frame 指传输层的长度帧概念)
 
 **Session Ticket**:
-libsodium 签发的一次性准入凭据(`TicketPurpose`),在兑换点单次消费(重放防护)。唯一的活用途是 **EnterRealm**:网关在拉取完成后签发,客户端携带,Realm 兑换后直连入场(即直连凭证)。入场前置凭据为身份 Token + 放行凭证;网关入口的 `jti` 单次消费与之并行。用途数值 1、2 已随旧链退役,永不复用。
+libsodium 签发的一次性准入凭据(`TicketPurpose`),在兑换点单次消费(重放防护)。唯一的活用途是 **EnterRealm**:网关在拉取完成后签发,客户端携带,Realm 兑换后直连入场(即直连凭证)。入场前置凭据为身份 Token + Admission Grant;网关入口的绑定凭据由集群单次消费。用途数值 1、2 已随旧链退役,永不复用。
 _Avoid_: token、credential、cookie
 
 ### Client
