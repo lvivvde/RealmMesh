@@ -44,6 +44,11 @@ private:
 constexpr auto t0 = std::chrono::steady_clock::time_point{
     std::chrono::milliseconds{1'000'000}};
 
+// #75 只冻结已被远端接受的 fetch 尝试之重试/退避语义。
+// #74 新增的 submit Full/Stopped 语义属于 #76/#77 的非阻塞
+// adapter seam;本文件不用旧同步 source 的调用次数伪造
+// 未来行为。
+
 TEST(EdgeFetchSchedulerTest, SuccessCompletesAndReleasesFetchSlot) {
     EdgeSessionPipeline pipeline{4, 2};
     ScriptedFetchSource source({{true, std::chrono::milliseconds{50}}});

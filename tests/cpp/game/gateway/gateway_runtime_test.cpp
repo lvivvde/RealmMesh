@@ -257,6 +257,51 @@ TEST(GatewayRuntimeTest, AcceptRespondsAndEstablishesAtomically) {
     runtime.stop();
 }
 
+TEST(GatewayRuntimeTest, EstablishedPeerClosePublishesRealSessionClosed) {
+    using namespace std::chrono_literals;
+    GatewayRuntime runtime(
+        {.transports = {tls_transport()}},
+        {
+            .inbound_capacity = 16,
+            .outbound_capacity = 16,
+            .io_poll_interval = 1ms,
+        });
+    runtime.start();
+    const network::LengthFieldCodec codec(1024);
+    auto connected =
+        connect_and_send_first_message(runtime, codec, "frame-message");
+    ASSERT_TRUE(connected.message.has_value());
+
+    const auto accepted = bytes("accepted");
+    ASSERT_EQ(
+        runtime.try_accept(connected.message->session_id, accepted),
+        QueueResult::Queued);
+    ASSERT_EQ(
+        connected.client->receive(codec.encode(accepted).size()),
+        codec.encode(accepted));
+    ASSERT_TRUE(wait_for_event(
+                    runtime,
+                    GatewayEventKind::SessionEstablished,
+                    std::chrono::seconds(2))
+                    .has_value());
+
+    const auto session_id = connected.message->session_id;
+    connected.client.reset();
+    const auto closed = wait_for_event(
+        runtime, GatewayEventKind::SessionClosed, std::chrono::seconds(2));
+    ASSERT_TRUE(closed.has_value());
+    EXPECT_EQ(closed->session_id, session_id);
+    EXPECT_TRUE(closed->established);
+    runtime.stop();
+}
+
+// #75 contract gap: a normal peer close above produces real SessionClosed,
+// but a command that returned QueueResult::Queued and later fails inside
+// Primary Transport delivery is not guaranteed to do so today. Do not encode
+// that absence as compatible behavior. #76 must add a scripted transport seam,
+// and #77 must add the runnable assertion that queued delivery failure
+// eventually yields SessionClosed.
+
 TEST(GatewayRuntimeTest, DeclineRejectsAndTerminatesPendingSession) {
     using namespace std::chrono_literals;
     GatewayRuntime runtime(

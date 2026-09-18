@@ -18,6 +18,8 @@ realm_add_gtest(gateway_runtime_test
         REALMMESH_TEST_TLS_CERTIFICATE="${REALMMESH_TEST_TLS_CERTIFICATE}"
         REALMMESH_TEST_TLS_PRIVATE_KEY="${REALMMESH_TEST_TLS_PRIVATE_KEY}"
     DEPENDS realmmesh_test_tls_identity
+    # 真实 TLS 回环传输会绑定端口,按 tests/README.md 归 integration。
+    LABELS integration
 )
 
 realm_add_gtest(edge_fetch_scheduler_test

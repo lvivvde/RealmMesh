@@ -53,6 +53,8 @@ constexpr std::string_view number_seed_hex =
 
 /// 签名种子/TLS/票据环境守护:指向 CMake 预生成的自签证书与固定测试
 /// 密钥,并注入 attach 验签种子;析构时全部还原(整个 target 串行运行)。
+/// #75 只描述签名材料可用时的兼容行为;首个 attach 才惰性装载材料是
+/// #74 已批准修正,不得由本夹具固化为启动契约。
 class ScopedEdgeEnvironment final {
 public:
     ScopedEdgeEnvironment() {
@@ -391,20 +393,30 @@ protected:
     }
 
     /// 客户端连接并发送 attach 帧;返回保持连接的客户端(析构即断开)。
-    [[nodiscard]] std::unique_ptr<AttachClient> attach(
-        std::string_view jti,
-        bool admitted = true) {
+    [[nodiscard]] std::unique_ptr<AttachClient> attach_with_tokens(
+        std::string identity_token,
+        std::string number_token,
+        std::uint64_t request_id) {
         auto client = std::make_unique<AttachClient>(
             static_cast<std::uint16_t>(
                 runtime_->local_endpoints().front().port));
         game::common::EdgeAttach message;
-        message.set_identity_token(identity_token(jti));
-        message.set_queue_number_token(number_token(admitted));
+        message.set_identity_token(std::move(identity_token));
+        message.set_queue_number_token(std::move(number_token));
         const network::LengthFieldCodec codec(1024);
-        client->send(
-            codec.encode(game::common::encode(message, 5)));
+        client->send(codec.encode(game::common::encode(message, request_id)));
         client_ = client.get();
         return client;
+    }
+
+    /// 使用固定签名夹具提交 attach;request_id 由用例显式给出,
+    /// 使线契约断言不依赖 helper 内部常量。
+    [[nodiscard]] std::unique_ptr<AttachClient> attach(
+        std::string_view jti,
+        bool admitted = true,
+        std::uint64_t request_id = 5) {
+        return attach_with_tokens(
+            identity_token(jti), number_token(admitted), request_id);
     }
 
     /// 边推帧边收帧:测试是唯一驱动者,收帧与 tick 交替进行,帧不会
@@ -423,7 +435,8 @@ protected:
     }
 
     /// 注册 Realm 服务实例并建立解析器(#45):handoff 端点来源。
-    void register_realm_endpoint() {
+    void register_realm_endpoint(
+        std::string address = "127.0.0.1", std::uint16_t port = 7100) {
         cluster::ServiceInstance instance{
             .type = cluster::ServiceType::Realm,
             .instance_id = "realm-test-01",
@@ -433,8 +446,8 @@ protected:
         network::TransportEndpoint endpoint;
         endpoint.name = "realm_tls_tcp";
         endpoint.protocol = network::TransportProtocol::TlsTcp;
-        endpoint.address = "127.0.0.1";
-        endpoint.port = 7100;
+        endpoint.address = std::move(address);
+        endpoint.port = port;
         instance.endpoints.push_back(endpoint);
         const auto registration = registry_.register_instance(
             instance, std::chrono::seconds(60));
@@ -550,7 +563,72 @@ TEST_F(ServiceFrameEdgeBudgetTest, PublishesCapacityThenConsumesOnAttach) {
         InstanceBudgetSnapshot({3, 1, true}));
 }
 
-TEST_F(ServiceFrameEdgeBudgetTest, ReplayedNumberIsRejectedOnNewConnection) {
+/// #75 保留线契约:Gateway 受理 attach 时回 1302、复用请求的
+/// request_id,并携带拉取账号。后续 Pipeline 内部如何保留
+/// Runtime intent 不应改变这三个外部事实。
+TEST_F(ServiceFrameEdgeBudgetTest, AttachAcceptancePreservesWireContract) {
+    constexpr std::uint64_t request_id = 0x1020'3040;
+    const auto client = attach(
+        "aaaa000000000013aaaa000000000013", true, request_id);
+
+    const auto response = receive_while_driving(std::chrono::seconds{2});
+    ASSERT_TRUE(response.has_value());
+    EXPECT_EQ(
+        game::common::edge_message_id(*response),
+        game::common::EdgeMessageId::MESSAGE_ID_S2C_EDGE_ATTACH_ACCEPTED);
+    EXPECT_EQ(game::common::edge_request_id(*response), request_id);
+    const auto accepted = game::common::decode_edge_attach_accepted(*response);
+    ASSERT_TRUE(accepted.has_value());
+    EXPECT_EQ(accepted->account_id(), 42U);
+}
+
+/// #75 保留拒绝映射:身份凭据与 Queue Number 分属不同错误码,
+/// 但都用 1999 回包并回显请求 ID。#79 后续会替换准入凭据
+/// 类型,不得在 #75 偷改现有线行为。
+TEST_F(ServiceFrameEdgeBudgetTest, AttachRejectionsPreserveWireContract) {
+    constexpr std::uint64_t identity_request_id = 41;
+    const auto invalid_identity = attach_with_tokens(
+        "not-an-identity-token", "not-a-number", identity_request_id);
+    const auto identity_response =
+        receive_while_driving(std::chrono::seconds{2});
+    ASSERT_TRUE(identity_response.has_value());
+    EXPECT_EQ(
+        game::common::edge_message_id(*identity_response),
+        game::common::EdgeMessageId::MESSAGE_ID_S2C_ERROR);
+    EXPECT_EQ(
+        game::common::edge_request_id(*identity_response),
+        identity_request_id);
+    const auto identity_error =
+        game::common::decode_edge_error(*identity_response);
+    ASSERT_TRUE(identity_error.has_value());
+    EXPECT_EQ(
+        identity_error->code(), game::common::edge_error_invalid_credentials);
+
+    constexpr std::uint64_t number_request_id = 43;
+    const auto invalid_number = attach(
+        "aaaa000000000014aaaa000000000014", false, number_request_id);
+    const auto number_response =
+        receive_while_driving(std::chrono::seconds{2});
+    ASSERT_TRUE(number_response.has_value());
+    EXPECT_EQ(
+        game::common::edge_message_id(*number_response),
+        game::common::EdgeMessageId::MESSAGE_ID_S2C_ERROR);
+    EXPECT_EQ(
+        game::common::edge_request_id(*number_response), number_request_id);
+    const auto number_error = game::common::decode_edge_error(*number_response);
+    ASSERT_TRUE(number_error.has_value());
+    EXPECT_EQ(
+        number_error->code(), game::common::edge_error_invalid_queue_number);
+    const auto metrics = metrics_.render();
+    EXPECT_NE(
+        metrics.find("# TYPE edge_jti_replay_rejected_total counter\n"),
+        std::string::npos);
+    EXPECT_NE(
+        metrics.find("edge_jti_replay_rejected_total 0\n"),
+        std::string::npos);
+}
+
+TEST_F(ServiceFrameEdgeBudgetTest, ReplayedJtiPreservesWireRejection) {
     const auto first = attach("aaaa000000000002aaaa000000000002");
     ASSERT_TRUE(drive_until(
         [](const std::optional<InstanceBudgetSnapshot>& budget) {
@@ -558,14 +636,22 @@ TEST_F(ServiceFrameEdgeBudgetTest, ReplayedNumberIsRejectedOnNewConnection) {
         },
         std::chrono::seconds{2}));
 
-    // 同一号牌(jti)在新连接重放:凭据无效 → 拒绝并终结,拉取额度
+    // 同一身份令牌(jti)在新连接重放:凭据无效 → 拒绝并终结,拉取额度
     // 不被消耗(conn 的一次瞬时占用由 SessionClosed 归还)。
-    const auto replayed = attach("aaaa000000000002aaaa000000000002");
-    ASSERT_TRUE(drive_until(
-        [](const std::optional<InstanceBudgetSnapshot>& budget) {
-            return budget.has_value() && budget->conn_free == 2;
-        },
-        std::chrono::seconds{2}));
+    constexpr std::uint64_t request_id = 53;
+    const auto replayed = attach(
+        "aaaa000000000002aaaa000000000002", true, request_id);
+    const auto response = receive_while_driving(std::chrono::seconds{2});
+    ASSERT_TRUE(response.has_value());
+    EXPECT_EQ(
+        game::common::edge_message_id(*response),
+        game::common::EdgeMessageId::MESSAGE_ID_S2C_ERROR);
+    EXPECT_EQ(game::common::edge_request_id(*response), request_id);
+    const auto error = game::common::decode_edge_error(*response);
+    ASSERT_TRUE(error.has_value());
+    EXPECT_EQ(
+        error->code(), game::common::edge_error_invalid_credentials);
+    // 错误帧到达时关闭可能已结算,不固化瞬时 conn_free=2。
     ASSERT_TRUE(drive_until(
         [](const std::optional<InstanceBudgetSnapshot>& budget) {
             return budget.has_value() && budget->conn_free == 3;
@@ -589,6 +675,13 @@ TEST_F(ServiceFrameEdgeBudgetTest, RetiredMessageIdIsRefused) {
     ASSERT_TRUE(response.has_value());
     const auto error = game::common::decode_edge_error(*response);
     ASSERT_TRUE(error.has_value());
+    EXPECT_EQ(
+        game::common::edge_message_id(*response),
+        game::common::EdgeMessageId::MESSAGE_ID_S2C_ERROR);
+    // 已退役编号不通过公共 Envelope 解码,Gateway 因而使用
+    // request_id=0 的兼容回退;合法 1301 的回显契约由 attach
+    // 场景锁定。
+    EXPECT_EQ(game::common::edge_request_id(*response), 0U);
     EXPECT_EQ(error->code(), game::common::edge_error_not_authenticated);
     EXPECT_TRUE(client->saw_close(std::chrono::seconds{2}));
 }
@@ -609,12 +702,22 @@ TEST_F(ServiceFrameEdgeBudgetTest, OutOfBudgetAttachIsRejectedWithoutConsuming) 
 
     // 第三个客户端凭据有效但拉取池已满:额度外拒绝,不消耗任何额度
     // (conn 的瞬时占用归还后回到 {2,0})。
-    const auto third = attach("aaaa000000000005aaaa000000000005");
-    ASSERT_TRUE(drive_until(
-        [](const std::optional<InstanceBudgetSnapshot>& budget) {
-            return budget.has_value() && budget->conn_free == 1;
-        },
-        std::chrono::seconds{2}));
+    constexpr std::uint64_t request_id = 47;
+    const auto third = attach(
+        "aaaa000000000005aaaa000000000005", true, request_id);
+    const auto response = receive_while_driving(std::chrono::seconds{2});
+    ASSERT_TRUE(response.has_value());
+    EXPECT_EQ(
+        game::common::edge_message_id(*response),
+        game::common::EdgeMessageId::MESSAGE_ID_S2C_ERROR);
+    EXPECT_EQ(game::common::edge_request_id(*response), request_id);
+    const auto error = game::common::decode_edge_error(*response);
+    ASSERT_TRUE(error.has_value());
+    EXPECT_EQ(
+        error->code(), game::common::edge_error_attach_out_of_budget);
+    // 读到拒绝帧时 SessionClosed 可能已随同一 IO 周期到达;
+    // 只冻结对外稳定的最终预算,不把瞬时 conn_free=1 的调度
+    // 时隙当成契约。
     ASSERT_TRUE(drive_until(
         [](const std::optional<InstanceBudgetSnapshot>& budget) {
             return budget.has_value() && budget->conn_free == 2 &&
@@ -628,6 +731,9 @@ TEST_F(ServiceFrameEdgeBudgetTest, OutOfBudgetAttachIsRejectedWithoutConsuming) 
 
 /// 拉取成功(#44):fetching → handed-off,拉取槽即还,conn 保持占用
 /// (#45 起签发票据进入宽限,宽限内会话仍在管,收尾行为见 #45 用例)。
+/// #75 不在旧 ServiceFrame seam 固化「fetch 先于已到达 close」
+/// 的错误次序;#77 必须在新 Pipeline seam 另加 close-wins 的
+/// 确定性场景。
 TEST_F(ServiceFrameEdgeBudgetTest, FetchSuccessTransitionsToHandedOff) {
     register_realm_endpoint();
     FixedOutcomeFetchSource source(
@@ -649,13 +755,15 @@ TEST_F(ServiceFrameEdgeBudgetTest, FetchSuccessTransitionsToHandedOff) {
 
 /// handoff 签发(#45):拉取成功即推送 EnterRealmGranted,票据可按
 /// EnterRealm 用途兑换出账号 claims,端点指向发现到的 realm;宽限
-/// (1s,留足满载下收帧余量)到期未迁移由帧头关闭,conn 预算归还。
+/// 到期未迁移由帧头关闭,conn 预算归还。测试直接注入配置层禁止的
+/// 0ms 边界,使「签发帧保留、下一帧到期」无需等待墙钟即可确定复现;
+/// #77 的 Pipeline 单测再由 GatewayLoginFrame.now 覆盖正常时长边界。
 TEST_F(ServiceFrameEdgeBudgetTest, GrantIssuedThenGraceCloses) {
     register_realm_endpoint();
     FixedOutcomeFetchSource source(
         game::gateway::EdgeFetchOutcome{true, std::chrono::milliseconds{0}});
     rebuild_frame(
-        source, std::chrono::seconds{2}, std::chrono::milliseconds{1000});
+        source, std::chrono::seconds{2}, std::chrono::milliseconds{0});
 
     const auto client = attach("aaaa000000000008aaaa000000000008");
 
@@ -667,6 +775,10 @@ TEST_F(ServiceFrameEdgeBudgetTest, GrantIssuedThenGraceCloses) {
     const auto accepted =
         game::common::decode_edge_attach_accepted(*accepted_payload);
     ASSERT_TRUE(accepted.has_value());
+    EXPECT_EQ(
+        game::common::edge_message_id(*accepted_payload),
+        game::common::EdgeMessageId::MESSAGE_ID_S2C_EDGE_ATTACH_ACCEPTED);
+    EXPECT_EQ(game::common::edge_request_id(*accepted_payload), 5U);
     EXPECT_EQ(accepted->account_id(), 42U);
 
     const auto granted_payload =
@@ -675,12 +787,17 @@ TEST_F(ServiceFrameEdgeBudgetTest, GrantIssuedThenGraceCloses) {
     const auto granted =
         game::common::decode_enter_realm_granted(*granted_payload);
     ASSERT_TRUE(granted.has_value());
+    EXPECT_EQ(
+        game::common::edge_message_id(*granted_payload),
+        game::common::EdgeMessageId::MESSAGE_ID_S2C_ENTER_REALM_GRANTED);
+    EXPECT_EQ(game::common::edge_request_id(*granted_payload), 0U);
     ASSERT_EQ(granted->realm_endpoints_size(), 1);
     EXPECT_EQ(granted->realm_endpoints(0).address(), "127.0.0.1");
     EXPECT_EQ(granted->realm_endpoints(0).port(), 7100);
     EXPECT_EQ(
         granted->realm_endpoints(0).protocol(),
         ::realmmesh::protocol::edge::v1::TRANSPORT_PROTOCOL_TLS_TCP);
+    EXPECT_EQ(granted->realm_endpoints(0).priority(), 0U);
     game::common::SessionTickets verifier(game::common::parse_ticket_key_hex(
         "0102030405060708090a0b0c0d0e0f10"
         "1112131415161718191a1b1c1d1e1f20"));
@@ -693,13 +810,8 @@ TEST_F(ServiceFrameEdgeBudgetTest, GrantIssuedThenGraceCloses) {
     EXPECT_EQ(redeemed.claims.character_id, 0U);
 
     // 签发后拉取槽即还、conn 保持占用:{3,2}。
-    ASSERT_TRUE(drive_until(
-        [](const std::optional<InstanceBudgetSnapshot>& budget) {
-            return budget.has_value() && budget->conn_free == 3 &&
-                   budget->fetch_free == 2;
-        },
-        std::chrono::seconds{2},
-        &*realm_resolver_));
+    ASSERT_TRUE(observed_budget().has_value());
+    EXPECT_EQ(*observed_budget(), InstanceBudgetSnapshot({3, 2, true}));
 
     // 宽限到期:帧头关闭会话,conn 预算归还 {4,2}。
     ASSERT_TRUE(drive_until(
@@ -710,6 +822,27 @@ TEST_F(ServiceFrameEdgeBudgetTest, GrantIssuedThenGraceCloses) {
         std::chrono::seconds{3},
         &*realm_resolver_));
     EXPECT_TRUE(client->saw_close(std::chrono::seconds{2}));
+}
+
+/// 真实 Primary Transport 的 SessionClosed 必须流经 ServiceFrame,
+/// 从 fetching 同时归还 conn 与 fetch 两份 Admission Budget。
+TEST_F(ServiceFrameEdgeBudgetTest, RealPeerCloseReturnsBothBudgets) {
+    auto client = attach("aaaa000000000016aaaa000000000016");
+    ASSERT_TRUE(drive_until(
+        [](const std::optional<InstanceBudgetSnapshot>& budget) {
+            return budget.has_value() && budget->conn_free == 3 &&
+                   budget->fetch_free == 1;
+        },
+        std::chrono::seconds{2}));
+
+    client.reset();
+    ASSERT_TRUE(drive_until(
+        [](const std::optional<InstanceBudgetSnapshot>& budget) {
+            return budget.has_value() && budget->conn_free == 4 &&
+                   budget->fetch_free == 2;
+        },
+        std::chrono::seconds{2}));
+    EXPECT_EQ(*observed_budget(), InstanceBudgetSnapshot({4, 2, true}));
 }
 
 /// 降级路径(#45):发现缺失且未配置静态下游 → 不签发票据,告警后
@@ -763,6 +896,7 @@ TEST_F(ServiceFrameEdgeBudgetTest, StaticDownstreamGrantsWithoutDiscovery) {
     ASSERT_EQ(granted->realm_endpoints_size(), 1);
     EXPECT_EQ(granted->realm_endpoints(0).address(), "127.0.0.1");
     EXPECT_EQ(granted->realm_endpoints(0).port(), 7100);
+    EXPECT_EQ(granted->realm_endpoints(0).priority(), 0U);
 
     // 签发后进入宽限:conn 保持占用,不降级断开。
     ASSERT_TRUE(drive_until(
@@ -772,6 +906,37 @@ TEST_F(ServiceFrameEdgeBudgetTest, StaticDownstreamGrantsWithoutDiscovery) {
         },
         std::chrono::seconds{2}));
     EXPECT_EQ(*observed_budget(), InstanceBudgetSnapshot({3, 2, true}));
+}
+
+/// #75 保留端点优先级:同一帧同时有动态发现与静态兜底时,
+/// 动态 Realm 端点胜出;静态值只在发现缺失时使用。
+TEST_F(
+    ServiceFrameEdgeBudgetTest,
+    DiscoveredRealmEndpointWinsOverStaticFallback) {
+    register_realm_endpoint("127.0.0.2", 7101);
+    FixedOutcomeFetchSource source(
+        game::gateway::EdgeFetchOutcome{true, std::chrono::milliseconds{0}});
+    rebuild_frame(
+        source,
+        std::chrono::seconds{2},
+        std::chrono::seconds{5},
+        "192.0.2.10",
+        7200);
+
+    const auto client = attach("aaaa000000000015aaaa000000000015");
+    ASSERT_TRUE(receive_while_driving(
+                    std::chrono::seconds{2}, &*realm_resolver_)
+                    .has_value());
+    const auto granted_payload =
+        receive_while_driving(std::chrono::seconds{2}, &*realm_resolver_);
+    ASSERT_TRUE(granted_payload.has_value());
+    const auto granted =
+        game::common::decode_enter_realm_granted(*granted_payload);
+    ASSERT_TRUE(granted.has_value());
+    ASSERT_EQ(granted->realm_endpoints_size(), 1);
+    EXPECT_EQ(granted->realm_endpoints(0).address(), "127.0.0.2");
+    EXPECT_EQ(granted->realm_endpoints(0).port(), 7101);
+    EXPECT_EQ(granted->realm_endpoints(0).priority(), 0U);
 }
 
 /// 重试耗尽(#44):基数 30ms 连挂 4 次(首发 + 3 次重试)后上报耗尽,
@@ -796,6 +961,10 @@ TEST_F(ServiceFrameEdgeBudgetTest, ExhaustedFetchClosesAndReturnsBudgets) {
     EXPECT_EQ(
         *observed_budget(),
         InstanceBudgetSnapshot({4, 2, true}));
+    // 失败/耗尽不属于成功拉取耗时样本。
+    EXPECT_EQ(
+        metrics_.render().find("edge_fetch_duration_seconds_count"),
+        std::string::npos);
 }
 
 /// 帧尾指标发布(#47):慢拉取源下会话可见 fetching 水位与 fetch_free
@@ -809,6 +978,11 @@ TEST_F(ServiceFrameEdgeBudgetTest, MetricsFollowPipelineStagesAndFetch) {
     // attach 前:空管线,三阶段 gauge 全 0,双预算满 {4,2}。
     frame_->tick(*logger_, *runtime_, nullptr, &*reporter_);
     const auto idle = metrics_.render();
+    EXPECT_NE(idle.find("# TYPE edge_sessions gauge\n"), std::string::npos);
+    EXPECT_NE(idle.find("# TYPE edge_budget gauge\n"), std::string::npos);
+    EXPECT_NE(
+        idle.find("# TYPE edge_fetch_retry_total counter\n"),
+        std::string::npos);
     EXPECT_NE(idle.find("edge_sessions{stage=\"pending\"} 0\n"),
               std::string::npos);
     EXPECT_NE(idle.find("edge_sessions{stage=\"fetching\"} 0\n"),
@@ -845,6 +1019,12 @@ TEST_F(ServiceFrameEdgeBudgetTest, MetricsFollowPipelineStagesAndFetch) {
         std::chrono::seconds{2},
         &*realm_resolver_));
     const auto delivered = metrics_.render();
+    EXPECT_NE(
+        delivered.find("# TYPE edge_fetch_duration_seconds histogram\n"),
+        std::string::npos);
+    EXPECT_NE(
+        delivered.find("# TYPE edge_jti_replay_rejected_total counter\n"),
+        std::string::npos);
     EXPECT_NE(delivered.find("edge_sessions{stage=\"fetching\"} 0\n"),
               std::string::npos);
     EXPECT_NE(delivered.find("edge_budget{kind=\"fetch_free\"} 2\n"),
