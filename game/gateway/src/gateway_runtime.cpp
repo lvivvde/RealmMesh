@@ -250,7 +250,7 @@ void GatewayRuntime::process_command(OutboundCommand command) {
     }
     case CommandKind::Decline: {
         const auto record = sessions_.record(command.session_id);
-        if (!record.has_value() || record->established) {
+        if (!record.has_value()) {
             unknown_session_commands_.fetch_add(1);
             break;
         }

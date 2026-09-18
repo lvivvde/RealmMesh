@@ -204,7 +204,8 @@ TEST(
     GatewayRuntimePrimaryTransport transport(runtime);
     runtime.start();
 
-    const auto opened = wait_for_event(transport, GatewayEventKind::SessionOpened);
+    const auto opened =
+        wait_for_event(transport, GatewayEventKind::SessionOpened);
     ASSERT_TRUE(opened.has_value());
     const std::array payload{std::byte{1}};
     ASSERT_EQ(
@@ -223,6 +224,41 @@ TEST(
     ASSERT_TRUE(closed.has_value());
     EXPECT_EQ(closed->session_id, opened->session_id);
     EXPECT_EQ(runtime.stats().failed_deliveries, 1U);
+    runtime.stop();
+}
+
+TEST(
+    GatewayRuntimePrimaryTransportTest,
+    DeclineTerminatesAnEstablishedSessionForPipelineProtocolRejection) {
+    auto lower_transport = std::make_unique<DeliveryFailingTransport>();
+    std::vector<std::unique_ptr<network::IMessageTransport>> transports;
+    transports.push_back(std::move(lower_transport));
+    GatewayRuntime runtime(
+        std::move(transports),
+        {.inbound_capacity = 8,
+         .outbound_capacity = 8,
+         .io_poll_interval = std::chrono::milliseconds(1)});
+    GatewayRuntimePrimaryTransport transport(runtime);
+    runtime.start();
+
+    const auto opened =
+        wait_for_event(transport, GatewayEventKind::SessionOpened);
+    ASSERT_TRUE(opened.has_value());
+    const std::array payload{std::byte{1}};
+    ASSERT_EQ(
+        transport.accept(opened->session_id, payload),
+        PrimaryTransportResult::Queued);
+    ASSERT_TRUE(wait_for_event(transport, GatewayEventKind::SessionEstablished)
+                    .has_value());
+
+    ASSERT_EQ(
+        transport.decline(opened->session_id, payload),
+        PrimaryTransportResult::Queued);
+    const auto closed =
+        wait_for_event(transport, GatewayEventKind::SessionClosed);
+    ASSERT_TRUE(closed.has_value());
+    EXPECT_EQ(closed->session_id, opened->session_id);
+    EXPECT_TRUE(closed->established);
     runtime.stop();
 }
 

@@ -119,7 +119,7 @@ public:
     /// SessionClosed。
     [[nodiscard]] QueueResult try_accept(
         EdgeSessionId session_id, std::span<const std::byte> response);
-    /// pending 会话尽力发送拒绝响应并终结;发布 SessionClosed。
+    /// 任意阶段会话尽力发送拒绝响应并终结;发布 SessionClosed。
     [[nodiscard]] QueueResult try_decline(
         EdgeSessionId session_id, std::span<const std::byte> response);
     /// 终结任意阶段的会话;发布 SessionClosed。

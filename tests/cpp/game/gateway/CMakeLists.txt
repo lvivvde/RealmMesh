@@ -56,3 +56,8 @@ realm_add_gtest(gateway_login_config_test
     SOURCES gateway_login_config_test.cpp
     LIBS realm_gateway_service
 )
+
+realm_add_gtest(gateway_login_pipeline_test
+    SOURCES gateway_login_pipeline_test.cpp
+    LIBS realm_gateway_service
+)
