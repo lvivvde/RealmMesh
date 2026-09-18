@@ -3,6 +3,7 @@
 #include "realmmesh/cluster/service_discovery_config.hpp"
 #include "realmmesh/concurrency/bounded_queue.hpp"
 #include "realmmesh/game/gateway/edge_session_table.hpp"
+#include "realmmesh/game/gateway/gateway_login_config.hpp"
 #include "realmmesh/network/transport/transport_config.hpp"
 #include "realmmesh/observability/logger.hpp"
 
@@ -54,17 +55,7 @@ struct GatewayConfig {
     std::size_t max_events_per_frame{4'096};
     std::string downstream_address;
     std::uint16_t downstream_port{0};
-    /// Edge 登录管线实例额度(#43):fetch=每实例拉取并发预算池规模。
-    /// conn 容量不单独配置,由启用传输的 max_sessions 之和同源注入
-    /// (管线满 ⟺ 传输满,满额拒绝语义不依赖两处配置的一致性)。
-    std::uint64_t pipeline_fetch_capacity{1'000};
-    /// 拉取重试参数(#44):语义与不变量见 EdgeFetchScheduler;耗尽即
-    /// 断开会话,双预算随关闭路径归还。
-    std::uint64_t fetch_retry_base_ms{2'000};
-    unsigned fetch_retry_max{3};
-    /// handoff 收尾宽限(#45):签发 EnterRealm 票据后保留会话的时长,
-    /// 到期未迁移即由帧头关闭。
-    std::uint64_t handoff_grace_ms{5'000};
+    GatewayLoginConfig login;
 };
 
 enum class GatewayEventKind : std::uint8_t {
@@ -97,6 +88,9 @@ public:
         GatewayConfig config,
         GatewayRuntimeOptions options,
         observability::Logger* logger = nullptr);
+    GatewayRuntime(
+        std::vector<std::unique_ptr<network::IMessageTransport>> transports,
+        GatewayRuntimeOptions options);
     ~GatewayRuntime();
 
     GatewayRuntime(const GatewayRuntime&) = delete;

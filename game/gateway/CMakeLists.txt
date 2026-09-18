@@ -1,9 +1,12 @@
 add_library(realm_gateway_service
+    src/account_fetch_port.cpp
     src/edge_attach_chain.cpp
     src/edge_fetch_scheduler.cpp
     src/edge_session_pipeline.cpp
     src/edge_session_table.cpp
     src/gateway_config_loader.cpp
+    src/gateway_login_config.cpp
+    src/gateway_primary_transport.cpp
     src/gateway_runtime.cpp
 )
 

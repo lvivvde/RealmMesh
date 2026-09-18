@@ -295,13 +295,6 @@ TEST(GatewayRuntimeTest, EstablishedPeerClosePublishesRealSessionClosed) {
     runtime.stop();
 }
 
-// #75 contract gap: a normal peer close above produces real SessionClosed,
-// but a command that returned QueueResult::Queued and later fails inside
-// Primary Transport delivery is not guaranteed to do so today. Do not encode
-// that absence as compatible behavior. #76 must add a scripted transport seam,
-// and #77 must add the runnable assertion that queued delivery failure
-// eventually yields SessionClosed.
-
 TEST(GatewayRuntimeTest, DeclineRejectsAndTerminatesPendingSession) {
     using namespace std::chrono_literals;
     GatewayRuntime runtime(

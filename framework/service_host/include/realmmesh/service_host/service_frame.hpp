@@ -10,6 +10,7 @@
 #include "realmmesh/game/gateway/edge_fetch_scheduler.hpp"
 #include "realmmesh/game/gateway/edge_session_pipeline.hpp"
 #include "realmmesh/game/gateway/edge_session_table.hpp"
+#include "realmmesh/game/gateway/gateway_login_config.hpp"
 
 #include <chrono>
 #include <cstddef>
@@ -80,7 +81,9 @@ public:
         EdgePipelineCaps edge_pipeline_caps = {},
         EdgePipelineTuning edge_pipeline_tuning = {},
         game::gateway::EdgeFetchSource* edge_fetch_source = nullptr,
-        observability::MetricsRegistry* metrics = nullptr);
+        observability::MetricsRegistry* metrics = nullptr,
+        std::optional<game::gateway::GatewaySigningMaterial>
+            gateway_signing_material = std::nullopt);
     /// 成员含前置声明的调度器/源,析构收敛到 cpp(完整类型可见处)。
     ~ServiceFrame();
 
@@ -179,9 +182,7 @@ private:
         handoff_deadlines_;
     std::chrono::milliseconds handoff_grace_{5'000};
 
-    /// attach 验签上下文:codec 依赖环境注入的签名种子,首条 attach 时
-    /// 惰性构造(缺种子的既有部署/测试不受影响);构造失败置
-    /// attach_unavailable_ 只告警一次,后续 attach 一律按凭据无效拒绝。
+    /// attach 验签上下文在 Gateway 启动前构造，业务帧不读取环境变量。
     struct EdgeAttachContext {
         game::common::IdentityTokenCodec identity_codec;
         game::common::QueueNumberCodec number_codec;
@@ -196,7 +197,6 @@ private:
             std::string_view identity_issuer);
     };
     std::optional<EdgeAttachContext> attach_;
-    bool attach_unavailable_{false};
 
     /// Prometheus 指标注册表(#47):可空(测试/无暴露场景),帧尾
     /// 轮询发布 edge_* 指标。

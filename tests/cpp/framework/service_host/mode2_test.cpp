@@ -42,11 +42,25 @@ public:
                 "1112131415161718191a1b1c1d1e1f20",
                 1),
             0);
+        EXPECT_EQ(
+            ::setenv(
+                "REALMMESH_IDENTITY_KEY_SEED",
+                "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60",
+                1),
+            0);
+        EXPECT_EQ(
+            ::setenv(
+                "REALMMESH_QUEUE_KEY_SEED",
+                "4ccd089b28ff96da9db6c346ec114e0f5b8a319f35aba624da8cf6ed4fb8a6fb",
+                1),
+            0);
     }
     ~ScopedTlsEnvironment() {
         static_cast<void>(::unsetenv("REALMMESH_TLS_CERTIFICATE_FILE"));
         static_cast<void>(::unsetenv("REALMMESH_TLS_PRIVATE_KEY_FILE"));
         static_cast<void>(::unsetenv("REALMMESH_SESSION_TICKET_KEY"));
+        static_cast<void>(::unsetenv("REALMMESH_IDENTITY_KEY_SEED"));
+        static_cast<void>(::unsetenv("REALMMESH_QUEUE_KEY_SEED"));
     }
 };
 

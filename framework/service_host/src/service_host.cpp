@@ -109,38 +109,43 @@ ServiceHost::ServiceHost(
         queue_ = std::move(queue);
         return;
     }
-    // conn 容量与传输层同源(#43):取全部启用传输的 max_sessions 之和
-    // (QUIC/TLS 竞速下两条传输可同时满载),管线满即传输满,满额拒绝
-    // 语义不依赖两处配置保持一致。
-    std::uint64_t pipeline_conn_capacity = 0;
-    for (const auto& transport : config.transports) {
-        if (transport.enabled) {
-            pipeline_conn_capacity += transport.max_sessions;
-        }
-    }
+    const bool is_gateway = service_name_ == "gateway";
+    const auto gateway_signing_material =
+        is_gateway
+            ? std::optional<game::gateway::GatewaySigningMaterial>{
+                  game::gateway::load_gateway_signing_material()}
+            : std::nullopt;
+    const auto frame_downstream_address =
+        is_gateway && config.login.static_realm.has_value()
+            ? config.login.static_realm->address
+            : config.downstream_address;
+    const auto frame_downstream_port =
+        is_gateway && config.login.static_realm.has_value()
+            ? config.login.static_realm->port
+            : config.downstream_port;
     frame_ = std::make_unique<ServiceFrame>(
         service_name_,
-        config.downstream_address,
-        config.downstream_port,
+        frame_downstream_address,
+        frame_downstream_port,
         config.max_events_per_frame,
         EdgePipelineCaps{
-            pipeline_conn_capacity,
+            config.login.conn_capacity,
             // fetch 容量仅 gateway 拉取管线存在,其余身份(含 realm)
             // 置 0,与快照 has_fetch=false 同一不变量。
-            service_name_ == "gateway" ? config.pipeline_fetch_capacity
-                                       : 0},
+            is_gateway ? config.login.fetch_capacity : 0},
         EdgePipelineTuning{
-            std::chrono::milliseconds{config.fetch_retry_base_ms},
-            config.fetch_retry_max,
-            std::chrono::milliseconds{config.handoff_grace_ms}},
+            config.login.fetch_retry_base,
+            config.login.fetch_retry_max,
+            config.login.handoff_grace},
         nullptr,
-        &metrics_registry_);
-    budget_policy_.conn_capacity = pipeline_conn_capacity;
+        &metrics_registry_,
+        gateway_signing_material);
+    budget_policy_.conn_capacity = config.login.conn_capacity;
     // fetch 容量是回满判定基准,仅 gateway 拉取管线存在;realm 无
     // fetch 维度(§5.2 只上报 conn_free),置 0 与快照 has_fetch=false
     // 保持一致。
     budget_policy_.fetch_capacity =
-        service_name_ == "gateway" ? config.pipeline_fetch_capacity : 0;
+        is_gateway ? config.login.fetch_capacity : 0;
     runtime_ = std::make_unique<game::gateway::GatewayRuntime>(
         std::move(config), logger_.get());
 }

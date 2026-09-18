@@ -41,3 +41,18 @@ realm_add_gtest(edge_session_table_test
     SOURCES edge_session_table_test.cpp
     LIBS realm_gateway_service
 )
+
+realm_add_gtest(gateway_primary_transport_test
+    SOURCES gateway_primary_transport_test.cpp
+    LIBS realm_gateway_service
+)
+
+realm_add_gtest(account_fetch_port_test
+    SOURCES account_fetch_port_test.cpp
+    LIBS realm_gateway_service
+)
+
+realm_add_gtest(gateway_login_config_test
+    SOURCES gateway_login_config_test.cpp
+    LIBS realm_gateway_service
+)

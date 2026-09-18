@@ -16,8 +16,14 @@ GatewayRuntime::GatewayRuntime(
     GatewayConfig config,
     GatewayRuntimeOptions options,
     observability::Logger* logger)
-    : transports_(
-          network::TransportFactory::create_enabled(config.transports, logger)),
+    : GatewayRuntime(
+          network::TransportFactory::create_enabled(config.transports, logger),
+          options) {}
+
+GatewayRuntime::GatewayRuntime(
+    std::vector<std::unique_ptr<network::IMessageTransport>> transports,
+    GatewayRuntimeOptions options)
+    : transports_(std::move(transports)),
       options_(options),
       inbound_(options_.inbound_capacity),
       outbound_(options_.outbound_capacity) {
@@ -212,6 +218,9 @@ void GatewayRuntime::process_command(OutboundCommand command) {
             successful_deliveries_.fetch_add(1);
         } else {
             failed_deliveries_.fetch_add(1);
+            // Queued 只代表 Runtime 已接管命令；实际交付失败必须让上层
+            // 最终观察到 SessionClosed，避免管线永久保留会话与额度。
+            static_cast<void>(finish_close(command.session_id));
         }
         break;
     }

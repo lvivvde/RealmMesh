@@ -214,14 +214,21 @@ GatewayConfig GatewayConfigLoader::parse(const sol::table& root) {
         root, "downstream_address", std::move(config.downstream_address));
     config.downstream_port =
         optional_integer(root, "downstream_port", config.downstream_port);
-    config.pipeline_fetch_capacity = optional_integer(
-        root, "pipeline_fetch_capacity", config.pipeline_fetch_capacity);
-    config.fetch_retry_base_ms = optional_integer(
-        root, "fetch_retry_base_ms", config.fetch_retry_base_ms);
-    config.fetch_retry_max = static_cast<unsigned>(optional_integer<unsigned>(
-        root, "fetch_retry_max", config.fetch_retry_max));
-    config.handoff_grace_ms = optional_integer(
-        root, "handoff_grace_ms", config.handoff_grace_ms);
+    config.login.fetch_capacity = optional_integer(
+        root, "pipeline_fetch_capacity", config.login.fetch_capacity);
+    config.login.fetch_retry_base = std::chrono::milliseconds{
+        optional_integer<std::int64_t>(
+            root,
+            "fetch_retry_base_ms",
+            config.login.fetch_retry_base.count())};
+    config.login.fetch_retry_max =
+        static_cast<unsigned>(optional_integer<unsigned>(
+            root, "fetch_retry_max", config.login.fetch_retry_max));
+    config.login.handoff_grace = std::chrono::milliseconds{
+        optional_integer<std::int64_t>(
+            root,
+            "handoff_grace_ms",
+            config.login.handoff_grace.count())};
 
     const sol::object runtime_value = root.raw_get<sol::object>("runtime");
     if (runtime_value != sol::lua_nil) {
@@ -355,19 +362,6 @@ GatewayConfig GatewayConfigLoader::parse(const sol::table& root) {
         throw std::invalid_argument(
             "gateway tick rate and max events per frame must be positive");
     }
-    if (config.pipeline_fetch_capacity == 0) {
-        throw std::invalid_argument(
-            "gateway pipeline fetch capacity must be positive");
-    }
-    if (config.fetch_retry_base_ms == 0 || config.fetch_retry_max == 0 ||
-        config.fetch_retry_max > 10) {
-        throw std::invalid_argument(
-            "gateway fetch retry base must be positive and retry max "
-            "within 1..10");
-    }
-    if (config.handoff_grace_ms == 0) {
-        throw std::invalid_argument("gateway handoff grace must be positive");
-    }
     if (config.logging.file_path.empty() ||
         config.logging_identity.service_name.empty() ||
         config.logging.normal_queue_capacity == 0 ||
@@ -420,6 +414,19 @@ GatewayConfig GatewayConfigLoader::parse(const sol::table& root) {
         }
         config.transports.push_back(
             read_transport(transport_value.as<sol::table>()));
+    }
+    if (!config.downstream_address.empty() || config.downstream_port != 0) {
+        config.login.static_realm = RealmEndpoint{
+            config.downstream_address, config.downstream_port};
+    }
+    config.login.conn_capacity = 0;
+    for (const auto& transport : config.transports) {
+        if (transport.enabled) {
+            config.login.conn_capacity += transport.max_sessions;
+        }
+    }
+    if (config.logging_identity.service_name == "gateway") {
+        config.login.validate();
     }
     return config;
 }

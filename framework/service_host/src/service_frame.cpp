@@ -39,11 +39,14 @@ namespace {
     return load_ticket_key();
 }
 
-/// attach 验签 codec 的 kid:与签发方配置默认值一致(login_verify.kid =
-/// login-verify-v1、queue.kid = queue-v1);JWKS 分发与 kid 轮换收敛后
-/// 改为发现机制(与 queue 侧验签同源的过渡形态)。
-constexpr std::string_view identity_token_kid = "login-verify-v1";
-constexpr std::string_view queue_number_kid = "queue-v1";
+[[nodiscard]] game::common::SessionTicketKey service_ticket_key(
+    const std::optional<cluster::ServiceType>& identity,
+    const std::optional<game::gateway::GatewaySigningMaterial>& material) {
+    if (identity == cluster::ServiceType::Gateway && material.has_value()) {
+        return material->enter_realm_key;
+    }
+    return make_ticket_key(identity);
+}
 
 /// attach 拒绝回包:尚未进入会话的事件(event.established 为假)经
 /// try_decline 尽力回包并终结;已在管的会话回包后 try_close(状态机:
@@ -86,13 +89,15 @@ ServiceFrame::ServiceFrame(
     EdgePipelineCaps edge_pipeline_caps,
     EdgePipelineTuning edge_pipeline_tuning,
     game::gateway::EdgeFetchSource* edge_fetch_source,
-    observability::MetricsRegistry* metrics)
+    observability::MetricsRegistry* metrics,
+    std::optional<game::gateway::GatewaySigningMaterial>
+        gateway_signing_material)
     : service_name_(service_name),
       downstream_address_(std::move(downstream_address)),
       downstream_port_(downstream_port),
       max_events_per_frame_(max_events_per_frame),
       identity_(parse_service_identity(service_name)),
-      tickets_(make_ticket_key(identity_)),
+      tickets_(service_ticket_key(identity_, gateway_signing_material)),
       conn_capacity_(edge_pipeline_caps.conn_capacity),
       handoff_grace_(edge_pipeline_tuning.handoff_grace),
       metrics_(metrics) {
@@ -103,9 +108,20 @@ ServiceFrame::ServiceFrame(
             service_name_ + " downstream endpoint is required");
     }
     if (identity_ == cluster::ServiceType::Gateway) {
+        if (!gateway_signing_material.has_value()) {
+            gateway_signing_material =
+                game::gateway::load_gateway_signing_material();
+        }
         pipeline_.emplace(
             edge_pipeline_caps.conn_capacity,
             edge_pipeline_caps.fetch_capacity);
+        attach_.emplace(
+            gateway_signing_material->identity_seed,
+            gateway_signing_material->queue_seed,
+            *pipeline_,
+            gateway_signing_material->identity_kid,
+            gateway_signing_material->queue_kid,
+            gateway_signing_material->identity_issuer);
         // 拉取管线(#44):外部源由宿主注入生命周期,缺省用延迟桩
         // (缺省时延 100ms,即规格的 fetch_latency_ms)。
         if (edge_fetch_source == nullptr) {
@@ -579,37 +595,8 @@ void ServiceFrame::handle_edge_attach(
     game::gateway::GatewayRuntime& runtime,
     const game::gateway::GatewayEvent& event,
     const game::common::EdgeAttach& attach) {
-    if (!attach_.has_value() && !attach_unavailable_) {
-        try {
-            attach_.emplace(
-                game::common::seed_from_environment(
-                    "REALMMESH_IDENTITY_KEY_SEED"),
-                game::common::seed_from_environment(
-                    "REALMMESH_QUEUE_KEY_SEED"),
-                *pipeline_,
-                identity_token_kid,
-                queue_number_kid,
-                "realmmesh/login-verify");
-        } catch (const std::exception& error) {
-            attach_unavailable_ = true;
-            static_cast<void>(logger.warn(
-                "edge_attach_rejected",
-                "attach verification unavailable: signing seed not set",
-                {observability::field(
-                    "error_message", std::string(error.what()))}));
-        }
-    }
     const auto request_id =
         game::common::edge_request_id(event.payload).value_or(0);
-    if (!attach_.has_value()) {
-        decline_attach(
-            runtime,
-            event,
-            request_id,
-            game::common::edge_error_invalid_credentials,
-            "attach verification unavailable");
-        return;
-    }
     switch (attach_->chain.handle(
         event.session_id,
         attach.identity_token(),

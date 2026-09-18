@@ -69,9 +69,9 @@ TEST(GatewayConfigLoaderTest, LoadsQuicPrimaryAndTlsTcpFallbackFromLua) {
 
     ASSERT_EQ(config.transports.size(), 2U);
     EXPECT_EQ(config.tick_rate, 20U);
-    EXPECT_EQ(config.fetch_retry_base_ms, 2500U);
-    EXPECT_EQ(config.fetch_retry_max, 5U);
-    EXPECT_EQ(config.handoff_grace_ms, 2500U);
+    EXPECT_EQ(config.login.fetch_retry_base, std::chrono::milliseconds(2500));
+    EXPECT_EQ(config.login.fetch_retry_max, 5U);
+    EXPECT_EQ(config.login.handoff_grace, std::chrono::milliseconds(2500));
     EXPECT_TRUE(config.service_discovery.enabled);
     EXPECT_EQ(config.runtime.inbound_capacity, 65536U);
     EXPECT_EQ(config.logging.min_severity, observability::Severity::Info);
@@ -184,13 +184,18 @@ TEST(LayeredConfigLoaderTest, MergesAuthoritativeGatewayTreeFieldByField) {
     EXPECT_EQ(config.tick_rate, 20U);
     EXPECT_EQ(config.max_events_per_frame, 4096U);
     // 服务层提供的拉取重试参数(#44):基数 2s、最多重试 3 次。
-    EXPECT_EQ(config.fetch_retry_base_ms, 2000U);
-    EXPECT_EQ(config.fetch_retry_max, 3U);
+    EXPECT_EQ(config.login.fetch_retry_base, std::chrono::milliseconds(2000));
+    EXPECT_EQ(config.login.fetch_retry_max, 3U);
     // handoff 收尾宽限(#45):服务层显式 5s。
-    EXPECT_EQ(config.handoff_grace_ms, 5000U);
+    EXPECT_EQ(config.login.handoff_grace, std::chrono::milliseconds(5000));
     // 静态兜底下游(#45):发现缺失时 handoff 回退本机 realm。
     EXPECT_EQ(config.downstream_address, "127.0.0.1");
     EXPECT_EQ(config.downstream_port, 7100U);
+    ASSERT_TRUE(config.login.static_realm.has_value());
+    EXPECT_EQ(config.login.static_realm->address, "127.0.0.1");
+    EXPECT_EQ(config.login.static_realm->port, 7100U);
+    EXPECT_EQ(config.login.conn_capacity, 20000U);
+    EXPECT_EQ(config.login.fetch_capacity, 1000U);
     EXPECT_EQ(config.runtime.inbound_capacity, 65536U);
     EXPECT_EQ(config.runtime.outbound_capacity, 65536U);
     EXPECT_EQ(config.runtime.max_commands_per_cycle, 4096U);
