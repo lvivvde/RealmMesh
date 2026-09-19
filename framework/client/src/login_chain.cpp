@@ -7,11 +7,9 @@
 namespace realm::client {
 namespace {
 
-/// 距截止的剩余时间;已过期返回 0(调用方据此判窗口耗尽)。
 [[nodiscard]] std::chrono::milliseconds time_left(TimePoint deadline) {
-    const auto left =
-        std::chrono::duration_cast<std::chrono::milliseconds>(
-            deadline - Clock::now());
+    const auto left = std::chrono::duration_cast<std::chrono::milliseconds>(
+        deadline - Clock::now());
     return left.count() <= 0 ? std::chrono::milliseconds{0} : left;
 }
 
@@ -27,45 +25,101 @@ PortStatus PortStatus::error(ChainFailure failure,
                              std::string detail,
                              bool credential_expired) {
     PortStatus status;
-    status.ok = false;
     status.failure = failure;
     status.credential_expired = credential_expired;
     status.detail = std::move(detail);
     return status;
 }
 
-LoginChain::LoginChain(LoginChainTransport& transport, LoginChainConfig config)
-    : transport_(transport), config_(std::move(config)),
-      poller_(config_.poll) {}
+LoginRun::LoginRun(LoginTarget target,
+                   std::string account,
+                   std::string credential,
+                   TimePoint deadline,
+                   PollingProfile profile,
+                   TimePoint hold_until)
+    : target_(target), account_(std::move(account)),
+      credential_(std::move(credential)), deadline_(deadline),
+      polling_profile_(profile), hold_until_(hold_until) {}
 
-void LoginChain::on_stage_change(std::function<void(LoginStage)> callback) {
-    on_stage_change_ = std::move(callback);
+LoginRun LoginRun::verify(std::string account,
+                          std::string credential,
+                          TimePoint deadline) {
+    return LoginRun{LoginTarget::Verify, std::move(account),
+                    std::move(credential), deadline,
+                    PollingProfile::ClientRealistic};
 }
 
-void LoginChain::set_stage(LoginStage stage) {
-    stage_ = stage;
-    if (on_stage_change_) {
-        on_stage_change_(stage);
+LoginRun LoginRun::tickets(std::string account,
+                           std::string credential,
+                           TimePoint deadline) {
+    return LoginRun{LoginTarget::Tickets, std::move(account),
+                    std::move(credential), deadline,
+                    PollingProfile::ClientRealistic};
+}
+
+LoginRun LoginRun::poll(std::string account,
+                        std::string credential,
+                        TimePoint deadline,
+                        PollingProfile profile) {
+    return LoginRun{LoginTarget::Poll, std::move(account),
+                    std::move(credential), deadline, profile};
+}
+
+LoginRun LoginRun::gateway(std::string account,
+                           std::string credential,
+                           TimePoint deadline,
+                           PollingProfile profile) {
+    return LoginRun{LoginTarget::Gateway, std::move(account),
+                    std::move(credential), deadline, profile};
+}
+
+std::optional<LoginRun> LoginRun::gateway_soak(
+    std::string account,
+    std::string credential,
+    TimePoint deadline,
+    PollingProfile profile,
+    TimePoint hold_until) {
+    if (hold_until < Clock::now()) {
+        return std::nullopt;
     }
+    return LoginRun{LoginTarget::GatewaySoak, std::move(account),
+                    std::move(credential), deadline, profile, hold_until};
 }
+
+LoginRun LoginRun::full(std::string account,
+                        std::string credential,
+                        TimePoint deadline) {
+    return LoginRun{LoginTarget::Full, std::move(account),
+                    std::move(credential), deadline,
+                    PollingProfile::ClientRealistic};
+}
+
+LoginRun LoginRun::full_for_loadgen(std::string account,
+                                    std::string credential,
+                                    TimePoint deadline,
+                                    PollingProfile profile) {
+    return LoginRun{LoginTarget::Full, std::move(account),
+                    std::move(credential), deadline, profile};
+}
+
+LoginChain::LoginChain(LoginChainTransport& transport, LoginChainConfig config)
+    : transport_(transport), config_(std::move(config)), poller_(config_.poll) {}
 
 void LoginChain::wait_for(std::chrono::milliseconds duration,
                           TimePoint deadline) {
     const auto left = time_left(deadline);
-    if (left.count() <= 0) {
-        return;
+    if (left.count() > 0) {
+        std::this_thread::sleep_for(std::min(duration, left));
     }
-    std::this_thread::sleep_for(std::min(duration, left));
 }
 
 bool LoginChain::within_admit_grace(TimePoint now) const {
-    // 宽限从收到放行时刻起算(spec §4:放行 + 5 min)。
     return now < admitted_at_ + admit_grace_;
 }
 
-LoginChainResult LoginChain::finish(LoginStage stage) const {
-    return LoginChainResult{stage, failure_, failure_detail_,
-                            credentials_.number, eta_};
+LoginResult LoginChain::fail(LoginStage stage) const {
+    return LoginResult{LoginFailure{stage, failure_, failure_detail_,
+                                    credentials_.number, eta_}};
 }
 
 LoginChain::Action LoginChain::take_ticket(TimePoint deadline) {
@@ -76,7 +130,6 @@ LoginChain::Action LoginChain::take_ticket(TimePoint deadline) {
         failure_detail_ = result.status.detail;
         return Action::Failed;
     }
-    // 重取号等于新排队:凭据与轮询节奏一并复位。
     credentials_.queue_number_token = result.value.queue_number_token;
     credentials_.number = result.value.number;
     credentials_.admitted_token.clear();
@@ -85,7 +138,6 @@ LoginChain::Action LoginChain::take_ticket(TimePoint deadline) {
 }
 
 LoginChain::Action LoginChain::poll_until_admitted(TimePoint deadline) {
-    // 无 progress 信息前的保守位次:就是自己手上的号。
     std::uint64_t position = credentials_.number;
 
     for (bool first_query = true;; first_query = false) {
@@ -97,12 +149,12 @@ LoginChain::Action LoginChain::poll_until_admitted(TimePoint deadline) {
 
         bool consult_ticket = false;
         if (first_query) {
-            // 首查 tickets/me(spec §5.1 #4):取号响应里的位次只是签发时
-            // 的估算;且号值可能已进放行区间,首查能立刻拿到放行凭证,
-            // 不必先白等一个轮询间隔。
             consult_ticket = true;
         } else {
-            last_poll_interval_ = poller_.next_interval(position);
+            last_poll_interval_ =
+                polling_profile_ == PollingProfile::Pressure
+                ? config_.pressure_poll_interval
+                : poller_.next_interval(position);
             wait_for(last_poll_interval_, deadline);
             if (Clock::now() >= deadline) {
                 failure_ = ChainFailure::AdmitTimeout;
@@ -110,7 +162,6 @@ LoginChain::Action LoginChain::poll_until_admitted(TimePoint deadline) {
                 return Action::Failed;
             }
 
-            // 主查询:全局 progress(单调可缓存,ADR-0006)。
             const auto progress = transport_.poll_progress(deadline);
             if (progress.status.ok) {
                 poller_.record_success();
@@ -120,8 +171,6 @@ LoginChain::Action LoginChain::poll_until_admitted(TimePoint deadline) {
                     : 0;
                 eta_ = AdaptivePoller::estimate_eta(position,
                                                     progress.value.admit_rate);
-                // 号值已进放行区间:放行是分批的,去 tickets/me 取准信
-                // (兜底,spec §5.1 #4)。
                 consult_ticket = released >= credentials_.number;
             } else {
                 poller_.record_failure();
@@ -150,7 +199,6 @@ LoginChain::Action LoginChain::poll_until_admitted(TimePoint deadline) {
             }
             position = me.value.position;
         } else if (me.status.credential_expired) {
-            // 号牌过期 → 自动重取(spec §7)。
             failure_ = me.status.failure;
             failure_detail_ = me.status.detail;
             return Action::RetakeTicket;
@@ -160,7 +208,10 @@ LoginChain::Action LoginChain::poll_until_admitted(TimePoint deadline) {
     }
 }
 
-LoginChain::Action LoginChain::connect_gateway_and_handoff(TimePoint deadline) {
+LoginChain::Action LoginChain::connect_gateway_and_handoff(
+    TimePoint deadline,
+    std::unique_ptr<GatewaySession>& session_out) {
+    session_out.reset();
     for (;;) {
         if (Clock::now() >= deadline) {
             failure_ = ChainFailure::GatewayConnectFailed;
@@ -169,28 +220,26 @@ LoginChain::Action LoginChain::connect_gateway_and_handoff(TimePoint deadline) {
         }
         set_stage(LoginStage::GatewayConnecting);
 
-        // 号牌被网关判过期:本段不再重试,释放会话后回排队重取。
         bool retake_ticket = false;
-        const auto connected =
+        auto connected =
             transport_.connect_gateway(config_.gateway_endpoints, deadline);
-        if (connected.ok) {
+        if (connected.status.ok && connected.value != nullptr) {
+            auto session = std::move(connected.value);
             const auto& queue_token = credentials_.admitted_token.empty()
                 ? credentials_.queue_number_token
                 : credentials_.admitted_token;
             const auto attached = transport_.attach(
-                credentials_.identity_token, queue_token, deadline);
+                *session, credentials_.identity_token, queue_token, deadline);
             if (attached.ok) {
-                const auto handoff = transport_.await_handoff(deadline);
+                auto handoff = transport_.await_handoff(*session, deadline);
                 if (handoff.status.ok) {
                     credentials_.enter_realm_ticket =
                         handoff.value.enter_realm_ticket;
-                    realm_endpoints_ = handoff.value.realm_endpoints;
+                    realm_endpoints_ = std::move(handoff.value.realm_endpoints);
                     failure_ = ChainFailure::None;
                     failure_detail_.clear();
-                    // 票据已在手:网关会话不再需要,立即释放(Realm 段
-                    // 自己拨号;若 Realm 段失败回网关,重入会重新建连)。
-                    transport_.drop_connections();
                     set_stage(LoginStage::HandoffReceived);
+                    session_out = std::move(session);
                     return Action::Advanced;
                 }
                 if (handoff.status.credential_expired) {
@@ -202,25 +251,23 @@ LoginChain::Action LoginChain::connect_gateway_and_handoff(TimePoint deadline) {
             } else if (attached.credential_expired) {
                 retake_ticket = true;
             } else {
-                failure_ = ChainFailure::AttachRejected;
+                failure_ = attached.failure == ChainFailure::None
+                    ? ChainFailure::AttachRejected
+                    : attached.failure;
                 failure_detail_ = attached.detail;
             }
         } else {
-            failure_ = ChainFailure::GatewayConnectFailed;
-            failure_detail_ = connected.detail;
+            failure_ = connected.status.failure == ChainFailure::None
+                ? ChainFailure::GatewayConnectFailed
+                : connected.status.failure;
+            failure_detail_ = connected.status.detail;
         }
 
-        // 会话一律释放:重取号、宽限内重入、退出三条路都不留悬挂的
-        // Edge Session(回排队后本段建的连接没有任何复用价值)。
-        transport_.drop_connections();
         if (retake_ticket) {
             failure_ = ChainFailure::TicketRejected;
             failure_detail_ = "号牌被网关判过期,回排队重取";
             return Action::RetakeTicket;
         }
-
-        // 回退:admitted 号牌在宽限内可重入;宽限耗尽即视为号牌过期,
-        // 回排队阶段自动重取(spec §7)。
         if (!within_admit_grace(Clock::now())) {
             failure_ = ChainFailure::TicketRejected;
             failure_detail_ = "放行宽限耗尽,号牌需重取";
@@ -233,8 +280,10 @@ LoginChain::Action LoginChain::connect_gateway_and_handoff(TimePoint deadline) {
     }
 }
 
-LoginChain::Action LoginChain::redeem_realm(TimePoint deadline) {
-    // EnterRealm 票据 60s 是本段的硬窗(spec §4/§7)。
+LoginChain::Action LoginChain::redeem_realm(
+    TimePoint deadline,
+    std::unique_ptr<RealmSession>& session_out) {
+    session_out.reset();
     const auto ticket_deadline =
         std::min(deadline, Clock::now() + config_.enter_realm_ttl);
 
@@ -246,40 +295,35 @@ LoginChain::Action LoginChain::redeem_realm(TimePoint deadline) {
         }
         set_stage(LoginStage::RealmConnecting);
 
-        const auto connected =
-            transport_.connect_realm(realm_endpoints_, deadline);
-        if (connected.ok) {
-            const auto redeemed =
-                transport_.enter_realm(credentials_.enter_realm_ticket,
-                                       deadline);
+        auto connected = transport_.connect_realm(realm_endpoints_, deadline);
+        if (connected.status.ok && connected.value != nullptr) {
+            auto session = std::move(connected.value);
+            const auto redeemed = transport_.enter_realm(
+                *session, credentials_.enter_realm_ticket, deadline);
             if (redeemed.ok) {
                 failure_ = ChainFailure::None;
                 failure_detail_.clear();
                 set_stage(LoginStage::InGame);
+                session_out = std::move(session);
                 return Action::Advanced;
             }
             failure_ = redeemed.failure;
             failure_detail_ = redeemed.detail;
         } else {
-            failure_ = ChainFailure::RealmConnectFailed;
-            failure_detail_ = connected.detail;
+            failure_ = connected.status.failure == ChainFailure::None
+                ? ChainFailure::RealmConnectFailed
+                : connected.status.failure;
+            failure_detail_ = connected.status.detail;
         }
 
-        transport_.drop_connections();
-        if (Clock::now() >= ticket_deadline) {
-            // 票据窗口耗尽:交回上层决定回网关重入还是重取号。
-            return Action::Failed;
-        }
-        if (Clock::now() >= deadline) {
+        if (Clock::now() >= ticket_deadline || Clock::now() >= deadline) {
             return Action::Failed;
         }
         wait_for(config_.realm_retry_delay, deadline);
     }
 }
 
-LoginChainResult LoginChain::run(std::string_view account,
-                                 std::string_view credential,
-                                 TimePoint deadline) {
+LoginResult LoginChain::run(LoginRun request) {
     credentials_ = ChainCredentials{};
     realm_endpoints_.clear();
     failure_ = ChainFailure::None;
@@ -288,53 +332,96 @@ LoginChainResult LoginChain::run(std::string_view account,
     eta_.reset();
     admitted_at_ = TimePoint{};
     admit_grace_ = config_.admit_grace_fallback;
+    polling_profile_ = request.polling_profile();
 
-    // verifying:失败即回 idle(spec §7)。
+    const auto target = request.target();
+    const auto deadline = request.deadline();
+    if (Clock::now() >= deadline) {
+        failure_ = ChainFailure::DeadlineExceeded;
+        failure_detail_ = "登录总窗口已耗尽";
+        set_stage(LoginStage::Idle);
+        return fail(LoginStage::Idle);
+    }
+
     set_stage(LoginStage::Verifying);
-    const auto verified = transport_.verify(account, credential, deadline);
+    const auto verified =
+        transport_.verify(request.account(), request.credential(), deadline);
     if (!verified.status.ok) {
         failure_ = verified.status.failure;
         failure_detail_ = verified.status.detail;
         set_stage(LoginStage::Idle);
-        return finish(LoginStage::Idle);
+        return fail(LoginStage::Idle);
     }
     credentials_.identity_token = verified.value.identity_token;
+    if (target == LoginTarget::Verify) {
+        return LoginResult{LoginSuccess{
+            VerifySuccess{credentials_.identity_token}}};
+    }
 
-    // queued 起的循环:任何"重取号"回退都从头再来一轮排队。
     for (;;) {
         set_stage(LoginStage::Queued);
         if (take_ticket(deadline) == Action::Failed) {
             set_stage(LoginStage::Idle);
-            return finish(LoginStage::Idle);
+            return fail(LoginStage::Idle);
+        }
+        if (target == LoginTarget::Tickets) {
+            return LoginResult{LoginSuccess{TicketsSuccess{
+                credentials_.identity_token, credentials_.queue_number_token,
+                credentials_.number}}};
         }
 
-        // queued → admitted(含号牌过期自动重取)。
         const auto admitted = poll_until_admitted(deadline);
         if (admitted == Action::Failed) {
             set_stage(LoginStage::Idle);
-            return finish(LoginStage::Idle);
+            return fail(LoginStage::Idle);
         }
         if (admitted == Action::RetakeTicket) {
             continue;
         }
+        if (target == LoginTarget::Poll) {
+            return LoginResult{LoginSuccess{PollSuccess{
+                credentials_.admitted_token, credentials_.number, eta_}}};
+        }
 
-        // 同一号牌内的网关段与 Realm 段:Realm 段失败且宽限仍在时,
-        // 回网关重入换新票据;宽限耗尽即弃号回排队(spec §7)。
         bool retake_ticket = false;
         for (;;) {
-            const auto gateway = connect_gateway_and_handoff(deadline);
+            std::unique_ptr<GatewaySession> gateway_session;
+            const auto gateway =
+                connect_gateway_and_handoff(deadline, gateway_session);
             if (gateway == Action::Failed) {
                 set_stage(LoginStage::Idle);
-                return finish(LoginStage::Idle);
+                return fail(LoginStage::Idle);
             }
             if (gateway == Action::RetakeTicket) {
                 retake_ticket = true;
                 break;
             }
 
-            const auto realm = redeem_realm(deadline);
+            HandoffResult handoff{credentials_.enter_realm_ticket,
+                                  realm_endpoints_};
+            if (target == LoginTarget::Gateway) {
+                gateway_session.reset();
+                return LoginResult{LoginSuccess{GatewaySuccess{
+                    std::move(handoff), credentials_.number, eta_}}};
+            }
+            if (target == LoginTarget::GatewaySoak) {
+                const auto held_until =
+                    std::min(request.hold_until(), deadline);
+                if (Clock::now() < held_until) {
+                    std::this_thread::sleep_until(held_until);
+                }
+                gateway_session.reset();
+                return LoginResult{LoginSuccess{GatewaySoakSuccess{
+                    std::move(handoff), credentials_.number, eta_, held_until}}};
+            }
+
+            // Full 的 Realm 段独立竞速；Gateway 票据到手后即可释放。
+            gateway_session.reset();
+            std::unique_ptr<RealmSession> realm_session;
+            const auto realm = redeem_realm(deadline, realm_session);
             if (realm == Action::Advanced) {
-                return finish(LoginStage::InGame);
+                return LoginResult{LoginSuccess{FullSuccess{
+                    std::move(realm_session), credentials_.number, eta_}}};
             }
             if (realm == Action::RetakeTicket) {
                 retake_ticket = true;
@@ -342,7 +429,7 @@ LoginChainResult LoginChain::run(std::string_view account,
             }
             if (Clock::now() >= deadline) {
                 set_stage(LoginStage::Idle);
-                return finish(LoginStage::Idle);
+                return fail(LoginStage::Idle);
             }
             if (!within_admit_grace(Clock::now())) {
                 retake_ticket = true;
@@ -350,8 +437,7 @@ LoginChainResult LoginChain::run(std::string_view account,
             }
         }
         if (!retake_ticket) {
-            // 内层只在 return 或置位 retake_ticket 后退出,这里仅作兜底。
-            return finish(stage_);
+            return fail(stage_);
         }
     }
 }

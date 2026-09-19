@@ -6,11 +6,12 @@
 
 #include <chrono>
 #include <cstdint>
-#include <functional>
+#include <memory>
 #include <optional>
 #include <span>
 #include <string>
 #include <string_view>
+#include <variant>
 #include <vector>
 
 namespace realm::client {
@@ -18,8 +19,6 @@ namespace realm::client {
 using Clock = std::chrono::steady_clock;
 using TimePoint = Clock::time_point;
 
-/// 端口调用状态:失败必带分型。credential_expired 表示服务端判定
-/// 号牌/票据过期(触发自动重取),与瞬时网络失败区分(spec §7 回退规则)。
 struct PortStatus final {
     bool ok{false};
     ChainFailure failure{ChainFailure::None};
@@ -33,49 +32,58 @@ struct PortStatus final {
         bool credential_expired = false);
 };
 
-/// 带值的端口调用结果:status 失败时 value 无意义(保持默认值)。
 template <typename T>
 struct PortValue final {
     PortStatus status;
     T value{};
 };
 
-/// 健全服应答(spec §5.1 #1)。
 struct VerifyResult final {
     std::string identity_token;
 };
 
-/// 排队服取号应答(spec §5.1 #2)。
 struct TicketResult final {
     std::string queue_number_token;
     std::uint64_t number{0};
 };
 
-/// 全局进度应答(spec §5.1 #3):放行号与放行速率(ETA 本地插值用)。
 struct ProgressResult final {
     std::uint64_t released_number{0};
     double admit_rate{0};
 };
 
-/// 查号应答(spec §5.1 #4):未放行时给位次,放行时给重签号牌与宽限。
 struct TicketMeResult final {
     bool admitted{false};
     std::uint64_t position{0};
-    /// admitted 时的重签号牌(admit_grant)。
     std::string admitted_token;
-    /// admitted 后的宽限(spec §4:放行 + 5 min 宽限)。
     std::chrono::seconds admit_grace{0};
 };
 
 struct HandoffResult final {
     std::string enter_realm_ticket;
-    /// 1303 下发的业务服端点(protocol + priority 已就位,直接喂竞速)。
     std::vector<network::client::EndpointCandidate> realm_endpoints;
 };
 
-/// 链路传输口:唯一的注入缝。生产绑定走自研 HTTP/1.1 与 edge 帧(ADR-0007),
-/// 测试以假实现脚本化。会话型:connect_* 建连并持有,attach/
-/// await_handoff/enter_realm 作用于当前会话,drop_connections 清理回退。
+/// Gateway 与 Realm 的远程连接所有权。Transport 返回独占句柄；离开作用域
+/// 即关闭，调用方不再承担配对 drop 调用。
+class GatewaySession {
+public:
+    GatewaySession() = default;
+    virtual ~GatewaySession() = default;
+    GatewaySession(const GatewaySession&) = delete;
+    GatewaySession& operator=(const GatewaySession&) = delete;
+};
+
+class RealmSession {
+public:
+    RealmSession() = default;
+    virtual ~RealmSession() = default;
+    RealmSession(const RealmSession&) = delete;
+    RealmSession& operator=(const RealmSession&) = delete;
+};
+
+/// 登录链路唯一远程依赖 Seam。Session 参数把协议操作绑定到准确连接，
+/// 成功与失败路径都由 RAII 保证清理。
 class LoginChainTransport {
 public:
     virtual ~LoginChainTransport() = default;
@@ -92,101 +100,215 @@ public:
         std::string_view queue_number_token,
         TimePoint deadline) = 0;
 
-    /// 连网关:竞速候选(QUIC + TLS/TCP),建连成功即持有会话。
-    virtual PortStatus connect_gateway(
+    virtual PortValue<std::unique_ptr<GatewaySession>> connect_gateway(
         std::span<const network::client::EndpointCandidate> candidates,
         TimePoint deadline) = 0;
     virtual PortStatus attach(
+        GatewaySession& session,
         std::string_view identity_token,
         std::string_view queue_number_token,
         TimePoint deadline) = 0;
-    virtual PortValue<HandoffResult> await_handoff(TimePoint deadline) = 0;
+    virtual PortValue<HandoffResult> await_handoff(
+        GatewaySession& session,
+        TimePoint deadline) = 0;
 
-    /// 直连业务服:与网关段各自独立的第二次竞速。
-    virtual PortStatus connect_realm(
+    virtual PortValue<std::unique_ptr<RealmSession>> connect_realm(
         std::span<const network::client::EndpointCandidate> candidates,
         TimePoint deadline) = 0;
     virtual PortStatus enter_realm(
+        RealmSession& session,
         std::string_view enter_realm_ticket,
         TimePoint deadline) = 0;
-
-    virtual void drop_connections() = 0;
 };
 
-/// 链路配置:竞速候选由部署侧注入,其余是可压缩的时标(规格数值见
-/// AdaptivePoller 与 spec §4/§7)。
 struct LoginChainConfig final {
     PollTierConfig poll;
-    /// 网关竞速候选(部署侧注入;QUIC/TLS 两项各带优先级)。
     std::vector<network::client::EndpointCandidate> gateway_endpoints;
-    /// 宽限内重入节奏(网关段/Realm 段各自独立)。
     std::chrono::milliseconds gateway_retry_delay{200};
     std::chrono::milliseconds realm_retry_delay{200};
-    /// EnterRealm 票据 TTL(spec §4:60s);票据过期回网关重入或重取号。
     std::chrono::seconds enter_realm_ttl{60};
-    /// tickets/me 未给宽限时的兜底(规格:放行 + 5 min)。
     std::chrono::seconds admit_grace_fallback{300};
+    /// 压测策略只替换轮询节奏，不改变状态、凭据或回退语义。
+    std::chrono::milliseconds pressure_poll_interval{10};
 };
 
-/// 凭据包:纯内存持有(spec §7:无落盘、无序列化;进程重启=重新登录排队)。
-struct ChainCredentials final {
+enum class LoginTarget { Verify, Tickets, Poll, Gateway, GatewaySoak, Full };
+enum class PollingProfile { ClientRealistic, Pressure };
+
+/// 经过构造约束的一次运行。六个命名工厂杜绝 target 与数据字段的
+/// 随意组合。
+class LoginRun final {
+public:
+    [[nodiscard]] static LoginRun verify(
+        std::string account, std::string credential, TimePoint deadline);
+    [[nodiscard]] static LoginRun tickets(
+        std::string account, std::string credential, TimePoint deadline);
+    [[nodiscard]] static LoginRun poll(
+        std::string account,
+        std::string credential,
+        TimePoint deadline,
+        PollingProfile profile);
+    [[nodiscard]] static LoginRun gateway(
+        std::string account,
+        std::string credential,
+        TimePoint deadline,
+        PollingProfile profile);
+    [[nodiscard]] static std::optional<LoginRun> gateway_soak(
+        std::string account,
+        std::string credential,
+        TimePoint deadline,
+        PollingProfile profile,
+        TimePoint hold_until);
+    [[nodiscard]] static LoginRun full(
+        std::string account, std::string credential, TimePoint deadline);
+    [[nodiscard]] static LoginRun full_for_loadgen(
+        std::string account,
+        std::string credential,
+        TimePoint deadline,
+        PollingProfile profile);
+
+    LoginRun(LoginRun&&) noexcept = default;
+    LoginRun& operator=(LoginRun&&) noexcept = default;
+    LoginRun(const LoginRun&) = delete;
+    LoginRun& operator=(const LoginRun&) = delete;
+
+    [[nodiscard]] LoginTarget target() const noexcept { return target_; }
+    [[nodiscard]] PollingProfile polling_profile() const noexcept {
+        return polling_profile_;
+    }
+    [[nodiscard]] std::string_view account() const noexcept { return account_; }
+    [[nodiscard]] std::string_view credential() const noexcept {
+        return credential_;
+    }
+    [[nodiscard]] TimePoint deadline() const noexcept { return deadline_; }
+    [[nodiscard]] TimePoint hold_until() const noexcept { return hold_until_; }
+
+private:
+    LoginRun(LoginTarget target,
+             std::string account,
+             std::string credential,
+             TimePoint deadline,
+             PollingProfile profile,
+             TimePoint hold_until = {});
+
+    LoginTarget target_;
+    std::string account_;
+    std::string credential_;
+    TimePoint deadline_;
+    PollingProfile polling_profile_;
+    TimePoint hold_until_{};
+};
+
+struct VerifySuccess final {
+    std::string identity_token;
+};
+struct TicketsSuccess final {
     std::string identity_token;
     std::string queue_number_token;
     std::uint64_t number{0};
+};
+struct PollSuccess final {
     std::string admitted_token;
-    std::string enter_realm_ticket;
+    std::uint64_t number{0};
+    std::optional<std::chrono::seconds> eta;
+};
+struct GatewaySuccess final {
+    HandoffResult handoff;
+    std::uint64_t number{0};
+    std::optional<std::chrono::seconds> eta;
+};
+struct GatewaySoakSuccess final {
+    HandoffResult handoff;
+    std::uint64_t number{0};
+    std::optional<std::chrono::seconds> eta;
+    TimePoint held_until;
+};
+struct FullSuccess final {
+    std::unique_ptr<RealmSession> session;
+    std::uint64_t number{0};
+    std::optional<std::chrono::seconds> eta;
 };
 
-/// 一次登录的结局:stage 是收尾时的七态位置,failure 与 detail 只在
-/// 未成功时有效;eta 是最后一次进度轮询的本地插值(未知时缺席)。
-struct LoginChainResult final {
+using LoginSuccess = std::variant<VerifySuccess,
+                                  TicketsSuccess,
+                                  PollSuccess,
+                                  GatewaySuccess,
+                                  GatewaySoakSuccess,
+                                  FullSuccess>;
+
+struct LoginFailure final {
     LoginStage stage{LoginStage::Idle};
-    ChainFailure failure{ChainFailure::None};
+    ChainFailure reason{ChainFailure::None};
     std::string detail;
     std::uint64_t number{0};
     std::optional<std::chrono::seconds> eta;
-
-    [[nodiscard]] bool succeeded() const noexcept {
-        return stage == LoginStage::InGame;
-    }
 };
 
-/// 七态登录链路(spec §7):阻塞式单线程编排,从 Idle 走到 InGame,
-/// 或按回退规则回到 Idle/Queued(结果里带状态与失败分型)。
+class LoginResult final {
+public:
+    LoginResult(LoginResult&&) noexcept = default;
+    LoginResult& operator=(LoginResult&&) noexcept = default;
+    LoginResult(const LoginResult&) = delete;
+    LoginResult& operator=(const LoginResult&) = delete;
+
+    [[nodiscard]] bool succeeded() const noexcept {
+        return std::holds_alternative<LoginSuccess>(value_);
+    }
+    [[nodiscard]] const LoginSuccess* success() const noexcept {
+        return std::get_if<LoginSuccess>(&value_);
+    }
+    [[nodiscard]] LoginSuccess* success() noexcept {
+        return std::get_if<LoginSuccess>(&value_);
+    }
+    [[nodiscard]] const LoginFailure* failure() const noexcept {
+        return std::get_if<LoginFailure>(&value_);
+    }
+
+private:
+    friend class LoginChain;
+    explicit LoginResult(LoginSuccess success) : value_(std::move(success)) {}
+    explicit LoginResult(LoginFailure failure) : value_(std::move(failure)) {}
+
+    std::variant<LoginSuccess, LoginFailure> value_;
+};
+
+/// 登录链路 Module：一个 run Interface，内部隐藏轮询、回退、竞速与
+/// 会话转移。
 class LoginChain final {
 public:
     explicit LoginChain(
         LoginChainTransport& transport,
         LoginChainConfig config = {});
 
-    /// 驱动一次完整登录;deadline 是总窗口(含排队等待)。
-    LoginChainResult run(
-        std::string_view account,
-        std::string_view credential,
-        TimePoint deadline);
+    [[nodiscard]] LoginResult run(LoginRun request);
 
-    [[nodiscard]] const ChainCredentials& credentials() const noexcept {
-        return credentials_;
-    }
-    /// 最后一次排队轮询实际等待的间隔(可观测:分档/退避的外部表征)。
     [[nodiscard]] std::chrono::milliseconds last_poll_interval() const
         noexcept {
         return last_poll_interval_;
     }
-    void on_stage_change(std::function<void(LoginStage)> callback);
 
 private:
-    /// 子阶段结局:推进 / 号牌过期需重取 / 窗口内失败。
+    struct ChainCredentials final {
+        std::string identity_token;
+        std::string queue_number_token;
+        std::uint64_t number{0};
+        std::string admitted_token;
+        std::string enter_realm_ticket;
+    };
     enum class Action { Advanced, RetakeTicket, Failed };
 
     [[nodiscard]] Action poll_until_admitted(TimePoint deadline);
-    [[nodiscard]] Action connect_gateway_and_handoff(TimePoint deadline);
-    [[nodiscard]] Action redeem_realm(TimePoint deadline);
+    [[nodiscard]] Action connect_gateway_and_handoff(
+        TimePoint deadline,
+        std::unique_ptr<GatewaySession>& session_out);
+    [[nodiscard]] Action redeem_realm(
+        TimePoint deadline,
+        std::unique_ptr<RealmSession>& session_out);
     [[nodiscard]] Action take_ticket(TimePoint deadline);
 
     [[nodiscard]] bool within_admit_grace(TimePoint now) const;
-    [[nodiscard]] LoginChainResult finish(LoginStage stage) const;
-    void set_stage(LoginStage stage);
+    [[nodiscard]] LoginResult fail(LoginStage stage) const;
+    void set_stage(LoginStage stage) noexcept { stage_ = stage; }
     void wait_for(std::chrono::milliseconds duration, TimePoint deadline);
 
     LoginChainTransport& transport_;
@@ -198,11 +320,10 @@ private:
     std::string failure_detail_;
     std::chrono::milliseconds last_poll_interval_{0};
     std::optional<std::chrono::seconds> eta_;
-    /// 1303 下发的业务服端点,供 Realm 段竞速使用。
     std::vector<network::client::EndpointCandidate> realm_endpoints_;
     TimePoint admitted_at_{};
     std::chrono::seconds admit_grace_{0};
-    std::function<void(LoginStage)> on_stage_change_;
+    PollingProfile polling_profile_{PollingProfile::ClientRealistic};
 };
 
 }  // namespace realm::client

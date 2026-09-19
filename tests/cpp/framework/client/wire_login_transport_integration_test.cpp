@@ -503,14 +503,15 @@ TEST(WireLoginTransportIntegrationTest, DrivesLoginChainOverRealTls) {
     WireLoginTransport transport(endpoints, redeemer, fast_wire_options());
 
     LoginChain chain(transport, fast_chain_config(gateway_port));
-    const auto result =
-        chain.run("alice", "secret", Clock::now() + std::chrono::seconds{10});
+    const auto result = chain.run(LoginRun::full(
+        "alice", "secret", Clock::now() + std::chrono::seconds{10}));
 
-    ASSERT_TRUE(result.succeeded())
-        << "failure=" << chain_failure_name(result.failure)
-        << " detail=" << result.detail;
-    EXPECT_EQ(result.stage, LoginStage::InGame);
-    EXPECT_EQ(result.number, 100U);
+    ASSERT_TRUE(result.succeeded());
+    ASSERT_NE(result.success(), nullptr);
+    const auto* success = std::get_if<FullSuccess>(result.success());
+    ASSERT_NE(success, nullptr);
+    EXPECT_NE(success->session, nullptr);
+    EXPECT_EQ(success->number, 100U);
 
     // HTTP 段:verify 一次;查号三次(首查被 401+2001 判号牌过期→重取号,
     // 新号首查仍 queued,progress 追上号值后第三次拿到放行凭证);
@@ -545,9 +546,7 @@ TEST(WireLoginTransportIntegrationTest, DrivesLoginChainOverRealTls) {
 
     // Realm 段:生产兑换口把网关签发的真实票据兑换成了 InGame;能到 InGame
     // 就说明真实 realm 服务验签通过并回了 1305(拒绝分支不可能到 InGame)。
-    EXPECT_FALSE(chain.credentials().enter_realm_ticket.empty());
-    EXPECT_EQ(
-        chain.credentials().enter_realm_ticket, edge.last_enter_realm_ticket());
+    EXPECT_FALSE(edge.last_enter_realm_ticket().empty());
 }
 
 /// attach 被 1999 + 2001 拒(号牌过期):真实帧路径上同样自动重取号牌,
@@ -576,19 +575,20 @@ TEST(WireLoginTransportIntegrationTest, AttachRejectionRetakesNumberToken) {
     WireLoginTransport transport(endpoints, redeemer, fast_wire_options());
 
     LoginChain chain(transport, fast_chain_config(gateway_port));
-    const auto result =
-        chain.run("alice", "secret", Clock::now() + std::chrono::seconds{10});
+    const auto result = chain.run(LoginRun::full(
+        "alice", "secret", Clock::now() + std::chrono::seconds{10}));
 
-    ASSERT_TRUE(result.succeeded())
-        << "failure=" << chain_failure_name(result.failure)
-        << " detail=" << result.detail;
+    ASSERT_TRUE(result.succeeded());
+    ASSERT_NE(result.success(), nullptr);
+    const auto* success = std::get_if<FullSuccess>(result.success());
+    ASSERT_NE(success, nullptr);
     // 两次 attach 都是真实帧:第一次被 2001 拒,第二次放行并交付。
     EXPECT_EQ(edge.attach_calls.load(), 2);
     EXPECT_EQ(edge.handoff_sent.load(), 1);
     EXPECT_EQ(http.count_of("/v1/queue/tickets"), 2);
-    EXPECT_EQ(chain.credentials().number, 100U);
+    EXPECT_EQ(success->number, 100U);
     // 第二次 attach 交付的真实票据同样被 Realm 段受理。
-    EXPECT_FALSE(chain.credentials().enter_realm_ticket.empty());
+    EXPECT_FALSE(edge.last_enter_realm_ticket().empty());
 }
 
 /// 401 不一律等于号牌过期:只有错误码 2001 才触发自动重取(spec §5.1
@@ -644,11 +644,12 @@ TEST(WireLoginTransportIntegrationTest, RealmRejectsForeignTicketAtPortLevel) {
             .priority = 1,
         }};
     const auto deadline = Clock::now() + std::chrono::seconds{5};
-    const auto connected = transport.connect_realm(candidates, deadline);
-    ASSERT_TRUE(connected.ok) << connected.detail;
+    auto connected = transport.connect_realm(candidates, deadline);
+    ASSERT_TRUE(connected.status.ok) << connected.status.detail;
+    ASSERT_NE(connected.value, nullptr);
 
-    const auto status =
-        transport.enter_realm(mint_enter_realm_ticket(2), deadline);
+    const auto status = transport.enter_realm(
+        *connected.value, mint_enter_realm_ticket(2), deadline);
 
     EXPECT_FALSE(status.ok);
     EXPECT_EQ(status.failure, ChainFailure::EnterRealmRejected);

@@ -88,24 +88,25 @@ public:
         std::string_view queue_number_token,
         TimePoint deadline) override;
 
-    [[nodiscard]] PortStatus connect_gateway(
+    [[nodiscard]] PortValue<std::unique_ptr<GatewaySession>> connect_gateway(
         std::span<const network::client::EndpointCandidate> candidates,
         TimePoint deadline) override;
     [[nodiscard]] PortStatus attach(
+        GatewaySession& session,
         std::string_view identity_token,
         std::string_view queue_number_token,
         TimePoint deadline) override;
     [[nodiscard]] PortValue<HandoffResult> await_handoff(
+        GatewaySession& session,
         TimePoint deadline) override;
 
-    [[nodiscard]] PortStatus connect_realm(
+    [[nodiscard]] PortValue<std::unique_ptr<RealmSession>> connect_realm(
         std::span<const network::client::EndpointCandidate> candidates,
         TimePoint deadline) override;
     [[nodiscard]] PortStatus enter_realm(
+        RealmSession& session,
         std::string_view enter_realm_ticket,
         TimePoint deadline) override;
-
-    void drop_connections() override;
 
 private:
     /// 一次 JSON 请求;连接按需拨号 + 保活复用,网络层失败重拨一次。
@@ -134,9 +135,6 @@ private:
         std::shared_ptr<network::client::ISecureByteStream>& stream_out,
         TimePoint deadline);
 
-    void drop_gateway();
-    void drop_realm();
-
     WireEndpoints endpoints_;
     EnterRealmRedeemer& redeemer_;
     WireTransportOptions options_;
@@ -148,10 +146,6 @@ private:
 
     std::unique_ptr<network::client::Http1ClientConnection> login_connection_;
     std::unique_ptr<network::client::Http1ClientConnection> queue_connection_;
-    std::shared_ptr<network::client::ISecureConnection> gateway_connection_;
-    std::unique_ptr<network::client::EdgeClientConnection> gateway_edge_;
-    std::shared_ptr<network::client::ISecureConnection> realm_connection_;
-    std::shared_ptr<network::client::ISecureByteStream> realm_stream_;
 };
 
 }  // namespace realm::client

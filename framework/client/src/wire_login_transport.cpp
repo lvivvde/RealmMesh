@@ -67,6 +67,48 @@ namespace net_client = ::realm::network::client;
            error.message();
 }
 
+class WireGatewaySession final : public GatewaySession {
+public:
+    WireGatewaySession(
+        std::shared_ptr<net_client::ISecureConnection> connection,
+        std::shared_ptr<net_client::ISecureByteStream> stream)
+        : connection_(std::move(connection)), stream_(std::move(stream)),
+          edge_(stream_) {}
+
+    ~WireGatewaySession() override {
+        if (stream_ != nullptr) {
+            stream_->shutdown();
+        }
+    }
+
+    net_client::EdgeClientConnection& edge() noexcept { return edge_; }
+
+private:
+    std::shared_ptr<net_client::ISecureConnection> connection_;
+    std::shared_ptr<net_client::ISecureByteStream> stream_;
+    net_client::EdgeClientConnection edge_;
+};
+
+class WireRealmSession final : public RealmSession {
+public:
+    WireRealmSession(
+        std::shared_ptr<net_client::ISecureConnection> connection,
+        std::shared_ptr<net_client::ISecureByteStream> stream)
+        : connection_(std::move(connection)), stream_(std::move(stream)) {}
+
+    ~WireRealmSession() override {
+        if (stream_ != nullptr) {
+            stream_->shutdown();
+        }
+    }
+
+    net_client::ISecureByteStream& stream() noexcept { return *stream_; }
+
+private:
+    std::shared_ptr<net_client::ISecureConnection> connection_;
+    std::shared_ptr<net_client::ISecureByteStream> stream_;
+};
+
 }  // namespace
 
 PortStatus WireEnterRealmRedeemer::redeem(
@@ -347,39 +389,41 @@ PortStatus WireLoginTransport::connect_racing(
     return PortStatus::success();
 }
 
-PortStatus WireLoginTransport::connect_gateway(
+PortValue<std::unique_ptr<GatewaySession>> WireLoginTransport::connect_gateway(
     std::span<const net_client::EndpointCandidate> candidates,
     TimePoint deadline) {
-    drop_gateway();
+    PortValue<std::unique_ptr<GatewaySession>> result;
     std::shared_ptr<net_client::ISecureConnection> connection;
     std::shared_ptr<net_client::ISecureByteStream> stream;
-    const auto status = connect_racing(Segment::Gateway, candidates, connection,
-                                       stream, deadline);
-    if (!status.ok) {
-        return status;
+    result.status = connect_racing(Segment::Gateway, candidates, connection,
+                                   stream, deadline);
+    if (!result.status.ok) {
+        return result;
     }
-    gateway_connection_ = std::move(connection);
-    gateway_edge_ =
-        std::make_unique<net_client::EdgeClientConnection>(std::move(stream));
-    return status;
+    result.value = std::make_unique<WireGatewaySession>(
+        std::move(connection), std::move(stream));
+    return result;
 }
 
-PortStatus WireLoginTransport::attach(std::string_view identity_token,
+PortStatus WireLoginTransport::attach(GatewaySession& session,
+                                      std::string_view identity_token,
                                       std::string_view queue_number_token,
                                       TimePoint deadline) {
-    if (gateway_edge_ == nullptr) {
+    auto* wire_session = dynamic_cast<WireGatewaySession*>(&session);
+    if (wire_session == nullptr) {
         return PortStatus::error(ChainFailure::GatewayConnectFailed,
-                                 "attach 前未建连");
+                                 "attach 收到不匹配的 Gateway Session");
     }
+    auto& edge = wire_session->edge();
     common::EdgeAttach message;
     message.set_identity_token(std::string{identity_token});
     message.set_queue_number_token(std::string{queue_number_token});
-    if (!gateway_edge_->send_frame(common::encode(message, 0), deadline)) {
+    if (!edge.send_frame(common::encode(message, 0), deadline)) {
         return PortStatus::error(ChainFailure::AttachRejected,
                                  "attach 帧发送失败");
     }
     for (;;) {
-        const auto payload = gateway_edge_->receive_frame(deadline);
+        const auto payload = edge.receive_frame(deadline);
         if (!payload.has_value()) {
             return PortStatus::error(ChainFailure::AttachRejected,
                                      "未在窗口内收到受理");
@@ -407,15 +451,19 @@ PortStatus WireLoginTransport::attach(std::string_view identity_token,
     }
 }
 
-PortValue<HandoffResult> WireLoginTransport::await_handoff(TimePoint deadline) {
+PortValue<HandoffResult> WireLoginTransport::await_handoff(
+    GatewaySession& session,
+    TimePoint deadline) {
     PortValue<HandoffResult> result;
-    if (gateway_edge_ == nullptr) {
+    auto* wire_session = dynamic_cast<WireGatewaySession*>(&session);
+    if (wire_session == nullptr) {
         result.status = PortStatus::error(ChainFailure::GatewayConnectFailed,
-                                          "handoff 前未建连");
+                                          "handoff 收到不匹配的 Gateway Session");
         return result;
     }
+    auto& edge = wire_session->edge();
     for (;;) {
-        const auto payload = gateway_edge_->receive_frame(deadline);
+        const auto payload = edge.receive_frame(deadline);
         if (!payload.has_value()) {
             result.status = PortStatus::error(ChainFailure::HandoffTimeout,
                                               "未在窗口内收到交付");
@@ -455,49 +503,32 @@ PortValue<HandoffResult> WireLoginTransport::await_handoff(TimePoint deadline) {
     }
 }
 
-PortStatus WireLoginTransport::connect_realm(
+PortValue<std::unique_ptr<RealmSession>> WireLoginTransport::connect_realm(
     std::span<const net_client::EndpointCandidate> candidates,
     TimePoint deadline) {
-    drop_realm();
+    PortValue<std::unique_ptr<RealmSession>> result;
     std::shared_ptr<net_client::ISecureConnection> connection;
     std::shared_ptr<net_client::ISecureByteStream> stream;
-    const auto status = connect_racing(Segment::Realm, candidates, connection,
-                                       stream, deadline);
-    if (!status.ok) {
-        return status;
+    result.status = connect_racing(Segment::Realm, candidates, connection,
+                                   stream, deadline);
+    if (!result.status.ok) {
+        return result;
     }
-    realm_connection_ = std::move(connection);
-    realm_stream_ = std::move(stream);
-    return status;
+    result.value = std::make_unique<WireRealmSession>(
+        std::move(connection), std::move(stream));
+    return result;
 }
 
-PortStatus WireLoginTransport::enter_realm(std::string_view enter_realm_ticket,
+PortStatus WireLoginTransport::enter_realm(RealmSession& session,
+                                           std::string_view enter_realm_ticket,
                                            TimePoint deadline) {
-    if (realm_stream_ == nullptr) {
+    auto* wire_session = dynamic_cast<WireRealmSession*>(&session);
+    if (wire_session == nullptr) {
         return PortStatus::error(ChainFailure::RealmConnectFailed,
-                                 "兑换前未直连业务服");
+                                 "兑换收到不匹配的 Realm Session");
     }
-    return redeemer_.redeem(*realm_stream_, enter_realm_ticket, deadline);
-}
-
-void WireLoginTransport::drop_gateway() {
-    gateway_edge_.reset();
-    gateway_connection_.reset();
-}
-
-void WireLoginTransport::drop_realm() {
-    if (realm_stream_ != nullptr) {
-        realm_stream_->shutdown();
-    }
-    realm_stream_.reset();
-    realm_connection_.reset();
-}
-
-void WireLoginTransport::drop_connections() {
-    login_connection_.reset();
-    queue_connection_.reset();
-    drop_gateway();
-    drop_realm();
+    return redeemer_.redeem(wire_session->stream(), enter_realm_ticket,
+                            deadline);
 }
 
 }  // namespace realm::client
