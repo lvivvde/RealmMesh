@@ -5,6 +5,9 @@
 #include <chrono>
 #include <string>
 
+#include "realmmesh/game/common/base64url.hpp"
+#include "realmmesh/game/common/json.hpp"
+
 namespace realm::game::common {
 namespace {
 
@@ -50,6 +53,34 @@ TEST(QueueNumberCodecTest, RoundTripsAdmittedTicket) {
     ASSERT_TRUE(decoded.has_value());
     EXPECT_TRUE(decoded->admitted);
     EXPECT_EQ(decoded->number, 42U);
+}
+
+// #79 replacement point: the current v1 credential proves only a queue number
+// and release bit. It has no subject, identity-token binding, audience, purpose,
+// or explicit wire version.
+TEST(QueueNumberCodecTest, CurrentV1PayloadHasNoIdentityBindingOrContext) {
+    const auto token = test_codec().issue(test_claims());
+    const auto first = token.find('.');
+    const auto second = token.find('.', first + 1);
+    ASSERT_NE(first, std::string::npos);
+    ASSERT_NE(second, std::string::npos);
+
+    const auto bytes = base64url_decode(
+        std::string_view{token}.substr(first + 1, second - first - 1));
+    ASSERT_TRUE(bytes.has_value());
+    const auto payload = JsonCodec::decode(std::string_view{
+        reinterpret_cast<const char*>(bytes->data()), bytes->size()});
+    ASSERT_TRUE(payload.has_value());
+    EXPECT_EQ(payload->size(), 5U);
+    EXPECT_EQ(std::get<std::string>(payload->at("iss")), "realmmesh/queue");
+    EXPECT_EQ(std::get<std::int64_t>(payload->at("number")), 42);
+    EXPECT_FALSE(std::get<bool>(payload->at("admitted")));
+    EXPECT_EQ(std::get<std::int64_t>(payload->at("iat")), 1'700'000'000);
+    EXPECT_EQ(std::get<std::int64_t>(payload->at("exp")), 1'700'003'600);
+    for (const auto key :
+         {"identity_jti", "sub", "aud", "purpose", "version"}) {
+        EXPECT_EQ(payload->find(key), payload->end()) << key;
+    }
 }
 
 TEST(QueueNumberCodecTest, AcceptsWithinLeewayAfterExpiry) {

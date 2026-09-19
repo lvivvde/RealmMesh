@@ -32,6 +32,8 @@
 #include <array>
 #include <chrono>
 #include <cstddef>
+#include <fstream>
+#include <iterator>
 #include <memory>
 #include <nlohmann/json.hpp>
 #include <optional>
@@ -694,6 +696,44 @@ TEST_F(ServiceFrameEdgeBudgetTest, AttachRejectionsPreserveWireContract) {
         std::string::npos);
     EXPECT_NE(
         metrics.find("edge_jti_replay_rejected_total 0\n"), std::string::npos);
+}
+
+// #79 replacement point: rejection diagnostics may expose the failure class,
+// but not bearer material or identity correlation values.
+TEST_F(
+    ServiceFrameEdgeBudgetTest,
+    CredentialFailuresKeepRawCredentialsAndJtiOutOfTelemetry) {
+    const std::string raw_identity = "raw-secret-identity-token";
+    const std::string raw_number = "raw-secret-queue-number-token";
+    const std::string identity_jti = "aaaa000000000079aaaa000000000079";
+
+    const auto invalid_identity_client =
+        attach_with_tokens(raw_identity, raw_number, 79);
+    ASSERT_TRUE(receive_while_driving(std::chrono::seconds{2}).has_value());
+
+    const auto now = std::chrono::system_clock::now();
+    const auto valid_identity = identity_codec_->issue(
+        game::common::IdentityClaims{
+            .issuer = "realmmesh/login-verify",
+            .account_id = 42,
+            .jti = identity_jti,
+            .issued_at = now,
+            .expires_at = now + std::chrono::minutes{30}});
+    const auto invalid_number_client =
+        attach_with_tokens(valid_identity, raw_number, 80);
+    ASSERT_TRUE(receive_while_driving(std::chrono::seconds{2}).has_value());
+
+    ASSERT_TRUE(logger_->flush(std::chrono::seconds{2}));
+    std::ifstream log_stream(log_directory_->path() / "frame.log");
+    const std::string logs{
+        std::istreambuf_iterator<char>{log_stream},
+        std::istreambuf_iterator<char>{}};
+    const auto metrics = metrics_.render();
+    for (const auto& secret :
+         {raw_identity, raw_number, valid_identity, identity_jti}) {
+        EXPECT_EQ(logs.find(secret), std::string::npos);
+        EXPECT_EQ(metrics.find(secret), std::string::npos);
+    }
 }
 
 TEST_F(ServiceFrameEdgeBudgetTest, ReplayedJtiPreservesWireRejection) {

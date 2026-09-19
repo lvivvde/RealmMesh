@@ -59,6 +59,30 @@ TEST(CompactJwsTest, DecodeRoundTripsVerifiedPayload) {
     EXPECT_EQ(*payload, test_payload());
 }
 
+// #79 replacement point: the codec has no separate compact-token ceiling. A
+// token over 4 KiB is accepted while its decoded JSON remains under JsonCodec's
+// 4 KiB ceiling. decode() verifies Ed25519 before parsing payload JSON.
+TEST(CompactJwsTest, CurrentDecodeAcceptsTokenOverFourKiB) {
+    JsonObject payload = test_payload();
+    payload.emplace("padding", std::string(3 * 1024, 'x'));
+    const CompactJws jws = test_jws();
+    const auto token = jws.encode(test_header(), payload);
+    ASSERT_GT(token.size(), 4U * 1024U);
+
+    const auto decoded = jws.decode(token, "test-kid");
+    ASSERT_TRUE(decoded.has_value());
+    EXPECT_EQ(*decoded, payload);
+}
+
+TEST(CompactJwsTest, CurrentDecodeRejectsVerifiedPayloadAboveJsonLimit) {
+    JsonObject payload = test_payload();
+    payload.emplace("padding", std::string(4 * 1024, 'x'));
+    const CompactJws jws = test_jws();
+    const auto token = jws.encode(test_header(), payload);
+
+    EXPECT_FALSE(jws.decode(token, "test-kid").has_value());
+}
+
 TEST(CompactJwsTest, DecodeRejectsWrongKid) {
     const auto token = test_jws().encode(test_header(), test_payload());
     EXPECT_FALSE(test_jws().decode(token, "other-kid").has_value());

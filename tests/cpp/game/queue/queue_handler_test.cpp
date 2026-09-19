@@ -360,6 +360,58 @@ TEST_F(QueueHandlerTest, AdmittedNumberGetsResignedGrant) {
         R"("status":"admitted"})"));
 }
 
+// #79 replacement point: polling an already released v1 number currently
+// creates a fresh grace window instead of returning a stable release grant.
+TEST_F(QueueHandlerTest, RepeatedPollingCurrentlyRenewsAdmissionWindow) {
+    const auto issued = handler_->handle(
+        request("POST", "/v1/queue/tickets", identity_token(jti("01"))));
+    const auto issued_payload = JsonCodec::decode(issued.body);
+    ASSERT_TRUE(issued_payload.has_value());
+    const auto* queued_token = std::get_if<std::string>(
+        &issued_payload->at("queue_number_token"));
+    ASSERT_NE(queued_token, nullptr);
+    ASSERT_EQ(
+        core_->release_batch(
+            BudgetAggregate{.gateway_admission = 1, .realm_connections = 1},
+            now_),
+        1U);
+
+    const auto first = handler_->handle(
+        request("GET", "/v1/queue/tickets/me", *queued_token));
+    const auto first_payload = decode_admit_grant(first.body);
+    ASSERT_TRUE(first_payload.has_value());
+    const auto* first_token = std::get_if<std::string>(
+        &first_payload->at("queue_number_token"));
+    ASSERT_NE(first_token, nullptr);
+    const auto first_claims = number_codec_->validate(*first_token, now_);
+    ASSERT_TRUE(first_claims.has_value());
+
+    now_ += std::chrono::seconds{240};
+    const auto second = handler_->handle(
+        request("GET", "/v1/queue/tickets/me", *queued_token));
+    const auto second_payload = decode_admit_grant(second.body);
+    ASSERT_TRUE(second_payload.has_value());
+    const auto* second_token = std::get_if<std::string>(
+        &second_payload->at("queue_number_token"));
+    ASSERT_NE(second_token, nullptr);
+    const auto second_claims = number_codec_->validate(*second_token, now_);
+    ASSERT_TRUE(second_claims.has_value());
+
+    EXPECT_NE(*first_token, *second_token);
+    EXPECT_EQ(
+        second_claims->issued_at,
+        first_claims->issued_at + std::chrono::seconds{240});
+    EXPECT_EQ(
+        second_claims->expires_at,
+        first_claims->expires_at + std::chrono::seconds{240});
+    EXPECT_EQ(
+        first_claims->expires_at - first_claims->issued_at,
+        std::chrono::seconds{300});
+    EXPECT_EQ(
+        second_claims->expires_at - second_claims->issued_at,
+        std::chrono::seconds{300});
+}
+
 TEST_F(QueueHandlerTest, InvalidOrExpiredNumberIs2001) {
     const auto absent = handler_->handle(request("GET", "/v1/queue/tickets/me"));
     EXPECT_EQ(absent.status, 401);

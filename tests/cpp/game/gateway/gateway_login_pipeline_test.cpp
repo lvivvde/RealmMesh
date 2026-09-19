@@ -82,21 +82,22 @@ protected:
                 &metrics_));
     }
 
-    [[nodiscard]] std::string identity_token(std::string_view jti) const {
+    [[nodiscard]] std::string identity_token(
+        std::string_view jti, std::uint64_t account_id = 42) const {
         return identity_codec_->issue(
             common::IdentityClaims{
                 .issuer = "realmmesh/login-verify",
-                .account_id = 42,
+                .account_id = account_id,
                 .jti = std::string(jti),
                 .issued_at = system_origin,
                 .expires_at = system_origin + 30min,
             });
     }
 
-    [[nodiscard]] std::string number_token() const {
+    [[nodiscard]] std::string number_token(std::uint64_t number = 7) const {
         return number_codec_->issue(
             common::QueueNumberClaims{
-                .number = 7,
+                .number = number,
                 .admitted = true,
                 .issued_at = system_origin,
                 .expires_at = system_origin + 30min,
@@ -114,10 +115,24 @@ protected:
         EdgeSessionId session_id,
         std::string_view jti,
         std::uint64_t request_id = 1) {
+        attach_with_tokens(
+            transport_,
+            session_id,
+            identity_token(jti),
+            number_token(),
+            request_id);
+    }
+
+    static void attach_with_tokens(
+        InMemoryGatewayPrimaryTransport& transport,
+        EdgeSessionId session_id,
+        std::string_view identity,
+        std::string_view number,
+        std::uint64_t request_id = 1) {
         common::EdgeAttach attach;
-        attach.set_identity_token(identity_token(jti));
-        attach.set_queue_number_token(number_token());
-        transport_.push_event({
+        attach.set_identity_token(identity);
+        attach.set_queue_number_token(number);
+        transport.push_event({
             .kind = GatewayEventKind::MessageReceived,
             .session_id = session_id,
             .established = false,
@@ -263,6 +278,97 @@ TEST_F(
     EXPECT_EQ(command_count(PrimaryTransportCommandKind::Decline), 2U);
     EXPECT_NE(
         metrics_.render().find("edge_jti_replay_rejected_total 2\n"),
+        std::string::npos);
+}
+
+// #79 replacement point: v1 validates these credentials independently. The
+// grant associated with Bob can therefore authorize Alice's identity.
+TEST_F(
+    GatewayLoginPipelineTest,
+    CurrentAttachAcceptsCrossIdentityCredentialSplice) {
+    create(config(1, 1));
+    const auto alice_identity = identity_token(jti_a, 42);
+    const auto bob_identity = identity_token(jti_b, 84);
+    const auto grant_obtained_by_bob = number_token(84);
+    ASSERT_TRUE(
+        identity_codec_
+            ->validate(bob_identity, "realmmesh/login-verify", system_origin)
+            .has_value());
+
+    open(EdgeSessionId{1});
+    attach_with_tokens(
+        transport_,
+        EdgeSessionId{1},
+        alice_identity,
+        grant_obtained_by_bob);
+    static_cast<void>(advance());
+
+    ASSERT_EQ(command_count(PrimaryTransportCommandKind::Accept), 1U);
+    const auto accepted = common::decode_edge_attach_accepted(
+        last_command(PrimaryTransportCommandKind::Accept).payload);
+    ASSERT_TRUE(accepted.has_value());
+    EXPECT_EQ(accepted->account_id(), 42U);
+    static_cast<void>(advance(1ms, 1ms));
+    ASSERT_EQ(fetch_.submitted_requests().size(), 1U);
+    EXPECT_EQ(fetch_.submitted_requests()[0].account_id, 42U);
+}
+
+// Each pipeline owns its replay sets. The same signed pair therefore commits
+// once in every independent Gateway instance.
+TEST_F(
+    GatewayLoginPipelineTest,
+    SameCredentialCurrentlyCommitsInTwoIndependentPipelineInstances) {
+    InMemoryGatewayPrimaryTransport first_transport;
+    InMemoryGatewayPrimaryTransport second_transport;
+    ScriptedAccountFetchPort first_fetch;
+    ScriptedAccountFetchPort second_fetch;
+    observability::MetricsRegistry first_metrics;
+    observability::MetricsRegistry second_metrics;
+    auto first = GatewayLoginPipeline::create(
+        config(1, 1),
+        signing_material(),
+        first_transport,
+        first_fetch,
+        nullptr,
+        &first_metrics);
+    auto second = GatewayLoginPipeline::create(
+        config(1, 1),
+        signing_material(),
+        second_transport,
+        second_fetch,
+        nullptr,
+        &second_metrics);
+    const auto identity = identity_token(jti_a);
+    const auto grant = number_token();
+    for (auto* transport : {&first_transport, &second_transport}) {
+        transport->push_event({
+            .kind = GatewayEventKind::SessionOpened,
+            .session_id = EdgeSessionId{1},
+        });
+        attach_with_tokens(
+            *transport, EdgeSessionId{1}, identity, grant);
+    }
+
+    const GatewayLoginFrame input{
+        .now = steady_origin,
+        .verification_now = system_origin,
+    };
+    static_cast<void>(first.advance(input));
+    static_cast<void>(second.advance(input));
+
+    EXPECT_EQ(first_transport.owned_commands().size(), 1U);
+    EXPECT_EQ(second_transport.owned_commands().size(), 1U);
+    EXPECT_EQ(
+        first_transport.owned_commands()[0].kind,
+        PrimaryTransportCommandKind::Accept);
+    EXPECT_EQ(
+        second_transport.owned_commands()[0].kind,
+        PrimaryTransportCommandKind::Accept);
+    EXPECT_NE(
+        first_metrics.render().find("edge_jti_replay_rejected_total 0\n"),
+        std::string::npos);
+    EXPECT_NE(
+        second_metrics.render().find("edge_jti_replay_rejected_total 0\n"),
         std::string::npos);
 }
 
