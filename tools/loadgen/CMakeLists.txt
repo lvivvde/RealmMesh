@@ -3,6 +3,8 @@
 add_library(realm_loadgen_core
     src/stats.cpp
     src/metrics_scrape.cpp
+    src/login_chain_adapter.cpp
+    src/login_chain_metrics.cpp
     src/robot.cpp
     src/loadgen.cpp
 )
@@ -14,6 +16,7 @@ target_include_directories(realm_loadgen_core
 )
 
 target_link_libraries(realm_loadgen_core PUBLIC
+    RealmMesh::Client
     RealmMesh::Network
     RealmMesh::GameCommon
 )

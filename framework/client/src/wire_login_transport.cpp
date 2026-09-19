@@ -122,13 +122,15 @@ PortStatus WireEnterRealmRedeemer::redeem(
     // request_id 取 0:Realm 流上只跑这一个请求,服务端按 0 回执。
     if (!edge.send_frame(common::encode(request, 0), deadline)) {
         return PortStatus::error(ChainFailure::EnterRealmRejected,
-                                 "EnterRealm 帧发送失败");
+                                 "EnterRealm 帧发送失败", false,
+                                 PortFailureCategory::Transport);
     }
     for (;;) {
         const auto payload = edge.receive_frame(deadline);
         if (!payload.has_value()) {
             return PortStatus::error(ChainFailure::EnterRealmRejected,
-                                     "未在窗口内收到入场回执");
+                                     "未在窗口内收到入场回执", false,
+                                     PortFailureCategory::Timeout);
         }
         const auto message_id = common::edge_message_id(*payload);
         if (!message_id.has_value()) {
@@ -157,11 +159,15 @@ WireLoginTransport::WireLoginTransport(WireEndpoints endpoints,
                                        WireTransportOptions options)
     : endpoints_(std::move(endpoints)), redeemer_(redeemer),
       options_(std::move(options)),
-      tls_options_{.verify_peer = endpoints_.verify_peer},
+      tls_options_{.verify_peer = endpoints_.verify_peer,
+                   .reset_close_on_release =
+                       options_.reset_close_on_release},
       gateway_dialer_(std::string{::realm::network::kEdgeAlpn},
-                      endpoints_.verify_peer),
+                      endpoints_.verify_peer,
+                      options_.reset_close_on_release),
       realm_dialer_(std::string{::realm::network::kEdgeAlpn},
-                    endpoints_.verify_peer),
+                    endpoints_.verify_peer,
+                    options_.reset_close_on_release),
       gateway_connector_(gateway_dialer_, options_.connector),
       realm_connector_(realm_dialer_, options_.connector) {}
 
@@ -215,8 +221,9 @@ PortValue<VerifyResult> WireLoginTransport::verify(
     const auto response = call(HttpSegment::LoginVerify, "POST",
                                "/v1/login/verify", std::nullopt, body, deadline);
     if (!response.has_value()) {
-        result.status =
-            PortStatus::error(ChainFailure::VerifyRejected, "健全服请求失败");
+        result.status = PortStatus::error(
+            ChainFailure::VerifyRejected, "健全服请求失败", false,
+            PortFailureCategory::Transport);
         return result;
     }
     const auto token =
@@ -239,8 +246,9 @@ PortValue<TicketResult> WireLoginTransport::take_ticket(
     const auto response = call(HttpSegment::Queue, "POST", "/v1/queue/tickets",
                                std::string{identity_token}, "", deadline);
     if (!response.has_value()) {
-        result.status =
-            PortStatus::error(ChainFailure::TicketRejected, "排队服请求失败");
+        result.status = PortStatus::error(
+            ChainFailure::TicketRejected, "排队服请求失败", false,
+            PortFailureCategory::Transport);
         return result;
     }
     const auto token = net_client::extract_json_string_field(
@@ -266,8 +274,9 @@ PortValue<ProgressResult> WireLoginTransport::poll_progress(
     const auto response = call(HttpSegment::Queue, "GET", "/v1/queue/progress",
                                std::nullopt, "", deadline);
     if (!response.has_value()) {
-        result.status =
-            PortStatus::error(ChainFailure::ProgressFailed, "进度请求失败");
+        result.status = PortStatus::error(
+            ChainFailure::ProgressFailed, "进度请求失败", false,
+            PortFailureCategory::Transport);
         return result;
     }
     const auto released =
@@ -296,8 +305,9 @@ PortValue<TicketMeResult> WireLoginTransport::ticket_me(
                                "/v1/queue/tickets/me",
                                std::string{queue_number_token}, "", deadline);
     if (!response.has_value()) {
-        result.status =
-            PortStatus::error(ChainFailure::ProgressFailed, "查号请求失败");
+        result.status = PortStatus::error(
+            ChainFailure::ProgressFailed, "查号请求失败", false,
+            PortFailureCategory::Transport);
         return result;
     }
     const auto status =
@@ -368,19 +378,22 @@ PortStatus WireLoginTransport::connect_racing(
                                  : ChainFailure::RealmConnectFailed;
     if (Clock::now() >= deadline) {
         return PortStatus::error(ChainFailure::DeadlineExceeded,
-                                 "窗口内无建连预算");
+                                 "窗口内无建连预算", false,
+                                 PortFailureCategory::Timeout);
     }
     auto& connector = gateway ? gateway_connector_ : realm_connector_;
     auto attempt = connector.connect(candidates, options_.network_id);
     if (const auto* cause = std::get_if<net_client::ConnectFailure>(&attempt);
         cause != nullptr) {
-        return PortStatus::error(failure, connect_failure_detail(*cause));
+        return PortStatus::error(failure, connect_failure_detail(*cause),
+                                 false, PortFailureCategory::Transport);
     }
     auto connection =
         std::get<std::shared_ptr<net_client::ISecureConnection>>(attempt);
     auto* stream = connection->stream();
     if (stream == nullptr) {
-        return PortStatus::error(failure, "候选传输不提供字节流面");
+        return PortStatus::error(failure, "候选传输不提供字节流面", false,
+                                 PortFailureCategory::Transport);
     }
     // 别名共享指针:字节面持有连接本身,防止连接被提前释放。
     stream_out =
@@ -420,13 +433,15 @@ PortStatus WireLoginTransport::attach(GatewaySession& session,
     message.set_queue_number_token(std::string{queue_number_token});
     if (!edge.send_frame(common::encode(message, 0), deadline)) {
         return PortStatus::error(ChainFailure::AttachRejected,
-                                 "attach 帧发送失败");
+                                 "attach 帧发送失败", false,
+                                 PortFailureCategory::Transport);
     }
     for (;;) {
         const auto payload = edge.receive_frame(deadline);
         if (!payload.has_value()) {
             return PortStatus::error(ChainFailure::AttachRejected,
-                                     "未在窗口内收到受理");
+                                     "未在窗口内收到受理", false,
+                                     PortFailureCategory::Timeout);
         }
         const auto message_id = common::edge_message_id(*payload);
         if (!message_id.has_value()) {
@@ -466,7 +481,8 @@ PortValue<HandoffResult> WireLoginTransport::await_handoff(
         const auto payload = edge.receive_frame(deadline);
         if (!payload.has_value()) {
             result.status = PortStatus::error(ChainFailure::HandoffTimeout,
-                                              "未在窗口内收到交付");
+                                              "未在窗口内收到交付", false,
+                                              PortFailureCategory::Timeout);
             return result;
         }
         const auto message_id = common::edge_message_id(*payload);

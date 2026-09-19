@@ -33,9 +33,12 @@ namespace {
 
 }  // namespace
 
-TlsTcpClientDialer::TlsTcpClientDialer(std::string alpn, bool verify_peer) {
+TlsTcpClientDialer::TlsTcpClientDialer(std::string alpn,
+                                       bool verify_peer,
+                                       bool reset_close_on_release) {
     options_.alpn = std::move(alpn);
     options_.verify_peer = verify_peer;
+    options_.reset_close_on_release = reset_close_on_release;
 }
 
 ConnectAttempt TlsTcpClientDialer::connect(

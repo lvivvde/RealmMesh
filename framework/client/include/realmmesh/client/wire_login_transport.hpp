@@ -40,6 +40,8 @@ struct WireTransportOptions final {
     std::chrono::milliseconds request_timeout{10'000};
     /// 当前网络标识(竞速的 QUIC 负缓存按网络切换失效)。
     std::string network_id{"default"};
+    /// 压测短连可选择释放即 RST；应用客户端保持默认优雅关闭。
+    bool reset_close_on_release{false};
     network::client::ConnectorOptions connector;
 };
 

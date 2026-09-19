@@ -1,4 +1,7 @@
+#include "realmmesh/client/wire_login_transport.hpp"
 #include "realmmesh/loadgen/loadgen.hpp"
+#include "realmmesh/loadgen/login_chain_adapter.hpp"
+#include "realmmesh/loadgen/login_chain_metrics.hpp"
 #include "realmmesh/loadgen/metrics_scrape.hpp"
 #include "realmmesh/network/tcp/tcp_listener.hpp"
 #include "realmmesh/service_host/mesh_host.hpp"
@@ -932,6 +935,65 @@ TEST(LoadgenIntegrationTest, L1GatewaySoakHoldsWaterLevelWithoutFdLeak) {
         std::this_thread::sleep_for(std::chrono::milliseconds{100});
     }
     EXPECT_TRUE(fds_settled);
+}
+
+TEST(LoadgenIntegrationTest, AdapterAndDecoratorDriveRealGatewayChain) {
+    const ScopedLoadgenEnvironment environment;
+    const std::filesystem::path source = REALMMESH_SOURCE_DIR "/configs";
+    const test_support::TemporaryDirectory scratch("loadgen-it-adapter-");
+    ASSERT_TRUE(copy_configs_with_discovery_disabled(source, scratch.path()));
+    const auto ports = unused_tcp_ports(4);
+    FakeEtcd etcd;
+    use_loadgen_free_ports(
+        scratch.path(), ports.at(0), ports.at(1), ports.at(2), ports.at(3),
+        etcd.port(), true, false, true);
+    write_robot_accounts(scratch.path(), 1);
+
+    service_host::MeshHost mesh(
+        scratch.path(),
+        {{"login_verify", {}, false},
+         {"queue", {}, false},
+         {"gateway", {"login_verify"}, true}});
+    ASSERT_TRUE(mesh.start_all());
+    const TickDriver driver(mesh);
+
+    LoadgenLoginOptions options;
+    options.target = LoadgenLoginTarget::Gateway;
+    options.endpoints =
+        loadgen_endpoints(ports.at(0), ports.at(1), ports.at(2));
+    options.account = "robot-0";
+    options.credential = "loadgen-credential";
+    options.poll_interval = std::chrono::milliseconds{50};
+    options.deadline = client::Clock::now() + std::chrono::seconds{10};
+
+    auto adaptation = adapt_login_run(options);
+    auto* adapted = std::get_if<AdaptedLoginRun>(&adaptation);
+    ASSERT_NE(adapted, nullptr);
+
+    LoadgenReport report;
+    client::WireEnterRealmRedeemer redeemer;
+    client::WireLoginTransport wire(
+        adapted->wire, redeemer, adapted->transport);
+    MetricsLoginChainTransport measured(
+        wire,
+        {report.verify, report.tickets, report.poll, report.attach,
+         report.handoff});
+    client::LoginChain chain(measured, std::move(adapted->chain));
+    const auto result = chain.run(std::move(adapted->run));
+
+    ASSERT_TRUE(result.succeeded());
+    ASSERT_NE(result.success(), nullptr);
+    EXPECT_NE(std::get_if<client::GatewaySuccess>(result.success()), nullptr);
+    EXPECT_EQ(report.verify.attempts, 1U);
+    EXPECT_EQ(report.verify.failures, 0U);
+    EXPECT_EQ(report.tickets.attempts, 1U);
+    EXPECT_EQ(report.tickets.failures, 0U);
+    EXPECT_GE(report.poll.attempts, 1U);
+    EXPECT_EQ(report.poll.failures, 0U);
+    EXPECT_EQ(report.attach.attempts, 1U);
+    EXPECT_EQ(report.attach.failures, 0U);
+    EXPECT_EQ(report.handoff.attempts, 1U);
+    EXPECT_EQ(report.handoff.failures, 0U);
 }
 
 /// M2 缩减版:250 机器人单趟全链路(verify → handed-off),断言完成率

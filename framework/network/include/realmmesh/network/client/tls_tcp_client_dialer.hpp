@@ -18,7 +18,9 @@ namespace realm::network::client {
 class TlsTcpClientDialer final : public ITransportDialer {
 public:
     /// alpn 为期望的应用协议名(如 "realmmesh-edge/1")。
-    explicit TlsTcpClientDialer(std::string alpn, bool verify_peer = true);
+    explicit TlsTcpClientDialer(std::string alpn,
+                                bool verify_peer = true,
+                                bool reset_close_on_release = false);
 
     [[nodiscard]] ConnectAttempt connect(
         const EndpointCandidate& endpoint,

@@ -3,6 +3,11 @@ realm_add_gtest(loadgen_core_test
     LIBS realm_loadgen_core
 )
 
+realm_add_gtest(loadgen_login_chain_test
+    SOURCES login_chain_adapter_test.cpp
+    LIBS realm_loadgen_core
+)
+
 realm_add_gtest(metrics_scrape_test
     SOURCES metrics_scrape_test.cpp
     LIBS realm_loadgen_core

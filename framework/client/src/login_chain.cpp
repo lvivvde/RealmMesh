@@ -23,10 +23,12 @@ PortStatus PortStatus::success() {
 
 PortStatus PortStatus::error(ChainFailure failure,
                              std::string detail,
-                             bool credential_expired) {
+                             bool credential_expired,
+                             PortFailureCategory category) {
     PortStatus status;
     status.failure = failure;
     status.credential_expired = credential_expired;
+    status.category = category;
     status.detail = std::move(detail);
     return status;
 }

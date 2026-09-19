@@ -19,17 +19,21 @@ namespace realm::client {
 using Clock = std::chrono::steady_clock;
 using TimePoint = Clock::time_point;
 
+enum class PortFailureCategory { Protocol, Transport, Timeout };
+
 struct PortStatus final {
     bool ok{false};
     ChainFailure failure{ChainFailure::None};
     bool credential_expired{false};
+    PortFailureCategory category{PortFailureCategory::Protocol};
     std::string detail;
 
     [[nodiscard]] static PortStatus success();
     [[nodiscard]] static PortStatus error(
         ChainFailure failure,
         std::string detail = {},
-        bool credential_expired = false);
+        bool credential_expired = false,
+        PortFailureCategory category = PortFailureCategory::Protocol);
 };
 
 template <typename T>
