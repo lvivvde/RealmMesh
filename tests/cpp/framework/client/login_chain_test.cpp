@@ -112,7 +112,7 @@ public:
     PortValue<VerifyResult> verify(std::string_view account,
                                    std::string_view credential,
                                    TimePoint deadline) override {
-        static_cast<void>(deadline);
+        deadlines.push_back(deadline);
         last_account = std::string{account};
         last_credential = std::string{credential};
         return pick(verify_results, verify_calls++);
@@ -120,19 +120,19 @@ public:
 
     PortValue<TicketResult> take_ticket(std::string_view identity_token,
                                         TimePoint deadline) override {
-        static_cast<void>(deadline);
+        deadlines.push_back(deadline);
         last_identity_token = std::string{identity_token};
         return pick(ticket_results, ticket_calls++);
     }
 
     PortValue<ProgressResult> poll_progress(TimePoint deadline) override {
-        static_cast<void>(deadline);
+        deadlines.push_back(deadline);
         return pick(progress_results, progress_calls++);
     }
 
     PortValue<TicketMeResult> ticket_me(std::string_view queue_number_token,
                                         TimePoint deadline) override {
-        static_cast<void>(deadline);
+        deadlines.push_back(deadline);
         last_number_token = std::string{queue_number_token};
         return pick(me_results, me_calls++);
     }
@@ -140,7 +140,7 @@ public:
     PortStatus connect_gateway(
         std::span<const net_client::EndpointCandidate> candidates,
         TimePoint deadline) override {
-        static_cast<void>(deadline);
+        deadlines.push_back(deadline);
         gateway_candidates.assign(candidates.begin(), candidates.end());
         return pick(gateway_results, gateway_calls++);
     }
@@ -148,28 +148,28 @@ public:
     PortStatus attach(std::string_view identity_token,
                       std::string_view queue_number_token,
                       TimePoint deadline) override {
-        static_cast<void>(deadline);
+        deadlines.push_back(deadline);
         last_identity_token = std::string{identity_token};
         last_number_token = std::string{queue_number_token};
         return pick(attach_results, attach_calls++);
     }
 
     PortValue<HandoffResult> await_handoff(TimePoint deadline) override {
-        static_cast<void>(deadline);
+        deadlines.push_back(deadline);
         return pick(handoff_results, handoff_calls++);
     }
 
     PortStatus connect_realm(
         std::span<const net_client::EndpointCandidate> candidates,
         TimePoint deadline) override {
-        static_cast<void>(deadline);
+        deadlines.push_back(deadline);
         realm_candidates.assign(candidates.begin(), candidates.end());
         return pick(realm_connect_results, realm_connect_calls++);
     }
 
     PortStatus enter_realm(std::string_view enter_realm_ticket,
                            TimePoint deadline) override {
-        static_cast<void>(deadline);
+        deadlines.push_back(deadline);
         last_enter_realm_ticket = std::string{enter_realm_ticket};
         return pick(realm_redeem_results, realm_redeem_calls++);
     }
@@ -206,6 +206,7 @@ public:
     std::string last_enter_realm_ticket;
     std::vector<net_client::EndpointCandidate> gateway_candidates;
     std::vector<net_client::EndpointCandidate> realm_candidates;
+    std::vector<TimePoint> deadlines;
 };
 
 /// 压缩时标:分档/退避的结构不变,但不用为单测等 2s/5s 的真实间隔。
@@ -318,6 +319,26 @@ TEST(LoginChainTest, VerifyRejectionReturnsToIdle) {
                                        LoginStage::Idle}));
 }
 
+/// 取号是 verify 后的独立终止点:失败回 idle,不能偷偷进入轮询或网关。
+TEST(LoginChainTest, TicketRejectionReturnsToIdleBeforePolling) {
+    ScriptedTransport transport;
+    transport.ticket_results = {
+        failed_value<TicketResult>(ChainFailure::TicketRejected, "取号被拒")};
+
+    LoginChain chain(transport, fast_config());
+    const auto result = chain.run("alice", "secret", few_seconds_from_now());
+
+    EXPECT_FALSE(result.succeeded());
+    EXPECT_EQ(result.stage, LoginStage::Idle);
+    EXPECT_EQ(result.failure, ChainFailure::TicketRejected);
+    EXPECT_EQ(result.detail, "取号被拒");
+    EXPECT_EQ(transport.verify_calls, 1);
+    EXPECT_EQ(transport.ticket_calls, 1);
+    EXPECT_EQ(transport.progress_calls, 0);
+    EXPECT_EQ(transport.me_calls, 0);
+    EXPECT_EQ(transport.gateway_calls, 0);
+}
+
 /// 号牌过期(401/2001)→ 自动重取,不需要人类介入(spec §7)。
 TEST(LoginChainTest, ExpiredNumberTokenRetakesTicketAutomatically) {
     ScriptedTransport transport;
@@ -412,6 +433,28 @@ TEST(LoginChainTest, GatewayFailureRetriesWithinGraceThenSucceeds) {
     EXPECT_EQ(std::count(trace.begin(), trace.end(),
                          LoginStage::GatewayConnecting),
               3);
+}
+
+/// 非过期型 attach 拒绝沿用 admitted 号牌在宽限内重入,不重新取号。
+TEST(LoginChainTest, AttachRejectionRetriesGatewayWithinGrace) {
+    ScriptedTransport transport;
+    transport.progress_results = {progress(100, 10.0)};
+    transport.me_results = {admitted_with("grant-1")};
+    transport.attach_results = {
+        failure_of(ChainFailure::AttachRejected, "临时拒绝"),
+        PortStatus::success(),
+    };
+
+    LoginChain chain(transport, fast_config());
+    const auto result = chain.run("alice", "secret", few_seconds_from_now());
+
+    EXPECT_TRUE(result.succeeded());
+    EXPECT_EQ(transport.ticket_calls, 1);
+    EXPECT_EQ(transport.gateway_calls, 2);
+    EXPECT_EQ(transport.attach_calls, 2);
+    EXPECT_EQ(transport.handoff_calls, 1);
+    // 一次失败重入 + 一次成功交付,两条网关会话都被释放。
+    EXPECT_EQ(transport.drop_calls, 2);
 }
 
 /// 宽限耗尽:号牌视同过期,回排队重取(spec §7)。
@@ -519,6 +562,23 @@ TEST(LoginChainTest, FirstQueryAdmitsWithoutWaitingForProgress) {
     EXPECT_EQ(transport.progress_calls, 0);
     EXPECT_EQ(transport.me_calls, 1);
     EXPECT_EQ(transport.last_number_token, "grant-1");
+}
+
+/// deadline 是整条链的唯一绝对截止点:阶段推进不得重置或延长窗口。
+TEST(LoginChainTest, EveryTransportOperationReceivesOneAbsoluteDeadline) {
+    ScriptedTransport transport;
+    transport.progress_results = {progress(100, 10.0)};
+    transport.me_results = {queued_at(100), admitted_with("grant-1")};
+    const auto deadline = few_seconds_from_now();
+
+    LoginChain chain(transport, fast_config());
+    const auto result = chain.run("alice", "secret", deadline);
+
+    ASSERT_TRUE(result.succeeded());
+    ASSERT_EQ(transport.deadlines.size(), 10U);
+    EXPECT_TRUE(std::all_of(
+        transport.deadlines.begin(), transport.deadlines.end(),
+        [deadline](TimePoint observed) { return observed == deadline; }));
 }
 
 /// 号牌被网关判过期(attach 2001)→ 回排队重取前先释放本段的 Edge

@@ -1,8 +1,8 @@
-#include "realmmesh/loadgen/robot.hpp"
-#include "realmmesh/loadgen/stats.hpp"
+#include "realmmesh/loadgen/loadgen.hpp"
 
 #include <gtest/gtest.h>
 
+#include <string>
 #include <string_view>
 
 namespace realm::loadgen {
@@ -48,7 +48,43 @@ TEST(PhaseCountersTest, FailuresBreakDownByKindAndMerge) {
     EXPECT_EQ(left.failures, 3U);
     EXPECT_EQ(left.by_kind.at(FailureKind::ConnectionError), 2U);
     EXPECT_EQ(left.by_kind.at(FailureKind::AttachRejected), 1U);
+    // 成功与失败都各占一次 attempt 和一次时延样本。
+    EXPECT_EQ(left.latency.samples(), 4U);
     EXPECT_EQ(left.latency.summary().max_ms, 4);
+}
+
+TEST(LoadgenReportTest, RenderLocksPhaseFieldsAndFailureNames) {
+    LoadgenReport report;
+    report.robots = 3;
+    report.completed = 2;
+    report.skipped = 1;
+    report.verify.record_success(10);
+    report.verify.record_failure(FailureKind::VerifyRejected, 20);
+    report.tickets.record_success(30);
+    report.attach.record_failure(FailureKind::ConnectionError, 40);
+
+    const std::string rendered = report.render();
+
+    EXPECT_NE(rendered.find("robots: 3  completed: 2\n"), std::string::npos);
+    EXPECT_NE(rendered.find("skipped: 1  (窗口关闭时未起跑)\n"),
+              std::string::npos);
+    EXPECT_NE(
+        rendered.find("verify: attempts=2 failures=1 p50_ms=10.000000 "
+                      "p99_ms=20.000000 max_ms=20.000000\n"
+                      "  verify_rejected: 1\n"),
+        std::string::npos);
+    EXPECT_NE(
+        rendered.find("tickets: attempts=1 failures=0 p50_ms=30.000000 "
+                      "p99_ms=30.000000 max_ms=30.000000\n"),
+        std::string::npos);
+    EXPECT_NE(
+        rendered.find("attach: attempts=1 failures=1 p50_ms=40.000000 "
+                      "p99_ms=40.000000 max_ms=40.000000\n"
+                      "  connection_error: 1\n"),
+        std::string::npos);
+    // 零 attempt 的相位不占报告行。
+    EXPECT_EQ(rendered.find("poll:"), std::string::npos);
+    EXPECT_EQ(rendered.find("handoff:"), std::string::npos);
 }
 
 TEST(FailureKindNameTest, NamesEveryKind) {
@@ -78,6 +114,9 @@ TEST(ParseRobotPhaseTest, AcceptsSpecifiedValues) {
     EXPECT_EQ(parse_robot_phase("gateway"), RobotPhase::Gateway);
     EXPECT_EQ(parse_robot_phase("all"), RobotPhase::All);
     EXPECT_EQ(parse_robot_phase("soak"), std::nullopt);
+    EXPECT_EQ(parse_robot_phase("gateway_soak"), std::nullopt);
+    EXPECT_EQ(parse_robot_phase("full"), std::nullopt);
+    EXPECT_EQ(parse_robot_phase("Verify"), std::nullopt);
     EXPECT_EQ(parse_robot_phase(""), std::nullopt);
 }
 

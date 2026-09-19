@@ -11,13 +11,18 @@
 #include <httplib.h>
 #include <nlohmann/json.hpp>
 
+#include <arpa/inet.h>
+#include <execinfo.h>
+#include <poll.h>
 #include <sys/fcntl.h>
 #include <sys/resource.h>
-
-#include <execinfo.h>
+#include <sys/socket.h>
+#include <unistd.h>
 
 #include <algorithm>
+#include <array>
 #include <atomic>
+#include <cerrno>
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
@@ -141,6 +146,111 @@ public:
     }
     return ports;
 }
+
+/// 单连接测试代理:先接住客户端 TCP,延迟后再连真实 Gateway 并双向转发。
+/// 延迟落在 TLS 握手之前,因此确定属于 dial 而非 attach。
+class DelayedTcpProxy final {
+public:
+    DelayedTcpProxy(
+        std::uint16_t upstream_port, std::chrono::milliseconds delay)
+        : listener_("127.0.0.1", 0), upstream_port_(upstream_port),
+          delay_(delay), thread_([this] { run(); }) {}
+
+    ~DelayedTcpProxy() {
+        stopping_.store(true, std::memory_order_relaxed);
+        if (thread_.joinable()) {
+            thread_.join();
+        }
+    }
+
+    DelayedTcpProxy(const DelayedTcpProxy&) = delete;
+    DelayedTcpProxy& operator=(const DelayedTcpProxy&) = delete;
+
+    [[nodiscard]] std::uint16_t port() const noexcept {
+        return listener_.local_port();
+    }
+
+private:
+    static bool send_all(int descriptor, const char* data, std::size_t size) {
+        std::size_t sent = 0;
+        while (sent < size) {
+            const auto written = ::send(descriptor, data + sent, size - sent, 0);
+            if (written > 0) {
+                sent += static_cast<std::size_t>(written);
+                continue;
+            }
+            if (written < 0 && errno == EINTR) {
+                continue;
+            }
+            return false;
+        }
+        return true;
+    }
+
+    void relay(int client, int upstream) {
+        std::array<char, 4096> buffer{};
+        std::array<pollfd, 2> descriptors{{
+            {.fd = client, .events = POLLIN, .revents = 0},
+            {.fd = upstream, .events = POLLIN, .revents = 0},
+        }};
+        while (!stopping_.load(std::memory_order_relaxed)) {
+            const int ready = ::poll(descriptors.data(), descriptors.size(), 20);
+            if (ready < 0) {
+                if (errno == EINTR) continue;
+                return;
+            }
+            if (ready == 0) continue;
+            for (std::size_t index = 0; index < descriptors.size(); ++index) {
+                const auto events = descriptors[index].revents;
+                if ((events & POLLIN) != 0) {
+                    const int source = descriptors[index].fd;
+                    const int destination = descriptors[1U - index].fd;
+                    const auto count = ::recv(
+                        source, buffer.data(), buffer.size(), 0);
+                    if (count <= 0 ||
+                        !send_all(destination, buffer.data(),
+                                  static_cast<std::size_t>(count))) {
+                        return;
+                    }
+                } else if ((events & (POLLERR | POLLHUP | POLLNVAL)) != 0) {
+                    return;
+                }
+            }
+        }
+    }
+
+    void run() {
+        std::optional<network::TcpSocket> client;
+        while (!stopping_.load(std::memory_order_relaxed) &&
+               !client.has_value()) {
+            client = listener_.accept();
+            if (!client.has_value()) {
+                std::this_thread::sleep_for(std::chrono::milliseconds{1});
+            }
+        }
+        if (!client.has_value()) return;
+
+        std::this_thread::sleep_for(delay_);
+        const int upstream = ::socket(AF_INET, SOCK_STREAM, 0);
+        if (upstream < 0) return;
+        sockaddr_in address{};
+        address.sin_family = AF_INET;
+        address.sin_port = htons(upstream_port_);
+        address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+        if (::connect(
+                upstream, reinterpret_cast<const sockaddr*>(&address),
+                sizeof(address)) == 0) {
+            relay(client->native_handle(), upstream);
+        }
+        ::close(upstream);
+    }
+
+    network::TcpListener listener_;
+    std::uint16_t upstream_port_{0};
+    std::chrono::milliseconds delay_{0};
+    std::atomic_bool stopping_{false};
+    std::thread thread_;
+};
 
 /// 拷贝真实 configs 到临时目录并确保服务发现关闭(本环境无 etcd)。
 [[nodiscard]] bool copy_configs_with_discovery_disabled(
@@ -584,6 +694,10 @@ TEST(LoadgenIntegrationTest, L1VerifyDirectsTrafficAndCountersAgree) {
     EXPECT_EQ(report.completed, 200);
     EXPECT_EQ(report.verify.attempts, 200);
     EXPECT_EQ(report.verify.failures, 0);
+    EXPECT_EQ(report.tickets.attempts, 0);
+    EXPECT_EQ(report.poll.attempts, 0);
+    EXPECT_EQ(report.attach.attempts, 0);
+    EXPECT_EQ(report.handoff.attempts, 0);
     // 宽松吞吐下限:200 请求 20s 内完成即 ≥ 10/秒。
     EXPECT_LT(wall, std::chrono::seconds{20});
 
@@ -630,8 +744,12 @@ TEST(LoadgenIntegrationTest, L1TicketsIssueTokensAllValidate) {
                                   .count();
 
     EXPECT_EQ(report.completed, 300);
+    EXPECT_EQ(report.verify.attempts, 300);
     EXPECT_EQ(report.tickets.attempts, 300);
     EXPECT_EQ(report.tickets.failures, 0);
+    EXPECT_EQ(report.poll.attempts, 0);
+    EXPECT_EQ(report.attach.attempts, 0);
+    EXPECT_EQ(report.handoff.attempts, 0);
     // 吞吐下限(spec L1):300 号牌 30s 上限 ≈ 10/s 数量级守门;本机
     // 参考亚秒。压在计数断言之后,失败时输出顺序不误导。
     EXPECT_LT(wall_seconds, 30);
@@ -740,6 +858,8 @@ TEST(LoadgenIntegrationTest, L1GatewaySoakHoldsWaterLevelWithoutFdLeak) {
     EXPECT_EQ(report.completed, 100);
     EXPECT_EQ(report.attach.failures, 0);
     EXPECT_EQ(report.handoff.failures, 0);
+    EXPECT_EQ(report.attach.latency.samples(), report.attach.attempts);
+    EXPECT_EQ(report.handoff.latency.samples(), report.handoff.attempts);
 
     // 水位断言:三段计数与额度账自洽(段和 + conn_free 恒等于管线连接
     // 容量,任何时刻快照都成立);handed-off 水位真实存在(hold 语义下
@@ -855,6 +975,8 @@ TEST(LoadgenIntegrationTest, M2ReducedChainCompletesWithLowFetchFailure) {
     }
 
     EXPECT_GE(report.completed, 248);  // 完成率 ≥ 99%。
+    EXPECT_EQ(report.attach.latency.samples(), report.attach.attempts);
+    EXPECT_EQ(report.handoff.latency.samples(), report.handoff.attempts);
 
     // 拉取失败率 < 1%:retry/(retry + count),count 为拉取次数直方图
     // 计数(延迟桩恒成功,retry 应为 0)。
@@ -931,6 +1053,101 @@ TEST(LoadgenIntegrationTest, M3SmokeTenThousandTicketsAndConcurrentPolls) {
 
     EXPECT_GE(poll_report.completed, 1998);  // ≥ 99.9%。
     EXPECT_GE(poll_report.poll.attempts, 2000);
+    EXPECT_EQ(poll_report.attach.attempts, 0);
+    EXPECT_EQ(poll_report.handoff.attempts, 0);
+}
+
+/// 成功拨号不属于 attach 时延:代理在 TLS 握手前延迟转发,总墙钟包含
+/// 人为停顿,attach 样本不应包含它。
+TEST(LoadgenIntegrationTest, SuccessfulGatewayDialTimeIsExcludedFromAttach) {
+    const ScopedLoadgenEnvironment environment;
+    const std::filesystem::path source = REALMMESH_SOURCE_DIR "/configs";
+    const test_support::TemporaryDirectory scratch(
+        "loadgen-it-dial-latency-");
+    ASSERT_TRUE(copy_configs_with_discovery_disabled(source, scratch.path()));
+    const auto ports = unused_tcp_ports(4);
+    const auto login_verify_port = ports.at(0);
+    const auto queue_port = ports.at(1);
+    const auto gateway_port = ports.at(2);
+    FakeEtcd etcd;
+    use_loadgen_free_ports(
+        scratch.path(), login_verify_port, queue_port, gateway_port,
+        ports.at(3), etcd.port(), true, true, false);
+    write_robot_accounts(scratch.path(), 1);
+
+    service_host::MeshHost mesh(
+        scratch.path(),
+        {{"login_verify", {}, false},
+         {"queue", {}, false},
+         {"gateway", {"login_verify"}, true}});
+    ASSERT_TRUE(mesh.start_all());
+    const TickDriver driver(mesh);
+    constexpr auto dial_delay = std::chrono::milliseconds{2000};
+    const DelayedTcpProxy proxy(gateway_port, dial_delay);
+
+    LoadgenConfig config;
+    config.phase = RobotPhase::Gateway;
+    config.robots = 1;
+    config.concurrency = 1;
+    config.duration_seconds = 8;
+    config.poll_interval = std::chrono::milliseconds{20};
+    config.endpoints =
+        loadgen_endpoints(login_verify_port, queue_port, proxy.port());
+
+    const auto started = std::chrono::steady_clock::now();
+    const auto report = run_loadgen(config);
+    const auto wall = std::chrono::steady_clock::now() - started;
+
+    ASSERT_EQ(report.completed, 1);
+    ASSERT_EQ(report.attach.attempts, 1);
+    EXPECT_GE(wall, dial_delay);
+    EXPECT_LT(report.attach.latency.max(), dial_delay.count() * 3 / 4);
+}
+
+/// 网关拨号发生在 attach 计时器之外,但失败仍归 attach 相位:
+/// attach 有一次 connection_error 样本,并且 handoff 尚未开始。
+TEST(LoadgenIntegrationTest, GatewayDialFailureIsChargedToAttach) {
+    const ScopedLoadgenEnvironment environment;
+    const std::filesystem::path source = REALMMESH_SOURCE_DIR "/configs";
+    const test_support::TemporaryDirectory scratch("loadgen-it-dial-fail-");
+    ASSERT_TRUE(copy_configs_with_discovery_disabled(source, scratch.path()));
+    const auto ports = unused_tcp_ports(3);
+    const auto login_verify_port = ports.at(0);
+    const auto queue_port = ports.at(1);
+    const auto closed_gateway_port = ports.at(2);
+    FakeEtcd etcd;
+    use_loadgen_free_ports(
+        scratch.path(), login_verify_port, queue_port, closed_gateway_port,
+        0, etcd.port(), true, true, false);
+    write_robot_accounts(scratch.path(), 1);
+
+    service_host::MeshHost mesh(
+        scratch.path(),
+        {{"login_verify", {}, false}, {"queue", {}, false}});
+    ASSERT_TRUE(mesh.start_all());
+    const TickDriver driver(mesh);
+
+    LoadgenConfig config;
+    config.phase = RobotPhase::Gateway;
+    config.robots = 1;
+    config.concurrency = 1;
+    config.duration_seconds = 5;
+    config.poll_interval = std::chrono::milliseconds{20};
+    config.endpoints = loadgen_endpoints(
+        login_verify_port, queue_port, closed_gateway_port);
+
+    const auto report = run_loadgen(config);
+
+    EXPECT_EQ(report.completed, 0);
+    EXPECT_EQ(report.verify.failures, 0);
+    EXPECT_EQ(report.tickets.failures, 0);
+    EXPECT_EQ(report.poll.failures, 0);
+    EXPECT_EQ(report.attach.attempts, 1);
+    EXPECT_EQ(report.attach.failures, 1);
+    ASSERT_TRUE(report.attach.by_kind.contains(FailureKind::ConnectionError));
+    EXPECT_EQ(report.attach.by_kind.at(FailureKind::ConnectionError), 1);
+    EXPECT_EQ(report.attach.latency.samples(), 1);
+    EXPECT_EQ(report.handoff.attempts, 0);
 }
 
 }  // namespace
