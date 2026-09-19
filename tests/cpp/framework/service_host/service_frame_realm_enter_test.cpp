@@ -48,22 +48,25 @@ using cluster::InstanceBudgetSnapshot;
 class ScopedRealmEnvironment final {
 public:
     ScopedRealmEnvironment() {
-        EXPECT_EQ(::setenv(
-                      "REALMMESH_TLS_CERTIFICATE_FILE",
-                      REALMMESH_TEST_TLS_CERTIFICATE,
-                      1),
-                  0);
-        EXPECT_EQ(::setenv(
-                      "REALMMESH_TLS_PRIVATE_KEY_FILE",
-                      REALMMESH_TEST_TLS_PRIVATE_KEY,
-                      1),
-                  0);
-        EXPECT_EQ(::setenv(
-                      "REALMMESH_SESSION_TICKET_KEY",
-                      "0102030405060708090a0b0c0d0e0f10"
-                      "1112131415161718191a1b1c1d1e1f20",
-                      1),
-                  0);
+        EXPECT_EQ(
+            ::setenv(
+                "REALMMESH_TLS_CERTIFICATE_FILE",
+                REALMMESH_TEST_TLS_CERTIFICATE,
+                1),
+            0);
+        EXPECT_EQ(
+            ::setenv(
+                "REALMMESH_TLS_PRIVATE_KEY_FILE",
+                REALMMESH_TEST_TLS_PRIVATE_KEY,
+                1),
+            0);
+        EXPECT_EQ(
+            ::setenv(
+                "REALMMESH_SESSION_TICKET_KEY",
+                "0102030405060708090a0b0c0d0e0f10"
+                "1112131415161718191a1b1c1d1e1f20",
+                1),
+            0);
     }
     ~ScopedRealmEnvironment() {
         static_cast<void>(::unsetenv("REALMMESH_TLS_CERTIFICATE_FILE"));
@@ -165,10 +168,10 @@ public:
             if (auto frame = take_frame()) {
                 return frame;
             }
-            const auto remaining = std::chrono::duration_cast<
-                std::chrono::milliseconds>(
-                deadline - std::chrono::steady_clock::now())
-                                       .count();
+            const auto remaining =
+                std::chrono::duration_cast<std::chrono::milliseconds>(
+                    deadline - std::chrono::steady_clock::now())
+                    .count();
             if (remaining <= 0) return std::nullopt;
             std::array<::pollfd, 1> fds{{descriptor_, POLLIN, 0}};
             if (::poll(fds.data(), 1, static_cast<int>(remaining)) <= 0) {
@@ -176,8 +179,8 @@ public:
             }
             std::array<std::byte, 2048> chunk{};
             std::size_t received = 0;
-            const int result = SSL_read_ex(
-                ssl_.get(), chunk.data(), chunk.size(), &received);
+            const int result =
+                SSL_read_ex(ssl_.get(), chunk.data(), chunk.size(), &received);
             if (result != 1) {
                 const int error = SSL_get_error(ssl_.get(), result);
                 if (error == SSL_ERROR_WANT_READ ||
@@ -196,10 +199,10 @@ public:
     [[nodiscard]] bool saw_close(std::chrono::milliseconds budget) {
         const auto deadline = std::chrono::steady_clock::now() + budget;
         while (std::chrono::steady_clock::now() < deadline) {
-            const auto remaining = std::chrono::duration_cast<
-                std::chrono::milliseconds>(
-                deadline - std::chrono::steady_clock::now())
-                                       .count();
+            const auto remaining =
+                std::chrono::duration_cast<std::chrono::milliseconds>(
+                    deadline - std::chrono::steady_clock::now())
+                    .count();
             if (remaining <= 0) return false;
             std::array<::pollfd, 1> fds{{descriptor_, POLLIN, 0}};
             if (::poll(fds.data(), 1, static_cast<int>(remaining)) <= 0) {
@@ -207,14 +210,13 @@ public:
             }
             std::array<std::byte, 512> chunk{};
             std::size_t received = 0;
-            const int result = SSL_read_ex(
-                ssl_.get(), chunk.data(), chunk.size(), &received);
+            const int result =
+                SSL_read_ex(ssl_.get(), chunk.data(), chunk.size(), &received);
             if (result == 1) {
                 continue;
             }
             const int error = SSL_get_error(ssl_.get(), result);
-            if (error == SSL_ERROR_WANT_READ ||
-                error == SSL_ERROR_WANT_WRITE) {
+            if (error == SSL_ERROR_WANT_READ || error == SSL_ERROR_WANT_WRITE) {
                 continue;
             }
             return true;
@@ -285,8 +287,8 @@ protected:
         endpoint.address = "127.0.0.1";
         endpoint.port = 7100;
         instance.endpoints.push_back(endpoint);
-        const auto registration = registry_.register_instance(
-            instance, std::chrono::seconds(60));
+        const auto registration =
+            registry_.register_instance(instance, std::chrono::seconds(60));
         ASSERT_EQ(registration.status, cluster::RegistryStatus::Success);
         registration_id_ = registration.id;
         reporter_.emplace(
@@ -303,16 +305,12 @@ protected:
                 .io_poll_interval = std::chrono::milliseconds{1}});
         runtime_->start();
 
-        frame_.emplace(
-            "realm",
-            "127.0.0.1",
-            8443,
-            64,
-            EdgePipelineCaps{.conn_capacity = 4, .fetch_capacity = 0});
+        frame_.emplace("realm", "127.0.0.1", 8443, 64, 4);
 
-        tickets_.emplace(game::common::parse_ticket_key_hex(
-            "0102030405060708090a0b0c0d0e0f10"
-            "1112131415161718191a1b1c1d1e1f20"));
+        tickets_.emplace(
+            game::common::parse_ticket_key_hex(
+                "0102030405060708090a0b0c0d0e0f10"
+                "1112131415161718191a1b1c1d1e1f20"));
     }
 
     void TearDown() override {
@@ -324,9 +322,8 @@ protected:
 
     /// 客户端连接(仅建立 TLS,不发送任何消息);析构即断开。
     [[nodiscard]] std::unique_ptr<RealmTestClient> connect() {
-        return std::make_unique<RealmTestClient>(
-            static_cast<std::uint16_t>(
-                runtime_->local_endpoints().front().port));
+        return std::make_unique<RealmTestClient>(static_cast<std::uint16_t>(
+            runtime_->local_endpoints().front().port));
     }
 
     /// 以测试侧共享密钥签发 EnterRealm 票据(帧侧 load_ticket_key 同键)。
@@ -352,8 +349,7 @@ protected:
         std::uint64_t request_id = 7) {
         game::common::EnterRealm request;
         request.set_enter_realm_ticket(
-            reinterpret_cast<const char*>(ticket.data()),
-            ticket.size());
+            reinterpret_cast<const char*>(ticket.data()), ticket.size());
         const network::LengthFieldCodec codec(1024);
         client.send(codec.encode(game::common::encode(request, request_id)));
     }
@@ -405,8 +401,7 @@ protected:
     }
 
     std::string instance_id_{"realm-test-01"};
-    cluster::RegistrationId registration_id_{
-        cluster::invalid_registration_id};
+    cluster::RegistrationId registration_id_{cluster::invalid_registration_id};
     test_support::FakeServiceRegistry registry_;
     std::optional<ScopedRealmEnvironment> environment_;
     std::optional<test_support::TemporaryDirectory> log_directory_;
@@ -441,8 +436,7 @@ TEST_F(ServiceFrameRealmEnterTest, EnterRealmRedeemsTicketAndAcceptsSession) {
     client->send(codec.encode(game::common::encode(heartbeat, 9)));
     const auto beat = receive_while_driving(std::chrono::seconds{2});
     ASSERT_TRUE(beat.has_value());
-    EXPECT_TRUE(
-        game::common::decode_heartbeat_response(*beat).has_value());
+    EXPECT_TRUE(game::common::decode_heartbeat_response(*beat).has_value());
 }
 
 /// 一次性消费(#46):同票据第二连接兑换被拒(回放),先入场会话不受影响。
@@ -459,8 +453,8 @@ TEST_F(ServiceFrameRealmEnterTest, EnterRealmTicketIsSingleConsume) {
     auto second = connect();
     submit_enter_realm(*second, ticket, 8);
     std::optional<std::vector<std::byte>> replayed;
-    const auto deadline = std::chrono::steady_clock::now() +
-                          std::chrono::seconds{2};
+    const auto deadline =
+        std::chrono::steady_clock::now() + std::chrono::seconds{2};
     while (std::chrono::steady_clock::now() < deadline) {
         frame_->tick(*logger_, *runtime_, nullptr, &*reporter_);
         if (auto frame = second->receive(std::chrono::milliseconds{20})) {
@@ -471,7 +465,8 @@ TEST_F(ServiceFrameRealmEnterTest, EnterRealmTicketIsSingleConsume) {
     ASSERT_TRUE(replayed.has_value());
     const auto error = game::common::decode_edge_error(*replayed);
     ASSERT_TRUE(error.has_value());
-    EXPECT_EQ(error->code(), game::common::edge_error_invalid_enter_realm_ticket);
+    EXPECT_EQ(
+        error->code(), game::common::edge_error_invalid_enter_realm_ticket);
     EXPECT_TRUE(second->saw_close(std::chrono::seconds{2}));
 
     // 先入场会话不因他人重放受影响:心跳仍应答。
@@ -481,8 +476,7 @@ TEST_F(ServiceFrameRealmEnterTest, EnterRealmTicketIsSingleConsume) {
     client_ = first.get();
     const auto beat = receive_while_driving(std::chrono::seconds{2});
     ASSERT_TRUE(beat.has_value());
-    EXPECT_TRUE(
-        game::common::decode_heartbeat_response(*beat).has_value());
+    EXPECT_TRUE(game::common::decode_heartbeat_response(*beat).has_value());
 }
 
 /// 已入场会话重复提交 1304:同连接回放同样被拒并关闭(回包后终结)。
@@ -498,8 +492,8 @@ TEST_F(ServiceFrameRealmEnterTest, ResubmissionOnSameSessionCloses) {
 
     submit_enter_realm(*client, ticket, 8);
     std::optional<std::vector<std::byte>> resubmitted;
-    const auto deadline = std::chrono::steady_clock::now() +
-                          std::chrono::seconds{2};
+    const auto deadline =
+        std::chrono::steady_clock::now() + std::chrono::seconds{2};
     while (std::chrono::steady_clock::now() < deadline) {
         frame_->tick(*logger_, *runtime_, nullptr, &*reporter_);
         if (auto frame = client->receive(std::chrono::milliseconds{20})) {
@@ -510,7 +504,8 @@ TEST_F(ServiceFrameRealmEnterTest, ResubmissionOnSameSessionCloses) {
     ASSERT_TRUE(resubmitted.has_value());
     const auto error = game::common::decode_edge_error(*resubmitted);
     ASSERT_TRUE(error.has_value());
-    EXPECT_EQ(error->code(), game::common::edge_error_invalid_enter_realm_ticket);
+    EXPECT_EQ(
+        error->code(), game::common::edge_error_invalid_enter_realm_ticket);
     EXPECT_TRUE(client->saw_close(std::chrono::seconds{2}));
 }
 
@@ -518,14 +513,14 @@ TEST_F(ServiceFrameRealmEnterTest, ResubmissionOnSameSessionCloses) {
 TEST_F(ServiceFrameRealmEnterTest, InvalidTicketBytesDecline) {
     auto client = connect();
     client_ = client.get();
-    submit_enter_realm(
-        *client, std::vector<std::byte>(32, std::byte{0xAB}), 7);
+    submit_enter_realm(*client, std::vector<std::byte>(32, std::byte{0xAB}), 7);
 
     const auto response = receive_while_driving(std::chrono::seconds{2});
     ASSERT_TRUE(response.has_value());
     const auto error = game::common::decode_edge_error(*response);
     ASSERT_TRUE(error.has_value());
-    EXPECT_EQ(error->code(), game::common::edge_error_invalid_enter_realm_ticket);
+    EXPECT_EQ(
+        error->code(), game::common::edge_error_invalid_enter_realm_ticket);
     EXPECT_TRUE(client->saw_close(std::chrono::seconds{2}));
 }
 
@@ -582,7 +577,8 @@ TEST_F(ServiceFrameRealmEnterTest, WrongPurposeTicketDeclines) {
     ASSERT_TRUE(response.has_value());
     const auto error = game::common::decode_edge_error(*response);
     ASSERT_TRUE(error.has_value());
-    EXPECT_EQ(error->code(), game::common::edge_error_invalid_enter_realm_ticket);
+    EXPECT_EQ(
+        error->code(), game::common::edge_error_invalid_enter_realm_ticket);
     EXPECT_TRUE(client->saw_close(std::chrono::seconds{2}));
 }
 
@@ -597,7 +593,8 @@ TEST_F(ServiceFrameRealmEnterTest, ForeignRealmClaimDeclines) {
     ASSERT_TRUE(response.has_value());
     const auto error = game::common::decode_edge_error(*response);
     ASSERT_TRUE(error.has_value());
-    EXPECT_EQ(error->code(), game::common::edge_error_invalid_enter_realm_ticket);
+    EXPECT_EQ(
+        error->code(), game::common::edge_error_invalid_enter_realm_ticket);
     EXPECT_TRUE(client->saw_close(std::chrono::seconds{2}));
 }
 
@@ -609,8 +606,8 @@ TEST_F(ServiceFrameRealmEnterTest, ExpiredTicketDeclines) {
         42,
         1,
         ttl,
-        std::chrono::system_clock::now() - (ttl + game::common::jws_clock_leeway +
-                                            std::chrono::seconds{1}));
+        std::chrono::system_clock::now() -
+            (ttl + game::common::jws_clock_leeway + std::chrono::seconds{1}));
     auto client = connect();
     client_ = client.get();
     submit_enter_realm(*client, ticket, 7);
@@ -619,7 +616,8 @@ TEST_F(ServiceFrameRealmEnterTest, ExpiredTicketDeclines) {
     ASSERT_TRUE(response.has_value());
     const auto error = game::common::decode_edge_error(*response);
     ASSERT_TRUE(error.has_value());
-    EXPECT_EQ(error->code(), game::common::edge_error_invalid_enter_realm_ticket);
+    EXPECT_EQ(
+        error->code(), game::common::edge_error_invalid_enter_realm_ticket);
     EXPECT_TRUE(client->saw_close(std::chrono::seconds{2}));
 }
 

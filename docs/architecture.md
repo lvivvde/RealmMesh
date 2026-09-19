@@ -51,6 +51,16 @@ primary transport 与阶段(pending/established)。QUIC 和 TLS/TCP 是初次连
 成功响应与入场(进入已认证会话态)由同一个 I/O 命令完成,重放或无效票据按鉴权
 失败处理并断开。
 
+Gateway 的业务帧不再编排 attach、拉取、重试与 Handoff 的分步 helper。每帧只取得
+当前 Realm 端点并调用一次 `GatewayLoginPipeline::advance`;该管线是
+`pending → fetching → handed-off` 阶段、`jti` 单次消费、连接/拉取额度、账号拉取
+结算、直连票据、收尾与指标的唯一权威。`GatewayRuntimePrimaryTransport` 把真实
+runtime 事件/命令接入管线,`DelayedAccountFetchPort` 提供非阻塞账号拉取边界。
+
+宿主在 listener 启动前完成配置校验、签名材料加载、两个生产 adapter 与管线构造。
+管线依赖停止时,该帧先发布零连接/零拉取的不可用额度,再停止 Gateway runtime 并撤销
+就绪状态;没有 feature flag、兼容选择器或第二条登录执行路径。
+
 ## 客户端竞速
 
 ```mermaid
@@ -103,7 +113,8 @@ MsQuic 自有调度不会直接调用业务逻辑。回调只完成长度帧组�
 ## 分层
 
 - `framework/network`：QUIC、TLS/TCP、长度帧、客户端竞速策略、自研 HTTPS 服务边。
-- `game/gateway`：Edge Session 表(pending/established)、运行时队列与 I/O 线程。
+- `game/gateway`：Gateway Login Pipeline、Edge Session 传输表
+  (pending/established)、生产 adapter、运行时队列与 I/O 线程。
 - `game/login_verify`：登录健全服(账号认定、身份 Token 签发、JWKS)。
 - `game/queue`：排队调度服(号牌签发、放行阀门、etcd 额度/快照存取)。
 - `game/common`：Envelope 编解码、业务票据与账号数据源抽象（AccountStore）。
@@ -132,8 +143,10 @@ MsQuic 自有调度不会直接调用业务逻辑。回调只完成长度帧组�
 旧 Login 链路(身份 `login`、端口 7000,以及登录票据与网关重入消息)已整体退役,
 线名 `login` 永不复用。
 
-`gateway` 与 `realm` 没有独立的业务库:两者在 `framework/service_host` 中共用
-`game::gateway::GatewayRuntime`,差异只在传输配置与 `ServiceFrame` 的事件处理分支。
+`gateway` 与 `realm` 没有独立的传输 runtime:两者在 `framework/service_host` 中共用
+`game::gateway::GatewayRuntime`。Gateway 的登录职责由单一 Gateway Login Pipeline
+承载,`ServiceFrame` 只保留身份分发、Realm 入场/端点解析和宿主接线;Realm 继续走其
+独立的入场兑换分支。
 `login_verify` 与 `queue` 是第二种服务形态:独立业务库,走 HTTPS 请求循环,
 不经 `ServiceFrame`/EdgeSession 管线。
 

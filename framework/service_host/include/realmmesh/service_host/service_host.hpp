@@ -21,6 +21,9 @@ class ServiceResolver;
 }  // namespace realm::cluster
 
 namespace realm::game::gateway {
+class AccountFetchPort;
+class GatewayLoginPipeline;
+class GatewayPrimaryTransport;
 class GatewayRuntime;
 }  // namespace realm::game::gateway
 
@@ -90,13 +93,19 @@ private:
     bool stopped_{false};
     // 声明序即析构序:budget_reporter → resolver → publisher → registry
     // (budget_reporter 与 publisher 持 registry 引用),
-    // 再到 frame → login_verify/runtime → metrics → logger。
+    // 再到 frame → Gateway Login Pipeline → adapters → runtime →
+    // metrics → logger。
     /// 领域指标注册表(#47):首个对象成员(析构最后),业务帧与
     /// HTTPS 服务经指针写入,/metrics 抓取时渲染。
     observability::MetricsRegistry metrics_registry_;
     std::unique_ptr<observability::Logger> logger_;
     std::unique_ptr<observability::LoggerMetricsServer> metrics_;
     std::unique_ptr<game::gateway::GatewayRuntime> runtime_;
+    std::unique_ptr<game::gateway::GatewayPrimaryTransport>
+        gateway_primary_transport_;
+    std::unique_ptr<game::gateway::AccountFetchPort> account_fetch_;
+    std::unique_ptr<game::gateway::GatewayLoginPipeline>
+        gateway_login_pipeline_;
     std::unique_ptr<game::login_verify::LoginVerifyService> login_verify_;
     std::unique_ptr<game::queue::QueueService> queue_;
     std::unique_ptr<ServiceFrame> frame_;

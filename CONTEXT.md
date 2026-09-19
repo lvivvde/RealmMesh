@@ -51,7 +51,7 @@ _Avoid_: polling(轮询可以是底层实现,但不是这个概念的名字)、n
 ### Gateway
 
 **Gateway Login Pipeline**:
-网关接收 Edge Session 后,从凭据验讫、Fetching 到 Handoff 的权威管线;统一拥有阶段迁移、准入额度、拉取结算与会话收尾的顺序。它是网关内部的登录职责,不合并 Login Verifier、Queue Scheduler、网关与 Realm 的独立部署。
+网关接收 Edge Session 后,从凭据验讫、Fetching 到 Handoff 的唯一权威管线;统一拥有阶段迁移、准入额度、拉取结算与会话收尾的顺序,不得并行保留第二套状态或额度编排。它是网关内部的登录职责,不合并 Login Verifier、Queue Scheduler、网关与 Realm 的独立部署。
 _Avoid_: Login Chain(客户端概念)、Gateway(部署身份不等于管线)、登录服务(这里不是独立部署单元)
 
 **Edge Session**:

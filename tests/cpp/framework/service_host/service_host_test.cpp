@@ -133,13 +133,27 @@ TEST_F(ServiceHostTest, StartsRuntimeAndReadiesWithoutDiscovery) {
     EXPECT_NE(
         metrics.find("realmmesh_log_events_accepted_total"), std::string::npos);
     EXPECT_NE(
-        metrics.find("realmmesh_service_ready{service_name=\"host_test\","
-                     "service_instance=\"host-test-01\"} 1"),
+        metrics.find(
+            "realmmesh_service_ready{service_name=\"host_test\","
+            "service_instance=\"host-test-01\"} 1"),
         std::string::npos);
 
     host.stop();
     EXPECT_FALSE(host.runtime().running());
     host.stop();  // 幂等:重复关停无害。
+}
+
+TEST_F(ServiceHostTest, RuntimeStopClearsReadinessOnNextTick) {
+    const ScopedTlsEnvironment tls_environment;
+    ServiceHost host(root_, "host_test");
+
+    ASSERT_TRUE(host.start());
+    ASSERT_TRUE(host.ready());
+
+    host.runtime().stop();
+    host.tick();
+
+    EXPECT_FALSE(host.ready());
 }
 
 TEST_F(ServiceHostTest, GatewaySigningMaterialFailsBeforeRuntimeConstruction) {
@@ -154,8 +168,8 @@ TEST_F(ServiceHostTest, GatewaySigningMaterialFailsBeforeRuntimeConstruction) {
         FAIL() << "missing Gateway signing material must fail construction";
     } catch (const std::runtime_error& error) {
         EXPECT_NE(
-            std::string_view(error.what()).find(
-                "REALMMESH_IDENTITY_KEY_SEED is not set"),
+            std::string_view(error.what())
+                .find("REALMMESH_IDENTITY_KEY_SEED is not set"),
             std::string_view::npos);
     }
 }
@@ -213,8 +227,9 @@ TEST_F(ServiceHostTest, EscapesGaugeLabelSpecialCharacters) {
     EXPECT_NE(metrics.find("\\\""), std::string::npos);
     EXPECT_NE(metrics.find("\\\\"), std::string::npos);
     EXPECT_NE(
-        metrics.find("realmmesh_service_ready{service_name=\"host_test\","
-                     "service_instance=\"we\\\"ird\\\\name\"} 1"),
+        metrics.find(
+            "realmmesh_service_ready{service_name=\"host_test\","
+            "service_instance=\"we\\\"ird\\\\name\"} 1"),
         std::string::npos);
 
     host.stop();

@@ -119,9 +119,10 @@ metrics 端口暴露 Prometheus 指标（见“运行”）。
 
 ## 网关登录管线
 
-`EdgeSessionPipeline` 维护 Edge Session 的登录管线阶段与实例额度会计，与传输层的
-`EdgeSessionTable` 并存：后者只活在 I/O 线程记录 pending/established，前者活在业务
-帧线程，由 `GatewayEvent` 驱动登记/注销、由凭据提交与拉取完成驱动迁移。
+`GatewayLoginPipeline` 是 Edge Session 登录阶段、准入额度、账号拉取结算、Handoff、
+会话收尾与对应指标的唯一权威。`ServiceFrame` 每帧只解析当前 Realm 端点并调用一次
+`advance()`；传输事件与命令分别经 `GatewayRuntimePrimaryTransport` 适配，账号拉取经
+非阻塞 `DelayedAccountFetchPort` 适配。旧的分步编排与公开 helper 已删除，不存在双路径。
 
 ```mermaid
 stateDiagram-v2

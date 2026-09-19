@@ -65,14 +65,17 @@ constexpr std::string_view kSharedTicketKeyHex =
     const common::SessionTickets tickets{
         common::parse_ticket_key_hex(std::string{kSharedTicketKeyHex})};
     const auto ticket = tickets.issue(
-        common::TicketPurpose::EnterRealm, /*account_id=*/42, realm_id,
-        /*character_id=*/0, std::chrono::seconds{60});
-    return std::string{reinterpret_cast<const char*>(ticket.data()),
-                       ticket.size()};
+        common::TicketPurpose::EnterRealm,
+        /*account_id=*/42,
+        realm_id,
+        /*character_id=*/0,
+        std::chrono::seconds{60});
+    return std::string{
+        reinterpret_cast<const char*>(ticket.data()), ticket.size()};
 }
 
-[[nodiscard]] network::Http1Response json_response(int status,
-                                                  std::string body) {
+[[nodiscard]] network::Http1Response json_response(
+    int status, std::string body) {
     network::Http1Response response;
     response.status = status;
     response.headers.emplace_back("Content-Type", "application/json");
@@ -92,10 +95,13 @@ public:
     };
 
     HttpStub()
-        : server_("127.0.0.1", 0, stub_config(),
-                  [this](const network::Http1Request& request) {
-                      return handle(request);
-                  }) {}
+        : server_(
+              "127.0.0.1",
+              0,
+              stub_config(),
+              [this](const network::Http1Request& request) {
+                  return handle(request);
+              }) {}
 
     [[nodiscard]] std::uint16_t port() const noexcept {
         return server_.local_port();
@@ -114,11 +120,12 @@ public:
 
     [[nodiscard]] int count_of(std::string_view target) const {
         std::lock_guard lock(mutex_);
-        return static_cast<int>(
-            std::count_if(observed_.begin(), observed_.end(),
-                          [target](const Observed& entry) {
-                              return entry.target == target;
-                          }));
+        return static_cast<int>(std::count_if(
+            observed_.begin(),
+            observed_.end(),
+            [target](const Observed& entry) {
+                return entry.target == target;
+            }));
     }
 
     [[nodiscard]] std::vector<Observed> observed() const {
@@ -141,12 +148,13 @@ private:
         const std::string* authorization = request.header("authorization");
         {
             std::lock_guard lock(mutex_);
-            observed_.push_back(Observed{
-                request.method,
-                request.target,
-                authorization == nullptr ? std::string{} : *authorization,
-                request.body,
-            });
+            observed_.push_back(
+                Observed{
+                    request.method,
+                    request.target,
+                    authorization == nullptr ? std::string{} : *authorization,
+                    request.body,
+                });
         }
 
         if (request.method == "POST" && request.target == "/v1/login/verify") {
@@ -179,8 +187,9 @@ private:
             if (unauthorized_remaining.load() > 0) {
                 --unauthorized_remaining;
                 return json_response(
-                    401, "{\"code\":" + std::to_string(unauthorized_code.load()) +
-                             ",\"message\":\"number token rejected\"}");
+                    401,
+                    "{\"code\":" + std::to_string(unauthorized_code.load()) +
+                        ",\"message\":\"number token rejected\"}");
             }
             if (queued_remaining.load() > 0) {
                 --queued_remaining;
@@ -213,7 +222,8 @@ private:
 class EdgeStub final {
 public:
     EdgeStub(network::IMessageTransport& transport, std::uint16_t realm_port)
-        : transport_(transport), realm_port_(realm_port) {}
+        : transport_(transport),
+          realm_port_(realm_port) {}
 
     void poll(milliseconds timeout) {
         for (const auto& event : transport_.poll_once(timeout)) {
@@ -244,8 +254,8 @@ public:
     }
 
 private:
-    void handle_frame(network::SessionId session_id,
-                      std::span<const std::byte> payload) {
+    void handle_frame(
+        network::SessionId session_id, std::span<const std::byte> payload) {
         const auto message_id = common::edge_message_id(payload);
         if (!message_id.has_value() ||
             *message_id != edge_v1::MESSAGE_ID_C2S_EDGE_ATTACH) {
@@ -265,8 +275,9 @@ private:
         if (reject_attach_remaining.load() > 0) {
             reject_attach_remaining.fetch_sub(1);
             common::EdgeError error;
-            error.set_code(static_cast<std::uint32_t>(
-                common::edge_error_invalid_queue_number));
+            error.set_code(
+                static_cast<std::uint32_t>(
+                    common::edge_error_invalid_queue_number));
             error.set_message("number token expired");
             send(session_id, common::encode(error));
             return;
@@ -298,8 +309,8 @@ private:
         handoff_sent.fetch_add(1);
     }
 
-    void send(network::SessionId session_id,
-              std::span<const std::byte> payload) {
+    void send(
+        network::SessionId session_id, std::span<const std::byte> payload) {
         // 桩端不做背压:发送失败即测试环境坏,交给后续断言暴露。
         static_cast<void>(transport_.send(session_id, payload));
     }
@@ -321,9 +332,10 @@ private:
 class RealmServiceFixture final {
 public:
     RealmServiceFixture() {
-        static_cast<void>(::setenv("REALMMESH_SESSION_TICKET_KEY",
-                                   std::string{kSharedTicketKeyHex}.c_str(),
-                                   1));
+        static_cast<void>(::setenv(
+            "REALMMESH_SESSION_TICKET_KEY",
+            std::string{kSharedTicketKeyHex}.c_str(),
+            1));
         log_directory_.emplace("realmmesh-client-realm-");
         observability::LoggerConfig logger_config;
         logger_config.file_path = log_directory_->path() / "realm.log";
@@ -337,9 +349,7 @@ public:
                 .outbound_capacity = 64,
                 .io_poll_interval = milliseconds{1}});
         runtime_->start();
-        frame_.emplace("realm", "127.0.0.1", 8443, 64,
-                       service_host::EdgePipelineCaps{.conn_capacity = 4,
-                                                      .fetch_capacity = 0});
+        frame_.emplace("realm", "127.0.0.1", 8443, 64, 4);
     }
 
     ~RealmServiceFixture() {
@@ -414,7 +424,8 @@ private:
 };
 
 /// 网关桩的传输配置(真实 TLS;ALPN 取传输层默认的 edge 线)。Realm 段的
-/// 服务端由 RealmServiceFixture 自持 —— 它要挂真实 ServiceFrame,不是一条裸传输。
+/// 服务端由 RealmServiceFixture 自持 —— 它要挂真实
+/// ServiceFrame,不是一条裸传输。
 [[nodiscard]] network::TransportConfig gateway_config() {
     network::TransportConfig gateway{
         .name = "gateway-stub",
@@ -443,18 +454,20 @@ private:
     config.realm_retry_delay = milliseconds{20};
     // QUIC 候选在前:本仓无 QUIC 客户端(ADR-0002)→ dialog 立刻判
     // Unsupported → 竞速按 permits_transport_fallback 转 TLS/TCP。
-    config.gateway_endpoints.push_back(net_client::EndpointCandidate{
-        .protocol = network::TransportProtocol::Quic,
-        .host = "127.0.0.1",
-        .port = gateway_port,
-        .priority = 0,
-    });
-    config.gateway_endpoints.push_back(net_client::EndpointCandidate{
-        .protocol = network::TransportProtocol::TlsTcp,
-        .host = "127.0.0.1",
-        .port = gateway_port,
-        .priority = 1,
-    });
+    config.gateway_endpoints.push_back(
+        net_client::EndpointCandidate{
+            .protocol = network::TransportProtocol::Quic,
+            .host = "127.0.0.1",
+            .port = gateway_port,
+            .priority = 0,
+        });
+    config.gateway_endpoints.push_back(
+        net_client::EndpointCandidate{
+            .protocol = network::TransportProtocol::TlsTcp,
+            .host = "127.0.0.1",
+            .port = gateway_port,
+            .priority = 1,
+        });
     return config;
 }
 
@@ -513,12 +526,13 @@ TEST(WireLoginTransportIntegrationTest, DrivesLoginChainOverRealTls) {
         if (entry.target == "/v1/queue/tickets") {
             EXPECT_EQ(entry.authorization, "Bearer identity-1");
         } else if (entry.target == "/v1/queue/tickets/me") {
-            EXPECT_TRUE(entry.authorization == "Bearer number-token-1" ||
-                        entry.authorization == "Bearer number-token-2")
+            EXPECT_TRUE(
+                entry.authorization == "Bearer number-token-1" ||
+                entry.authorization == "Bearer number-token-2")
                 << entry.authorization;
         } else if (entry.target == "/v1/login/verify") {
-            EXPECT_EQ(entry.body,
-                      R"({"account":"alice","credential":"secret"})");
+            EXPECT_EQ(
+                entry.body, R"({"account":"alice","credential":"secret"})");
         }
     }
 
@@ -532,8 +546,8 @@ TEST(WireLoginTransportIntegrationTest, DrivesLoginChainOverRealTls) {
     // Realm 段:生产兑换口把网关签发的真实票据兑换成了 InGame;能到 InGame
     // 就说明真实 realm 服务验签通过并回了 1305(拒绝分支不可能到 InGame)。
     EXPECT_FALSE(chain.credentials().enter_realm_ticket.empty());
-    EXPECT_EQ(chain.credentials().enter_realm_ticket,
-              edge.last_enter_realm_ticket());
+    EXPECT_EQ(
+        chain.credentials().enter_realm_ticket, edge.last_enter_realm_ticket());
 }
 
 /// attach 被 1999 + 2001 拒(号牌过期):真实帧路径上同样自动重取号牌,
@@ -596,8 +610,8 @@ TEST(WireLoginTransportIntegrationTest, NonExpiryUnauthorizedIsTransient) {
 
     WireEnterRealmRedeemer redeemer;
     WireLoginTransport transport(endpoints, redeemer, fast_wire_options());
-    const auto me =
-        transport.ticket_me("number-token-1", Clock::now() + std::chrono::seconds{2});
+    const auto me = transport.ticket_me(
+        "number-token-1", Clock::now() + std::chrono::seconds{2});
 
     EXPECT_FALSE(me.status.ok);
     EXPECT_FALSE(me.status.credential_expired);

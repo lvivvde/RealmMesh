@@ -5,6 +5,9 @@
 #include "realmmesh/cluster/service_bootstrap.hpp"
 #include "realmmesh/cluster/service_publisher.hpp"
 #include "realmmesh/cluster/service_resolver.hpp"
+#include "realmmesh/game/gateway/account_fetch_port.hpp"
+#include "realmmesh/game/gateway/gateway_login_pipeline.hpp"
+#include "realmmesh/game/gateway/gateway_primary_transport.hpp"
 #include "realmmesh/game/gateway/gateway_runtime.hpp"
 #include "realmmesh/game/login_verify/login_verify_service.hpp"
 #include "realmmesh/game/queue/queue_service.hpp"
@@ -75,10 +78,8 @@ ServiceHost::ServiceHost(
     if (service_name_ == "login_verify") {
         auto login_verify_config = LayeredConfigLoader::load_login_verify(
             config_root, service_name, overrides);
-        login_verify =
-            std::make_unique<game::login_verify::LoginVerifyService>(
-                std::move(login_verify_config.login_verify),
-                &metrics_registry_);
+        login_verify = std::make_unique<game::login_verify::LoginVerifyService>(
+            std::move(login_verify_config.login_verify), &metrics_registry_);
         config = std::move(login_verify_config.host);
     } else if (service_name_ == "queue") {
         auto queue_config = LayeredConfigLoader::load_queue(
@@ -112,42 +113,47 @@ ServiceHost::ServiceHost(
     const bool is_gateway = service_name_ == "gateway";
     const auto gateway_signing_material =
         is_gateway
-            ? std::optional<game::gateway::GatewaySigningMaterial>{
-                  game::gateway::load_gateway_signing_material()}
+            ? std::optional<
+                  game::gateway::
+                      GatewaySigningMaterial>{game::gateway::
+                                                  load_gateway_signing_material()}
             : std::nullopt;
-    const auto frame_downstream_address =
-        is_gateway && config.login.static_realm.has_value()
-            ? config.login.static_realm->address
-            : config.downstream_address;
-    const auto frame_downstream_port =
-        is_gateway && config.login.static_realm.has_value()
-            ? config.login.static_realm->port
-            : config.downstream_port;
+    const auto frame_downstream_address = config.downstream_address;
+    const auto frame_downstream_port = config.downstream_port;
+    const auto max_events_per_frame = config.max_events_per_frame;
+    const auto conn_capacity = config.login.conn_capacity;
+    auto gateway_login_config = config.login;
+
+    budget_policy_.conn_capacity = conn_capacity;
+    budget_policy_.fetch_capacity =
+        is_gateway ? gateway_login_config.fetch_capacity : 0;
+    runtime_ = std::make_unique<game::gateway::GatewayRuntime>(
+        std::move(config), logger_.get());
+    if (is_gateway) {
+        gateway_primary_transport_ =
+            std::make_unique<game::gateway::GatewayRuntimePrimaryTransport>(
+                *runtime_);
+        account_fetch_ =
+            std::make_unique<game::gateway::DelayedAccountFetchPort>(
+                std::chrono::milliseconds{100},
+                gateway_login_config.fetch_capacity);
+        gateway_login_pipeline_ =
+            std::make_unique<game::gateway::GatewayLoginPipeline>(
+                game::gateway::GatewayLoginPipeline::create(
+                    std::move(gateway_login_config),
+                    *gateway_signing_material,
+                    *gateway_primary_transport_,
+                    *account_fetch_,
+                    logger_.get(),
+                    &metrics_registry_));
+    }
     frame_ = std::make_unique<ServiceFrame>(
         service_name_,
         frame_downstream_address,
         frame_downstream_port,
-        config.max_events_per_frame,
-        EdgePipelineCaps{
-            config.login.conn_capacity,
-            // fetch 容量仅 gateway 拉取管线存在,其余身份(含 realm)
-            // 置 0,与快照 has_fetch=false 同一不变量。
-            is_gateway ? config.login.fetch_capacity : 0},
-        EdgePipelineTuning{
-            config.login.fetch_retry_base,
-            config.login.fetch_retry_max,
-            config.login.handoff_grace},
-        nullptr,
-        &metrics_registry_,
-        gateway_signing_material);
-    budget_policy_.conn_capacity = config.login.conn_capacity;
-    // fetch 容量是回满判定基准,仅 gateway 拉取管线存在;realm 无
-    // fetch 维度(§5.2 只上报 conn_free),置 0 与快照 has_fetch=false
-    // 保持一致。
-    budget_policy_.fetch_capacity =
-        is_gateway ? config.login.fetch_capacity : 0;
-    runtime_ = std::make_unique<game::gateway::GatewayRuntime>(
-        std::move(config), logger_.get());
+        max_events_per_frame,
+        conn_capacity,
+        gateway_login_pipeline_.get());
 }
 
 ServiceHost::~ServiceHost() { stop(); }
@@ -317,6 +323,13 @@ void ServiceHost::tick() {
         frame_->tick(
             *logger_, *runtime_, resolver_.get(), budget_reporter_.get());
     }
+    const bool running = login_verify_ != nullptr ? login_verify_->running()
+                         : queue_ != nullptr
+                             ? queue_->running()
+                             : runtime_ != nullptr && runtime_->running();
+    if (!running) {
+        ready_.store(false);
+    }
     if (publisher_ == nullptr) return;
     if (!publisher_->tick()) return;
     // 注册成功后装配额度上报器(#43 gateway / #46 realm):required=false
@@ -343,11 +356,6 @@ void ServiceHost::tick() {
         });
     }
     // required=false 时首注册可能失败,续约成功后补齐 ready。
-    const bool running = login_verify_ != nullptr
-                             ? login_verify_->running()
-                             : queue_ != nullptr
-                                 ? queue_->running()
-                                 : runtime_ != nullptr && runtime_->running();
     if (running) {
         ready_.store(true);
     }
