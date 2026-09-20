@@ -164,10 +164,12 @@ WireLoginTransport::WireLoginTransport(WireEndpoints endpoints,
                        options_.reset_close_on_release},
       gateway_dialer_(std::string{::realm::network::kEdgeAlpn},
                       endpoints_.verify_peer,
-                      options_.reset_close_on_release),
+                      options_.reset_close_on_release,
+                      options_.tls_dial_failure_observer),
       realm_dialer_(std::string{::realm::network::kEdgeAlpn},
                     endpoints_.verify_peer,
-                    options_.reset_close_on_release),
+                    options_.reset_close_on_release,
+                    options_.tls_dial_failure_observer),
       gateway_connector_(gateway_dialer_, options_.connector),
       realm_connector_(realm_dialer_, options_.connector) {}
 
@@ -194,6 +196,10 @@ std::optional<WireLoginTransport::HttpResponse> WireLoginTransport::call(
                 host, port, tls_options_,
                 request_deadline(deadline, options_.request_timeout));
             if (!dial.ok()) {
+                if (options_.tls_dial_failure_observer) {
+                    options_.tls_dial_failure_observer(
+                        dial.failure, dial.last_errno);
+                }
                 return std::nullopt;
             }
             connection = std::make_unique<net_client::Http1ClientConnection>(

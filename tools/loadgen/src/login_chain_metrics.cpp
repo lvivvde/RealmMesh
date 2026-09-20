@@ -44,7 +44,7 @@ void record(PhaseCounters& counters,
 
 MetricsLoginChainTransport::MetricsLoginChainTransport(
     client::LoginChainTransport& inner,
-    RobotCounters counters)
+    LoginChainCounters counters)
     : inner_(inner), counters_(counters) {}
 
 client::PortValue<client::VerifyResult> MetricsLoginChainTransport::verify(
@@ -66,6 +66,9 @@ MetricsLoginChainTransport::take_ticket(
     auto result = inner_.take_ticket(identity_token, deadline);
     record(counters_.tickets, result.status, started,
            FailureKind::TicketsRejected, FailureKind::ConnectionError);
+    if (result.status.ok) {
+        last_number_token_ = result.value.queue_number_token;
+    }
     return result;
 }
 

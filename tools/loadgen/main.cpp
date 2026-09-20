@@ -1,5 +1,4 @@
 #include "realmmesh/loadgen/loadgen.hpp"
-#include "realmmesh/loadgen/robot.hpp"
 
 #include <charconv>
 #include <chrono>
@@ -14,8 +13,8 @@
 namespace {
 
 using realm::loadgen::LoadgenConfig;
+using realm::loadgen::LoadgenLoginTarget;
 using realm::loadgen::Profile;
-using realm::loadgen::RobotPhase;
 using realm::loadgen::ServiceAddress;
 
 void print_usage() {
@@ -24,13 +23,15 @@ void print_usage() {
         "\n"
         "用法: realm_mesh_loadgen --phase <p> [选项]\n"
         "\n"
-        "  --phase verify|tickets|poll|gateway|all   机器人阶段\n"
+        "  --phase verify|tickets|poll|gateway|gateway_soak|full|all\n"
+        "                                    登录链路停止点\n"
         "      verify   登录验证一次\n"
         "      tickets  验证 + 取号\n"
         "      poll     验证 + 取号 + progress 轮询到放行兑换\n"
         "      gateway  单趟链路到 handed-off(1303)\n"
-        "      all      链路到 handed-off 后保持连接到 --duration\n"
-        "               (soak 水位)\n"
+        "      gateway_soak  handed-off 后保持连接到 --duration\n"
+        "                    (soak 水位；all 是兼容别名)\n"
+        "      full     继续直连 Realm 并完成 EnterRealm\n"
         "  --robots N            机器人数(默认 1)\n"
         "  --ramp-seconds F      爬坡时长,按序错峰(默认 0)\n"
         "  --duration F         总时长/截止,秒(默认 10)\n"
@@ -91,7 +92,7 @@ template <typename Integer>
 }  // namespace
 
 int main(int argc, char** argv) {
-    using realm::loadgen::parse_robot_phase;
+    using realm::loadgen::parse_loadgen_login_target;
 
     LoadgenConfig config;
     bool phase_given = false;
@@ -111,13 +112,14 @@ int main(int argc, char** argv) {
 
         if (argument == "--phase") {
             const auto value = value_of();
-            const auto phase =
-                value.has_value() ? parse_robot_phase(*value) : std::nullopt;
-            if (!phase.has_value()) {
+            const auto target = value.has_value()
+                ? parse_loadgen_login_target(*value)
+                : std::nullopt;
+            if (!target.has_value()) {
                 std::cerr << "invalid --phase\n";
                 return 2;
             }
-            config.phase = *phase;
+            config.target = *target;
             phase_given = true;
         } else if (argument == "--profile") {
             const auto value = value_of();
@@ -264,12 +266,14 @@ int main(int argc, char** argv) {
         if (!robots_given) config.robots = 100000;
         if (!ramp_given) config.ramp_seconds = 300;
         if (!duration_given) config.duration_seconds = 1800;
-        if (!phase_given) config.phase = RobotPhase::All;
+        if (!phase_given) {
+            config.target = LoadgenLoginTarget::GatewaySoak;
+        }
     } else if (config.profile == Profile::M2) {
         if (!robots_given) config.robots = 100000;
         if (!ramp_given) config.ramp_seconds = 30;
         if (!duration_given) config.duration_seconds = 60;
-        if (!phase_given) config.phase = RobotPhase::Gateway;
+        if (!phase_given) config.target = LoadgenLoginTarget::Gateway;
     }
 
     if (!phase_given) {
@@ -280,12 +284,13 @@ int main(int argc, char** argv) {
         std::cerr << "--login-verify is required\n";
         return 2;
     }
-    if (config.phase != RobotPhase::Verify && !queue_given) {
+    if (config.target != LoadgenLoginTarget::Verify && !queue_given) {
         std::cerr << "--queue is required\n";
         return 2;
     }
-    if ((config.phase == RobotPhase::Gateway ||
-         config.phase == RobotPhase::All) &&
+    if ((config.target == LoadgenLoginTarget::Gateway ||
+         config.target == LoadgenLoginTarget::GatewaySoak ||
+         config.target == LoadgenLoginTarget::Full) &&
         !gateway_given) {
         std::cerr << "--gateway is required\n";
         return 2;

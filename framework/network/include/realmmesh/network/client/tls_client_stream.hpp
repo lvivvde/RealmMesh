@@ -12,6 +12,7 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <span>
@@ -33,6 +34,9 @@ enum class TlsDialFailure {
     Handshake,
     Cancelled,
 };
+
+using TlsDialFailureObserver =
+    std::function<void(TlsDialFailure failure, int last_errno)>;
 
 [[nodiscard]] std::string_view tls_dial_failure_name(
     TlsDialFailure failure) noexcept;

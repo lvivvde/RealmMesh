@@ -1,16 +1,29 @@
 #pragma once
 
 #include "realmmesh/client/login_chain.hpp"
-#include "realmmesh/loadgen/robot.hpp"
+#include "realmmesh/loadgen/stats.hpp"
 
 namespace realm::loadgen {
+
+struct LoginChainCounters final {
+    PhaseCounters& verify;
+    PhaseCounters& tickets;
+    PhaseCounters& poll;
+    PhaseCounters& attach;
+    PhaseCounters& handoff;
+};
 
 /// LoginChainTransport Decorator：只把既有端口动词翻译到既有五相位
 /// 计数器，不观察 LoginChain 的内部阶段。
 class MetricsLoginChainTransport final : public client::LoginChainTransport {
 public:
     MetricsLoginChainTransport(client::LoginChainTransport& inner,
-                               RobotCounters counters);
+                               LoginChainCounters counters);
+
+    /// 保留旧报告的号码牌采集能力；仅暴露最近一次成功取号的原始值。
+    [[nodiscard]] const std::string& last_number_token() const noexcept {
+        return last_number_token_;
+    }
 
     client::PortValue<client::VerifyResult> verify(
         std::string_view account,
@@ -47,7 +60,8 @@ public:
 
 private:
     client::LoginChainTransport& inner_;
-    RobotCounters counters_;
+    LoginChainCounters counters_;
+    std::string last_number_token_;
 };
 
 }  // namespace realm::loadgen

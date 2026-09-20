@@ -8,13 +8,11 @@ namespace {
 [[nodiscard]] bool needs_gateway(LoadgenLoginTarget target) {
     return target == LoadgenLoginTarget::Gateway ||
         target == LoadgenLoginTarget::GatewaySoak ||
-        target == LoadgenLoginTarget::Full ||
-        target == LoadgenLoginTarget::All;
+        target == LoadgenLoginTarget::Full;
 }
 
 [[nodiscard]] bool is_soak(LoadgenLoginTarget target) {
-    return target == LoadgenLoginTarget::GatewaySoak ||
-        target == LoadgenLoginTarget::All;
+    return target == LoadgenLoginTarget::GatewaySoak;
 }
 
 [[nodiscard]] client::PollingProfile client_polling_profile(
@@ -28,7 +26,54 @@ namespace {
     return client::PollingProfile::Pressure;
 }
 
+void record_dial_failure(network::client::TlsDialFailure failure,
+                         int last_errno) {
+    switch (failure) {
+        case network::client::TlsDialFailure::None:
+            return;
+        case network::client::TlsDialFailure::Resolve:
+            ++dial_diagnostics.resolve;
+            return;
+        case network::client::TlsDialFailure::Socket:
+            ++dial_diagnostics.socket;
+            return;
+        case network::client::TlsDialFailure::Configure:
+            ++dial_diagnostics.configure;
+            return;
+        case network::client::TlsDialFailure::Connect:
+            ++dial_diagnostics.connect;
+            dial_diagnostics.last_errno = last_errno;
+            return;
+        case network::client::TlsDialFailure::ConnectTimeout:
+            ++dial_diagnostics.connect_timeout;
+            dial_diagnostics.last_errno = last_errno;
+            return;
+        case network::client::TlsDialFailure::SslSetup:
+            ++dial_diagnostics.ssl_setup;
+            return;
+        case network::client::TlsDialFailure::Handshake:
+            ++dial_diagnostics.handshake;
+            return;
+        case network::client::TlsDialFailure::Cancelled:
+            ++dial_diagnostics.cancelled;
+            return;
+    }
+}
+
 }  // namespace
+
+std::optional<LoadgenLoginTarget> parse_loadgen_login_target(
+    std::string_view text) {
+    if (text == "verify") return LoadgenLoginTarget::Verify;
+    if (text == "tickets") return LoadgenLoginTarget::Tickets;
+    if (text == "poll") return LoadgenLoginTarget::Poll;
+    if (text == "gateway") return LoadgenLoginTarget::Gateway;
+    if (text == "gateway_soak" || text == "all") {
+        return LoadgenLoginTarget::GatewaySoak;
+    }
+    if (text == "full") return LoadgenLoginTarget::Full;
+    return std::nullopt;
+}
 
 LoginRunAdaptation adapt_login_run(const LoadgenLoginOptions& options) {
     if (options.polling == LoadgenPollingProfile::Pressure &&
@@ -71,6 +116,7 @@ LoginRunAdaptation adapt_login_run(const LoadgenLoginOptions& options) {
     client::WireTransportOptions transport;
     transport.network_id = "loadgen";
     transport.reset_close_on_release = true;
+    transport.tls_dial_failure_observer = record_dial_failure;
 
     auto finish = [&](client::LoginRun run) -> LoginRunAdaptation {
         return AdaptedLoginRun{std::move(run), std::move(chain),
@@ -93,8 +139,7 @@ LoginRunAdaptation adapt_login_run(const LoadgenLoginOptions& options) {
             return finish(client::LoginRun::gateway(
                 options.account, options.credential, options.deadline,
                 polling));
-        case LoadgenLoginTarget::GatewaySoak:
-        case LoadgenLoginTarget::All: {
+        case LoadgenLoginTarget::GatewaySoak: {
             auto run = client::LoginRun::gateway_soak(
                 options.account, options.credential, options.deadline,
                 polling, *options.hold_until);

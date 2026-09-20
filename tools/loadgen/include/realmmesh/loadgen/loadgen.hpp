@@ -1,7 +1,7 @@
 #pragma once
 
+#include "realmmesh/loadgen/login_chain_adapter.hpp"
 #include "realmmesh/loadgen/metrics_scrape.hpp"
-#include "realmmesh/loadgen/robot.hpp"
 #include "realmmesh/loadgen/stats.hpp"
 
 #include <chrono>
@@ -21,22 +21,23 @@ enum class Profile {
 };
 
 struct LoadgenConfig final {
-    RobotPhase phase{RobotPhase::All};
+    LoadgenLoginTarget target{LoadgenLoginTarget::GatewaySoak};
+    LoadgenPollingProfile polling{LoadgenPollingProfile::Pressure};
     Profile profile{Profile::None};
     std::uint64_t robots{1};
     double ramp_seconds{0};
     double duration_seconds{10};
     std::uint64_t concurrency{32};
     std::chrono::milliseconds poll_interval{100};
-    RobotEndpoints endpoints;
+    LoadgenEndpoints endpoints;
     /// 账号命名:robot-<i % accounts>;账号表须先行备好同名记录。
     std::string account_prefix{"robot"};
     std::uint64_t accounts{0};
     std::string credential{"loadgen-credential"};
     /// 可选:结束后抓取该服务 /metrics 进报告(服务侧口径)。
     std::optional<ServiceAddress> metrics_endpoint;
-    /// 工件采集(测试断言用):true 时把各机器人取到的号码牌汇进
-    /// 报告(verify/tickets 相位有效);规模档保持 false。
+    /// 工件采集(测试断言用):true 时把各机器人最近一次取到的号码牌
+    /// 汇进报告；规模档保持 false。
     bool collect_number_tokens{false};
 };
 

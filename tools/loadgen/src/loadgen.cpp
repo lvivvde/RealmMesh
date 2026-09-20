@@ -1,14 +1,18 @@
 #include "realmmesh/loadgen/loadgen.hpp"
 
+#include "realmmesh/loadgen/login_chain_metrics.hpp"
+
 #include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <mutex>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <thread>
+#include <utility>
 #include <vector>
 
 namespace realm::loadgen {
@@ -111,16 +115,46 @@ std::string LoadgenReport::render() const {
 struct ThreadJoiner final {
     std::vector<std::thread>& threads;
 
-    ~ThreadJoiner() {
+    void join() {
         for (auto& worker : threads) {
             if (worker.joinable()) {
                 worker.join();
             }
         }
     }
+
+    ~ThreadJoiner() { join(); }
 };
 
+[[nodiscard]] LoadgenLoginOptions login_options_for(
+    const LoadgenConfig& config,
+    std::string account,
+    client::TimePoint deadline) {
+    LoadgenLoginOptions options;
+    options.target = config.target;
+    options.polling = config.polling;
+    options.endpoints = config.endpoints;
+    options.account = std::move(account);
+    options.credential = config.credential;
+    options.poll_interval = config.poll_interval;
+    options.deadline = deadline;
+    if (config.target == LoadgenLoginTarget::GatewaySoak) {
+        options.hold_until = deadline;
+    }
+    return options;
+}
+
+void validate_login_config(const LoadgenConfig& config) {
+    const auto horizon = client::TimePoint::max();
+    auto validation = adapt_login_run(
+        login_options_for(config, config.account_prefix + "-0", horizon));
+    if (std::holds_alternative<LoginRunConfigError>(validation)) {
+        throw std::invalid_argument("invalid loadgen Login Chain configuration");
+    }
+}
+
 LoadgenReport run_loadgen(const LoadgenConfig& config) {
+    validate_login_config(config);
     LoadgenReport report;
     report.robots = config.robots;
 
@@ -140,7 +174,7 @@ LoadgenReport run_loadgen(const LoadgenConfig& config) {
     std::atomic<std::uint64_t> next_robot{0};
     std::vector<std::thread> workers;
     workers.reserve(static_cast<std::size_t>(worker_count));
-    const ThreadJoiner joiner{workers};
+    ThreadJoiner joiner{workers};
 
     for (std::uint64_t slot = 0; slot < worker_count; ++slot) {
         workers.emplace_back([&] {
@@ -173,30 +207,48 @@ LoadgenReport run_loadgen(const LoadgenConfig& config) {
                     continue;
                 }
 
-                RobotOptions options;
-                options.phase = config.phase;
-                options.endpoints = config.endpoints;
-                options.account = config.account_prefix + "-" +
-                    std::to_string(config.accounts == 0
-                                       ? index
-                                       : index % config.accounts);
-                options.credential = config.credential;
-                options.poll_interval = config.poll_interval;
-                options.deadline = deadline;
-                if (config.phase == RobotPhase::All) {
-                    // soak 水位:handed-off 会话保持到总截止。
-                    options.hold_until = deadline;
-                }
-                options.collect_artifacts = config.collect_number_tokens;
-
                 PhaseCounters verify;
                 PhaseCounters tickets;
                 PhaseCounters poll;
                 PhaseCounters attach;
                 PhaseCounters handoff;
-                auto outcome = run_robot(
-                    options,
-                    RobotCounters{verify, tickets, poll, attach, handoff});
+
+                auto options = login_options_for(
+                    config,
+                    config.account_prefix + "-" +
+                        std::to_string(config.accounts == 0
+                                           ? index
+                                           : index % config.accounts),
+                    deadline);
+                auto adaptation = adapt_login_run(options);
+                auto* adapted = std::get_if<AdaptedLoginRun>(&adaptation);
+                if (adapted == nullptr) {
+                    // 起跑检查与 Adapter 构造间窗口刚好关闭：这类机器人
+                    // 没发出网络动作，沿用 skipped 口径。
+                    std::scoped_lock lock{report_mutex};
+                    ++report.skipped;
+                    continue;
+                }
+
+                client::WireEnterRealmRedeemer redeemer;
+                client::WireLoginTransport wire(
+                    adapted->wire, redeemer, adapted->transport);
+                MetricsLoginChainTransport measured(
+                    wire, {verify, tickets, poll, attach, handoff});
+                client::LoginChain chain(measured, std::move(adapted->chain));
+                auto result = chain.run(std::move(adapted->run));
+
+                // AdmitTimeout 是状态机内部的终态，不来自某次端口调用；
+                // 显式补进旧 poll 失败分型，保持报告含义。
+                if (const auto* failure = result.failure();
+                    failure != nullptr &&
+                    failure->reason == client::ChainFailure::AdmitTimeout) {
+                    poll.record_failure(FailureKind::AdmitTimeout, 0.0);
+                }
+                std::string number_token;
+                if (config.collect_number_tokens) {
+                    number_token = measured.last_number_token();
+                }
 
                 std::scoped_lock lock{report_mutex};
                 report.verify.merge(verify);
@@ -204,18 +256,18 @@ LoadgenReport run_loadgen(const LoadgenConfig& config) {
                 report.poll.merge(poll);
                 report.attach.merge(attach);
                 report.handoff.merge(handoff);
-                if (outcome.completed) {
+                if (result.succeeded()) {
                     ++report.completed;
                 }
                 if (config.collect_number_tokens &&
-                    !outcome.number_token.empty()) {
-                    report.number_tokens.push_back(
-                        std::move(outcome.number_token));
+                    !number_token.empty()) {
+                    report.number_tokens.push_back(std::move(number_token));
                 }
             }
         });
     }
-    // 正常路径在 joiner 析构处 join;异常路径已在 unwind 中 join。
+    // 正常路径先 join 再抓服务指标/返回报告；异常路径由析构兜底。
+    joiner.join();
 
     if (config.metrics_endpoint.has_value()) {
         report.service_metrics = scrape_metrics(

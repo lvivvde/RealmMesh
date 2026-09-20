@@ -333,8 +333,11 @@ ctest --preset dev -L lua     # 只筛 Lua 用例
 守住，改动指标名而不更新规则会失败。
 
 压测工具 `realm_mesh_loadgen`（#48）以真实服务回环驱动机器人，按阶段
-（`--phase verify|tickets|poll|gateway|all`）与内置档（`--profile soak|m2`）跑定向
-压测，不进入服务拓扑。测试证书和私钥只生成在 `build/` 中。push / PR 时 GitHub
+（`--phase verify|tickets|poll|gateway|gateway_soak|full`，旧 `all` 是
+`gateway_soak` 的 CLI 别名）与内置档（`--profile soak|m2`）跑定向压测。
+所有目标与应用客户端共用 `framework/client` 的 Login Chain；工具层只负责配置转换、
+既有五相位指标和报告汇总，不保留独立登录状态机，也不进入服务拓扑。测试证书和私钥
+只生成在 `build/` 中。push / PR 时 GitHub
 Actions 在 macOS 与 Linux 双平台跑全量 `ctest --preset dev`
 （`.github/workflows/ci.yml`），QUIC 路径仅在 Linux 覆盖。
 

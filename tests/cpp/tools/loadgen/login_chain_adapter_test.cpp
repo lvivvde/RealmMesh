@@ -101,7 +101,7 @@ public:
     client::PortStatus handoff_status{client::PortStatus::success()};
 };
 
-[[nodiscard]] RobotCounters counters_for(LoadgenReport& report) {
+[[nodiscard]] LoginChainCounters counters_for(LoadgenReport& report) {
     return {report.verify, report.tickets, report.poll, report.attach,
             report.handoff};
 }
@@ -116,8 +116,7 @@ public:
     options.endpoints.login_verify = {"verify.example", 7001};
     options.endpoints.queue = {"queue.example", 7002};
     options.endpoints.gateway = {"gateway.example", 7003};
-    if (target == LoadgenLoginTarget::GatewaySoak ||
-        target == LoadgenLoginTarget::All) {
+    if (target == LoadgenLoginTarget::GatewaySoak) {
         options.hold_until = client::Clock::now() + std::chrono::seconds{2};
     }
     return options;
@@ -150,10 +149,6 @@ TEST(LoginChainAdapterTest, MapsEveryTargetToValidatedLoginRun) {
                   client::PollingProfile::Pressure);
     expect_target(LoadgenLoginTarget::Full, client::LoginTarget::Full,
                   client::PollingProfile::Pressure);
-    // Legacy all 只在 Adapter 层存在，立即收敛为 GatewaySoak。
-    expect_target(LoadgenLoginTarget::All,
-                  client::LoginTarget::GatewaySoak,
-                  client::PollingProfile::Pressure);
 }
 
 TEST(LoginChainAdapterTest, RejectsInvalidTargetSpecificConfiguration) {
@@ -168,7 +163,7 @@ TEST(LoginChainAdapterTest, RejectsInvalidTargetSpecificConfiguration) {
     EXPECT_EQ(std::get<LoginRunConfigError>(adapt_login_run(unexpected_hold)),
               LoginRunConfigError::UnexpectedSoakHorizon);
 
-    auto past_hold = valid_options(LoadgenLoginTarget::All);
+    auto past_hold = valid_options(LoadgenLoginTarget::GatewaySoak);
     past_hold.hold_until = client::Clock::now() - milliseconds{1};
     EXPECT_EQ(std::get<LoginRunConfigError>(adapt_login_run(past_hold)),
               LoginRunConfigError::SoakHorizonInPast);

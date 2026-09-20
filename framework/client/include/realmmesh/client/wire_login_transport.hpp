@@ -42,6 +42,8 @@ struct WireTransportOptions final {
     std::string network_id{"default"};
     /// 压测短连可选择释放即 RST；应用客户端保持默认优雅关闭。
     bool reset_close_on_release{false};
+    /// 可选的 TLS 拨号失败诊断口；产品客户端默认不采集。
+    network::client::TlsDialFailureObserver tls_dial_failure_observer;
     network::client::ConnectorOptions connector;
 };
 

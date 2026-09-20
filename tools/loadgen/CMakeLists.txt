@@ -5,7 +5,6 @@ add_library(realm_loadgen_core
     src/metrics_scrape.cpp
     src/login_chain_adapter.cpp
     src/login_chain_metrics.cpp
-    src/robot.cpp
     src/loadgen.cpp
 )
 add_library(RealmMesh::LoadgenCore ALIAS realm_loadgen_core)

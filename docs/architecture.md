@@ -120,6 +120,7 @@ MsQuic 自有调度不会直接调用业务逻辑。回调只完成长度帧组�
 - `game/common`：Envelope 编解码、业务票据与账号数据源抽象（AccountStore）。
 - `framework/cluster`：多协议端点注册与发现。
 - `framework/client`：客户端登录链路（七态状态机、分档轮询、两段竞速）与其 HTTPS/网关/业务服生产传输绑定。外部通过经验证的 `LoginRun` 选择 Verify、Tickets、Poll、Gateway、GatewaySoak 或 Full 停止点；Gateway/Realm 连接由 move-only RAII Session 独占，只有 Full 成功会把已入场 Realm Session 转移给调用方。
+- `tools/loadgen`：负载调度、报告与 Login Chain 的配置/指标适配层。所有目标都转换为同一个 `LoginRun` 并执行 `framework/client::LoginChain`；`gateway_soak` 负责保持 Gateway Session 水位，`full` 继续兑换并持有 Realm Session。CLI 的旧拼法 `all` 只在解析边界映射为 `GatewaySoak`，代码库中没有第二套登录状态机或新旧路径开关。
 - `framework/service_host`：把服务名、分层配置与集群接线装配成一个可运行服务。
 - `apps/mesh_host`：`realm_mesh` 单一入口，以 `--service` 区分服务与信号处理。
 

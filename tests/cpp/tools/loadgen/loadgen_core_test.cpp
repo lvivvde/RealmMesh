@@ -107,17 +107,22 @@ TEST(FailureKindNameTest, NamesEveryKind) {
               "handoff_rejected");
 }
 
-TEST(ParseRobotPhaseTest, AcceptsSpecifiedValues) {
-    EXPECT_EQ(parse_robot_phase("verify"), RobotPhase::Verify);
-    EXPECT_EQ(parse_robot_phase("tickets"), RobotPhase::Tickets);
-    EXPECT_EQ(parse_robot_phase("poll"), RobotPhase::Poll);
-    EXPECT_EQ(parse_robot_phase("gateway"), RobotPhase::Gateway);
-    EXPECT_EQ(parse_robot_phase("all"), RobotPhase::All);
-    EXPECT_EQ(parse_robot_phase("soak"), std::nullopt);
-    EXPECT_EQ(parse_robot_phase("gateway_soak"), std::nullopt);
-    EXPECT_EQ(parse_robot_phase("full"), std::nullopt);
-    EXPECT_EQ(parse_robot_phase("Verify"), std::nullopt);
-    EXPECT_EQ(parse_robot_phase(""), std::nullopt);
+TEST(ParseLoadgenLoginTargetTest, AcceptsExplicitTargetsAndAllAlias) {
+    EXPECT_EQ(parse_loadgen_login_target("verify"),
+              LoadgenLoginTarget::Verify);
+    EXPECT_EQ(parse_loadgen_login_target("tickets"),
+              LoadgenLoginTarget::Tickets);
+    EXPECT_EQ(parse_loadgen_login_target("poll"), LoadgenLoginTarget::Poll);
+    EXPECT_EQ(parse_loadgen_login_target("gateway"),
+              LoadgenLoginTarget::Gateway);
+    EXPECT_EQ(parse_loadgen_login_target("gateway_soak"),
+              LoadgenLoginTarget::GatewaySoak);
+    EXPECT_EQ(parse_loadgen_login_target("full"), LoadgenLoginTarget::Full);
+    EXPECT_EQ(parse_loadgen_login_target("all"),
+              LoadgenLoginTarget::GatewaySoak);
+    EXPECT_EQ(parse_loadgen_login_target("soak"), std::nullopt);
+    EXPECT_EQ(parse_loadgen_login_target("Verify"), std::nullopt);
+    EXPECT_EQ(parse_loadgen_login_target(""), std::nullopt);
 }
 
 }  // namespace

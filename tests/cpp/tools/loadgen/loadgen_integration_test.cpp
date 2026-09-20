@@ -550,6 +550,17 @@ void use_loadgen_free_ports(
                               "handoff_grace_ms = 30000");
     }
     ASSERT_TRUE(write_file(gateway_path, gateway));
+
+    if (grant_endpoint_port != 0) {
+        const auto realm_path = root / "services" / "realm.lua";
+        auto realm = read_file(realm_path);
+        realm = replace_all(
+            realm,
+            "listen_port = 7100",
+            "listen_port = " + std::to_string(grant_endpoint_port));
+        realm = replace_all(realm, "metrics_port = 9102", "metrics_port = 0");
+        ASSERT_TRUE(write_file(realm_path, realm));
+    }
 }
 
 /// MeshHost 不自转线程(帧尾指标发布与 HTTPS poll 循环都靠外部 tick
@@ -586,11 +597,11 @@ private:
     std::thread thread_;
 };
 
-[[nodiscard]] RobotEndpoints loadgen_endpoints(
+[[nodiscard]] LoadgenEndpoints loadgen_endpoints(
     std::uint16_t login_verify_port,
     std::uint16_t queue_port,
     std::uint16_t gateway_port) {
-    RobotEndpoints endpoints;
+    LoadgenEndpoints endpoints;
     endpoints.login_verify = ServiceAddress{"127.0.0.1", login_verify_port};
     endpoints.queue = ServiceAddress{"127.0.0.1", queue_port};
     endpoints.gateway = ServiceAddress{"127.0.0.1", gateway_port};
@@ -684,7 +695,7 @@ TEST(LoadgenIntegrationTest, L1VerifyDirectsTrafficAndCountersAgree) {
     const TickDriver driver(mesh);
 
     LoadgenConfig config;
-    config.phase = RobotPhase::Verify;
+    config.target = LoadgenLoginTarget::Verify;
     config.robots = 200;
     config.concurrency = 50;
     config.duration_seconds = 20;
@@ -733,7 +744,7 @@ TEST(LoadgenIntegrationTest, L1TicketsIssueTokensAllValidate) {
     const TickDriver driver(mesh);
 
     LoadgenConfig config;
-    config.phase = RobotPhase::Tickets;
+    config.target = LoadgenLoginTarget::Tickets;
     config.robots = 300;
     config.concurrency = 60;
     config.duration_seconds = 20;
@@ -806,7 +817,7 @@ TEST(LoadgenIntegrationTest, L1GatewaySoakHoldsWaterLevelWithoutFdLeak) {
 
     // 预热:吸收一次性开销(OpenSSL/Lua/日志句柄),fd 基线从这之后取。
     LoadgenConfig warmup;
-    warmup.phase = RobotPhase::Gateway;
+    warmup.target = LoadgenLoginTarget::Gateway;
     warmup.robots = 2;
     warmup.concurrency = 2;
     warmup.duration_seconds = 3;
@@ -818,7 +829,7 @@ TEST(LoadgenIntegrationTest, L1GatewaySoakHoldsWaterLevelWithoutFdLeak) {
 
     // 基线跑:小规模取 attach p50 + 服务侧 fetch 均值,作无漂移对照。
     LoadgenConfig baseline;
-    baseline.phase = RobotPhase::All;
+    baseline.target = LoadgenLoginTarget::GatewaySoak;
     baseline.robots = 30;
     baseline.concurrency = 30;
     baseline.duration_seconds = 4;
@@ -848,7 +859,7 @@ TEST(LoadgenIntegrationTest, L1GatewaySoakHoldsWaterLevelWithoutFdLeak) {
     });
 
     LoadgenConfig main_run;
-    main_run.phase = RobotPhase::All;
+    main_run.target = LoadgenLoginTarget::GatewaySoak;
     main_run.robots = 100;
     main_run.concurrency = 100;
     main_run.duration_seconds = 5;
@@ -996,6 +1007,47 @@ TEST(LoadgenIntegrationTest, AdapterAndDecoratorDriveRealGatewayChain) {
     EXPECT_EQ(report.handoff.failures, 0U);
 }
 
+TEST(LoadgenIntegrationTest, FullTargetRedeemsRealmSession) {
+    const ScopedLoadgenEnvironment environment;
+    const std::filesystem::path source = REALMMESH_SOURCE_DIR "/configs";
+    const test_support::TemporaryDirectory scratch("loadgen-it-full-");
+    ASSERT_TRUE(copy_configs_with_discovery_disabled(source, scratch.path()));
+    const auto ports = unused_tcp_ports(4);
+    FakeEtcd etcd;
+    use_loadgen_free_ports(
+        scratch.path(), ports.at(0), ports.at(1), ports.at(2), ports.at(3),
+        etcd.port(), true, false, true);
+    write_robot_accounts(scratch.path(), 1);
+
+    service_host::MeshHost mesh(
+        scratch.path(),
+        {{"login_verify", {}, false},
+         {"queue", {}, false},
+         {"realm", {}, false},
+         {"gateway", {"login_verify", "realm"}, true}});
+    ASSERT_TRUE(mesh.start_all());
+    const TickDriver driver(mesh);
+
+    LoadgenConfig config;
+    config.target = LoadgenLoginTarget::Full;
+    config.robots = 1;
+    config.concurrency = 1;
+    config.duration_seconds = 10;
+    config.poll_interval = std::chrono::milliseconds{50};
+    config.endpoints =
+        loadgen_endpoints(ports.at(0), ports.at(1), ports.at(2));
+
+    const auto report = run_loadgen(config);
+
+    EXPECT_EQ(report.completed, 1U);
+    EXPECT_EQ(report.verify.failures, 0U);
+    EXPECT_EQ(report.tickets.failures, 0U);
+    EXPECT_EQ(report.poll.failures, 0U);
+    EXPECT_EQ(report.attach.failures, 0U);
+    EXPECT_EQ(report.handoff.failures, 0U);
+    EXPECT_EQ(report.handoff.attempts, 1U);
+}
+
 /// M2 缩减版:250 机器人单趟全链路(verify → handed-off),断言完成率
 /// ≥ 99%、拉取失败率 < 1%(#34 口径 retry/(retry+count);延迟桩恒成
 /// 功,失败率应为 0)。CI 缩减档 ≤ 25s。
@@ -1023,7 +1075,7 @@ TEST(LoadgenIntegrationTest, M2ReducedChainCompletesWithLowFetchFailure) {
     const TickDriver driver(mesh);
 
     LoadgenConfig config;
-    config.phase = RobotPhase::Gateway;
+    config.target = LoadgenLoginTarget::Gateway;
     config.robots = 250;
     config.concurrency = 64;
     config.duration_seconds = 25;
@@ -1081,7 +1133,7 @@ TEST(LoadgenIntegrationTest, M3SmokeTenThousandTicketsAndConcurrentPolls) {
     // 窗口内跑完,吞吐是硬约束;窗口关闭时没起跑的机器人记 skipped
     // 单列(此前会被记成拨号超时,掩盖真实吞吐),完成率门槛照旧。
     LoadgenConfig tickets_run;
-    tickets_run.phase = RobotPhase::Tickets;
+    tickets_run.target = LoadgenLoginTarget::Tickets;
     tickets_run.robots = 10000;
     tickets_run.concurrency = 32;
     tickets_run.duration_seconds = 45;
@@ -1102,7 +1154,7 @@ TEST(LoadgenIntegrationTest, M3SmokeTenThousandTicketsAndConcurrentPolls) {
     // admission 等待远超 30s 截止,末波机器人会撞上过期截止,dial
     // 成片报 connection_error(实测恰好截断 500 个)。
     LoadgenConfig poll_run;
-    poll_run.phase = RobotPhase::Poll;
+    poll_run.target = LoadgenLoginTarget::Poll;
     poll_run.robots = 2000;
     poll_run.concurrency = 125;
     poll_run.duration_seconds = 30;
@@ -1148,7 +1200,7 @@ TEST(LoadgenIntegrationTest, SuccessfulGatewayDialTimeIsExcludedFromAttach) {
     const DelayedTcpProxy proxy(gateway_port, dial_delay);
 
     LoadgenConfig config;
-    config.phase = RobotPhase::Gateway;
+    config.target = LoadgenLoginTarget::Gateway;
     config.robots = 1;
     config.concurrency = 1;
     config.duration_seconds = 8;
@@ -1190,7 +1242,7 @@ TEST(LoadgenIntegrationTest, GatewayDialFailureIsChargedToAttach) {
     const TickDriver driver(mesh);
 
     LoadgenConfig config;
-    config.phase = RobotPhase::Gateway;
+    config.target = LoadgenLoginTarget::Gateway;
     config.robots = 1;
     config.concurrency = 1;
     config.duration_seconds = 5;
@@ -1204,12 +1256,17 @@ TEST(LoadgenIntegrationTest, GatewayDialFailureIsChargedToAttach) {
     EXPECT_EQ(report.verify.failures, 0);
     EXPECT_EQ(report.tickets.failures, 0);
     EXPECT_EQ(report.poll.failures, 0);
-    EXPECT_EQ(report.attach.attempts, 1);
-    EXPECT_EQ(report.attach.failures, 1);
+    // 共享链在 admit grace / 总窗口内按 200ms 重试 Gateway；每次拨号
+    // 失败仍精确落在 attach connection_error，且不会伪造 handoff。
+    EXPECT_GT(report.attach.attempts, 1U);
+    EXPECT_EQ(report.attach.failures, report.attach.attempts);
     ASSERT_TRUE(report.attach.by_kind.contains(FailureKind::ConnectionError));
-    EXPECT_EQ(report.attach.by_kind.at(FailureKind::ConnectionError), 1);
-    EXPECT_EQ(report.attach.latency.samples(), 1);
+    EXPECT_EQ(report.attach.by_kind.at(FailureKind::ConnectionError),
+              report.attach.attempts);
+    EXPECT_EQ(report.attach.latency.samples(), report.attach.attempts);
+    EXPECT_EQ(report.attach.latency.max(), 0.0);
     EXPECT_EQ(report.handoff.attempts, 0);
+    EXPECT_NE(report.render().find("dial_failures:"), std::string::npos);
 }
 
 }  // namespace

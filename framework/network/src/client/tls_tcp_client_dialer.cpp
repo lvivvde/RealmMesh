@@ -35,7 +35,9 @@ namespace {
 
 TlsTcpClientDialer::TlsTcpClientDialer(std::string alpn,
                                        bool verify_peer,
-                                       bool reset_close_on_release) {
+                                       bool reset_close_on_release,
+                                       TlsDialFailureObserver failure_observer)
+    : failure_observer_(std::move(failure_observer)) {
     options_.alpn = std::move(alpn);
     options_.verify_peer = verify_peer;
     options_.reset_close_on_release = reset_close_on_release;
@@ -53,6 +55,9 @@ ConnectAttempt TlsTcpClientDialer::connect(
     auto result = TlsClientStream::dial(
         endpoint.host, endpoint.port, options_, deadline, stop_token);
     if (!result.ok()) {
+        if (failure_observer_) {
+            failure_observer_(result.failure, result.last_errno);
+        }
         return classify(result, options_.verify_peer);
     }
     // 服务端必须在我们的列表里选一个;没选或选了别的即为协商失败。
