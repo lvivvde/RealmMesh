@@ -4,6 +4,16 @@ realm_add_gtest(account_store_test
     INCLUDE_DIRS ${PROJECT_SOURCE_DIR}/tests/cpp/support/include
 )
 
+realm_add_gtest(admission_grant_test
+    SOURCES admission_grant_test.cpp
+    LIBS realm_game_common
+)
+
+realm_add_gtest(admission_security_config_test
+    SOURCES admission_security_config_test.cpp
+    LIBS realm_game_common
+)
+
 realm_add_gtest(base64url_test
     SOURCES base64url_test.cpp
     LIBS realm_game_common
@@ -36,6 +46,11 @@ realm_add_gtest(json_test
 
 realm_add_gtest(queue_number_test
     SOURCES queue_number_test.cpp
+    LIBS realm_game_common
+)
+
+realm_add_gtest(queue_number_v2_test
+    SOURCES queue_number_v2_test.cpp
     LIBS realm_game_common
 )
 

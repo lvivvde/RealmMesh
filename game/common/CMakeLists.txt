@@ -1,11 +1,14 @@
 add_library(realm_game_common
     src/account_store.cpp
+    src/admission_grant.cpp
+    src/admission_security_config.cpp
     src/base64url.cpp
     src/compact_jws.cpp
     src/edge_protocol.cpp
     src/identity_token.cpp
     src/json.cpp
     src/queue_number.cpp
+    src/queue_number_v2.cpp
     src/session_ticket.cpp
 )
 
