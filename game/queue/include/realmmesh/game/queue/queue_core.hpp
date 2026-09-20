@@ -36,19 +36,51 @@ struct BudgetAggregate {
     std::span<const GatewayBudget> gateways,
     std::span<const RealmBudget> realms);
 
-/// 冷备快照(§10):两个水位 + 实测放行速率。
+/// 一个已持久化的放行批次区间。区间闭合且与相邻批次连续；时间是
+/// Admission Grant 放行窗口的唯一锚点。
+struct QueueReleaseBatch {
+    std::uint64_t first_number{0};
+    std::uint64_t last_number{0};
+    std::chrono::system_clock::time_point released_at;
+
+    bool operator==(const QueueReleaseBatch&) const = default;
+};
+
+/// 冷备快照(§10):两个水位 + 实测放行速率 + 仍可授权的放行区间。
+/// release_batches_pruned_through 证明被裁剪的连续前缀，令缺失/断裂
+/// 区间能够在恢复前被拒绝，而不是被当作新的放行时间。
 struct QueueSnapshot {
     std::uint64_t released_number{0};
     std::uint64_t next_number{1};
     std::uint64_t admit_rate{0};
+    std::uint64_t release_batches_pruned_through{0};
+    std::vector<QueueReleaseBatch> release_batches;
 
     bool operator==(const QueueSnapshot&) const = default;
+
+    /// 检查水位与区间是否恰好覆盖
+    /// (release_batches_pruned_through, released_number]。
+    void validate() const;
+};
+
+enum class QueueReleaseStatus {
+    NotReleased,
+    Eligible,
+    Expired,
+};
+
+struct QueueReleaseEligibility {
+    QueueReleaseStatus status{QueueReleaseStatus::NotReleased};
+    std::chrono::system_clock::time_point released_at{};
+
+    bool operator==(const QueueReleaseEligibility&) const = default;
 };
 
 /// 放行速率实测固定窗(ADR-0006 定值);构造默认值与装配侧共用。
 inline constexpr std::chrono::seconds queue_rate_window{10};
 
-/// 排队权威状态(ADR-0006):两个水位 + 实测放行速率 + 发号幂等映射。
+/// 排队权威状态(ADR-0006/0009):两个水位 + 有界放行区间 + 实测
+/// 放行速率 + 发号幂等映射。
 /// 纯域逻辑,无 IO;时间一律由调用方注入,etcd 存取在 QueueStateStore。
 class QueueCore final {
 public:
@@ -67,7 +99,8 @@ public:
         std::uint64_t release_step,
         std::chrono::seconds rate_window = queue_rate_window,
         std::chrono::seconds idempotency_ttl = std::chrono::seconds{1800},
-        std::size_t idempotency_capacity = 1'000'000);
+        std::size_t idempotency_capacity = 1'000'000,
+        std::chrono::seconds grant_window = std::chrono::seconds{300});
 
     /// 发号(幂等):同一 identity_jti 拿同号。
     [[nodiscard]] Issued issue(
@@ -88,35 +121,42 @@ public:
         const BudgetAggregate& budgets,
         std::chrono::system_clock::time_point now);
 
-    /// 冷备恢复:两个水位整体替换;released ≥ next 视为损坏快照抛出。
-    void restore(const QueueSnapshot& snapshot);
+    /// 查询一个号所属的固定放行窗口。已被安全裁剪的前缀明确返回
+    /// Expired；尚未越过 released watermark 返回 NotReleased。
+    [[nodiscard]] QueueReleaseEligibility release_eligibility(
+        std::uint64_t number,
+        std::chrono::system_clock::time_point now) const noexcept;
+
+    /// 冷备恢复:水位与仍有效区间整体替换；任何断裂、越界或未来批次
+    /// 均视为损坏快照抛出。恢复不会为旧号码推断新放行时间。
+    void restore(
+        const QueueSnapshot& snapshot,
+        std::chrono::system_clock::time_point now =
+            std::chrono::system_clock::now());
 
     /// 当前水位(供快照落盘;速率取 as-of now)。
     [[nodiscard]] QueueSnapshot snapshot(
         std::chrono::system_clock::time_point now) const;
 
 private:
-    struct ReleaseRecord {
-        std::chrono::system_clock::time_point at;
-        std::uint64_t amount;
-    };
-
     struct IdempotencyEntry {
         std::uint64_t number;
         std::chrono::system_clock::time_point issued_at;
     };
 
-    void prune_releases(std::chrono::system_clock::time_point now);
+    void prune_release_batches(std::chrono::system_clock::time_point now);
 
     std::uint64_t release_step_;
     std::chrono::seconds rate_window_;
     std::chrono::seconds idempotency_ttl_;
     std::size_t idempotency_capacity_;
+    std::chrono::seconds grant_window_;
     /// 两个水位以原子承载(spec §5.1 对外只读量);域操作仍限单帧循环
     /// 线程,原子仅保证观测方读到的水位不撕裂。
     std::atomic<std::uint64_t> released_number_{0};
     std::atomic<std::uint64_t> next_number_{1};
-    std::deque<ReleaseRecord> releases_;
+    std::uint64_t release_batches_pruned_through_{0};
+    std::deque<QueueReleaseBatch> release_batches_;
     std::unordered_map<std::string, IdempotencyEntry> idempotency_;
 };
 

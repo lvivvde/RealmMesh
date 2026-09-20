@@ -3,6 +3,7 @@
 #include <nlohmann/json.hpp>
 
 #include <cstdint>
+#include <limits>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -153,9 +154,32 @@ range(
         if (digit < '0' || digit > '9') {
             return std::nullopt;
         }
-        result = result * 10U + static_cast<std::uint64_t>(digit - '0');
+        const auto value = static_cast<std::uint64_t>(digit - '0');
+        if (result >
+            (std::numeric_limits<std::uint64_t>::max() - value) / 10U) {
+            return std::nullopt;
+        }
+        result = result * 10U + value;
     }
     return result;
+}
+
+[[nodiscard]] std::optional<std::int64_t> snapshot_time(
+    const Json& value, const char* key) {
+    const auto found = value.find(key);
+    if (found == value.end()) return std::nullopt;
+    if (found->is_number_unsigned()) {
+        const auto parsed = found->get<std::uint64_t>();
+        if (parsed > static_cast<std::uint64_t>(
+                         std::numeric_limits<std::int64_t>::max())) {
+            return std::nullopt;
+        }
+        return static_cast<std::int64_t>(parsed);
+    }
+    if (!found->is_number_integer()) return std::nullopt;
+    const auto parsed = found->get<std::int64_t>();
+    return parsed < 0 ? std::nullopt
+                      : std::optional<std::int64_t>{parsed};
 }
 
 }  // namespace
@@ -251,15 +275,82 @@ std::optional<QueueSnapshot> EtcdQueueStore::load_snapshot() const {
         throw std::runtime_error(
             "queue snapshot load failed: corrupt snapshot");
     }
-    return QueueSnapshot{*released, *next, *rate};
+    QueueSnapshot result{
+        .released_number = *released,
+        .next_number = *next,
+        .admit_rate = *rate,
+    };
+    const auto pruned = snapshot.find("release_batches_pruned_through");
+    const auto batches = snapshot.find("release_batches");
+    if (pruned == snapshot.end() && batches == snapshot.end()) {
+        // #84 以前的快照没有 release time。它只能作为已经过期的前缀
+        // 恢复，绝不能根据重启时间推断新窗口。
+        result.release_batches_pruned_through = *released;
+    } else {
+        if (pruned == snapshot.end() || batches == snapshot.end() ||
+            !batches->is_array()) {
+            throw std::runtime_error(
+                "queue snapshot load failed: corrupt release ledger");
+        }
+        const auto pruned_value =
+            budget_integer(snapshot, "release_batches_pruned_through");
+        if (!pruned_value.has_value()) {
+            throw std::runtime_error(
+                "queue snapshot load failed: corrupt release ledger");
+        }
+        result.release_batches_pruned_through = *pruned_value;
+        result.release_batches.reserve(batches->size());
+        for (const auto& batch : *batches) {
+            if (!batch.is_object() || batch.size() != 3U) {
+                throw std::runtime_error(
+                    "queue snapshot load failed: corrupt release batch");
+            }
+            const auto first = budget_integer(batch, "first_number");
+            const auto last = budget_integer(batch, "last_number");
+            const auto released_at = snapshot_time(batch, "released_at");
+            if (!first.has_value() || !last.has_value() ||
+                !released_at.has_value()) {
+                throw std::runtime_error(
+                    "queue snapshot load failed: corrupt release batch");
+            }
+            result.release_batches.push_back(QueueReleaseBatch{
+                .first_number = *first,
+                .last_number = *last,
+                .released_at = std::chrono::system_clock::time_point{
+                    std::chrono::seconds{*released_at}},
+            });
+        }
+    }
+    try {
+        result.validate();
+    } catch (const std::invalid_argument&) {
+        throw std::runtime_error(
+            "queue snapshot load failed: inconsistent release ledger");
+    }
+    return result;
 }
 
 bool EtcdQueueStore::save_snapshot(
     const QueueSnapshot& snapshot, std::int64_t updated_at_seconds) const {
+    snapshot.validate();
+    Json release_batches = Json::array();
+    for (const auto& batch : snapshot.release_batches) {
+        release_batches.push_back(Json{
+            {"first_number", batch.first_number},
+            {"last_number", batch.last_number},
+            {"released_at",
+             std::chrono::duration_cast<std::chrono::seconds>(
+                 batch.released_at.time_since_epoch())
+                 .count()},
+        });
+    }
     const Json value{
         {"released_number", snapshot.released_number},
         {"next_number", snapshot.next_number},
         {"admit_rate", snapshot.admit_rate},
+        {"release_batches_pruned_through",
+         snapshot.release_batches_pruned_through},
+        {"release_batches", std::move(release_batches)},
         {"updated_at", updated_at_seconds},
     };
     const auto body = client_->post(

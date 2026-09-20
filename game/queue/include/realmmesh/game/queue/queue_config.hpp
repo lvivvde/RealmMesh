@@ -27,7 +27,8 @@ struct QueueConfig {
     std::uint64_t release_step{3000};
     std::chrono::milliseconds release_interval{2000};
     std::chrono::milliseconds budget_interval{1000};
-    /// 排队中号牌时效;放行后重签 admit_grace 宽限(ADR-0006)。
+    /// 排队中号牌时效;admit_grace 在 #84 同时作为新 release ledger 的
+    /// Grant 窗口，旧路由仍用它重签 admitted 号牌直至最终 cutover。
     std::chrono::seconds queued_number_ttl{3600};
     std::chrono::seconds admit_grace{300};
     /// 发号幂等映射:条目随身份 Token 过期,容量上限尽力保护。

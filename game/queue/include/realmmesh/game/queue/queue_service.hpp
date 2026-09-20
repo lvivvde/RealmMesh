@@ -23,7 +23,7 @@ class MetricsRegistry;
 
 namespace realm::game::queue {
 
-/// 排队调度服运行体(ADR-0006):HTTPS 服务边 + QueueCore 权威状态 +
+/// 排队调度服运行体(ADR-0006/0009):HTTPS 服务边 + QueueCore 权威状态 +
 /// etcd 状态存取的装配。start 读取双种子环境变量、恢复冷备快照并绑定
 /// 监听;tick 驱动服务边轮询与放行阀门定时帧(额度轮询 + 批放行 +
 /// 快照落盘),由 ServiceHost 每帧调用。

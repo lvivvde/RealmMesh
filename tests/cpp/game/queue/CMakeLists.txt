@@ -15,6 +15,11 @@ realm_add_gtest(queue_store_test
         realm_queue_service
 )
 
+realm_add_gtest(queue_ticketing_test
+    SOURCES queue_ticketing_test.cpp
+    LIBS realm_queue_service
+)
+
 # 真实 TLS loopback 占内核临时端口,见 tests/README.md:不进快速子集。
 realm_add_gtest(queue_service_test
     SOURCES queue_service_test.cpp

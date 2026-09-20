@@ -49,7 +49,7 @@ void QueueService::start(observability::Logger* logger) {
         config_.identity_kid);
     core_ = std::make_unique<QueueCore>(
         config_.release_step, queue_rate_window, config_.idempotency_ttl,
-        config_.idempotency_capacity);
+        config_.idempotency_capacity, config_.admit_grace);
     handler_ = std::make_unique<QueueHandler>(
         *core_,
         *identity_codec_,
@@ -135,6 +135,7 @@ void QueueService::stop() {
 
 void QueueService::release_frame() {
     const auto now = std::chrono::system_clock::now();
+    const auto before = core_->snapshot(now);
     // 额度取最近一次额度帧的缓存(独立按 budget_interval 轮询);未知
     // (fail-closed)即零额度过阀:本批停放,不误放。
     const auto released =
@@ -142,14 +143,28 @@ void QueueService::release_frame() {
     if (released == 0) {
         return;
     }
+    // 单帧循环内没有并发 handler。先生成包含新水位和 release ledger
+    // 的完整快照，持久化成功后本帧才对外发布；失败则回滚域状态，避免
+    // 客户端看见一个重启后会消失或被续期的放行窗口。
+    bool saved = false;
+    try {
+        saved = store_->save_snapshot(
+            core_->snapshot(now),
+            std::chrono::duration_cast<std::chrono::seconds>(
+                now.time_since_epoch())
+                .count());
+    } catch (...) {
+        core_->restore(before, now);
+        throw;
+    }
+    if (!saved) {
+        core_->restore(before, now);
+        return;
+    }
     // 实际发生放行的批次才计数(#34 admit_batches_total)。
     if (metrics_ != nullptr) {
         metrics_->counter_add("admit_batches_total");
     }
-    static_cast<void>(store_->save_snapshot(
-        core_->snapshot(now),
-        std::chrono::duration_cast<std::chrono::seconds>(now.time_since_epoch())
-            .count()));
 }
 
 void QueueService::publish_metrics() {

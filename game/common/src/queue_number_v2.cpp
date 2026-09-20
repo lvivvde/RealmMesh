@@ -111,10 +111,7 @@ std::string QueueNumberV2Codec::issue(const QueueNumberV2Issue& input) const {
 
 std::optional<QueueNumberV2Claims> QueueNumberV2Codec::validate(
     std::string_view token,
-    std::string_view expected_identity_jti,
-    std::chrono::system_clock::time_point identity_expires_at,
     std::chrono::system_clock::time_point now) const {
-    if (!valid_jti(expected_identity_jti)) return std::nullopt;
     const auto kid = compact_jws_key_id(token);
     if (!kid.has_value()) return std::nullopt;
     const auto selected = verification_keys_.find(*kid);
@@ -139,7 +136,7 @@ std::optional<QueueNumberV2Claims> QueueNumberV2Codec::validate(
         *issuer != queue_number_v2_issuer ||
         *audience != queue_number_v2_audience ||
         *purpose != queue_number_v2_purpose ||
-        *identity_jti != expected_identity_jti || !valid_jti(*identity_jti) ||
+        !valid_jti(*identity_jti) ||
         *number <= 0) {
         return std::nullopt;
     }
@@ -149,7 +146,6 @@ std::optional<QueueNumberV2Claims> QueueNumberV2Codec::validate(
     const auto expires = std::chrono::system_clock::time_point{
         std::chrono::seconds{*expires_at}};
     if (expires < issued || expires > issued + ttl_ ||
-        expires > identity_expires_at ||
         now > expires + jws_clock_leeway ||
         now + jws_clock_leeway < issued) {
         return std::nullopt;
@@ -160,6 +156,21 @@ std::optional<QueueNumberV2Claims> QueueNumberV2Codec::validate(
         .issued_at = issued,
         .expires_at = expires,
     };
+}
+
+std::optional<QueueNumberV2Claims> QueueNumberV2Codec::validate(
+    std::string_view token,
+    std::string_view expected_identity_jti,
+    std::chrono::system_clock::time_point identity_expires_at,
+    std::chrono::system_clock::time_point now) const {
+    if (!valid_jti(expected_identity_jti)) return std::nullopt;
+    auto claims = validate(token, now);
+    if (!claims.has_value() ||
+        claims->identity_jti != expected_identity_jti ||
+        claims->expires_at > identity_expires_at) {
+        return std::nullopt;
+    }
+    return claims;
 }
 
 }  // namespace realm::game::common

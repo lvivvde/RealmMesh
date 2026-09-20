@@ -35,8 +35,9 @@ public:
 /// etcd v3 HTTP 网关实现。key 契约(与写侧 #43/#46 共享,见 #42 spec):
 /// 额度 `/realmmesh/budgets/service/<gateway|realm>/<instance_id>/budget`
 /// (值 {conn_free, fetch_free, updated_at};realm 仅 conn_free),快照
-/// `/realmmesh/queue/snapshot`(值 {released_number, next_number,
-/// admit_rate, updated_at})。
+/// `/realmmesh/queue/snapshot`(值含 released_number、next_number、
+/// admit_rate、release_batches_pruned_through、release_batches 与
+/// updated_at；一个 JSON 值原子写入)。
 class EtcdQueueStore final : public QueueStateStore {
 public:
     struct Options {

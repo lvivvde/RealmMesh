@@ -4,6 +4,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include <chrono>
 #include <cstdint>
 #include <deque>
 #include <optional>
@@ -100,6 +101,20 @@ EtcdQueueStore::Options test_options() {
     };
 }
 
+QueueSnapshot snapshot_with_release_batch() {
+    return QueueSnapshot{
+        .released_number = 5,
+        .next_number = 9,
+        .admit_rate = 100,
+        .release_batches_pruned_through = 2,
+        .release_batches = {
+            {.first_number = 3,
+             .last_number = 5,
+             .released_at = std::chrono::system_clock::time_point{
+                 std::chrono::seconds{1'700'000'000}}}},
+    };
+}
+
 TEST(QueueStoreTest, RefreshBudgetsAggregatesBothPrefixes) {
     auto client = std::make_shared<ScriptedEtcdClient>();
     client->enqueue(range_response({R"({"conn_free":100,"fetch_free":30})",
@@ -153,7 +168,8 @@ TEST(QueueStoreTest, SaveSnapshotPutsEncodedValue) {
     client->enqueue(Json{{"header", {}}}.dump());
     const EtcdQueueStore store(test_options(), client);
 
-    EXPECT_TRUE(store.save_snapshot(QueueSnapshot{5, 9, 100}, 1'700'000'000));
+    EXPECT_TRUE(store.save_snapshot(
+        snapshot_with_release_batch(), 1'700'000'001));
 
     ASSERT_EQ(client->calls().size(), 1U);
     EXPECT_EQ(client->calls()[0].first, "/v3/kv/put");
@@ -163,7 +179,7 @@ TEST(QueueStoreTest, SaveSnapshotPutsEncodedValue) {
     EXPECT_NE(
         client->calls()[0].second.find(
             base64_encode(
-                R"({"admit_rate":100,"next_number":9,"released_number":5,"updated_at":1700000000})")),
+                R"({"admit_rate":100,"next_number":9,"release_batches":[{"first_number":3,"last_number":5,"released_at":1700000000}],"release_batches_pruned_through":2,"released_number":5,"updated_at":1700000001})")),
         std::string::npos);
 }
 
@@ -171,17 +187,17 @@ TEST(QueueStoreTest, SaveSnapshotReturnsFalseOnFailure) {
     auto client = std::make_shared<ScriptedEtcdClient>();
     client->enqueue(std::nullopt);
     const EtcdQueueStore store(test_options(), client);
-    EXPECT_FALSE(store.save_snapshot(QueueSnapshot{5, 9, 100}, 0));
+    EXPECT_FALSE(store.save_snapshot(snapshot_with_release_batch(), 0));
 }
 
 TEST(QueueStoreTest, LoadSnapshotParsesStoredValue) {
     auto client = std::make_shared<ScriptedEtcdClient>();
     client->enqueue(range_response(
-        {R"({"released_number":5,"next_number":9,"admit_rate":100})"}));
+        {R"({"released_number":5,"next_number":9,"admit_rate":100,"release_batches_pruned_through":2,"release_batches":[{"first_number":3,"last_number":5,"released_at":1700000000}]})"}));
     const EtcdQueueStore store(test_options(), client);
     const auto snapshot = store.load_snapshot();
     ASSERT_TRUE(snapshot.has_value());
-    EXPECT_EQ(*snapshot, (QueueSnapshot{5, 9, 100}));
+    EXPECT_EQ(*snapshot, snapshot_with_release_batch());
     // 精确 key 读取:请求体带 key、不带 range_end。
     ASSERT_EQ(client->calls().size(), 1U);
     EXPECT_NE(
@@ -189,6 +205,17 @@ TEST(QueueStoreTest, LoadSnapshotParsesStoredValue) {
         std::string::npos);
     EXPECT_EQ(
         client->calls()[0].second.find("range_end"), std::string::npos);
+}
+
+TEST(QueueStoreTest, LegacySnapshotRestoresAsExpiredPrefix) {
+    auto client = std::make_shared<ScriptedEtcdClient>();
+    client->enqueue(range_response(
+        {R"({"released_number":5,"next_number":9,"admit_rate":100})"}));
+    const EtcdQueueStore store(test_options(), client);
+    const auto snapshot = store.load_snapshot();
+    ASSERT_TRUE(snapshot.has_value());
+    EXPECT_EQ(snapshot->release_batches_pruned_through, 5U);
+    EXPECT_TRUE(snapshot->release_batches.empty());
 }
 
 TEST(QueueStoreTest, LoadSnapshotReturnsNulloptWhenMissing) {
@@ -223,6 +250,20 @@ TEST(QueueStoreTest, LoadSnapshotFailsClosedOnUnavailableOrCorrupt) {
         {R"({"released_number":5,"next_number":9})"}));
     const EtcdQueueStore missing_field_store(test_options(), missing_field);
     EXPECT_THROW(missing_field_store.load_snapshot(), std::runtime_error);
+
+    auto gap = std::make_shared<ScriptedEtcdClient>();
+    gap->enqueue(range_response(
+        {R"({"released_number":5,"next_number":9,"admit_rate":0,"release_batches_pruned_through":1,"release_batches":[{"first_number":3,"last_number":5,"released_at":100}]})"}));
+    const EtcdQueueStore gap_store(test_options(), gap);
+    EXPECT_THROW(gap_store.load_snapshot(), std::runtime_error);
+
+    auto malformed_batch = std::make_shared<ScriptedEtcdClient>();
+    malformed_batch->enqueue(range_response(
+        {R"({"released_number":5,"next_number":9,"admit_rate":0,"release_batches_pruned_through":2,"release_batches":[{"first_number":3,"last_number":5,"released_at":100,"extra":true}]})"}));
+    const EtcdQueueStore malformed_batch_store(
+        test_options(), malformed_batch);
+    EXPECT_THROW(
+        malformed_batch_store.load_snapshot(), std::runtime_error);
 }
 
 }  // namespace

@@ -55,6 +55,15 @@ public:
 
     [[nodiscard]] std::string issue(const QueueNumberV2Issue& input) const;
 
+    /// Queue Scheduler 的查询入口只携带 Queue Number；签名内的
+    /// identity_jti/exp 是签发时已经绑定的事实。此重载验证完整 schema、
+    /// 签名与自身时效并返回这些事实。
+    [[nodiscard]] std::optional<QueueNumberV2Claims> validate(
+        std::string_view token,
+        std::chrono::system_clock::time_point now) const;
+
+    /// 当调用方同时持有 Identity Token 时，再额外验证 jti 与身份到期
+    /// 上界；Gateway 不使用本模块。
     [[nodiscard]] std::optional<QueueNumberV2Claims> validate(
         std::string_view token,
         std::string_view expected_identity_jti,

@@ -179,6 +179,16 @@ public:
         snapshot_ = std::move(value);
     }
 
+    void set_save_success(bool value) {
+        const std::scoped_lock lock(mutex_);
+        save_success_ = value;
+    }
+
+    [[nodiscard]] std::size_t save_attempts() const {
+        const std::scoped_lock lock(mutex_);
+        return save_attempts_;
+    }
+
     [[nodiscard]] std::vector<QueueSnapshot> saved() const {
         const std::scoped_lock lock(mutex_);
         return saved_;
@@ -199,6 +209,8 @@ public:
         std::int64_t updated_at_seconds) const override {
         const std::scoped_lock lock(mutex_);
         static_cast<void>(updated_at_seconds);
+        ++save_attempts_;
+        if (!save_success_) return false;
         saved_.push_back(snapshot_value);
         return true;
     }
@@ -208,6 +220,8 @@ private:
     std::optional<BudgetAggregate> budgets_;
     std::optional<QueueSnapshot> snapshot_;
     mutable std::vector<QueueSnapshot> saved_;
+    mutable std::size_t save_attempts_{0};
+    bool save_success_{true};
 };
 
 class QueueServiceTest : public ::testing::Test {
@@ -367,6 +381,9 @@ TEST_F(QueueServiceTest, IssuesAndReleasesByBudgetFrame) {
     ASSERT_EQ(saved.size(), 1U);
     EXPECT_EQ(saved.at(0).released_number, 1U);
     EXPECT_EQ(saved.at(0).next_number, 2U);
+    ASSERT_EQ(saved.at(0).release_batches.size(), 1U);
+    EXPECT_EQ(saved.at(0).release_batches.front().first_number, 1U);
+    EXPECT_EQ(saved.at(0).release_batches.front().last_number, 1U);
 
     // 放行后:号牌查询重签放行凭证(spec:凭证嵌套 admit_grant,外层
     // 只带状态/位次/估时;JsonCodec 只编扁平对象,以尾段与嵌套截取核验)。
@@ -398,6 +415,32 @@ TEST_F(QueueServiceTest, IssuesAndReleasesByBudgetFrame) {
     ASSERT_TRUE(progress_payload.has_value());
     EXPECT_EQ(
         std::get<std::int64_t>(progress_payload->at("released_number")), 1);
+}
+
+TEST_F(QueueServiceTest, FailedSnapshotWriteDoesNotPublishRelease) {
+    const auto token = post_number("01");
+    ASSERT_TRUE(token.has_value());
+    store_->set_save_success(false);
+    store_->set_budgets(
+        BudgetAggregate{.gateway_admission = 100, .realm_connections = 100});
+    wait_for([this] { return store_->save_attempts() != 0; });
+
+    const auto blocked = https_exchange(
+        port_, get_request("/v1/queue/tickets/me", token));
+    ASSERT_TRUE(blocked.has_value());
+    const auto blocked_payload = JsonCodec::decode(body_of(*blocked));
+    ASSERT_TRUE(blocked_payload.has_value());
+    EXPECT_EQ(
+        std::get<std::string>(blocked_payload->at("status")), "queued");
+    EXPECT_TRUE(store_->saved().empty());
+
+    store_->set_save_success(true);
+    wait_for([this] { return !store_->saved().empty(); });
+    const auto released = https_exchange(
+        port_, get_request("/v1/queue/tickets/me", token));
+    ASSERT_TRUE(released.has_value());
+    EXPECT_NE(body_of(*released).find(R"("status":"admitted")"),
+              std::string_view::npos);
 }
 
 TEST_F(QueueServiceTest, MetricsTrackIssueAdmitAndProgress) {
@@ -467,6 +510,7 @@ TEST_F(QueueServiceTest, RestoresWaterLevelsFromColdBackup) {
         .released_number = 5,
         .next_number = 6,
         .admit_rate = 0,
+        .release_batches_pruned_through = 5,
     });
     service_->stop();
     service_->start();
