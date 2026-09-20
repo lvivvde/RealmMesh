@@ -5,6 +5,7 @@
 #include "realmmesh/game/common/identity_token.hpp"
 #include "realmmesh/game/common/queue_number.hpp"
 #include "realmmesh/game/common/session_ticket.hpp"
+#include "realmmesh/game/gateway/gateway_admission.hpp"
 #include "realmmesh/observability/logger.hpp"
 #include "realmmesh/observability/metrics_registry.hpp"
 
@@ -50,6 +51,7 @@ struct PipelineSession {
     std::uint64_t account_id{0};
     std::string reserved_jti;
     std::chrono::system_clock::time_point jti_expires_at{};
+    std::optional<GatewayAdmissionReservation> admission_reservation;
     unsigned fetch_failures{0};
     std::chrono::steady_clock::time_point fetch_due{};
     std::optional<AccountFetchAttemptId> active_attempt;
@@ -96,9 +98,13 @@ public:
         observability::MetricsRegistry* metrics)
         : config_(std::move(config)),
           identity_codec_(
-              signing_material.identity_seed, signing_material.identity_kid),
+              std::in_place,
+              signing_material.identity_seed,
+              signing_material.identity_kid),
           number_codec_(
-              signing_material.queue_seed, signing_material.queue_kid),
+              std::in_place,
+              signing_material.queue_seed,
+              signing_material.queue_kid),
           tickets_(signing_material.enter_realm_key),
           identity_issuer_(std::move(signing_material.identity_issuer)),
           primary_transport_(&primary_transport),
@@ -106,12 +112,31 @@ public:
           logger_(logger),
           metrics_(metrics) {}
 
+    Impl(
+        GatewayLoginConfig config,
+        common::SessionTicketKey enter_realm_key,
+        GatewayAdmission& admission,
+        std::string gateway_instance,
+        GatewayPrimaryTransport& primary_transport,
+        AccountFetchPort& account_fetch,
+        observability::Logger* logger,
+        observability::MetricsRegistry* metrics)
+        : config_(std::move(config)),
+          tickets_(enter_realm_key),
+          admission_(&admission),
+          gateway_instance_(std::move(gateway_instance)),
+          primary_transport_(&primary_transport),
+          account_fetch_(&account_fetch),
+          logger_(logger),
+          metrics_(metrics) {}
+
     ~Impl() {
-        for (const auto& [session_id, session] : sessions_) {
+        for (auto& [session_id, session] : sessions_) {
             static_cast<void>(session_id);
             if (session.active_attempt.has_value()) {
                 account_fetch_->cancel(*session.active_attempt);
             }
+            release_jti_reservation(session);
         }
     }
 
@@ -121,6 +146,7 @@ public:
             return result();
         }
 
+        verification_now_ = frame.verification_now;
         evict_jtis(frame.verification_now);
         auto events = primary_transport_->drain_events(max_events_per_advance);
         preapply_lifecycle(events);
@@ -204,7 +230,51 @@ private:
             return;
         }
 
-        const auto identity = identity_codec_.validate(
+        if (admission_ != nullptr) {
+            const auto owner = gateway_instance_ + "/" +
+                std::to_string(event.session_id.value) + "/" +
+                std::to_string(next_admission_attempt_id_++);
+            // #83 会把 protobuf accessor 改名为 admission_grant；字段值在
+            // 此分阶段入口中已经按 Admission Grant 验证，绝不按 Queue
+            // Number 解释。
+            auto started = admission_->reserve(
+                attach.identity_token(),
+                attach.queue_number_token(),
+                owner,
+                frame.verification_now);
+            if (started.status != GatewayAdmissionStartStatus::Reserved ||
+                !started.reservation.has_value()) {
+                const bool retryable =
+                    started.status == GatewayAdmissionStartStatus::Reserved ||
+                    started.status == GatewayAdmissionStartStatus::InProgress ||
+                    started.status ==
+                        GatewayAdmissionStartStatus::StoreUnavailable;
+                if (started.status == GatewayAdmissionStartStatus::Consumed) {
+                    ++replay_rejections_;
+                }
+                schedule_decline(
+                    session,
+                    retryable ? common::edge_error_attach_out_of_budget
+                              : common::edge_error_invalid_credentials,
+                    retryable ? "admission temporarily unavailable"
+                              : "invalid credentials",
+                    request_id);
+                return;
+            }
+
+            session.account_id = started.reservation->account_id();
+            session.admission_reservation = std::move(*started.reservation);
+            session.fetch_reserved = true;
+            ++fetch_used_;
+
+            common::EdgeAttachAccepted accepted;
+            accepted.set_account_id(session.account_id);
+            session.intent = RuntimeIntent{
+                IntentKind::Accept, common::encode(accepted, request_id)};
+            return;
+        }
+
+        const auto identity = identity_codec_->validate(
             attach.identity_token(), identity_issuer_, frame.verification_now);
         if (!identity.has_value()) {
             schedule_decline(
@@ -214,7 +284,7 @@ private:
                 request_id);
             return;
         }
-        const auto number = number_codec_.validate(
+        const auto number = number_codec_->validate(
             attach.queue_number_token(), frame.verification_now);
         if (!number.has_value() || !number->admitted) {
             schedule_decline(
@@ -386,8 +456,9 @@ private:
         PipelineSession& session,
         const GatewayLoginFrame& frame) {
         auto& intent = *session.intent;
+        const auto intent_kind = intent.kind;
         PrimaryTransportResult result = PrimaryTransportResult::Stopped;
-        switch (intent.kind) {
+        switch (intent_kind) {
         case IntentKind::Close:
             result = primary_transport_->close(session_id);
             break;
@@ -438,22 +509,46 @@ private:
             break;
         }
         }
+        std::optional<GatewayAdmissionTransitionStatus> admission_transition;
+        if (intent_kind == IntentKind::Accept && admission_ != nullptr) {
+            if (!session.admission_reservation.has_value()) {
+                mark_unhealthy();
+                return;
+            }
+            admission_transition = admission_->on_accept_result(
+                *session.admission_reservation,
+                result,
+                frame.verification_now);
+        }
         if (result == PrimaryTransportResult::Full) {
-            ++runtime_backpressure_[static_cast<std::size_t>(intent.kind)];
+            ++runtime_backpressure_[static_cast<std::size_t>(intent_kind)];
             return;
         }
         if (result == PrimaryTransportResult::Stopped) {
+            session.admission_reservation.reset();
             mark_unhealthy();
             return;
         }
 
-        if (intent.kind == IntentKind::Accept) {
+        if (intent_kind == IntentKind::Accept) {
+            if (admission_transition.has_value()) {
+                session.admission_reservation.reset();
+                if (*admission_transition !=
+                    GatewayAdmissionTransitionStatus::Applied) {
+                    // accept 已进入 Primary Transport，存储提交若丢失或
+                    // 结果不确定，绝不继续 Fetching，也绝不补 release。
+                    release_fetch_reservation(session);
+                    session.closing = true;
+                    session.intent = RuntimeIntent{IntentKind::Close, {}};
+                    return;
+                }
+            }
             commit_accept(session_id, session, frame.now);
         } else if (
-            intent.kind == IntentKind::Close ||
-            intent.kind == IntentKind::Decline) {
+            intent_kind == IntentKind::Close ||
+            intent_kind == IntentKind::Decline) {
             session.closing = true;
-            if (intent.kind == IntentKind::Close) {
+            if (intent_kind == IntentKind::Close) {
                 session.handoff_deadline.reset();
             }
         }
@@ -464,11 +559,15 @@ private:
         EdgeSessionId session_id,
         PipelineSession& session,
         std::chrono::steady_clock::time_point now) {
-        const auto reserved = reserved_jtis_.find(session.reserved_jti);
-        if (reserved != reserved_jtis_.end()) reserved_jtis_.erase(reserved);
-        consumed_jtis_.insert_or_assign(
-            session.reserved_jti, session.jti_expires_at);
-        session.reserved_jti.clear();
+        if (admission_ == nullptr) {
+            const auto reserved = reserved_jtis_.find(session.reserved_jti);
+            if (reserved != reserved_jtis_.end()) {
+                reserved_jtis_.erase(reserved);
+            }
+            consumed_jtis_.insert_or_assign(
+                session.reserved_jti, session.jti_expires_at);
+            session.reserved_jti.clear();
+        }
         session.stage = PublicStage::Fetching;
         session.fetch_due = now;
         if (logger_ != nullptr) {
@@ -553,6 +652,12 @@ private:
     }
 
     void release_jti_reservation(PipelineSession& session) {
+        if (session.admission_reservation.has_value()) {
+            static_cast<void>(admission_->abandon(
+                *session.admission_reservation, verification_now_));
+            session.admission_reservation.reset();
+            return;
+        }
         if (session.reserved_jti.empty()) return;
         reserved_jtis_.erase(session.reserved_jti);
         session.reserved_jti.clear();
@@ -574,6 +679,7 @@ private:
                 account_fetch_->cancel(*session.active_attempt);
                 session.active_attempt.reset();
             }
+            release_jti_reservation(session);
         }
         attempts_.clear();
     }
@@ -638,16 +744,20 @@ private:
                 {
                     .conn_free = conn_free(),
                     .fetch_free = fetch_free(),
-                    .available = health_ == GatewayPipelineHealth::Healthy,
+                    .available =
+                        health_ == GatewayPipelineHealth::Healthy &&
+                        (admission_ == nullptr || admission_->available()),
                 },
         };
     }
 
     GatewayLoginConfig config_;
-    common::IdentityTokenCodec identity_codec_;
-    common::QueueNumberCodec number_codec_;
+    std::optional<common::IdentityTokenCodec> identity_codec_;
+    std::optional<common::QueueNumberCodec> number_codec_;
     common::SessionTickets tickets_;
     std::string identity_issuer_;
+    GatewayAdmission* admission_{nullptr};
+    std::string gateway_instance_;
     GatewayPrimaryTransport* primary_transport_;
     AccountFetchPort* account_fetch_;
     observability::Logger* logger_;
@@ -661,10 +771,12 @@ private:
     std::unordered_map<std::uint64_t, EdgeSessionId> attempts_;
     std::uint64_t fetch_used_{0};
     std::uint64_t next_attempt_id_{1};
+    std::uint64_t next_admission_attempt_id_{1};
     std::uint64_t fetch_retry_total_{0};
     std::uint64_t replay_rejections_{0};
     std::uint64_t fetch_submit_backpressure_{0};
     std::array<std::uint64_t, 4> runtime_backpressure_{};
+    std::chrono::system_clock::time_point verification_now_{};
 };
 
 GatewayLoginPipeline GatewayLoginPipeline::create(
@@ -689,6 +801,33 @@ GatewayLoginPipeline GatewayLoginPipeline::create(
             account_fetch,
             logger,
             metrics));
+}
+
+GatewayLoginPipeline GatewayLoginPipeline::create(
+    GatewayLoginConfig config,
+    common::SessionTicketKey enter_realm_key,
+    GatewayAdmission& admission,
+    std::string gateway_instance,
+    GatewayPrimaryTransport& primary_transport,
+    AccountFetchPort& account_fetch,
+    observability::Logger* logger,
+    observability::MetricsRegistry* metrics) {
+    config.validate();
+    if (gateway_instance.empty() || gateway_instance.size() > 64U ||
+        !std::ranges::all_of(gateway_instance, [](char character) {
+            return character >= '!' && character <= '~';
+        })) {
+        throw std::invalid_argument("invalid gateway instance identifier");
+    }
+    return GatewayLoginPipeline(std::make_unique<Impl>(
+        std::move(config),
+        enter_realm_key,
+        admission,
+        std::move(gateway_instance),
+        primary_transport,
+        account_fetch,
+        logger,
+        metrics));
 }
 
 GatewayLoginPipeline::GatewayLoginPipeline(std::unique_ptr<Impl> impl)

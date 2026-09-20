@@ -1,15 +1,19 @@
 #include "realmmesh/game/gateway/gateway_login_pipeline.hpp"
 
+#include "realmmesh/game/common/admission_grant.hpp"
 #include "realmmesh/game/common/edge_protocol.hpp"
 #include "realmmesh/game/common/identity_token.hpp"
 #include "realmmesh/game/common/queue_number.hpp"
 #include "realmmesh/game/common/session_ticket.hpp"
+#include "realmmesh/game/gateway/admission_consumption_store.hpp"
+#include "realmmesh/game/gateway/gateway_admission.hpp"
 #include "realmmesh/observability/metrics_registry.hpp"
 
 #include <gtest/gtest.h>
 
 #include <algorithm>
 #include <chrono>
+#include <memory>
 #include <optional>
 #include <ranges>
 #include <stdexcept>
@@ -29,6 +33,8 @@ constexpr std::string_view queue_seed_hex =
 constexpr std::string_view ticket_key_hex =
     "0102030405060708090a0b0c0d0e0f10"
     "1112131415161718191a1b1c1d1e1f20";
+constexpr std::string_view consumption_digest_key_hex =
+    "c5aa8df43f9f837bedb7442f31dcb7b166d38535076f094b85ce3a2e0b4458f7";
 constexpr std::string_view jti_a = "000102030405060708090a0b0c0d0e0f";
 constexpr std::string_view jti_b = "101112131415161718191a1b1c1d1e1f";
 constexpr std::string_view jti_c = "202122232425262728292a2b2c2d2e2f";
@@ -102,6 +108,75 @@ protected:
                 .issued_at = system_origin,
                 .expires_at = system_origin + 30min,
             });
+    }
+
+    [[nodiscard]] common::AdmissionGrantIssuer grant_issuer() const {
+        return common::AdmissionGrantIssuer(
+            {.kid = "grant-v1",
+             .seed = common::parse_identity_seed_hex(queue_seed_hex)},
+            {.issuer = "realmmesh/queue",
+             .deployment_id = "prod-a",
+             .grant_window = 5min});
+    }
+
+    [[nodiscard]] common::AdmissionGrantVerifier grant_verifier() const {
+        const auto seed = common::parse_identity_seed_hex(queue_seed_hex);
+        return common::AdmissionGrantVerifier(
+            {{.kid = "grant-v1",
+              .public_key = common::ed25519_public_key_from_seed(seed)}},
+            {.issuer = "realmmesh/queue",
+             .deployment_id = "prod-a",
+             .grant_window = 5min});
+    }
+
+    [[nodiscard]] std::string grant_token(
+        std::string_view identity_jti,
+        std::string_view grant_jti = jti_c) const {
+        return grant_issuer().issue(common::AdmissionGrantIssue{
+            .grant_jti = std::string{grant_jti},
+            .identity_jti = std::string{identity_jti},
+            .queue_number = 7,
+            .released_at = system_origin,
+            .issued_at = system_origin,
+            .identity_expires_at = system_origin + 30min,
+        });
+    }
+
+    [[nodiscard]] AdmissionConsumptionOptions consumption_options() const {
+        return {
+            .key_prefix = "/realmmesh/admission/test",
+            .reservation_ttl = 10s,
+            .digest_key = parse_admission_consumption_digest_key(
+                consumption_digest_key_hex),
+        };
+    }
+
+    [[nodiscard]] GatewayAdmission make_admission(
+        AdmissionConsumptionStore& store) const {
+        return GatewayAdmission(
+            common::IdentityTokenCodec(
+                common::parse_identity_seed_hex(identity_seed_hex),
+                "login-verify-v1"),
+            "realmmesh/login-verify",
+            grant_verifier(),
+            store);
+    }
+
+    void create_admission(GatewayLoginConfig pipeline_config) {
+        consumption_store_ =
+            std::make_unique<InMemoryAdmissionConsumptionStore>(
+                consumption_options());
+        admission_ = std::make_unique<GatewayAdmission>(
+            make_admission(*consumption_store_));
+        pipeline_.emplace(GatewayLoginPipeline::create(
+            std::move(pipeline_config),
+            common::parse_ticket_key_hex(ticket_key_hex),
+            *admission_,
+            "gateway-a",
+            transport_,
+            fetch_,
+            nullptr,
+            &metrics_));
     }
 
     void open(EdgeSessionId session_id) {
@@ -186,6 +261,8 @@ protected:
     observability::MetricsRegistry metrics_;
     std::optional<common::IdentityTokenCodec> identity_codec_;
     std::optional<common::QueueNumberCodec> number_codec_;
+    std::unique_ptr<InMemoryAdmissionConsumptionStore> consumption_store_;
+    std::unique_ptr<GatewayAdmission> admission_;
     std::optional<GatewayLoginPipeline> pipeline_;
 };
 
@@ -202,6 +279,18 @@ TEST_F(GatewayLoginPipelineTest, CreationValidatesConfigurationAndSigningIds) {
     EXPECT_THROW(
         static_cast<void>(GatewayLoginPipeline::create(
             config(), std::move(invalid_material), transport_, fetch_)),
+        std::invalid_argument);
+
+    InMemoryAdmissionConsumptionStore store(consumption_options());
+    auto admission = make_admission(store);
+    EXPECT_THROW(
+        static_cast<void>(GatewayLoginPipeline::create(
+            config(),
+            common::parse_ticket_key_hex(ticket_key_hex),
+            admission,
+            "gateway with spaces",
+            transport_,
+            fetch_)),
         std::invalid_argument);
 }
 
@@ -370,6 +459,220 @@ TEST_F(
     EXPECT_NE(
         second_metrics.render().find("edge_jti_replay_rejected_total 0\n"),
         std::string::npos);
+}
+
+TEST_F(
+    GatewayLoginPipelineTest,
+    AdmissionFullAndPrecommitCloseReleaseWithoutBurningCredentials) {
+    create_admission(config(2, 1));
+    transport_.script_result(
+        PrimaryTransportCommandKind::Accept,
+        {PrimaryTransportResult::Full});
+    const auto identity = identity_token(jti_a);
+    const auto grant = grant_token(jti_a);
+
+    open(EdgeSessionId{1});
+    attach_with_tokens(
+        transport_, EdgeSessionId{1}, identity, grant);
+    auto result = advance();
+    EXPECT_EQ(result.local_budget.fetch_free, 0U);
+    EXPECT_EQ(command_count(PrimaryTransportCommandKind::Accept), 0U);
+
+    close(EdgeSessionId{1});
+    result = advance(1ms, 1ms);
+    EXPECT_EQ(result.local_budget.fetch_free, 1U);
+
+    open(EdgeSessionId{2});
+    attach_with_tokens(
+        transport_, EdgeSessionId{2}, identity, grant, 2);
+    result = advance(2ms, 2ms);
+    EXPECT_EQ(command_count(PrimaryTransportCommandKind::Accept), 1U);
+    EXPECT_EQ(result.local_budget.fetch_free, 0U);
+}
+
+TEST_F(
+    GatewayLoginPipelineTest,
+    AdmissionSharedStoreCommitsAcrossPipelineInstancesAtMostOnce) {
+    InMemoryAdmissionConsumptionStore store(consumption_options());
+    auto first_admission = make_admission(store);
+    auto second_admission = make_admission(store);
+    InMemoryGatewayPrimaryTransport first_transport;
+    InMemoryGatewayPrimaryTransport second_transport;
+    ScriptedAccountFetchPort first_fetch;
+    ScriptedAccountFetchPort second_fetch;
+    observability::MetricsRegistry first_metrics;
+    observability::MetricsRegistry second_metrics;
+    auto first = GatewayLoginPipeline::create(
+        config(1, 1),
+        common::parse_ticket_key_hex(ticket_key_hex),
+        first_admission,
+        "gateway-a",
+        first_transport,
+        first_fetch,
+        nullptr,
+        &first_metrics);
+    auto second = GatewayLoginPipeline::create(
+        config(1, 1),
+        common::parse_ticket_key_hex(ticket_key_hex),
+        second_admission,
+        "gateway-b",
+        second_transport,
+        second_fetch,
+        nullptr,
+        &second_metrics);
+    const auto identity = identity_token(jti_a);
+    const auto grant = grant_token(jti_a);
+    for (auto* transport : {&first_transport, &second_transport}) {
+        transport->push_event({
+            .kind = GatewayEventKind::SessionOpened,
+            .session_id = EdgeSessionId{1},
+        });
+        attach_with_tokens(
+            *transport, EdgeSessionId{1}, identity, grant);
+    }
+
+    const GatewayLoginFrame input{
+        .now = steady_origin,
+        .verification_now = system_origin,
+    };
+    static_cast<void>(first.advance(input));
+    static_cast<void>(second.advance(input));
+
+    ASSERT_EQ(first_transport.owned_commands().size(), 1U);
+    EXPECT_EQ(
+        first_transport.owned_commands()[0].kind,
+        PrimaryTransportCommandKind::Accept);
+    ASSERT_EQ(second_transport.owned_commands().size(), 1U);
+    EXPECT_EQ(
+        second_transport.owned_commands()[0].kind,
+        PrimaryTransportCommandKind::Decline);
+    EXPECT_NE(
+        second_metrics.render().find("edge_jti_replay_rejected_total 1\n"),
+        std::string::npos);
+}
+
+TEST_F(
+    GatewayLoginPipelineTest,
+    AdmissionRejectsCrossIdentitySpliceBeforeTransportAccept) {
+    create_admission(config(1, 1));
+    open(EdgeSessionId{1});
+    attach_with_tokens(
+        transport_,
+        EdgeSessionId{1},
+        identity_token(jti_a, 42),
+        grant_token(jti_b));
+
+    static_cast<void>(advance());
+
+    EXPECT_EQ(command_count(PrimaryTransportCommandKind::Accept), 0U);
+    ASSERT_EQ(command_count(PrimaryTransportCommandKind::Decline), 1U);
+    const auto error = common::decode_edge_error(
+        last_command(PrimaryTransportCommandKind::Decline).payload);
+    ASSERT_TRUE(error.has_value());
+    EXPECT_EQ(error->code(), common::edge_error_invalid_credentials);
+}
+
+TEST_F(
+    GatewayLoginPipelineTest,
+    AdmissionStoreOutageFailsNewAttachClosedWithoutStoppingExistingFetch) {
+    create_admission(config(2, 2));
+    open(EdgeSessionId{1});
+    attach_with_tokens(
+        transport_,
+        EdgeSessionId{1},
+        identity_token(jti_a),
+        grant_token(jti_a));
+    static_cast<void>(advance());
+    static_cast<void>(advance(1ms, 1ms));
+    ASSERT_EQ(fetch_.submitted_requests().size(), 1U);
+    const auto active = fetch_.submitted_requests()[0].attempt_id;
+
+    consumption_store_->set_available(false);
+    open(EdgeSessionId{2});
+    attach_with_tokens(
+        transport_,
+        EdgeSessionId{2},
+        identity_token(jti_b),
+        grant_token(jti_b, jti_a),
+        2);
+    const auto result = advance(2ms, 2ms);
+
+    EXPECT_EQ(result.health, GatewayPipelineHealth::Healthy);
+    EXPECT_FALSE(result.local_budget.available);
+    EXPECT_FALSE(fetch_.was_cancelled(active));
+    EXPECT_EQ(command_count(PrimaryTransportCommandKind::Decline), 1U);
+}
+
+class AmbiguousPipelineCommitStore final : public AdmissionConsumptionStore {
+public:
+    AdmissionReserveResult reserve(
+        const AdmissionReserveRequest& request) override {
+        return {
+            .status = AdmissionReserveStatus::Reserved,
+            .reservation = AdmissionReservation{
+                .identity_jti = request.identity_jti,
+                .grant_jti = request.grant_jti,
+                .owner = request.owner,
+                .fencing = 1,
+                .lease_expires_at = request.now + 10s,
+                .consume_until = request.consume_until,
+            },
+        };
+    }
+
+    AdmissionMutationStatus commit(
+        const AdmissionReservation&,
+        std::chrono::system_clock::time_point) override {
+        ++commit_calls;
+        return AdmissionMutationStatus::Unavailable;
+    }
+
+    AdmissionMutationStatus release(
+        const AdmissionReservation&,
+        std::chrono::system_clock::time_point) override {
+        ++release_calls;
+        return AdmissionMutationStatus::Applied;
+    }
+
+    bool available() const noexcept override { return false; }
+
+    int commit_calls{0};
+    int release_calls{0};
+};
+
+TEST_F(
+    GatewayLoginPipelineTest,
+    AdmissionAmbiguousCommitClosesWithoutFetchOrRelease) {
+    AmbiguousPipelineCommitStore store;
+    auto admission = make_admission(store);
+    pipeline_.emplace(GatewayLoginPipeline::create(
+        config(1, 1),
+        common::parse_ticket_key_hex(ticket_key_hex),
+        admission,
+        "gateway-a",
+        transport_,
+        fetch_,
+        nullptr,
+        &metrics_));
+    open(EdgeSessionId{1});
+    attach_with_tokens(
+        transport_,
+        EdgeSessionId{1},
+        identity_token(jti_a),
+        grant_token(jti_a));
+
+    const auto result = advance();
+    EXPECT_EQ(result.health, GatewayPipelineHealth::Healthy);
+    EXPECT_FALSE(result.local_budget.available);
+    EXPECT_EQ(command_count(PrimaryTransportCommandKind::Accept), 1U);
+    EXPECT_TRUE(fetch_.submitted_requests().empty());
+    EXPECT_EQ(store.commit_calls, 1);
+    EXPECT_EQ(store.release_calls, 0);
+
+    static_cast<void>(advance(1ms, 1ms));
+    EXPECT_EQ(command_count(PrimaryTransportCommandKind::Close), 1U);
+    EXPECT_EQ(store.release_calls, 0);
+    pipeline_.reset();
 }
 
 TEST_F(

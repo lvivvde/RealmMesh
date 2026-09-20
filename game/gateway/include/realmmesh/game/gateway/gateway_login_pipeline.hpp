@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <string>
 
 namespace realm::observability {
 class Logger;
@@ -15,6 +16,8 @@ class MetricsRegistry;
 }  // namespace realm::observability
 
 namespace realm::game::gateway {
+
+class GatewayAdmission;
 
 enum class GatewayPipelineHealth : std::uint8_t {
     Healthy,
@@ -45,6 +48,19 @@ public:
     [[nodiscard]] static GatewayLoginPipeline create(
         GatewayLoginConfig config,
         GatewaySigningMaterial signing_material,
+        GatewayPrimaryTransport& primary_transport,
+        AccountFetchPort& account_fetch,
+        observability::Logger* logger = nullptr,
+        observability::MetricsRegistry* metrics = nullptr);
+
+    /// #82 切换前的 Admission Grant 装配入口。外部仍只有 advance()；
+    /// GatewayAdmission 在 Pipeline 内部吞掉 reserve/commit/release 顺序。
+    /// 最终切换会删除上面的 admitted Queue Number 装配入口。
+    [[nodiscard]] static GatewayLoginPipeline create(
+        GatewayLoginConfig config,
+        common::SessionTicketKey enter_realm_key,
+        GatewayAdmission& admission,
+        std::string gateway_instance,
         GatewayPrimaryTransport& primary_transport,
         AccountFetchPort& account_fetch,
         observability::Logger* logger = nullptr,

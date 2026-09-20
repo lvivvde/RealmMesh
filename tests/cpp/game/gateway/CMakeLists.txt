@@ -37,6 +37,16 @@ realm_add_gtest(account_fetch_port_test
     LIBS realm_gateway_service
 )
 
+realm_add_gtest(admission_consumption_store_test
+    SOURCES admission_consumption_store_test.cpp
+    LIBS realm_gateway_service nlohmann_json::nlohmann_json
+)
+
+realm_add_gtest(gateway_admission_test
+    SOURCES gateway_admission_test.cpp
+    LIBS realm_gateway_service
+)
+
 realm_add_gtest(gateway_login_config_test
     SOURCES gateway_login_config_test.cpp
     LIBS realm_gateway_service

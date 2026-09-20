@@ -1,6 +1,8 @@
 add_library(realm_gateway_service
     src/account_fetch_port.cpp
+    src/admission_consumption_store.cpp
     src/edge_session_table.cpp
+    src/gateway_admission.cpp
     src/gateway_config_loader.cpp
     src/gateway_login_config.cpp
     src/gateway_login_pipeline.cpp
@@ -23,6 +25,9 @@ target_link_libraries(realm_gateway_service PUBLIC
     realm_network
     realm_observability
     realm_scripting
+)
+target_link_libraries(realm_gateway_service PRIVATE
+    nlohmann_json::nlohmann_json
 )
 
 find_package(Threads REQUIRED)
