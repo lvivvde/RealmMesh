@@ -236,10 +236,11 @@ bool ServiceHost::start() {
         // 重启场景:成功启动后复位停机标志,允许再次 stop() 写出事件。
         started_ = true;
         stopped_ = false;
-        if (!discovery_config_.enabled ||
-            (publisher_ != nullptr && publisher_->registered())) {
-            ready_.store(true);
-        }
+        const bool discovery_ready =
+            !discovery_config_.enabled ||
+            (publisher_ != nullptr && publisher_->registered());
+        const bool frame_ready = frame_ == nullptr || frame_->ready();
+        ready_.store(discovery_ready && frame_ready);
         return ready_.load();
     } catch (...) {
         if (login_verify_ != nullptr) {
@@ -330,35 +331,37 @@ void ServiceHost::tick() {
     if (!running) {
         ready_.store(false);
     }
-    if (publisher_ == nullptr) return;
-    if (!publisher_->tick()) return;
-    // 注册成功后装配额度上报器(#43 gateway / #46 realm):required=false
-    // 时首注册可能失败,注册成功后的首个 tick 补齐。名字→身份的映射
-    // 只由 parse_service_identity 持有,这里按身份判定上报资格。
-    auto budget_type = parse_service_identity(service_name_);
-    if (budget_type != cluster::ServiceType::Gateway &&
-        budget_type != cluster::ServiceType::Realm) {
-        budget_type.reset();
+    if (publisher_ != nullptr && publisher_->tick()) {
+        // 注册成功后装配额度上报器(#43 gateway / #46 realm):required=false
+        // 时首注册可能失败,注册成功后的首个 tick 补齐。名字→身份的映射
+        // 只由 parse_service_identity 持有,这里按身份判定上报资格。
+        auto budget_type = parse_service_identity(service_name_);
+        if (budget_type != cluster::ServiceType::Gateway &&
+            budget_type != cluster::ServiceType::Realm) {
+            budget_type.reset();
+        }
+        if (budget_reporter_ == nullptr && budget_type.has_value() &&
+            publisher_->registered()) {
+            budget_reporter_ =
+                std::make_unique<cluster::InstanceBudgetReporter>(
+                    *registry_,
+                    publisher_->registration_id(),
+                    *budget_type,
+                    instance_,
+                    budget_policy_);
+            budget_reporter_->set_failure_sink([this](const std::string& key) {
+                static_cast<void>(logger_->warn(
+                    "instance_budget_publish_failed",
+                    "instance budget publish failed; will retry when policy allows",
+                    {observability::field("key", key)}));
+            });
+        }
     }
-    if (budget_reporter_ == nullptr && budget_type.has_value() &&
-        publisher_->registered()) {
-        budget_reporter_ = std::make_unique<cluster::InstanceBudgetReporter>(
-            *registry_,
-            publisher_->registration_id(),
-            *budget_type,
-            instance_,
-            budget_policy_);
-        budget_reporter_->set_failure_sink([this](const std::string& key) {
-            static_cast<void>(logger_->warn(
-                "instance_budget_publish_failed",
-                "instance budget publish failed; will retry when policy allows",
-                {observability::field("key", key)}));
-        });
-    }
-    // required=false 时首注册可能失败,续约成功后补齐 ready。
-    if (running) {
-        ready_.store(true);
-    }
+    const bool discovery_ready =
+        !discovery_config_.enabled ||
+        (publisher_ != nullptr && publisher_->registered());
+    const bool frame_ready = frame_ == nullptr || frame_->ready();
+    ready_.store(running && discovery_ready && frame_ready);
 }
 
 std::string ServiceHost::prometheus_metrics() const {

@@ -35,6 +35,7 @@ void GatewayLoginConfig::validate() const {
         throw std::invalid_argument(
             "gateway static realm endpoint must be complete");
     }
+    credential_ingress.validate();
 }
 
 GatewaySigningMaterial GatewaySigningMaterial::from_hex(

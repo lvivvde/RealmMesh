@@ -34,7 +34,12 @@ public:
         std::this_thread::sleep_for(timeout);
         polling_.store(false);
         if (opened_.exchange(true)) return {};
-        return {{network::TransportEventKind::SessionOpened, 1, {}}};
+        return {{
+            .kind = network::TransportEventKind::SessionOpened,
+            .session_id = 1,
+            .payload = {},
+            .source = {.direct_peer = "127.0.0.1"},
+        }};
     }
     [[nodiscard]] bool send(
         network::SessionId,

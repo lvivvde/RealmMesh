@@ -3,6 +3,7 @@
 #include "realmmesh/cluster/service_discovery_config.hpp"
 #include "realmmesh/concurrency/bounded_queue.hpp"
 #include "realmmesh/game/gateway/edge_session_table.hpp"
+#include "realmmesh/game/gateway/gateway_ingress.hpp"
 #include "realmmesh/game/gateway/gateway_login_config.hpp"
 #include "realmmesh/network/transport/transport_config.hpp"
 #include "realmmesh/observability/logger.hpp"
@@ -35,6 +36,7 @@ struct GatewayRuntimeStats {
     std::uint64_t unknown_session_commands{0};
     std::uint64_t successful_deliveries{0};
     std::uint64_t failed_deliveries{0};
+    std::uint64_t invalid_source_disconnects{0};
 };
 
 struct GatewayRuntimeOptions {
@@ -56,6 +58,7 @@ struct GatewayConfig {
     std::string downstream_address;
     std::uint16_t downstream_port{0};
     GatewayLoginConfig login;
+    GatewaySourceConfig ingress_source;
 };
 
 enum class GatewayEventKind : std::uint8_t {
@@ -74,6 +77,7 @@ struct GatewayEvent {
     network::TransportProtocol protocol{network::TransportProtocol::TlsTcp};
     bool established{false};
     std::vector<std::byte> payload;
+    std::string source;
 };
 
 /// Edge Session 生命周期的唯一所有者:传输层与会话表都收敛到这里的
@@ -91,6 +95,10 @@ public:
     GatewayRuntime(
         std::vector<std::unique_ptr<network::IMessageTransport>> transports,
         GatewayRuntimeOptions options);
+    GatewayRuntime(
+        std::vector<std::unique_ptr<network::IMessageTransport>> transports,
+        GatewayRuntimeOptions options,
+        GatewaySourceConfig source_config);
     ~GatewayRuntime();
 
     GatewayRuntime(const GatewayRuntime&) = delete;
@@ -158,6 +166,7 @@ private:
     std::vector<std::unique_ptr<network::IMessageTransport>> transports_;
     EdgeSessionTable sessions_;
     GatewayRuntimeOptions options_;
+    GatewaySourceNormalizer source_normalizer_;
     std::uint16_t local_port_{0};
     std::vector<network::TransportEndpoint> local_endpoints_;
     concurrency::BoundedQueue<GatewayEvent> inbound_;
@@ -169,6 +178,7 @@ private:
     std::atomic_uint64_t unknown_session_commands_{0};
     std::atomic_uint64_t successful_deliveries_{0};
     std::atomic_uint64_t failed_deliveries_{0};
+    std::atomic_uint64_t invalid_source_disconnects_{0};
     mutable std::mutex terminal_error_mutex_;
     std::optional<std::string> terminal_error_;
 };

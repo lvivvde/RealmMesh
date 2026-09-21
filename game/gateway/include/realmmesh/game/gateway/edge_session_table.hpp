@@ -54,12 +54,14 @@ enum class SendResult : std::uint8_t {
 /// 会话表中一条 Edge Session 的当前快照:主通道 + 生命周期阶段。
 struct EdgeSessionRecord {
     PrimaryTransport primary;
+    std::string source;
     bool established{false};
 };
 
 /// 一次本地终结的即时快照:记录移除与传输层关闭在同一点发生。
 struct ClosedEdgeSession {
     EdgeSessionId session_id;
+    std::string source;
     bool established{false};
 };
 
@@ -75,7 +77,11 @@ public:
     /// id 耗尽抛 std::overflow_error。
     [[nodiscard]] EdgeSessionId open(
         std::string_view transport_name,
-        network::SessionId transport_session_id);
+        network::SessionId transport_session_id,
+        std::string source);
+
+    [[nodiscard]] bool update_source(
+        EdgeSessionId session_id, std::string source);
 
     /// pending → established;未知句柄或已建立返回 false。
     [[nodiscard]] bool establish(EdgeSessionId session_id);

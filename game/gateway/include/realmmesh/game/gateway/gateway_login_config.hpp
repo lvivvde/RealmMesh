@@ -2,6 +2,7 @@
 
 #include "realmmesh/game/common/compact_jws.hpp"
 #include "realmmesh/game/common/session_ticket.hpp"
+#include "realmmesh/game/gateway/gateway_ingress.hpp"
 
 #include <chrono>
 #include <compare>
@@ -25,6 +26,7 @@ struct GatewayLoginConfig {
     unsigned fetch_retry_max{3};
     std::chrono::milliseconds handoff_grace{5'000};
     std::optional<RealmEndpoint> static_realm;
+    GatewayCredentialIngressConfig credential_ingress;
 
     void validate() const;
 };

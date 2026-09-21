@@ -77,7 +77,7 @@ TEST(EdgeSessionTableTest, SendsOnlyThroughThePrimaryTransport) {
     EdgeSessionTable table;
     table.register_transport(primary);
 
-    const auto session = table.open("client_primary", 41);
+    const auto session = table.open("client_primary", 41, "192.0.2.10");
     const auto payload = bytes("combat");
 
     EXPECT_NE(session, invalid_edge_session_id);
@@ -85,6 +85,7 @@ TEST(EdgeSessionTableTest, SendsOnlyThroughThePrimaryTransport) {
     EXPECT_FALSE(table.record(session)->established);
     EXPECT_EQ(table.record(session)->primary.protocol,
               network::TransportProtocol::Quic);
+    EXPECT_EQ(table.record(session)->source, "192.0.2.10");
     EXPECT_EQ(table.send(session, payload), SendResult::Sent);
     EXPECT_EQ(primary.sent_sessions, std::vector<network::SessionId>{41});
     ASSERT_EQ(primary.sent_payloads.size(), 1U);
@@ -97,7 +98,7 @@ TEST(EdgeSessionTableTest, EstablishMovesPendingToEstablished) {
     EdgeSessionTable table;
     table.register_transport(primary);
 
-    const auto session = table.open("client_primary", 41);
+    const auto session = table.open("client_primary", 41, "192.0.2.10");
     EXPECT_TRUE(table.establish(session));
     ASSERT_TRUE(table.record(session).has_value());
     EXPECT_TRUE(table.record(session)->established);
@@ -112,7 +113,7 @@ TEST(EdgeSessionTableTest, FindResolvesOnlyLiveSessions) {
     EdgeSessionTable table;
     table.register_transport(primary);
 
-    const auto session = table.open("client_primary", 41);
+    const auto session = table.open("client_primary", 41, "192.0.2.10");
     EXPECT_EQ(table.find("client_primary", 41), session);
     EXPECT_EQ(table.find("client_primary", 999), std::nullopt);
     EXPECT_EQ(table.find("other_transport", 41), std::nullopt);
@@ -127,7 +128,7 @@ TEST(EdgeSessionTableTest, CloseNotifiesTransportAndRemovesTheRecord) {
     EdgeSessionTable table;
     table.register_transport(primary);
 
-    const auto session = table.open("client_primary", 41);
+    const auto session = table.open("client_primary", 41, "192.0.2.10");
     const auto closed = table.close_session(session);
 
     ASSERT_TRUE(closed.has_value());
@@ -144,7 +145,7 @@ TEST(EdgeSessionTableTest, TransportReportedCloseRemovesAndSnapshots) {
     EdgeSessionTable table;
     table.register_transport(primary);
 
-    const auto session = table.open("client_primary", 41);
+    const auto session = table.open("client_primary", 41, "192.0.2.10");
     static_cast<void>(table.establish(session));
     const auto closed = table.on_transport_closed("client_primary", 41);
 

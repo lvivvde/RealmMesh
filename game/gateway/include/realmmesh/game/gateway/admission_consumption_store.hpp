@@ -82,6 +82,11 @@ public:
         const AdmissionReservation& reservation,
         std::chrono::system_clock::time_point now) = 0;
     [[nodiscard]] virtual bool available() const noexcept = 0;
+    /// Lightweight linearizable health probe; failures remove readiness but do
+    /// not alter existing reservations or sessions.
+    /// Probe backend availability without mutating reservation/consumption state.
+    /// Adapters that do not need a separate probe may use their cached availability.
+    [[nodiscard]] virtual bool probe() { return available(); }
 };
 
 /// 确定性内存适配器。多 Pipeline 实例共享同一对象即可验证集群语义；
@@ -107,6 +112,7 @@ public:
         const AdmissionReservation& reservation,
         std::chrono::system_clock::time_point now) override;
     [[nodiscard]] bool available() const noexcept override;
+    [[nodiscard]] bool probe() override;
 
     void set_available(bool value) noexcept;
 
@@ -141,6 +147,7 @@ public:
         const AdmissionReservation& reservation,
         std::chrono::system_clock::time_point now) override;
     [[nodiscard]] bool available() const noexcept override;
+    [[nodiscard]] bool probe() override;
 
 private:
     class Impl;

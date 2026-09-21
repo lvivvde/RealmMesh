@@ -253,8 +253,8 @@ TEST(TlsTcpTransportTest, NegotiatesTls13AndAlpnBeforeExchangingFrames) {
     const auto* accepted = find_log_event(log_events, "connection_accepted");
     ASSERT_NE(accepted, nullptr);
     EXPECT_EQ(accepted->at("attributes").at("protocol"), "tls_tcp");
-    EXPECT_EQ(accepted->at("attributes").at("peer_address"), "127.0.0.1");
-    EXPECT_GT(accepted->at("attributes").at("peer_port").get<int>(), 0);
+    EXPECT_FALSE(accepted->at("attributes").contains("peer_address"));
+    EXPECT_FALSE(accepted->at("attributes").contains("peer_port"));
 
     const auto* handshake =
         find_log_event(log_events, "tls_handshake_completed");

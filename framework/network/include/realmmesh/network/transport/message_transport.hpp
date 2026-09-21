@@ -45,10 +45,20 @@ enum class TransportEventKind : std::uint8_t {
     PeerAddressChanged,
 };
 
+/// Transport adapter 在会话打开/地址变化时提供的入口来源元数据。
+/// 只有显式代理适配器才填写 forwarding 字段；普通 QUIC/TLS 只填写
+/// direct_peer。信任判断由上层 GatewaySourceNormalizer 统一完成。
+struct TransportIngressSource final {
+    std::string direct_peer;
+    std::string x_forwarded_for;
+    std::string forwarded;
+};
+
 struct TransportEvent {
     TransportEventKind kind;
     SessionId session_id{invalid_session_id};
     std::vector<std::byte> payload;
+    TransportIngressSource source;
 };
 
 class IMessageTransport {

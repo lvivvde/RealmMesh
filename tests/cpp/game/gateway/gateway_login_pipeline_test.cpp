@@ -183,6 +183,7 @@ protected:
         transport_.push_event({
             .kind = GatewayEventKind::SessionOpened,
             .session_id = session_id,
+            .source = "127.0.0.1",
         });
     }
 
@@ -433,6 +434,7 @@ TEST_F(
         transport->push_event({
             .kind = GatewayEventKind::SessionOpened,
             .session_id = EdgeSessionId{1},
+            .source = "127.0.0.1",
         });
         attach_with_tokens(
             *transport, EdgeSessionId{1}, identity, grant);
@@ -526,6 +528,7 @@ TEST_F(
         transport->push_event({
             .kind = GatewayEventKind::SessionOpened,
             .session_id = EdgeSessionId{1},
+            .source = "127.0.0.1",
         });
         attach_with_tokens(
             *transport, EdgeSessionId{1}, identity, grant);

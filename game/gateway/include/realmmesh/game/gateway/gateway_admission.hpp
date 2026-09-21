@@ -92,12 +92,15 @@ public:
         std::chrono::system_clock::time_point now);
 
     [[nodiscard]] bool available() const noexcept;
+    [[nodiscard]] bool refresh_availability(
+        std::chrono::steady_clock::time_point now);
 
 private:
     common::IdentityTokenCodec identity_tokens_;
     std::string identity_issuer_;
     common::AdmissionGrantVerifier admission_grants_;
     AdmissionConsumptionStore* store_;
+    std::optional<std::chrono::steady_clock::time_point> next_probe_;
 };
 
 }  // namespace realm::game::gateway

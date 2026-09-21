@@ -56,13 +56,24 @@ struct PipelineSession {
     std::chrono::steady_clock::time_point fetch_due{};
     std::optional<AccountFetchAttemptId> active_attempt;
     std::optional<std::chrono::steady_clock::time_point> handoff_deadline;
+    std::string source;
+    std::uint32_t attach_attempts{0};
 };
 
 [[nodiscard]] std::vector<std::byte> error_payload(
-    int code, std::string_view message, std::uint64_t request_id) {
+    int code,
+    std::string_view message,
+    std::uint64_t request_id,
+    std::chrono::seconds retry_after = std::chrono::seconds::zero()) {
     common::EdgeError error;
     error.set_code(static_cast<std::uint32_t>(code));
     error.set_message(std::string(message));
+    if (retry_after > std::chrono::seconds::zero()) {
+        error.set_retry_after_seconds(static_cast<std::uint32_t>(
+            std::min<std::int64_t>(
+                retry_after.count(),
+                std::numeric_limits<std::uint32_t>::max())));
+    }
     return common::encode(error, request_id);
 }
 
@@ -97,6 +108,7 @@ public:
         observability::Logger* logger,
         observability::MetricsRegistry* metrics)
         : config_(std::move(config)),
+          ingress_(config_.credential_ingress),
           identity_codec_(
               std::in_place,
               signing_material.identity_seed,
@@ -122,6 +134,7 @@ public:
         observability::Logger* logger,
         observability::MetricsRegistry* metrics)
         : config_(std::move(config)),
+          ingress_(config_.credential_ingress),
           tickets_(enter_realm_key),
           admission_(&admission),
           gateway_instance_(std::move(gateway_instance)),
@@ -147,6 +160,9 @@ public:
         }
 
         verification_now_ = frame.verification_now;
+        if (admission_ != nullptr) {
+            static_cast<void>(admission_->refresh_availability(frame.now));
+        }
         evict_jtis(frame.verification_now);
         auto events = primary_transport_->drain_events(max_events_per_advance);
         preapply_lifecycle(events);
@@ -165,7 +181,16 @@ private:
             if (event.kind == GatewayEventKind::SessionOpened) {
                 if (!sessions_.contains(event.session_id) &&
                     sessions_.size() < config_.conn_capacity) {
-                    sessions_.emplace(event.session_id, PipelineSession{});
+                    PipelineSession session;
+                    session.source = event.source;
+                    sessions_.emplace(event.session_id, std::move(session));
+                }
+                continue;
+            }
+            if (event.kind == GatewayEventKind::PeerAddressChanged) {
+                const auto found = sessions_.find(event.session_id);
+                if (found != sessions_.end()) {
+                    found->second.source = event.source;
                 }
                 continue;
             }
@@ -187,21 +212,64 @@ private:
                 found->second.intent.has_value()) {
                 continue;
             }
-            if (const auto attach = common::decode_edge_attach(event.payload);
-                attach.has_value()) {
-                handle_attach(event, *attach, frame);
-                continue;
-            }
+            auto& session = found->second;
             const auto request_id =
                 common::edge_request_id(event.payload).value_or(0);
-            if (!event.established) {
+            if (event.established || session.stage != PublicStage::Pending) {
+                schedule_close(session);
+                continue;
+            }
+            // Keep the pre-ingress envelope guard cheap and bounded. Non-attach
+            // messages (including retired IDs) retain the existing
+            // not-authenticated wire response; only a recognized attach enters
+            // credential normalization/rate limiting.
+            if (event.payload.size() >
+                config_.credential_ingress.max_attach_envelope_bytes) {
+                schedule_close(session);
+                continue;
+            }
+            const auto message_id = common::edge_message_id(event.payload);
+            if (!message_id.has_value() ||
+                *message_id !=
+                    common::EdgeMessageId::MESSAGE_ID_C2S_EDGE_ATTACH) {
                 schedule_decline(
-                    found->second,
+                    session,
                     common::edge_error_not_authenticated,
                     "attach before any other message",
                     request_id);
-            } else {
-                schedule_close(found->second);
+                continue;
+            }
+            ++session.attach_attempts;
+            auto checked = ingress_.inspect_attach(
+                session.source,
+                session.attach_attempts,
+                event.payload,
+                frame.now);
+            switch (checked.status) {
+            case GatewayIngressStatus::Allowed:
+                handle_attach(event, *checked.attach, frame);
+                break;
+            case GatewayIngressStatus::SourceThrottled:
+            case GatewayIngressStatus::VerificationSaturated:
+                schedule_decline(
+                    session,
+                    common::edge_error_throttled,
+                    "admission throttled",
+                    request_id,
+                    checked.retry_after);
+                break;
+            case GatewayIngressStatus::Oversized:
+            case GatewayIngressStatus::SustainedAbuse:
+            case GatewayIngressStatus::SessionLimited:
+                schedule_close(session);
+                break;
+            case GatewayIngressStatus::Malformed:
+                schedule_decline(
+                    session,
+                    common::edge_error_invalid_credentials,
+                    "invalid credentials",
+                    request_id);
+                break;
             }
         }
     }
@@ -244,23 +312,40 @@ private:
                 frame.verification_now);
             if (started.status != GatewayAdmissionStartStatus::Reserved ||
                 !started.reservation.has_value()) {
-                const bool retryable =
-                    started.status == GatewayAdmissionStartStatus::Reserved ||
-                    started.status == GatewayAdmissionStartStatus::InProgress ||
-                    started.status ==
-                        GatewayAdmissionStartStatus::StoreUnavailable;
                 if (started.status == GatewayAdmissionStartStatus::Consumed) {
                     ++replay_rejections_;
                 }
-                schedule_decline(
-                    session,
-                    retryable ? common::edge_error_attach_out_of_budget
-                              : common::edge_error_invalid_credentials,
-                    retryable ? "admission temporarily unavailable"
-                              : "invalid credentials",
-                    request_id);
+                switch (started.status) {
+                case GatewayAdmissionStartStatus::InProgress:
+                    record_credential_result("in_progress");
+                    schedule_decline(
+                        session,
+                        common::edge_error_admission_in_progress,
+                        "admission in progress",
+                        request_id);
+                    break;
+                case GatewayAdmissionStartStatus::StoreUnavailable:
+                    record_credential_result("store_unavailable");
+                    schedule_decline(
+                        session,
+                        common::edge_error_admission_unavailable,
+                        "admission unavailable",
+                        request_id);
+                    break;
+                case GatewayAdmissionStartStatus::Reserved:
+                case GatewayAdmissionStartStatus::InvalidCredentials:
+                case GatewayAdmissionStartStatus::Consumed:
+                    record_credential_result("invalid");
+                    schedule_decline(
+                        session,
+                        common::edge_error_invalid_credentials,
+                        "invalid credentials",
+                        request_id);
+                    break;
+                }
                 return;
             }
+            record_credential_result("reserved");
 
             session.account_id = started.reservation->account_id();
             session.admission_reservation = std::move(*started.reservation);
@@ -277,6 +362,7 @@ private:
         const auto identity = identity_codec_->validate(
             attach.identity_token(), identity_issuer_, frame.verification_now);
         if (!identity.has_value()) {
+            record_credential_result("invalid");
             schedule_decline(
                 session,
                 common::edge_error_invalid_credentials,
@@ -287,6 +373,7 @@ private:
         const auto number = number_codec_->validate(
             attach.queue_number_token(), frame.verification_now);
         if (!number.has_value() || !number->admitted) {
+            record_credential_result("invalid");
             schedule_decline(
                 session,
                 common::edge_error_invalid_queue_number,
@@ -297,6 +384,7 @@ private:
         if (reserved_jtis_.contains(identity->jti) ||
             consumed_jtis_.contains(identity->jti)) {
             ++replay_rejections_;
+            record_credential_result("invalid");
             schedule_decline(
                 session,
                 common::edge_error_invalid_credentials,
@@ -316,6 +404,7 @@ private:
         accepted.set_account_id(identity->account_id);
         session.intent = RuntimeIntent{
             IntentKind::Accept, common::encode(accepted, request_id)};
+        record_credential_result("reserved");
     }
 
     void apply_handoff_expiry(std::chrono::steady_clock::time_point now) {
@@ -611,7 +700,8 @@ private:
         PipelineSession& session,
         int code,
         std::string_view message,
-        std::uint64_t request_id) {
+        std::uint64_t request_id,
+        std::chrono::seconds retry_after = std::chrono::seconds::zero()) {
         if (session.active_attempt.has_value()) {
             account_fetch_->cancel(*session.active_attempt);
             attempts_.erase(session.active_attempt->value);
@@ -621,7 +711,24 @@ private:
         release_jti_reservation(session);
         session.closing = true;
         session.intent = RuntimeIntent{
-            IntentKind::Decline, error_payload(code, message, request_id)};
+            IntentKind::Decline,
+            error_payload(code, message, request_id, retry_after)};
+    }
+
+    void record_credential_result(std::string_view result) {
+        auto index = credential_results_.size() - 1U;
+        if (result == "reserved") index = 0;
+        else if (result == "invalid") index = 1;
+        else if (result == "in_progress") index = 2;
+        else if (result == "store_unavailable") index = 3;
+        ++credential_results_[index];
+        if (logger_ != nullptr && admission_ != nullptr) {
+            static_cast<void>(logger_->info(
+                "gateway_credential_audit",
+                "gateway credential admission outcome",
+                {observability::field("gateway_instance", gateway_instance_),
+                 observability::field("result", result)}));
+        }
     }
 
     void schedule_close(PipelineSession& session) {
@@ -719,6 +826,40 @@ private:
         metrics_->counter_set(
             "edge_fetch_submit_backpressure_total",
             static_cast<double>(fetch_submit_backpressure_));
+        const auto ingress = ingress_.counters();
+        static constexpr std::array ingress_labels{
+            "oversized",
+            "malformed",
+            "source_throttled",
+            "sustained_abuse",
+            "session_limited",
+            "verification_saturated",
+        };
+        const std::array ingress_values{
+            ingress.oversized,
+            ingress.malformed,
+            ingress.source_throttled,
+            ingress.sustained_abuse,
+            ingress.session_limited,
+            ingress.verification_saturated,
+        };
+        for (std::size_t index = 0; index < ingress_labels.size(); ++index) {
+            metrics_->counter_set(
+                "edge_credential_ingress_rejected_total",
+                static_cast<double>(ingress_values[index]),
+                {{"reason", ingress_labels[index]}});
+        }
+        metrics_->gauge_set(
+            "edge_credential_verification_in_flight",
+            static_cast<double>(ingress.verification_in_flight));
+        static constexpr std::array result_labels{
+            "reserved", "invalid", "in_progress", "store_unavailable", "other"};
+        for (std::size_t index = 0; index < result_labels.size(); ++index) {
+            metrics_->counter_set(
+                "edge_credential_result_total",
+                static_cast<double>(credential_results_[index]),
+                {{"result", result_labels[index]}});
+        }
         static constexpr std::array labels{
             "decline", "close", "accept", "handoff"};
         for (std::size_t index = 0; index < labels.size(); ++index) {
@@ -752,6 +893,7 @@ private:
     }
 
     GatewayLoginConfig config_;
+    GatewayCredentialIngress ingress_;
     std::optional<common::IdentityTokenCodec> identity_codec_;
     std::optional<common::QueueNumberCodec> number_codec_;
     common::SessionTickets tickets_;
@@ -776,6 +918,7 @@ private:
     std::uint64_t replay_rejections_{0};
     std::uint64_t fetch_submit_backpressure_{0};
     std::array<std::uint64_t, 4> runtime_backpressure_{};
+    std::array<std::uint64_t, 5> credential_results_{};
     std::chrono::system_clock::time_point verification_now_{};
 };
 

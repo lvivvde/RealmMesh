@@ -8,6 +8,7 @@
 
 #include <chrono>
 #include <memory>
+#include <string>
 #include <string_view>
 #include <unordered_map>
 #include <utility>
@@ -38,6 +39,7 @@ private:
     struct ConnectionEntry {
         SessionId session_id;
         TlsConnection connection;
+        std::string peer_address;
         std::chrono::steady_clock::time_point accepted_at;
         std::chrono::steady_clock::time_point last_activity;
         bool handshake_complete{false};

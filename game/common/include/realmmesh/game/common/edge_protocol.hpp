@@ -35,6 +35,9 @@ inline constexpr std::uint32_t kEdgeProtocolVersion = 1;
 /// 码,按消息上下文区分),3001 为 EnterGame 入场票据无效。
 inline constexpr int edge_error_invalid_credentials = 1001;
 inline constexpr int edge_error_attach_out_of_budget = 1004;
+inline constexpr int edge_error_admission_in_progress = 1005;
+inline constexpr int edge_error_admission_unavailable = 1006;
+inline constexpr int edge_error_throttled = 429;
 inline constexpr int edge_error_invalid_queue_number = 2001;
 inline constexpr int edge_error_not_authenticated = 2002;
 inline constexpr int edge_error_invalid_enter_realm_ticket = 3002;

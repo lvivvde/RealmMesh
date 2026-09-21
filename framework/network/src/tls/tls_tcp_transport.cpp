@@ -143,6 +143,7 @@ void TlsTcpTransport::accept_connections() {
                     tls_context_->native_handle(),
                     config_.max_payload_size,
                     config_.max_pending_output_bytes),
+                .peer_address = peer.host,
                 .accepted_at = accepted_at,
                 .last_activity = accepted_at,
             });
@@ -153,8 +154,6 @@ void TlsTcpTransport::accept_connections() {
                 "tls transport accepted incoming connection",
                 {observability::field("transport_name", config_.name),
                  observability::field("protocol", "tls_tcp"),
-                 observability::field("peer_address", peer.host),
-                 observability::field("peer_port", peer.port),
                  observability::field("session_id", session_id)}));
         }
     }
@@ -180,6 +179,7 @@ void TlsTcpTransport::service_connection(
                 .kind = TransportEventKind::SessionOpened,
                 .session_id = entry.session_id,
                 .payload = {},
+                .source = {.direct_peer = entry.peer_address},
             });
             if (logger_ != nullptr) {
                 static_cast<void>(logger_->info(

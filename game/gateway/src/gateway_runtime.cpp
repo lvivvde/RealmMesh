@@ -18,13 +18,22 @@ GatewayRuntime::GatewayRuntime(
     observability::Logger* logger)
     : GatewayRuntime(
           network::TransportFactory::create_enabled(config.transports, logger),
-          options) {}
+          options,
+          std::move(config.ingress_source)) {}
 
 GatewayRuntime::GatewayRuntime(
     std::vector<std::unique_ptr<network::IMessageTransport>> transports,
     GatewayRuntimeOptions options)
+    : GatewayRuntime(
+          std::move(transports), options, GatewaySourceConfig{}) {}
+
+GatewayRuntime::GatewayRuntime(
+    std::vector<std::unique_ptr<network::IMessageTransport>> transports,
+    GatewayRuntimeOptions options,
+    GatewaySourceConfig source_config)
     : transports_(std::move(transports)),
       options_(options),
+      source_normalizer_(std::move(source_config)),
       inbound_(options_.inbound_capacity),
       outbound_(options_.outbound_capacity) {
     if (transports_.empty()) {
@@ -154,6 +163,7 @@ GatewayRuntimeStats GatewayRuntime::stats() const noexcept {
         .unknown_session_commands = unknown_session_commands_.load(),
         .successful_deliveries = successful_deliveries_.load(),
         .failed_deliveries = failed_deliveries_.load(),
+        .invalid_source_disconnects = invalid_source_disconnects_.load(),
     };
 }
 
@@ -295,6 +305,7 @@ bool GatewayRuntime::finish_close(EdgeSessionId session_id) {
         .protocol = record->primary.protocol,
         .established = closed->established,
         .payload = {},
+        .source = closed->source,
     });
     return true;
 }
@@ -312,13 +323,20 @@ std::vector<GatewayEvent> GatewayRuntime::poll_events(
         for (auto& event : events) {
             switch (event.kind) {
             case network::TransportEventKind::SessionOpened: {
+                const auto source = source_normalizer_.normalize(event.source);
+                if (!source.has_value()) {
+                    invalid_source_disconnects_.fetch_add(1U);
+                    static_cast<void>(transport->close(event.session_id));
+                    break;
+                }
                 gateway_events.push_back({
                     .kind = GatewayEventKind::SessionOpened,
                     .session_id = sessions_.open(
-                        transport->name(), event.session_id),
+                        transport->name(), event.session_id, *source),
                     .protocol = transport->protocol(),
                     .established = false,
                     .payload = {},
+                    .source = *source,
                 });
                 break;
             }
@@ -334,6 +352,7 @@ std::vector<GatewayEvent> GatewayRuntime::poll_events(
                         .protocol = transport->protocol(),
                         .established = closed->established,
                         .payload = {},
+                        .source = closed->source,
                     });
                 }
                 break;
@@ -349,6 +368,20 @@ std::vector<GatewayEvent> GatewayRuntime::poll_events(
                 if (!record.has_value()) {
                     break;
                 }
+                auto source = record->source;
+                if (event.kind ==
+                    network::TransportEventKind::PeerAddressChanged) {
+                    const auto normalized =
+                        source_normalizer_.normalize(event.source);
+                    if (!normalized.has_value()) {
+                        invalid_source_disconnects_.fetch_add(1U);
+                        static_cast<void>(finish_close(*session_id));
+                        break;
+                    }
+                    source = *normalized;
+                    static_cast<void>(
+                        sessions_.update_source(*session_id, source));
+                }
                 gateway_events.push_back({
                     .kind =
                         event.kind ==
@@ -359,6 +392,7 @@ std::vector<GatewayEvent> GatewayRuntime::poll_events(
                     .protocol = transport->protocol(),
                     .established = record->established,
                     .payload = std::move(event.payload),
+                    .source = std::move(source),
                 });
                 break;
             }

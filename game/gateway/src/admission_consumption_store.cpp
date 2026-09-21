@@ -499,6 +499,10 @@ bool InMemoryAdmissionConsumptionStore::available() const noexcept {
     return impl_->available_.load();
 }
 
+bool InMemoryAdmissionConsumptionStore::probe() {
+    return available();
+}
+
 void InMemoryAdmissionConsumptionStore::set_available(bool value) noexcept {
     impl_->available_.store(value);
 }
@@ -591,6 +595,29 @@ public:
     }
 
     bool available() const noexcept { return available_.load(); }
+
+    bool probe() {
+        const Json request{
+            {"key", base64_encode(options_.key_prefix)}, {"limit", "1"}};
+        const auto body = client_->post(
+            "/v3/kv/range", request.dump(), nullptr);
+        if (!body.has_value()) {
+            available_.store(false);
+            return false;
+        }
+        try {
+            const auto response = Json::parse(*body);
+            if (!response.is_object() || response.contains("error")) {
+                available_.store(false);
+                return false;
+            }
+            available_.store(true);
+            return true;
+        } catch (const Json::exception&) {
+            available_.store(false);
+            return false;
+        }
+    }
 
 private:
     std::optional<LoadedRecord> load(const std::string& key) {
@@ -778,5 +805,7 @@ AdmissionMutationStatus EtcdAdmissionConsumptionStore::release(
 bool EtcdAdmissionConsumptionStore::available() const noexcept {
     return impl_->available();
 }
+
+bool EtcdAdmissionConsumptionStore::probe() { return impl_->probe(); }
 
 }  // namespace realm::game::gateway

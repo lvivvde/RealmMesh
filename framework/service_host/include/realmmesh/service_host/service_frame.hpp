@@ -69,6 +69,9 @@ public:
     void stopped(
         observability::Logger& logger,
         const game::gateway::GatewayRuntime& runtime) const;
+    /// Gateway readiness includes the admission backend's cached health;
+    /// non-gateway frames are ready once their runtime is listening.
+    [[nodiscard]] bool ready() const noexcept;
 
 private:
     /// 会话生命周期簿记:SessionClosed 清除票据 claims,SessionEstablished
@@ -113,6 +116,7 @@ private:
     /// 上限),只按活动连接数上报 conn_free 供放行阀门评估。
     std::uint64_t conn_capacity_{0};
     std::uint64_t realm_conn_active_{0};
+    bool gateway_ready_{true};
 };
 
 }  // namespace realm::service_host

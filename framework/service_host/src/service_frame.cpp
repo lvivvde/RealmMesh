@@ -74,6 +74,10 @@ ServiceFrame::ServiceFrame(
 
 ServiceFrame::~ServiceFrame() = default;
 
+bool ServiceFrame::ready() const noexcept {
+    return gateway_ready_;
+}
+
 bool ServiceFrame::absorb_lifecycle(const game::gateway::GatewayEvent& event) {
     if (event.kind == game::gateway::GatewayEventKind::SessionClosed) {
         authenticated_.erase(event.session_id);
@@ -148,7 +152,10 @@ void ServiceFrame::stopped(
                  "unknown_session_commands", stats.unknown_session_commands),
              observability::field("delivered", stats.successful_deliveries),
              observability::field(
-                 "delivery_failed", stats.failed_deliveries)}));
+                 "delivery_failed", stats.failed_deliveries),
+             observability::field(
+                 "invalid_source_disconnects",
+                 stats.invalid_source_disconnects)}));
         return;
     }
     static_cast<void>(
@@ -319,6 +326,9 @@ void ServiceFrame::handle_gateway_events(
         .verification_now = std::chrono::system_clock::now(),
         .discovered_realm = std::move(discovered_realm),
     });
+    gateway_ready_ =
+        result.health == game::gateway::GatewayPipelineHealth::Healthy &&
+        result.local_budget.available;
     if (budget_reporter != nullptr) {
         const auto& budget = result.local_budget;
         static_cast<void>(budget_reporter->publish(

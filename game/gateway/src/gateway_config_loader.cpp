@@ -9,6 +9,7 @@
 #include <string>
 #include <string_view>
 #include <utility>
+#include <vector>
 
 // 统一使用 sol::lua_nil 而非 sol::nil:sol2 在 macOS 上会因 nil 宏已定义
 // (Objective-C)或 __MAC_OS_X_VERSION_MAX_ALLOWED 而把 SOL_NIL 置为关闭
@@ -68,6 +69,30 @@ template <typename Integer>
             "configuration field " + std::string(field) + " must be boolean");
     }
     return value.as<bool>();
+}
+
+[[nodiscard]] std::vector<std::string> optional_string_array(
+    const sol::table& table, std::string_view field) {
+    const sol::object value = table.raw_get<sol::object>(std::string(field));
+    if (value == sol::lua_nil) return {};
+    if (!value.is<sol::table>()) {
+        throw std::invalid_argument(
+            "configuration field " + std::string(field) +
+            " must be a table");
+    }
+    const auto values = value.as<sol::table>();
+    std::vector<std::string> result;
+    result.reserve(values.size());
+    for (std::size_t index = 1; index <= values.size(); ++index) {
+        const auto entry = values.raw_get<sol::object>(index);
+        if (!entry.is<std::string>()) {
+            throw std::invalid_argument(
+                "configuration field " + std::string(field) +
+                " must contain only strings");
+        }
+        result.push_back(entry.as<std::string>());
+    }
+    return result;
 }
 
 [[nodiscard]] network::TransportProtocol parse_protocol(
@@ -230,6 +255,69 @@ GatewayConfig GatewayConfigLoader::parse(const sol::table& root) {
             "handoff_grace_ms",
             config.login.handoff_grace.count())};
 
+    const sol::object source_value =
+        root.raw_get<sol::object>("ingress_source");
+    if (source_value != sol::lua_nil) {
+        if (!source_value.is<sol::table>()) {
+            throw std::invalid_argument(
+                "gateway config ingress_source must be a table");
+        }
+        const auto source = source_value.as<sol::table>();
+        config.ingress_source.mode = parse_gateway_source_mode(
+            optional_string(source, "mode", "direct_peer"));
+        config.ingress_source.trusted_proxy_cidrs =
+            optional_string_array(source, "trusted_proxy_cidrs");
+    }
+
+    const sol::object credential_value =
+        root.raw_get<sol::object>("credential_ingress");
+    if (credential_value != sol::lua_nil) {
+        if (!credential_value.is<sol::table>()) {
+            throw std::invalid_argument(
+                "gateway config credential_ingress must be a table");
+        }
+        const auto ingress = credential_value.as<sol::table>();
+        auto& security = config.login.credential_ingress;
+        security.max_attach_envelope_bytes = optional_integer(
+            ingress,
+            "max_attach_envelope_bytes",
+            security.max_attach_envelope_bytes);
+        security.max_identity_token_bytes = optional_integer(
+            ingress,
+            "max_identity_token_bytes",
+            security.max_identity_token_bytes);
+        security.max_admission_grant_bytes = optional_integer(
+            ingress,
+            "max_admission_grant_bytes",
+            security.max_admission_grant_bytes);
+        security.max_token_decoded_bytes = optional_integer(
+            ingress,
+            "max_token_decoded_bytes",
+            security.max_token_decoded_bytes);
+        security.source_rate_per_second = optional_integer(
+            ingress,
+            "source_rate_per_second",
+            security.source_rate_per_second);
+        security.source_burst = optional_integer(
+            ingress, "source_burst", security.source_burst);
+        security.source_throttle_close_after = optional_integer(
+            ingress,
+            "source_throttle_close_after",
+            security.source_throttle_close_after);
+        security.session_attach_attempts = optional_integer(
+            ingress,
+            "session_attach_attempts",
+            security.session_attach_attempts);
+        security.concurrent_verifications = optional_integer(
+            ingress,
+            "concurrent_verifications",
+            security.concurrent_verifications);
+        security.max_tracked_sources = optional_integer(
+            ingress,
+            "max_tracked_sources",
+            security.max_tracked_sources);
+    }
+
     const sol::object runtime_value = root.raw_get<sol::object>("runtime");
     if (runtime_value != sol::lua_nil) {
         if (!runtime_value.is<sol::table>()) {
@@ -362,6 +450,7 @@ GatewayConfig GatewayConfigLoader::parse(const sol::table& root) {
         throw std::invalid_argument(
             "gateway tick rate and max events per frame must be positive");
     }
+    config.ingress_source.validate();
     if (config.logging.file_path.empty() ||
         config.logging_identity.service_name.empty() ||
         config.logging.normal_queue_capacity == 0 ||

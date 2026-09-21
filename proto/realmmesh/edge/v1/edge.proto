@@ -83,4 +83,6 @@ message EnterRealmAccepted {
 message EdgeError {
   uint32 code = 1;
   string message = 2;
+  // 仅瞬时限流结果设置；客户端在此窗口后才重试同一凭据链。
+  uint32 retry_after_seconds = 3;
 }

@@ -198,11 +198,13 @@ private:
             Impl* owner_value,
             SessionId session_id_value,
             HQUIC connection_value,
-            std::size_t max_payload_size)
+            std::size_t max_payload_size,
+            std::string peer_address_value)
             : owner(owner_value),
               session_id(session_id_value),
               connection(connection_value),
-              codec(max_payload_size) {}
+              codec(max_payload_size),
+              peer_address(std::move(peer_address_value)) {}
 
         Impl* owner;
         SessionId session_id;
@@ -210,6 +212,7 @@ private:
         HQUIC stream{nullptr};
         LengthFieldCodec codec;
         ByteBuffer input;
+        std::string peer_address;
         std::mutex mutex;
         std::size_t pending_output_bytes{0};
         bool connected{false};
@@ -383,6 +386,8 @@ private:
 
     QUIC_STATUS on_new_connection(
         HQUIC connection, const QUIC_NEW_CONNECTION_INFO* info) {
+        const auto peer =
+            peer_endpoint(info == nullptr ? nullptr : info->RemoteAddress);
         std::shared_ptr<ConnectionState> state;
         {
             std::lock_guard lock(connections_mutex_);
@@ -391,7 +396,11 @@ private:
             }
             const SessionId session_id = next_session_id_++;
             state = std::make_shared<ConnectionState>(
-                this, session_id, connection, config_.max_payload_size);
+                this,
+                session_id,
+                connection,
+                config_.max_payload_size,
+                peer.address);
             api_->SetCallbackHandler(
                 connection,
                 reinterpret_cast<void*>(connection_callback),
@@ -399,15 +408,11 @@ private:
             connections_.emplace(session_id, state);
         }
         if (logger_ != nullptr) {
-            const auto peer =
-                peer_endpoint(info == nullptr ? nullptr : info->RemoteAddress);
             static_cast<void>(logger_->info(
                 "connection_accepted",
                 "quic transport accepted incoming connection",
                 {observability::field("transport_name", config_.name),
                  observability::field("protocol", "quic"),
-                 observability::field("peer_address", peer.address),
-                 observability::field("peer_port", peer.port),
                  observability::field("session_id", state->session_id)}));
         }
         QUIC_STATUS status = QUIC_STATUS_INVALID_STATE;
@@ -470,6 +475,7 @@ private:
                     .kind = TransportEventKind::SessionOpened,
                     .session_id = state->session_id,
                     .payload = {},
+                    .source = {.direct_peer = state->peer_address},
                 })) {
                 reject_overloaded(state);
             }
@@ -505,15 +511,22 @@ private:
             }
             break;
         }
-        case QUIC_CONNECTION_EVENT_PEER_ADDRESS_CHANGED:
+        case QUIC_CONNECTION_EVENT_PEER_ADDRESS_CHANGED: {
+            const auto peer = peer_endpoint(event->PEER_ADDRESS_CHANGED.Address);
+            {
+                std::lock_guard lock(state->mutex);
+                state->peer_address = peer.address;
+            }
             if (!push_event({
                     .kind = TransportEventKind::PeerAddressChanged,
                     .session_id = state->session_id,
                     .payload = {},
+                    .source = {.direct_peer = peer.address},
                 })) {
                 reject_overloaded(state);
             }
             break;
+        }
         case QUIC_CONNECTION_EVENT_SHUTDOWN_COMPLETE: {
             bool was_connected = false;
             std::string_view close_reason;

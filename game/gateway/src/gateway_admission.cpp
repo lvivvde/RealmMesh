@@ -122,4 +122,13 @@ bool GatewayAdmission::available() const noexcept {
     return store_->available();
 }
 
+bool GatewayAdmission::refresh_availability(
+    std::chrono::steady_clock::time_point now) {
+    if (next_probe_.has_value() && *next_probe_ > now) {
+        return store_->available();
+    }
+    next_probe_ = now + std::chrono::seconds{1};
+    return store_->probe();
+}
+
 }  // namespace realm::game::gateway

@@ -24,6 +24,22 @@ return {
     fetch_retry_base_ms = 2000,
     fetch_retry_max = 3,
     handoff_grace_ms = 5000,
+    ingress_source = {
+        mode = "direct_peer",
+        trusted_proxy_cidrs = {},
+    },
+    credential_ingress = {
+        max_attach_envelope_bytes = 16384,
+        max_identity_token_bytes = 2048,
+        max_admission_grant_bytes = 2048,
+        max_token_decoded_bytes = 3072,
+        source_rate_per_second = 20,
+        source_burst = 40,
+        source_throttle_close_after = 3,
+        session_attach_attempts = 4,
+        concurrent_verifications = 128,
+        max_tracked_sources = 16384,
+    },
     runtime = {
         inbound_capacity = 65536,
         outbound_capacity = 65536,

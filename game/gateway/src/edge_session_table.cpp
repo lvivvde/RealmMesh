@@ -15,10 +15,12 @@ void EdgeSessionTable::register_transport(
 }
 
 EdgeSessionId EdgeSessionTable::open(
-    std::string_view transport_name, network::SessionId transport_session_id) {
+    std::string_view transport_name,
+    network::SessionId transport_session_id,
+    std::string source) {
     auto* transport = find_transport(transport_name);
     if (transport == nullptr ||
-        transport_session_id == network::invalid_session_id) {
+        transport_session_id == network::invalid_session_id || source.empty()) {
         throw std::invalid_argument(
             "cannot open an edge session on an unknown transport");
     }
@@ -43,11 +45,20 @@ EdgeSessionId EdgeSessionTable::open(
                 .protocol = transport->protocol(),
                 .transport_session_id = transport_session_id,
             },
+            .source = std::move(source),
             .established = false,
         });
     by_transport_[std::string(transport_name)].emplace(
         transport_session_id, session_id);
     return session_id;
+}
+
+bool EdgeSessionTable::update_source(
+    EdgeSessionId session_id, std::string source) {
+    const auto session = sessions_.find(session_id);
+    if (session == sessions_.end() || source.empty()) return false;
+    session->second.source = std::move(source);
+    return true;
 }
 
 bool EdgeSessionTable::establish(EdgeSessionId session_id) {
@@ -96,7 +107,8 @@ std::optional<ClosedEdgeSession> EdgeSessionTable::on_transport_closed(
     if (session == sessions_.end()) {
         return std::nullopt;
     }
-    const ClosedEdgeSession closed{session->first, session->second.established};
+    const ClosedEdgeSession closed{
+        session->first, session->second.source, session->second.established};
     erase(session);
     return closed;
 }
@@ -122,7 +134,8 @@ std::optional<ClosedEdgeSession> EdgeSessionTable::close_session(
     if (session == sessions_.end()) {
         return std::nullopt;
     }
-    const ClosedEdgeSession closed{session->first, session->second.established};
+    const ClosedEdgeSession closed{
+        session->first, session->second.source, session->second.established};
     auto* transport = find_transport(session->second.primary.transport_name);
     if (transport != nullptr) {
         static_cast<void>(
