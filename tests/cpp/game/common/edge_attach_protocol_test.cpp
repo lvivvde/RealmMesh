@@ -8,7 +8,7 @@ namespace {
 TEST(EdgeAttachProtocolTest, AttachRoundTripsTokens) {
     EdgeAttach attach;
     attach.set_identity_token("identity-token");
-    attach.set_queue_number_token("number-token");
+    attach.set_admission_grant("grant-token");
     const auto wire = encode(attach, 7);
     EXPECT_EQ(
         edge_message_id(wire),
@@ -17,7 +17,7 @@ TEST(EdgeAttachProtocolTest, AttachRoundTripsTokens) {
     const auto decoded = decode_edge_attach(wire);
     ASSERT_TRUE(decoded.has_value());
     EXPECT_EQ(decoded->identity_token(), "identity-token");
-    EXPECT_EQ(decoded->queue_number_token(), "number-token");
+    EXPECT_EQ(decoded->admission_grant(), "grant-token");
 }
 
 TEST(EdgeAttachProtocolTest, AttachAcceptedRoundTripsAccountId) {

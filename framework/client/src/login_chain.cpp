@@ -24,11 +24,15 @@ PortStatus PortStatus::success() {
 PortStatus PortStatus::error(ChainFailure failure,
                              std::string detail,
                              bool credential_expired,
-                             PortFailureCategory category) {
+                             PortFailureCategory category,
+                             PortRecovery recovery,
+                             std::chrono::seconds retry_after) {
     PortStatus status;
     status.failure = failure;
     status.credential_expired = credential_expired;
     status.category = category;
+    status.recovery = recovery;
+    status.retry_after = retry_after;
     status.detail = std::move(detail);
     return status;
 }
@@ -115,8 +119,8 @@ void LoginChain::wait_for(std::chrono::milliseconds duration,
     }
 }
 
-bool LoginChain::within_admit_grace(TimePoint now) const {
-    return now < admitted_at_ + admit_grace_;
+bool LoginChain::within_admission_grant_window(TimePoint now) const {
+    return now < admitted_at_ + admission_grant_ttl_;
 }
 
 LoginResult LoginChain::fail(LoginStage stage) const {
@@ -134,7 +138,7 @@ LoginChain::Action LoginChain::take_ticket(TimePoint deadline) {
     }
     credentials_.queue_number_token = result.value.queue_number_token;
     credentials_.number = result.value.number;
-    credentials_.admitted_token.clear();
+    credentials_.admission_grant.clear();
     poller_.record_success();
     return Action::Advanced;
 }
@@ -188,10 +192,10 @@ LoginChain::Action LoginChain::poll_until_admitted(TimePoint deadline) {
             transport_.ticket_me(credentials_.queue_number_token, deadline);
         if (me.status.ok) {
             poller_.record_success();
-            if (me.value.admitted) {
-                credentials_.admitted_token = me.value.admitted_token;
-                admit_grace_ = me.value.admit_grace.count() > 0
-                    ? me.value.admit_grace
+            if (!me.value.admission_grant.empty()) {
+                credentials_.admission_grant = me.value.admission_grant;
+                admission_grant_ttl_ = me.value.admission_grant_ttl.count() > 0
+                    ? me.value.admission_grant_ttl
                     : config_.admit_grace_fallback;
                 admitted_at_ = Clock::now();
                 failure_ = ChainFailure::None;
@@ -200,10 +204,10 @@ LoginChain::Action LoginChain::poll_until_admitted(TimePoint deadline) {
                 return Action::Advanced;
             }
             position = me.value.position;
-        } else if (me.status.credential_expired) {
+        } else if (me.status.recovery == PortRecovery::Restart) {
             failure_ = me.status.failure;
             failure_detail_ = me.status.detail;
-            return Action::RetakeTicket;
+            return Action::RestartLogin;
         } else {
             poller_.record_failure();
         }
@@ -222,16 +226,18 @@ LoginChain::Action LoginChain::connect_gateway_and_handoff(
         }
         set_stage(LoginStage::GatewayConnecting);
 
-        bool retake_ticket = false;
+        bool restart_login = false;
+        std::chrono::milliseconds retry_delay = config_.gateway_retry_delay;
         auto connected =
             transport_.connect_gateway(config_.gateway_endpoints, deadline);
         if (connected.status.ok && connected.value != nullptr) {
             auto session = std::move(connected.value);
-            const auto& queue_token = credentials_.admitted_token.empty()
-                ? credentials_.queue_number_token
-                : credentials_.admitted_token;
+            const auto& admission_grant = credentials_.admission_grant;
             const auto attached = transport_.attach(
-                *session, credentials_.identity_token, queue_token, deadline);
+                *session,
+                credentials_.identity_token,
+                admission_grant,
+                deadline);
             if (attached.ok) {
                 auto handoff = transport_.await_handoff(*session, deadline);
                 if (handoff.status.ok) {
@@ -244,19 +250,32 @@ LoginChain::Action LoginChain::connect_gateway_and_handoff(
                     session_out = std::move(session);
                     return Action::Advanced;
                 }
-                if (handoff.status.credential_expired) {
-                    retake_ticket = true;
+                if (handoff.status.recovery == PortRecovery::Restart) {
+                    restart_login = true;
                 } else {
                     failure_ = handoff.status.failure;
                     failure_detail_ = handoff.status.detail;
+                    if (handoff.status.retry_after >
+                        std::chrono::seconds::zero()) {
+                        retry_delay = std::chrono::duration_cast<
+                            std::chrono::milliseconds>(
+                            std::min(handoff.status.retry_after,
+                                     std::chrono::seconds{5}));
+                    }
                 }
-            } else if (attached.credential_expired) {
-                retake_ticket = true;
+            } else if (attached.recovery == PortRecovery::Restart) {
+                restart_login = true;
             } else {
                 failure_ = attached.failure == ChainFailure::None
                     ? ChainFailure::AttachRejected
                     : attached.failure;
                 failure_detail_ = attached.detail;
+                if (attached.retry_after > std::chrono::seconds::zero()) {
+                    retry_delay = std::chrono::duration_cast<
+                        std::chrono::milliseconds>(
+                        std::min(attached.retry_after,
+                                 std::chrono::seconds{5}));
+                }
             }
         } else {
             failure_ = connected.status.failure == ChainFailure::None
@@ -265,20 +284,20 @@ LoginChain::Action LoginChain::connect_gateway_and_handoff(
             failure_detail_ = connected.status.detail;
         }
 
-        if (retake_ticket) {
+        if (restart_login) {
             failure_ = ChainFailure::TicketRejected;
-            failure_detail_ = "号牌被网关判过期,回排队重取";
-            return Action::RetakeTicket;
+            failure_detail_ = "Admission Grant 无效,重新验证身份";
+            return Action::RestartLogin;
         }
-        if (!within_admit_grace(Clock::now())) {
+        if (!within_admission_grant_window(Clock::now())) {
             failure_ = ChainFailure::TicketRejected;
-            failure_detail_ = "放行宽限耗尽,号牌需重取";
-            return Action::RetakeTicket;
+            failure_detail_ = "Admission Grant 窗口耗尽,重新验证身份";
+            return Action::RestartLogin;
         }
         if (Clock::now() >= deadline) {
             return Action::Failed;
         }
-        wait_for(config_.gateway_retry_delay, deadline);
+        wait_for(retry_delay, deadline);
     }
 }
 
@@ -333,7 +352,7 @@ LoginResult LoginChain::run(LoginRun request) {
     last_poll_interval_ = std::chrono::milliseconds{0};
     eta_.reset();
     admitted_at_ = TimePoint{};
-    admit_grace_ = config_.admit_grace_fallback;
+    admission_grant_ttl_ = config_.admit_grace_fallback;
     polling_profile_ = request.polling_profile();
 
     const auto target = request.target();
@@ -345,22 +364,22 @@ LoginResult LoginChain::run(LoginRun request) {
         return fail(LoginStage::Idle);
     }
 
-    set_stage(LoginStage::Verifying);
-    const auto verified =
-        transport_.verify(request.account(), request.credential(), deadline);
-    if (!verified.status.ok) {
-        failure_ = verified.status.failure;
-        failure_detail_ = verified.status.detail;
-        set_stage(LoginStage::Idle);
-        return fail(LoginStage::Idle);
-    }
-    credentials_.identity_token = verified.value.identity_token;
-    if (target == LoginTarget::Verify) {
-        return LoginResult{LoginSuccess{
-            VerifySuccess{credentials_.identity_token}}};
-    }
-
     for (;;) {
+        set_stage(LoginStage::Verifying);
+        const auto verified = transport_.verify(
+            request.account(), request.credential(), deadline);
+        if (!verified.status.ok) {
+            failure_ = verified.status.failure;
+            failure_detail_ = verified.status.detail;
+            set_stage(LoginStage::Idle);
+            return fail(LoginStage::Idle);
+        }
+        credentials_.identity_token = verified.value.identity_token;
+        if (target == LoginTarget::Verify) {
+            return LoginResult{LoginSuccess{
+                VerifySuccess{credentials_.identity_token}}};
+        }
+
         set_stage(LoginStage::Queued);
         if (take_ticket(deadline) == Action::Failed) {
             set_stage(LoginStage::Idle);
@@ -377,15 +396,15 @@ LoginResult LoginChain::run(LoginRun request) {
             set_stage(LoginStage::Idle);
             return fail(LoginStage::Idle);
         }
-        if (admitted == Action::RetakeTicket) {
+        if (admitted == Action::RestartLogin) {
             continue;
         }
         if (target == LoginTarget::Poll) {
             return LoginResult{LoginSuccess{PollSuccess{
-                credentials_.admitted_token, credentials_.number, eta_}}};
+                credentials_.admission_grant, credentials_.number, eta_}}};
         }
 
-        bool retake_ticket = false;
+        bool restart_login = false;
         for (;;) {
             std::unique_ptr<GatewaySession> gateway_session;
             const auto gateway =
@@ -394,8 +413,8 @@ LoginResult LoginChain::run(LoginRun request) {
                 set_stage(LoginStage::Idle);
                 return fail(LoginStage::Idle);
             }
-            if (gateway == Action::RetakeTicket) {
-                retake_ticket = true;
+            if (gateway == Action::RestartLogin) {
+                restart_login = true;
                 break;
             }
 
@@ -425,20 +444,20 @@ LoginResult LoginChain::run(LoginRun request) {
                 return LoginResult{LoginSuccess{FullSuccess{
                     std::move(realm_session), credentials_.number, eta_}}};
             }
-            if (realm == Action::RetakeTicket) {
-                retake_ticket = true;
+            if (realm == Action::RestartLogin) {
+                restart_login = true;
                 break;
             }
             if (Clock::now() >= deadline) {
                 set_stage(LoginStage::Idle);
                 return fail(LoginStage::Idle);
             }
-            if (!within_admit_grace(Clock::now())) {
-                retake_ticket = true;
+            if (!within_admission_grant_window(Clock::now())) {
+                restart_login = true;
                 break;
             }
         }
-        if (!retake_ticket) {
+        if (!restart_login) {
             return fail(stage_);
         }
     }

@@ -21,11 +21,18 @@ using TimePoint = Clock::time_point;
 
 enum class PortFailureCategory { Protocol, Transport, Timeout };
 
+/// Recovery selected by a transport operation. Retry keeps the current
+/// credential chain; Restart discards Queue Number/Admission Grant and
+/// starts again at Login Verifier.
+enum class PortRecovery { Retry, Restart };
+
 struct PortStatus final {
     bool ok{false};
     ChainFailure failure{ChainFailure::None};
     bool credential_expired{false};
     PortFailureCategory category{PortFailureCategory::Protocol};
+    PortRecovery recovery{PortRecovery::Retry};
+    std::chrono::seconds retry_after{0};
     std::string detail;
 
     [[nodiscard]] static PortStatus success();
@@ -33,7 +40,9 @@ struct PortStatus final {
         ChainFailure failure,
         std::string detail = {},
         bool credential_expired = false,
-        PortFailureCategory category = PortFailureCategory::Protocol);
+        PortFailureCategory category = PortFailureCategory::Protocol,
+        PortRecovery recovery = PortRecovery::Retry,
+        std::chrono::seconds retry_after = std::chrono::seconds{0});
 };
 
 template <typename T>
@@ -57,10 +66,11 @@ struct ProgressResult final {
 };
 
 struct TicketMeResult final {
-    bool admitted{false};
     std::uint64_t position{0};
-    std::string admitted_token;
-    std::chrono::seconds admit_grace{0};
+    /// Empty while queued; populated only with the short-lived Admission
+    /// Grant once the Queue Number's release window is open.
+    std::string admission_grant;
+    std::chrono::seconds admission_grant_ttl{0};
 };
 
 struct HandoffResult final {
@@ -110,7 +120,7 @@ public:
     virtual PortStatus attach(
         GatewaySession& session,
         std::string_view identity_token,
-        std::string_view queue_number_token,
+        std::string_view admission_grant,
         TimePoint deadline) = 0;
     virtual PortValue<HandoffResult> await_handoff(
         GatewaySession& session,
@@ -212,7 +222,7 @@ struct TicketsSuccess final {
     std::uint64_t number{0};
 };
 struct PollSuccess final {
-    std::string admitted_token;
+    std::string admission_grant;
     std::uint64_t number{0};
     std::optional<std::chrono::seconds> eta;
 };
@@ -296,10 +306,10 @@ private:
         std::string identity_token;
         std::string queue_number_token;
         std::uint64_t number{0};
-        std::string admitted_token;
+        std::string admission_grant;
         std::string enter_realm_ticket;
     };
-    enum class Action { Advanced, RetakeTicket, Failed };
+    enum class Action { Advanced, RestartLogin, Failed };
 
     [[nodiscard]] Action poll_until_admitted(TimePoint deadline);
     [[nodiscard]] Action connect_gateway_and_handoff(
@@ -310,7 +320,7 @@ private:
         std::unique_ptr<RealmSession>& session_out);
     [[nodiscard]] Action take_ticket(TimePoint deadline);
 
-    [[nodiscard]] bool within_admit_grace(TimePoint now) const;
+    [[nodiscard]] bool within_admission_grant_window(TimePoint now) const;
     [[nodiscard]] LoginResult fail(LoginStage stage) const;
     void set_stage(LoginStage stage) noexcept { stage_ = stage; }
     void wait_for(std::chrono::milliseconds duration, TimePoint deadline);
@@ -326,7 +336,7 @@ private:
     std::optional<std::chrono::seconds> eta_;
     std::vector<network::client::EndpointCandidate> realm_endpoints_;
     TimePoint admitted_at_{};
-    std::chrono::seconds admit_grace_{0};
+    std::chrono::seconds admission_grant_ttl_{0};
     PollingProfile polling_profile_{PollingProfile::ClientRealistic};
 };
 

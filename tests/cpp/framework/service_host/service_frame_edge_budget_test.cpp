@@ -473,7 +473,7 @@ protected:
             runtime_->local_endpoints().front().port));
         game::common::EdgeAttach message;
         message.set_identity_token(std::move(identity_token));
-        message.set_queue_number_token(std::move(number_token));
+        message.set_admission_grant(std::move(number_token));
         const network::LengthFieldCodec codec(1024);
         client->send(codec.encode(game::common::encode(message, request_id)));
         client_ = client.get();

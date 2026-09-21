@@ -200,7 +200,7 @@ private:
             }
             return json_response(
                 200,
-                "{\"admit_grant\":{\"queue_number_token\":\"grant-1\","
+                "{\"admit_grant\":{\"admission_grant\":\"grant-1\","
                 "\"number\":100,\"expires_in\":" +
                     std::to_string(admit_grace_seconds) +
                     "},\"status\":\"admitted\",\"position\":0,"
@@ -268,7 +268,7 @@ private:
             last_identity_token_ =
                 attach.has_value() ? attach->identity_token() : std::string{};
             last_number_token_ = attach.has_value()
-                                     ? attach->queue_number_token()
+                                     ? attach->admission_grant()
                                      : std::string{};
         }
 
@@ -277,8 +277,8 @@ private:
             common::EdgeError error;
             error.set_code(
                 static_cast<std::uint32_t>(
-                    common::edge_error_invalid_queue_number));
-            error.set_message("number token expired");
+                    common::edge_error_invalid_credentials));
+            error.set_message("admission grant expired");
             send(session_id, common::encode(error));
             return;
         }
@@ -513,10 +513,10 @@ TEST(WireLoginTransportIntegrationTest, DrivesLoginChainOverRealTls) {
     EXPECT_NE(success->session, nullptr);
     EXPECT_EQ(success->number, 100U);
 
-    // HTTP 段:verify 一次;查号三次(首查被 401+2001 判号牌过期→重取号,
-    // 新号首查仍 queued,progress 追上号值后第三次拿到放行凭证);
-    // progress 两次(首次未放行,第二次放行);tickets 两次(重取)。
-    EXPECT_EQ(http.count_of("/v1/login/verify"), 1);
+    // HTTP 段:首个 Queue Number 无效时整条凭据链从 Login Verifier 重启,
+    // 因此 verify/tickets 都执行两次；新号首查仍 queued，progress 追上号值
+    // 后拿到 Admission Grant。
+    EXPECT_EQ(http.count_of("/v1/login/verify"), 2);
     EXPECT_EQ(http.count_of("/v1/queue/tickets"), 2);
     EXPECT_EQ(http.count_of("/v1/queue/progress"), 2);
     EXPECT_EQ(http.count_of("/v1/queue/tickets/me"), 3);
@@ -540,7 +540,7 @@ TEST(WireLoginTransportIntegrationTest, DrivesLoginChainOverRealTls) {
     // 网关段:QUIC 候选即时被否,TLS/TCP 真的承载了 attach 帧。
     EXPECT_EQ(edge.attach_calls.load(), 1);
     EXPECT_EQ(edge.last_identity_token(), "identity-1");
-    // admit 后用重签号牌 attach,不是原始号牌。
+    // admitted 后只用 Admission Grant attach，不发送 Queue Number。
     EXPECT_EQ(edge.last_number_token(), "grant-1");
     EXPECT_EQ(edge.handoff_sent.load(), 1);
 
@@ -551,7 +551,7 @@ TEST(WireLoginTransportIntegrationTest, DrivesLoginChainOverRealTls) {
 
 /// attach 被 1999 + 2001 拒(号牌过期):真实帧路径上同样自动重取号牌,
 /// 不需要人类重新登录(spec §7 回退规则)。
-TEST(WireLoginTransportIntegrationTest, AttachRejectionRetakesNumberToken) {
+TEST(WireLoginTransportIntegrationTest, AttachRejectionRestartsLogin) {
     const std::array<network::TransportConfig, 1> configs{gateway_config()};
     auto transports = network::TransportFactory::create_enabled(configs);
     ASSERT_EQ(transports.size(), 1U);
@@ -582,10 +582,11 @@ TEST(WireLoginTransportIntegrationTest, AttachRejectionRetakesNumberToken) {
     ASSERT_NE(result.success(), nullptr);
     const auto* success = std::get_if<FullSuccess>(result.success());
     ASSERT_NE(success, nullptr);
-    // 两次 attach 都是真实帧:第一次被 2001 拒,第二次放行并交付。
+    // 两次 attach 都是真实帧:第一次被无效凭据拒,第二次放行并交付。
     EXPECT_EQ(edge.attach_calls.load(), 2);
     EXPECT_EQ(edge.handoff_sent.load(), 1);
     EXPECT_EQ(http.count_of("/v1/queue/tickets"), 2);
+    EXPECT_EQ(http.count_of("/v1/login/verify"), 2);
     EXPECT_EQ(success->number, 100U);
     // 第二次 attach 交付的真实票据同样被 Realm 段受理。
     EXPECT_FALSE(edge.last_enter_realm_ticket().empty());

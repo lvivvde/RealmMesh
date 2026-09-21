@@ -519,7 +519,7 @@ TEST(NewChainFlowTest, AttachesToGatewayAndEntersRealm) {
     auto gateway_socket = connect_when_ready(gateway_port);
     EdgeAttach attach;
     attach.set_identity_token(identity_token("bbbb000000000001bbbb000000000001"));
-    attach.set_queue_number_token(number_token());
+    attach.set_admission_grant(number_token());
     send_message(gateway_socket, encode(attach, 1));
     const auto accepted_wire = receive_message(gateway_socket);
     EXPECT_EQ(edge_request_id(accepted_wire), 1);

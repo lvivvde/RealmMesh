@@ -207,7 +207,7 @@ protected:
         std::uint64_t request_id = 1) {
         common::EdgeAttach attach;
         attach.set_identity_token(identity);
-        attach.set_queue_number_token(number);
+        attach.set_admission_grant(number);
         transport.push_event({
             .kind = GatewayEventKind::MessageReceived,
             .session_id = session_id,

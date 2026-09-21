@@ -52,11 +52,11 @@ message HeartbeatRequest {}
 message HeartbeatResponse {}
 
 // Gateway 登录管线凭据提交:身份 Token(iss=realmmesh/login-verify)+
-// admitted 排队号牌(iss=realmmesh/queue)。网关在 pending→fetching
-// 迁移处单次消费身份 Token 的 jti。
+// Admission Grant(iss=realmmesh/queue)。字段编号 2 保持不变，以便在
+// 原子切换期间保留 protobuf wire compatibility；它绝不再承载 Queue Number。
 message EdgeAttach {
   string identity_token = 1;
-  string queue_number_token = 2;
+  string admission_grant = 2;
 }
 
 message EdgeAttachAccepted {

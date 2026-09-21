@@ -8,8 +8,9 @@
 namespace realm::network::client {
 
 /// 服务响应体的字段提取(轻量扫描):JsonCodec 只编扁平对象,而放行
-/// 响应的 admit_grant 是嵌套拼接体;token 值为 base64url/数字等无转义
-/// 字符,故按 `"name":"value"` 直接扫描。缺失返回 nullopt。
+/// 响应的 admit_grant 是嵌套拼接体;Admission Grant 值为
+/// base64url/数字等无转义字符,故按 `"name":"value"` 直接扫描。缺失
+/// 返回 nullopt。
 [[nodiscard]] std::optional<std::string> extract_json_string_field(
     std::string_view body,
     std::string_view name);

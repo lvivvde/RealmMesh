@@ -108,11 +108,11 @@ MetricsLoginChainTransport::connect_gateway(
 client::PortStatus MetricsLoginChainTransport::attach(
     client::GatewaySession& session,
     std::string_view identity_token,
-    std::string_view queue_number_token,
+    std::string_view admission_grant,
     client::TimePoint deadline) {
     const auto started = client::Clock::now();
     auto status = inner_.attach(
-        session, identity_token, queue_number_token, deadline);
+        session, identity_token, admission_grant, deadline);
     record(counters_.attach, status, started, FailureKind::AttachRejected,
            FailureKind::AttachTimeout);
     return status;

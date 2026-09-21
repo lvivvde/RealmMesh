@@ -19,8 +19,12 @@ namespace net_client = ::realm::network::client;
 
 [[nodiscard]] PortStatus failure_of(ChainFailure failure,
                                     std::string detail = {},
-                                    bool credential_expired = false) {
-    return PortStatus::error(failure, std::move(detail), credential_expired);
+                                    bool credential_expired = false,
+                                    PortRecovery recovery = PortRecovery::Retry) {
+    return PortStatus::error(
+        failure, std::move(detail), credential_expired,
+        PortFailureCategory::Protocol,
+        credential_expired ? PortRecovery::Restart : recovery);
 }
 
 template <typename T>
@@ -69,9 +73,8 @@ template <typename T>
     std::string grant_token,
     std::chrono::seconds grace = std::chrono::seconds{300}) {
     TicketMeResult value;
-    value.admitted = true;
-    value.admitted_token = std::move(grant_token);
-    value.admit_grace = grace;
+    value.admission_grant = std::move(grant_token);
+    value.admission_grant_ttl = grace;
     return ok_value(std::move(value));
 }
 
@@ -171,11 +174,11 @@ public:
 
     PortStatus attach(GatewaySession&,
                       std::string_view identity_token,
-                      std::string_view queue_number_token,
+                      std::string_view admission_grant,
                       TimePoint deadline) override {
         deadlines.push_back(deadline);
         last_identity_token = std::string{identity_token};
-        last_number_token = std::string{queue_number_token};
+        last_admission_grant = std::string{admission_grant};
         return pick(attach_results, attach_calls++);
     }
 
@@ -234,6 +237,7 @@ public:
     std::string last_credential;
     std::string last_identity_token;
     std::string last_number_token;
+    std::string last_admission_grant;
     std::string last_enter_realm_ticket;
     std::vector<net_client::EndpointCandidate> gateway_candidates;
     std::vector<net_client::EndpointCandidate> realm_candidates;
@@ -306,7 +310,7 @@ TEST(LoginChainTest, HappyPathWalksSevenStatesAndFillsCredentials) {
     EXPECT_EQ(transport.last_account, "alice");
     EXPECT_EQ(transport.last_credential, "secret");
     // admit 阶段的 attach 用重签号牌,不是原始号牌。
-    EXPECT_EQ(transport.last_number_token, "grant-1");
+    EXPECT_EQ(transport.last_admission_grant, "grant-1");
     EXPECT_EQ(transport.last_enter_realm_ticket, "enter-realm-ticket-1");
 
     EXPECT_EQ(transport.verify_calls, 1);
@@ -369,8 +373,8 @@ TEST(LoginChainTest, TicketRejectionReturnsToIdleBeforePolling) {
     EXPECT_EQ(transport.gateway_calls, 0);
 }
 
-/// 号牌过期(401/2001)→ 自动重取,不需要人类介入(spec §7)。
-TEST(LoginChainTest, ExpiredNumberTokenRetakesTicketAutomatically) {
+/// Queue Number 过期时丢弃整条链,从 Login Verifier 重新开始。
+TEST(LoginChainTest, ExpiredNumberTokenRestartsLoginAutomatically) {
     ScriptedTransport transport;
     transport.ticket_results = {ticketed("number-token-1", 100),
                                ticketed("number-token-2", 200)};
@@ -387,12 +391,13 @@ TEST(LoginChainTest, ExpiredNumberTokenRetakesTicketAutomatically) {
         run_full(chain, "alice", "secret", few_seconds_from_now());
 
     EXPECT_TRUE(result.succeeded());
+    EXPECT_EQ(transport.verify_calls, 2);
     EXPECT_EQ(transport.ticket_calls, 2);
     EXPECT_EQ(full_success_of(result).number, 200U);
 }
 
-/// 宽限内 attach 被拒(2001)→ 回排队重取号牌。
-TEST(LoginChainTest, ExpiredNumberTokenOnAttachRetakesTicket) {
+/// Admission Grant 被拒→丢弃整条链,从 Login Verifier 重新开始。
+TEST(LoginChainTest, ExpiredAdmissionGrantRestartsLogin) {
     ScriptedTransport transport;
     transport.ticket_results = {ticketed("number-token-1", 100),
                                ticketed("number-token-2", 200)};
@@ -410,6 +415,7 @@ TEST(LoginChainTest, ExpiredNumberTokenOnAttachRetakesTicket) {
         run_full(chain, "alice", "secret", few_seconds_from_now());
 
     EXPECT_TRUE(result.succeeded());
+    EXPECT_EQ(transport.verify_calls, 2);
     EXPECT_EQ(transport.ticket_calls, 2);
     EXPECT_EQ(transport.attach_calls, 2);
 }
@@ -579,7 +585,7 @@ TEST(LoginChainTest, FirstQueryAdmitsWithoutWaitingForProgress) {
     EXPECT_TRUE(result.succeeded());
     EXPECT_EQ(transport.progress_calls, 0);
     EXPECT_EQ(transport.me_calls, 1);
-    EXPECT_EQ(transport.last_number_token, "grant-1");
+    EXPECT_EQ(transport.last_admission_grant, "grant-1");
 }
 
 /// deadline 是整条链的唯一绝对截止点:阶段推进不得重置或延长窗口。

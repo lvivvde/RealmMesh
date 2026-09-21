@@ -47,8 +47,8 @@ public:
         std::string_view,
         client::TimePoint) override {
         client::TicketMeResult result;
-        result.admitted = true;
-        result.admitted_token = "grant";
+        result.admission_grant = "grant";
+        result.admission_grant_ttl = std::chrono::seconds{300};
         return value_with(ticket_me_status, std::move(result));
     }
 

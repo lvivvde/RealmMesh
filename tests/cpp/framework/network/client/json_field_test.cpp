@@ -18,14 +18,13 @@ TEST(ExtractJsonStringFieldTest, ReadsIdentityTokenFromVerifyResponse) {
     EXPECT_EQ(extract_json_string_field(body, "missing"), std::nullopt);
 }
 
-TEST(ExtractJsonStringFieldTest, ReadsGrantFromNestedAdmitObject) {
-    // 放行响应:admit_grant 嵌套拼接(服务端 JsonCodec 只编扁平对象),
-    // grant 是响应体内首个 queue_number_token。
+TEST(ExtractJsonStringFieldTest, ReadsAdmissionGrantFromNestedAdmitObject) {
+    // 放行响应:admit_grant 嵌套拼接(服务端 JsonCodec 只编扁平对象)。
     const std::string_view body =
-        R"({"admit_grant":{"queue_number_token":"grant-token","number":7,)"
+        R"({"admit_grant":{"admission_grant":"grant-token","number":7,)"
         R"("expires_in":60},"status":"admitted","position":0,)"
         R"("estimated_wait_seconds":0})";
-    const auto grant = extract_json_string_field(body, "queue_number_token");
+    const auto grant = extract_json_string_field(body, "admission_grant");
     ASSERT_TRUE(grant.has_value());
     EXPECT_EQ(*grant, "grant-token");
     EXPECT_EQ(extract_json_string_field(body, "status"), "admitted");

@@ -219,12 +219,12 @@ TEST(SessionTicketsTest, EnterRealmPurposeRoundTripsAndRejectsWrongPurpose) {
 TEST(EdgeProtocolTest, RoundTripsTheGatewayAndRealmMessages) {
     EdgeAttach attach;
     attach.set_identity_token("identity.jws");
-    attach.set_queue_number_token("queue.jws");
+        attach.set_admission_grant("grant.jws");
     const auto encoded_attach = encode(attach, 42);
     const auto decoded_attach = decode_edge_attach(encoded_attach);
     ASSERT_TRUE(decoded_attach.has_value());
     EXPECT_EQ(decoded_attach->identity_token(), "identity.jws");
-    EXPECT_EQ(decoded_attach->queue_number_token(), "queue.jws");
+    EXPECT_EQ(decoded_attach->admission_grant(), "grant.jws");
     EXPECT_EQ(edge_request_id(encoded_attach), 42);
     EXPECT_EQ(edge_message_id(encoded_attach), edge_v1::MESSAGE_ID_C2S_EDGE_ATTACH);
     EXPECT_FALSE(decode_enter_realm(encoded_attach).has_value());

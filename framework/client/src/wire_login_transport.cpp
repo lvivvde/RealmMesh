@@ -67,6 +67,32 @@ namespace net_client = ::realm::network::client;
            error.message();
 }
 
+struct EdgeErrorRecovery final {
+    PortRecovery recovery{PortRecovery::Retry};
+    std::chrono::seconds retry_after{0};
+};
+
+[[nodiscard]] EdgeErrorRecovery classify_edge_error(
+    const common::EdgeError& error) {
+    EdgeErrorRecovery result;
+    switch (static_cast<int>(error.code())) {
+    case common::edge_error_invalid_credentials:
+    case common::edge_error_invalid_queue_number:
+        result.recovery = PortRecovery::Restart;
+        break;
+    case common::edge_error_admission_in_progress:
+    case common::edge_error_admission_unavailable:
+    case common::edge_error_attach_out_of_budget:
+    case common::edge_error_throttled:
+        result.retry_after = std::chrono::seconds{
+            std::min<std::uint32_t>(error.retry_after_seconds(), 5U)};
+        break;
+    default:
+        break;
+    }
+    return result;
+}
+
 class WireGatewaySession final : public GatewaySession {
 public:
     WireGatewaySession(
@@ -329,7 +355,9 @@ PortValue<TicketMeResult> WireLoginTransport::ticket_me(
                          common::edge_error_invalid_queue_number)) {
             result.status = PortStatus::error(
                 ChainFailure::TicketRejected, "号牌无效或已过期",
-                /*credential_expired=*/true);
+                /*credential_expired=*/true,
+                PortFailureCategory::Protocol,
+                PortRecovery::Restart);
             return result;
         }
         result.status = PortStatus::error(
@@ -345,21 +373,27 @@ PortValue<TicketMeResult> WireLoginTransport::ticket_me(
         return result;
     }
     if (*status == "admitted") {
-        // 放行凭证嵌在 admit_grant 内(服务端只编扁平对象的拼接体),是
-        // 响应体首个 queue_number_token;expires_in 即宽限秒数(spec §4)。
-        const auto grant = net_client::extract_json_string_field(
+        // 当前排队服把 Grant 嵌在 admit_grant 中；旧 handler 在 #82
+        // 原子切换前仍使用 queue_number_token 这个内层名字，仅作有界兼容。
+        const auto named_grant = net_client::extract_json_string_field(
+            response->body, "admission_grant");
+        const auto legacy_grant = net_client::extract_json_string_field(
             response->body, "queue_number_token");
+        const auto& grant =
+            named_grant.has_value() ? named_grant : legacy_grant;
         if (!grant.has_value() || grant->empty()) {
             result.status = PortStatus::error(ChainFailure::ProgressFailed,
-                                              "放行响应缺号牌重签");
+                                              "放行响应缺 Admission Grant",
+                                              false,
+                                              PortFailureCategory::Protocol,
+                                              PortRecovery::Restart);
             return result;
         }
-        result.value.admitted = true;
-        result.value.admitted_token = *grant;
+        result.value.admission_grant = *grant;
         if (const auto grace =
-                net_client::extract_json_int_field(response->body, "expires_in");
+            net_client::extract_json_int_field(response->body, "expires_in");
             grace.has_value() && *grace > 0) {
-            result.value.admit_grace = std::chrono::seconds{*grace};
+            result.value.admission_grant_ttl = std::chrono::seconds{*grace};
         }
         result.status = PortStatus::success();
         return result;
@@ -426,7 +460,7 @@ PortValue<std::unique_ptr<GatewaySession>> WireLoginTransport::connect_gateway(
 
 PortStatus WireLoginTransport::attach(GatewaySession& session,
                                       std::string_view identity_token,
-                                      std::string_view queue_number_token,
+                                      std::string_view admission_grant,
                                       TimePoint deadline) {
     auto* wire_session = dynamic_cast<WireGatewaySession*>(&session);
     if (wire_session == nullptr) {
@@ -436,7 +470,7 @@ PortStatus WireLoginTransport::attach(GatewaySession& session,
     auto& edge = wire_session->edge();
     common::EdgeAttach message;
     message.set_identity_token(std::string{identity_token});
-    message.set_queue_number_token(std::string{queue_number_token});
+    message.set_admission_grant(std::string{admission_grant});
     if (!edge.send_frame(common::encode(message, 0), deadline)) {
         return PortStatus::error(ChainFailure::AttachRejected,
                                  "attach 帧发送失败", false,
@@ -458,15 +492,24 @@ PortStatus WireLoginTransport::attach(GatewaySession& session,
         }
         if (*message_id == edge_v1::MESSAGE_ID_S2C_ERROR) {
             const auto error = common::decode_edge_error(*payload);
-            // 2001:号牌无效/过期 → 交由上层自动重取(spec §7)。
-            const bool expired =
-                error.has_value() &&
-                static_cast<int>(error->code()) ==
-                    common::edge_error_invalid_queue_number;
+            bool credential_expired = false;
+            auto recovery = PortRecovery::Retry;
+            std::chrono::seconds retry_after{0};
+            if (error.has_value()) {
+                const auto code = static_cast<int>(error->code());
+                credential_expired =
+                    code == common::edge_error_invalid_queue_number;
+                const auto classified = classify_edge_error(*error);
+                recovery = classified.recovery;
+                retry_after = classified.retry_after;
+            }
             return PortStatus::error(
                 ChainFailure::AttachRejected,
                 error.has_value() ? edge_error_detail(*error) : "attach 被拒",
-                expired);
+                credential_expired,
+                PortFailureCategory::Protocol,
+                recovery,
+                retry_after);
         }
         // 其余帧(不应出现):忽略继续等受理。
     }
@@ -517,9 +560,20 @@ PortValue<HandoffResult> WireLoginTransport::await_handoff(
         }
         if (*message_id == edge_v1::MESSAGE_ID_S2C_ERROR) {
             const auto error = common::decode_edge_error(*payload);
+            auto recovery = PortRecovery::Retry;
+            std::chrono::seconds retry_after{0};
+            if (error.has_value()) {
+                const auto classified = classify_edge_error(*error);
+                recovery = classified.recovery;
+                retry_after = classified.retry_after;
+            }
             result.status = PortStatus::error(
                 ChainFailure::HandoffRejected,
-                error.has_value() ? edge_error_detail(*error) : "交付被拒");
+                error.has_value() ? edge_error_detail(*error) : "交付被拒",
+                false,
+                PortFailureCategory::Protocol,
+                recovery,
+                retry_after);
             return result;
         }
     }

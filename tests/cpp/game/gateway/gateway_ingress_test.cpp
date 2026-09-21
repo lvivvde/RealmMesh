@@ -52,7 +52,7 @@ TEST(GatewayCredentialIngressTest, RejectsMalformedBeforeVerification) {
     });
     common::EdgeAttach attach;
     attach.set_identity_token("not-a-jws");
-    attach.set_queue_number_token("not-a-jws");
+    attach.set_admission_grant("not-a-jws");
     const auto payload = common::encode(attach);
     const auto check = ingress.inspect_attach(
         "192.0.2.10", 1, payload, std::chrono::steady_clock::now());

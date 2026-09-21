@@ -396,7 +396,7 @@ public:
         }
         if (attach->identity_token().size() >
                 config_.max_identity_token_bytes ||
-            attach->queue_number_token().size() >
+            attach->admission_grant().size() >
                 config_.max_admission_grant_bytes) {
             return reject(GatewayIngressStatus::Oversized);
         }
@@ -405,7 +405,7 @@ public:
                 config_.max_identity_token_bytes,
                 config_.max_token_decoded_bytes) ||
             !bounded_compact_jws(
-                attach->queue_number_token(),
+                attach->admission_grant(),
                 config_.max_admission_grant_bytes,
                 config_.max_token_decoded_bytes)) {
             return reject(GatewayIngressStatus::Malformed);

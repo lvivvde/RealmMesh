@@ -98,7 +98,7 @@ public:
     [[nodiscard]] PortStatus attach(
         GatewaySession& session,
         std::string_view identity_token,
-        std::string_view queue_number_token,
+        std::string_view admission_grant,
         TimePoint deadline) override;
     [[nodiscard]] PortValue<HandoffResult> await_handoff(
         GatewaySession& session,

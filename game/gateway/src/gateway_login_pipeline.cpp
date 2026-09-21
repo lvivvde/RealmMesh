@@ -302,12 +302,11 @@ private:
             const auto owner = gateway_instance_ + "/" +
                 std::to_string(event.session_id.value) + "/" +
                 std::to_string(next_admission_attempt_id_++);
-            // #83 会把 protobuf accessor 改名为 admission_grant；字段值在
-            // 此分阶段入口中已经按 Admission Grant 验证，绝不按 Queue
-            // Number 解释。
+            // Admission Grant is the only credential accepted at this seam;
+            // Queue Number remains a queue-position credential only.
             auto started = admission_->reserve(
                 attach.identity_token(),
-                attach.queue_number_token(),
+                attach.admission_grant(),
                 owner,
                 frame.verification_now);
             if (started.status != GatewayAdmissionStartStatus::Reserved ||
@@ -371,7 +370,7 @@ private:
             return;
         }
         const auto number = number_codec_->validate(
-            attach.queue_number_token(), frame.verification_now);
+            attach.admission_grant(), frame.verification_now);
         if (!number.has_value() || !number->admitted) {
             record_credential_result("invalid");
             schedule_decline(

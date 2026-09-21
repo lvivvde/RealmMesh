@@ -44,7 +44,7 @@ public:
     client::PortStatus attach(
         client::GatewaySession& session,
         std::string_view identity_token,
-        std::string_view queue_number_token,
+        std::string_view admission_grant,
         client::TimePoint deadline) override;
     client::PortValue<client::HandoffResult> await_handoff(
         client::GatewaySession& session,
