@@ -1085,7 +1085,8 @@ TEST(LoadgenIntegrationTest, M2ReducedChainCompletesWithLowFetchFailure) {
     TestEtcd etcd;
     use_loadgen_free_ports(
         scratch.path(), login_verify_port, queue_port, gateway_port,
-        ports.at(3), etcd.endpoint(), true, false, false);
+        ports.at(3), etcd.endpoint(), true, false, false,
+        /*relax_ingress_limits=*/true);
     write_robot_accounts(scratch.path(), 250);
 
     service_host::MeshHost mesh(
