@@ -16,6 +16,11 @@ function(add_dev_services_test name test_case timeout)
         LABELS integration
         RUN_SERIAL TRUE
         TIMEOUT "${timeout}"
+        # dev-services.sh 用 ps 识别服务进程。受限沙箱里 ps 会被拒绝,那套
+        # 用例既判不了就绪也停不掉服务;此时脚本以 77 退出,ctest 报 Skipped
+        # 并打印原因,而不是给一个看起来像代码缺陷的失败。CI 上 ps 可用,
+        # 用例照常真跑。
+        SKIP_RETURN_CODE 77
     )
 endfunction()
 

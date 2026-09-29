@@ -9,6 +9,18 @@ realmmesh_tls_certificate="${4:?TLS certificate is required}"
 realmmesh_tls_private_key="${5:?TLS private key is required}"
 realmmesh_new_chain_test="${6:-}"
 
+# dev-services.sh 用 ps 认服务进程(判断"这个 pid 还是不是我的那个服务")。
+# 拿不到 ps 的环境里(受限沙箱会把 /bin/ps 直接拒掉)它既判不了就绪、也停不掉
+# 子进程:用例只会在超时后失败,还会漏下 supervisor/realm_mesh 孤儿。这种
+# "环境不让跑"和"代码坏了"必须区分开——报 Skipped 并说明原因(ctest 侧配
+# SKIP_RETURN_CODE 77),而不是留一条看起来像缺陷的假红。CI 上 ps 可用,用例
+# 照常真跑。
+if ! ps -o pid= -p "$$" >/dev/null 2>&1; then
+    printf '%s\n' \
+        'SKIP: ps is unavailable in this environment, but dev-services.sh needs it to identify service processes' >&2
+    exit 77
+fi
+
 realmmesh_scratch="$(mktemp -d)"
 realmmesh_test_root="${realmmesh_scratch}/RealmMesh"
 realmmesh_script="${realmmesh_test_root}/scripts/dev-services.sh"
@@ -46,6 +58,12 @@ cleanup() {
     if [[ -f "${realmmesh_script}" ]]; then
         bash "${realmmesh_script}" stop >/dev/null 2>&1 || true
     fi
+    # 用例自带的 etcd:必须在 pid 文件清理之前收掉,否则下一条用例会看到
+    # 上一轮残留的准入消费记录(重放断言会因此误判)。
+    if [[ -n "${realmmesh_etcd_pid:-}" ]]; then
+        kill -TERM "${realmmesh_etcd_pid}" 2>/dev/null || true
+        wait "${realmmesh_etcd_pid}" 2>/dev/null || true
+    fi
     local realmmesh_pid_file
     for realmmesh_pid_file in "${realmmesh_test_root}"/.runtime/pids/*.pid; do
         [[ -f "${realmmesh_pid_file}" ]] || continue
@@ -59,6 +77,10 @@ cleanup() {
     return "${realmmesh_status}"
 }
 trap cleanup EXIT
+# 超时路径必须自己接住信号:bash 被 TERM/INT 打断时不会执行 EXIT trap,
+# 用例自带的 etcd 就会变成孤儿(实测泄漏过 9 个 etcd)。
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 mkdir -p "${realmmesh_test_root}/scripts/lib" \
     "${realmmesh_test_root}/build/dev/bin" \
@@ -101,7 +123,7 @@ import socket
 
 chosen = []
 sockets = []
-while len(chosen) < 4:
+while len(chosen) < 6:
     port = random.randint(20000, 30000)
     if port in chosen:
         continue
@@ -121,6 +143,64 @@ realmmesh_realm_port="${realmmesh_ports[0]}"
 realmmesh_gateway_port="${realmmesh_ports[1]}"
 realmmesh_realm_metrics_port="${realmmesh_ports[2]}"
 realmmesh_gateway_metrics_port="${realmmesh_ports[3]}"
+realmmesh_etcd_client_port="${realmmesh_ports[4]}"
+realmmesh_etcd_peer_port="${realmmesh_ports[5]}"
+realmmesh_etcd_endpoint="http://127.0.0.1:${realmmesh_etcd_client_port}"
+
+# 网关的准入消费存储是线性一致存储(ADR-0009):服务组必须有**真** etcd,
+# 而且必须是本用例自己的实例——挂在开发者的 2379 上会让消费记录跨用例
+# 存活,重放/单次消费断言会读到上一轮的状态。二进制位置同
+# scripts/run-etcd-dev.sh,缺失即以清晰信息失败而不是跳过链路。
+realmmesh_etcd_binary="${REALMMESH_ETCD_BINARY:-${realmmesh_source_root}/.tools/etcd-v3.6.14/etcd}"
+if [[ ! -x "${realmmesh_etcd_binary}" ]]; then
+    printf 'etcd is required by the gateway admission store; run ./scripts/install-etcd.sh first (looked at %s)\n' \
+        "${realmmesh_etcd_binary}" >&2
+    exit 2
+fi
+realmmesh_etcd_data_dir="${realmmesh_scratch}/etcd-data"
+mkdir -p "${realmmesh_etcd_data_dir}"
+"${realmmesh_etcd_binary}" \
+    --name realmmesh-dev-services-test \
+    --data-dir "${realmmesh_etcd_data_dir}" \
+    --listen-client-urls "${realmmesh_etcd_endpoint}" \
+    --advertise-client-urls "${realmmesh_etcd_endpoint}" \
+    --listen-peer-urls "http://127.0.0.1:${realmmesh_etcd_peer_port}" \
+    --initial-advertise-peer-urls "http://127.0.0.1:${realmmesh_etcd_peer_port}" \
+    --initial-cluster "realmmesh-dev-services-test=http://127.0.0.1:${realmmesh_etcd_peer_port}" \
+    --log-level error > "${realmmesh_scratch}/etcd.log" 2>&1 &
+realmmesh_etcd_pid=$!
+# 客户端端口可连 ≠ etcd 已能服务:选举窗口内它会直接关闭连接(实测
+# "Failed to read connection"),而网关的就绪探测正好会踩进去。用一次真实
+# 写入当就绪判据,而不是靠 sleep 猜——写入的 key 与用例无关,只证明
+# linearizable 写路径已可用。
+realmmesh_etcd_probe_body="$(python3 - <<'PY'
+import base64
+import json
+
+print(json.dumps({
+    "key": base64.b64encode(b"/realmmesh/test/readiness").decode(),
+    "value": base64.b64encode(b"1").decode(),
+}))
+PY
+)"
+realmmesh_etcd_ready=0
+# 预算收紧到秒级:etcd 正常时 1~2 秒内即可写;真起不来就尽快失败,不要
+# 把 ctest 的 20s 用例预算耗在重试上。
+for _ in {1..20}; do
+    if curl --silent --fail --connect-timeout 0.3 --max-time 0.5 \
+        --header 'Content-Type: application/json' \
+        --request POST --data "${realmmesh_etcd_probe_body}" \
+        "${realmmesh_etcd_endpoint}/v3/kv/put" > /dev/null; then
+        realmmesh_etcd_ready=1
+        break
+    fi
+    sleep 0.25
+done
+if [[ "${realmmesh_etcd_ready}" -ne 1 ]]; then
+    printf 'etcd did not accept writes; see %s\n' \
+        "${realmmesh_scratch}/etcd.log" >&2
+    exit 1
+fi
 
 # BSD sed 的 -i 需要一个后缀参数,多段 -e 会被当成文件名("sed: -e: No such
 # file or directory")。用重定向 + mv 重写配置,在 GNU/BSD sed 上行为一致。
@@ -142,13 +222,40 @@ rewrite_config "${realmmesh_test_root}/configs/services/gateway.lua" \
     -e "s/downstream_port = 7100/downstream_port = ${realmmesh_realm_port}/" \
     -e "s/metrics_port = 9103/metrics_port = ${realmmesh_gateway_metrics_port}/"
 
+# 服务发现的 endpoint 由 common 层提供,gateway 与 realm 共用;网关的
+# 准入消费存储正是拿 discovery_config_.endpoint 建 etcd 客户端,所以
+# 这里必须换成用例自己的 etcd,而不是 127.0.0.1:2379。
+rewrite_config "${realmmesh_test_root}/configs/common/discovery.lua" \
+    -e "s|endpoint = \"http://127.0.0.1:2379\"|endpoint = \"${realmmesh_etcd_endpoint}\"|"
+# Queue 的 etcd 存取(额度/快照/放行账本)走自己的配置键。
+rewrite_config "${realmmesh_test_root}/configs/services/queue.lua" \
+    -e "s|etcd_endpoint = \"http://127.0.0.1:2379\"|etcd_endpoint = \"${realmmesh_etcd_endpoint}\"|"
+# sed 不匹配时静默成功;显式核对,避免"以为指到用例 etcd、其实还在用
+# 开发者 2379"这类看不出错的错误。
+grep -q "endpoint = \"${realmmesh_etcd_endpoint}\"" \
+    "${realmmesh_test_root}/configs/common/discovery.lua" || {
+    printf 'failed to point service discovery at the test etcd\n' >&2
+    exit 1
+}
+grep -q "etcd_endpoint = \"${realmmesh_etcd_endpoint}\"" \
+    "${realmmesh_test_root}/configs/services/queue.lua" || {
+    printf 'failed to point the queue store at the test etcd\n' >&2
+    exit 1
+}
+
 export REALMMESH_TLS_CERTIFICATE_FILE="${realmmesh_tls_certificate}"
 export REALMMESH_TLS_PRIVATE_KEY_FILE="${realmmesh_tls_private_key}"
 export REALMMESH_SESSION_TICKET_KEY="0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20"
-# 新链端到端用例要在测试内直接签身份 Token 与号牌:种子必须与网关验签
-# 用的同一份,经环境传进服务组与用例进程。
+# 新链端到端用例要在测试内直接签身份 Token 与 Admission Grant:种子/公钥
+# 必须与各服务验签用的同一份,经环境传进服务组与用例进程。凭据角色不共材
+# (Queue 侧 validate() 会拒绝共享签名密钥),所以三个种子互不相同。
 export REALMMESH_IDENTITY_KEY_SEED="9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60"
-export REALMMESH_QUEUE_KEY_SEED="4ccd089b28ff96da9db6c346ec114e0f5b8a319f35aba624da8cf6ed4fb8a6fb"
+export REALMMESH_QUEUE_NUMBER_KEY_SEED="4ccd089b28ff96da9db6c346ec114e0f5b8a319f35aba624da8cf6ed4fb8a6fb"
+export REALMMESH_ADMISSION_GRANT_KEY_SEED="0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+# 上行种子配对的 Ed25519 公钥,网关键环按 kid 索引它验签。
+export REALMMESH_ADMISSION_GRANT_PUBLIC_KEY="207a067892821e25d770f1fba0c47c11ff4b813e54162ece9eb839e076231ab6"
+# 准入消费记录的摘要键(非可逆):每次用例自己的 etcd 从空开始。
+export REALMMESH_ADMISSION_CONSUMPTION_DIGEST_KEY="fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210"
 export REALMMESH_REALM_METRICS_URL="http://127.0.0.1:${realmmesh_realm_metrics_port}/metrics"
 export REALMMESH_GATEWAY_METRICS_URL="http://127.0.0.1:${realmmesh_gateway_metrics_port}/metrics"
 

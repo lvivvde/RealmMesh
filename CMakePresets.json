@@ -29,6 +29,9 @@
       "configurePreset": "dev",
       "output": {
         "outputOnFailure": true
+      },
+      "execution": {
+        "timeout": 300
       }
     }
   ]
