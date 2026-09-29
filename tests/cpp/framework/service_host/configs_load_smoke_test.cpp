@@ -123,9 +123,8 @@ TEST_F(ConfigsLoadSmokeTest, QueueConfigLoadsThroughDedicatedLoader) {
     // 快照/额度 key 契约(§5.2)与生产 etcd 路径默认值在配置中可见。
     EXPECT_EQ(config.queue.budget_prefix, "/realmmesh/budgets/service");
     EXPECT_EQ(config.queue.snapshot_key, "/realmmesh/queue/snapshot");
-    // 开发配置显式关闭冷备强校验(无 etcd 网状);代码默认必须为 true。
-    EXPECT_FALSE(config.queue.snapshot_required);
-    EXPECT_TRUE((game::queue::QueueConfig{}.snapshot_required));
+    EXPECT_EQ(config.queue.issuance_prefix, "/realmmesh/queue/issuance");
+    // 发号权威依赖 etcd，配置层不提供绕过 fail-closed 的开关。
 }
 
 /// 出厂的 gateway.lua 必须真的能过 #79 的准入配置校验:键环非空、kid 唯一、

@@ -43,7 +43,8 @@
    ./.tools/etcd-v3.6.14/etcdctl --endpoints=http://127.0.0.1:2379 \
        get --prefix --keys-only /realmmesh/admission/consumption
    ```
-   - `/realmmesh/queue/snapshot`（键名以 `queue.snapshot_key` 为准，单键）：排队服权威状态，含 `released_number`、`next_number`、放行批次区间与速率窗口（`game/queue/src/queue_store.cpp`）。
+   - `/realmmesh/queue/snapshot`（键名以 `queue.snapshot_key` 为准，单键）：排队服权威水位，含 `released_number`、`next_number`、放行批次区间与速率窗口（`game/queue/src/queue_store.cpp`）。
+   - `/realmmesh/queue/issuance/`（前缀以 `queue.issuance_prefix` 为准）：未过期登录尝试的 `identity_jti` 摘要到已确认 Queue Number 的恢复映射；与 snapshot 在同一事务提交并按身份到期租约回收。
    - `/realmmesh/admission/consumption` 前缀（以 `admission.consumption_prefix` 为准）：**只查看，不删除**；确认其中没有需要保留的切换前记录（处置规则见 §3 第 8 步）。
 4. **确定排空策略**：选择“等待在途 attach 自然结束”（推荐，已在 Fetching/Handoff 的会话继续完成）或“入口立即拒绝新 attach”。二者都必须停止**新**登录，而不打断已受理的 Edge Session。
 
@@ -64,7 +65,7 @@
    export REALMMESH_TLS_PRIVATE_KEY_FILE="<key>"
    ./build/dev/bin/realm_mesh --config configs --service queue
    ```
-   生产必须保持 `snapshot_required = true`：etcd 不可达或快照损坏时启动失败，不得用 `false` 绕过。
+   Queue 不提供权威状态降级开关：etcd 不可达、快照或发号映射损坏时启动失败。
    → 判据：进程存活且 `realmmesh_service_ready{service_name="queue"}` 为 1（§4）。**停**。
 4. **部署 Gateway**（Admission Grant 校验 + 集群消费）：
    ```bash
@@ -81,12 +82,14 @@
 6. **激活新的 key id**：确认排队服 `queue_number_kid` / `admission_grant_kid` 与网关 `grant_keys[].kid` 一致；轮换重叠期把退休 kid 一并列在 `grant_keys` 中，直到其凭据最大寿命 + 时钟容差过去再删除。
    → 判据：网关启动日志无键环解析错误；未知 kid 的凭据在验证阶段被拒。**停**。
 7. **校验就绪**：按 §4 全表逐项确认。**任何一项不绿都不得进入下一步。**
-8. **清除旧 Queue Number 与队列状态**：删除排队服快照键（备份见 §2 第 3 步），使旧号位与旧放行窗口整体失效：
+8. **清除旧 Queue Number 与队列状态**：删除排队服快照键和发号映射前缀（备份见 §2 第 3 步），使旧号位与旧放行窗口整体失效；两者必须在入口关闭时作为同一个维护动作清理：
    ```bash
    ./.tools/etcd-v3.6.14/etcdctl --endpoints=http://127.0.0.1:2379 \
        del /realmmesh/queue/snapshot
+   ./.tools/etcd-v3.6.14/etcdctl --endpoints=http://127.0.0.1:2379 \
+       del --prefix /realmmesh/queue/issuance/
    ```
-   键名以配置的 `queue.snapshot_key` 为准（单键）。**不要**为“解锁”删除 `/realmmesh/admission/consumption` 下的消费记录——已提交的消费必须保持已消费（ADR-0009）。若本 deployment 决定重置消费前缀，那是独立的、需事先批准的部署动作，不属于本手册的默认序列。
+   键名以前述两项配置为准。只删 snapshot 会让旧映射指向不存在的水位，只删映射会让同一尝试拿到新号，均禁止。**不要**为“解锁”删除 `/realmmesh/admission/consumption` 下的消费记录——已提交的消费必须保持已消费（ADR-0009）。若本 deployment 决定重置消费前缀，那是独立的、需事先批准的部署动作，不属于本手册的默认序列。
    → 判据：队列状态已清空且备份可读。**停**。
 9. **重新开放取号与准入**：恢复入口流量，允许新登录。
    → 判据：§6 核验通过。
@@ -99,7 +102,7 @@
 | Gateway 消费存储可达 | 同上，看 gateway 的 `realmmesh_service_ready` | 为 1；存储探针失败时该值为 0，而进程存活不受影响 |
 | 消费存储探测细节 | 网关 `GatewayAdmission` 以 1 s 间隔探针，etcd 实现向 `/v3/kv/range` 发起前缀 range 请求 | 探针为真才计入就绪；不得改用进程内存准入 |
 | 键环装载 | 网关启动时逐把解析 `admission.grant_keys` 的 `public_key_environment` | 缺变量或非 hex 公钥 → 启动前失败 |
-| Queue 权威状态 | 生产 `snapshot_required = true` 时启动读取 `queue.snapshot_key` | 快照缺失 = 确属空状态；etcd 不可达或快照损坏 = 启动失败 |
+| Queue 权威状态 | 启动读取 `queue.snapshot_key` 并扫描 `queue.issuance_prefix`；发号事务同时写二者 | 两者同时为空 = 确属空状态；etcd 不可达、快照/映射损坏或只剩一侧 = 启动失败；发号写失败返回 `503/2002`，不返回号码 |
 | 服务发现（如启用） | `configs/common/discovery.lua`：`enabled`、`required` | 启用且 `required=true` 时注册失败即退出；`required=false` 时仅告警且**不就绪**，续约成功后转就绪 |
 | 窗口一致 | 网关 `admission.grant_window_seconds` 与排队服 `queue.admit_grace_seconds` | 相等且 ≤ 600 s |
 
@@ -111,7 +114,7 @@
 |---|---|---|
 | 密钥材料缺失/畸形 | 进程在监听前抛错退出（如 `… is not set`、公钥解析失败） | 修正环境变量后重启；不得放宽校验或临时改小 `grant_window_seconds` 绕过 |
 | 消费存储不可用 | 客户端收到 `1006`（可重试）；网关就绪为 0；`edge_credential_result_total{result="store_unavailable"}` 增长 | 恢复 etcd 后等待探针转真；**绝不**退回进程内消费，也**不**把存储故障当作凭据错误 |
-| 排队服在发号中途重启 | 放行快照 + 批次台账的持久化边界 | 重启不得推断新的放行时间或续期未知窗口；无法恢复的号位按 §3 第 8 步整体作废，不做逐条修补 |
+| 排队服在发号中途重启 | 发号映射 + 递增快照的原子提交边界 | 已提交但响应丢失时按同一身份回读原号；未提交时返回可重试错误；重启不得重号、推断新放行时间或续期未知窗口 |
 | 集群部分部署（部分 Gateway 已切换） | 未切换实例拒绝新凭据、已切换实例拒绝旧 Queue Number | 不保留双路径：要么在同一窗口内完成切换，要么整体回退到切换前修订并清空队列状态；不允许长期混跑 |
 | 就绪始终不绿 | §4 任一项不满足 | 停止重开，按上表定位；旧凭据不作为“解锁”手段 |
 | 已提交消费后故障 | 客户端未收到成功或 Handoff | 该 `identity_jti` 保持已消费，客户端必须重新走登录链（ADR-0009 的 at-most-once 取舍）；不按网关心跳释放已提交记录 |

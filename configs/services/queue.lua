@@ -34,7 +34,9 @@ return {
         private_key_file_environment = "REALMMESH_TLS_PRIVATE_KEY_FILE",
         alpn = "http/1.1",
         etcd_endpoint = "http://127.0.0.1:2379",
-        -- 开发网状无 etcd:冷备缺失降级为告警;生产部署必须为 true(默认)。
-        snapshot_required = false,
+        snapshot_key = "/realmmesh/queue/snapshot",
+        issuance_prefix = "/realmmesh/queue/issuance",
+        -- 发号映射与 next_number 是同一笔 etcd 事务；权威状态不可读时
+        -- 必须拒绝启动，不能从零重发已经确认给客户端的号码。
     },
 }

@@ -26,6 +26,10 @@ flowchart LR
 
 LoginVerify 是登录链路第一站(无状态 HTTPS JSON 服务,#41):校验账号后签发身份
 Token。Queue 负责取号与放行(#42),放行时另外签发与身份绑定的 Admission Grant。
+Queue 在返回 `202` 前，用一笔 etcd 事务同时提交 `identity_jti → Queue Number` 映射与
+递增后的队列快照；响应不确定时先回读同一权威存储。同一未过期身份重试恢复原号，
+存储不可用则返回可重试错误而不承认号码。映射随身份过期租约回收，轮询仍不建立
+逐客户端会话状态。
 客户端带身份 Token 与 Admission Grant attach 到 Gateway,Gateway 拉取完成后下发
 Realm 直连票据与候选端点;Realm 单次兑换票据即完成入场。候选端点含主机名、数字端口、
 协议与优先级,不依赖客户端隐式约定。排队号牌只用于位次查询与找回,网关不接受它。
@@ -146,7 +150,7 @@ MsQuic 自有调度不会直接调用业务逻辑。回调只完成长度帧组�
 - `game/gateway`：Gateway Login Pipeline、Edge Session 传输表
   (pending/established)、生产 adapter、运行时队列与 I/O 线程。
 - `game/login_verify`：登录健全服(账号认定、身份 Token 签发、JWKS)。
-- `game/queue`：排队调度服(号牌签发、放行阀门、etcd 额度/快照存取)。
+- `game/queue`：排队调度服(号牌签发、放行阀门、etcd 原子发号映射/快照与额度存取)。
 - `game/common`：Envelope 编解码、业务票据与账号数据源抽象（AccountStore）。
 - `framework/cluster`：多协议端点注册与发现。
 - `framework/client`：客户端登录链路（七态状态机、分档轮询、两段竞速）与其 HTTPS/网关/业务服生产传输绑定。外部通过经验证的 `LoginRun` 选择 Verify、Tickets、Poll、Gateway、GatewaySoak 或 Full 停止点；Gateway/Realm 连接由 move-only RAII Session 独占，只有 Full 成功会把已入场 Realm Session 转移给调用方。

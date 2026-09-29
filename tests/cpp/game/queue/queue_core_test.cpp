@@ -15,36 +15,18 @@ TimePoint at_time(std::int64_t seconds) {
     return std::chrono::system_clock::time_point(std::chrono::seconds{seconds});
 }
 
-TEST(QueueCoreTest, IssuesSequentialNumbers) {
-    QueueCore core(100);
-    EXPECT_EQ(core.issue("jti-a", at_time(0)), (QueueCore::Issued{1, true}));
-    EXPECT_EQ(core.issue("jti-b", at_time(0)), (QueueCore::Issued{2, true}));
-    EXPECT_EQ(core.issue("jti-c", at_time(0)), (QueueCore::Issued{3, true}));
-    EXPECT_EQ(core.next_number(), 4U);
-}
-
-TEST(QueueCoreTest, SameJtiReplaysSameNumber) {
-    QueueCore core(100);
-    EXPECT_EQ(core.issue("jti-a", at_time(0)), (QueueCore::Issued{1, true}));
-    EXPECT_EQ(core.issue("jti-a", at_time(5)), (QueueCore::Issued{1, false}));
-    EXPECT_EQ(core.next_number(), 2U);
-    EXPECT_EQ(core.issue("jti-b", at_time(5)), (QueueCore::Issued{2, true}));
-}
-
-TEST(QueueCoreTest, IdempotencyEntriesExpireByTtl) {
-    QueueCore core(100, 10s, 30s, 1);
-    EXPECT_EQ(core.issue("jti-a", at_time(0)), (QueueCore::Issued{1, true}));
-    // 未过期:超限仍插入(保护是尽力而为,发号不可失败)。
-    EXPECT_EQ(core.issue("jti-b", at_time(1)), (QueueCore::Issued{2, true}));
-    // 过期后重插同 jti = 新号(其身份会话早已失效)。
-    EXPECT_EQ(core.issue("jti-a", at_time(31)), (QueueCore::Issued{3, true}));
+void restore_issued(
+    QueueCore& core,
+    std::uint64_t issued_count,
+    TimePoint now = at_time(0)) {
+    auto snapshot = core.snapshot(now);
+    snapshot.next_number = issued_count + 1U;
+    core.restore(snapshot, now);
 }
 
 TEST(QueueCoreTest, ReleaseBatchHonorsStepAndBudgets) {
     QueueCore core(100);
-    for (int index = 0; index < 250; ++index) {
-        static_cast<void>(core.issue("jti-" + std::to_string(index), at_time(0)));
-    }
+    restore_issued(core, 250);
     const BudgetAggregate budgets{500, 500};
     EXPECT_EQ(core.release_batch(budgets, at_time(0)), 100U);
     EXPECT_EQ(core.released_number(), 100U);
@@ -55,9 +37,7 @@ TEST(QueueCoreTest, ReleaseBatchHonorsStepAndBudgets) {
 
 TEST(QueueCoreTest, ReleaseLedgerMapsEveryBatchBoundaryToStableTime) {
     QueueCore core(3);
-    for (int index = 0; index < 6; ++index) {
-        static_cast<void>(core.issue("jti-" + std::to_string(index), at_time(0)));
-    }
+    restore_issued(core, 6);
     const BudgetAggregate budgets{10, 10};
     EXPECT_EQ(core.release_batch(budgets, at_time(100)), 3U);
     EXPECT_EQ(core.release_batch(budgets, at_time(102)), 3U);
@@ -81,7 +61,7 @@ TEST(QueueCoreTest, ReleaseLedgerMapsEveryBatchBoundaryToStableTime) {
 
 TEST(QueueCoreTest, ReleaseTimeIsNormalizedToPersistedJwsPrecision) {
     QueueCore core(1);
-    static_cast<void>(core.issue("jti-a", at_time(0)));
+    restore_issued(core, 1);
     ASSERT_EQ(
         core.release_batch(
             BudgetAggregate{1, 1}, at_time(100) + 750ms),
@@ -92,8 +72,8 @@ TEST(QueueCoreTest, ReleaseTimeIsNormalizedToPersistedJwsPrecision) {
 }
 
 TEST(QueueCoreTest, ReleaseLedgerPrunesOnlyPastWindowAndClockLeeway) {
-    QueueCore core(10, 10s, 30min, 100, 5min);
-    static_cast<void>(core.issue("jti-a", at_time(0)));
+    QueueCore core(10, 10s, 5min);
+    restore_issued(core, 1);
     ASSERT_EQ(
         core.release_batch(BudgetAggregate{10, 10}, at_time(100)), 1U);
 
@@ -112,9 +92,7 @@ TEST(QueueCoreTest, ReleaseLedgerPrunesOnlyPastWindowAndClockLeeway) {
 
 TEST(QueueCoreTest, ReleaseBatchBoundedByIssuedAhead) {
     QueueCore core(100);
-    for (int index = 0; index < 5; ++index) {
-        static_cast<void>(core.issue("jti-" + std::to_string(index), at_time(0)));
-    }
+    restore_issued(core, 5);
     const BudgetAggregate budgets{100, 100};
     EXPECT_EQ(core.release_batch(budgets, at_time(0)), 5U);
     EXPECT_EQ(core.release_batch(budgets, at_time(2)), 0U);
@@ -122,7 +100,7 @@ TEST(QueueCoreTest, ReleaseBatchBoundedByIssuedAhead) {
 
 TEST(QueueCoreTest, ReleaseBatchFailsClosedWithoutBudgets) {
     QueueCore core(100);
-    static_cast<void>(core.issue("jti-a", at_time(0)));
+    restore_issued(core, 1);
     EXPECT_EQ(core.release_batch(BudgetAggregate{0, 100}, at_time(0)), 0U);
     EXPECT_EQ(core.release_batch(BudgetAggregate{100, 0}, at_time(0)), 0U);
     EXPECT_EQ(core.released_number(), 0U);
@@ -139,9 +117,7 @@ TEST(QueueCoreTest, AggregationUsesPerInstanceMinimum) {
 
 TEST(QueueCoreTest, AdmitRateMeasuredOverFixedWindow) {
     QueueCore core(3000);
-    for (int index = 0; index < 6000; ++index) {
-        static_cast<void>(core.issue("jti-" + std::to_string(index), at_time(0)));
-    }
+    restore_issued(core, 6000);
     static_cast<void>(core.release_batch(BudgetAggregate{3000, 3000}, at_time(0)));
     static_cast<void>(core.release_batch(BudgetAggregate{3000, 3000}, at_time(2)));
     EXPECT_EQ(core.admit_rate(at_time(2)), 600U);
@@ -152,9 +128,7 @@ TEST(QueueCoreTest, AdmitRateMeasuredOverFixedWindow) {
 
 TEST(QueueCoreTest, SnapshotRoundTripsThroughRestore) {
     QueueCore source(100);
-    for (int index = 0; index < 3; ++index) {
-        static_cast<void>(source.issue("jti-" + std::to_string(index), at_time(0)));
-    }
+    restore_issued(source, 3);
     static_cast<void>(source.release_batch(BudgetAggregate{100, 100}, at_time(0)));
     const auto snapshot = source.snapshot(at_time(0));
     EXPECT_EQ(snapshot.released_number, 3U);
@@ -169,8 +143,8 @@ TEST(QueueCoreTest, SnapshotRoundTripsThroughRestore) {
     EXPECT_EQ(restored.released_number(), 3U);
     EXPECT_EQ(restored.next_number(), 4U);
     EXPECT_EQ(restored.admit_rate(at_time(1)), 0U);
-    EXPECT_EQ(
-        restored.issue("jti-new", at_time(1)), (QueueCore::Issued{4, true}));
+    // 发号事务提交后的新快照由 QueueTicketing 恢复进域核心。
+    restore_issued(restored, 4, at_time(1));
     // 已发未放行 = 1,放行量只到 1。
     EXPECT_EQ(
         restored.release_batch(BudgetAggregate{100, 100}, at_time(2)), 1U);
@@ -178,12 +152,12 @@ TEST(QueueCoreTest, SnapshotRoundTripsThroughRestore) {
 }
 
 TEST(QueueCoreTest, RestartPreservesWindowAndCannotRenewIt) {
-    QueueCore source(100, 10s, 30min, 100, 5min);
-    static_cast<void>(source.issue("jti-a", at_time(0)));
+    QueueCore source(100, 10s, 5min);
+    restore_issued(source, 1);
     static_cast<void>(
         source.release_batch(BudgetAggregate{100, 100}, at_time(100)));
 
-    QueueCore restored(100, 10s, 30min, 100, 5min);
+    QueueCore restored(100, 10s, 5min);
     restored.restore(source.snapshot(at_time(120)), at_time(200));
     const auto active = restored.release_eligibility(1, at_time(200));
     EXPECT_EQ(active.status, QueueReleaseStatus::Eligible);

@@ -4,6 +4,7 @@
 #include "realmmesh/game/common/identity_token.hpp"
 #include "realmmesh/game/common/queue_number_v2.hpp"
 #include "realmmesh/game/queue/queue_core.hpp"
+#include "realmmesh/game/queue/queue_store.hpp"
 
 #include <chrono>
 #include <cstdint>
@@ -14,6 +15,7 @@
 namespace realm::game::queue {
 
 struct IssuedQueueTicket final {
+    QueueIssueStatus status{QueueIssueStatus::Unavailable};
     std::string queue_number_token;
     std::uint64_t number{0};
     std::uint64_t estimated_wait_seconds{0};
@@ -48,6 +50,7 @@ class QueueTicketing final {
 public:
     QueueTicketing(
         QueueCore& core,
+        QueueStateStore& store,
         common::QueueNumberV2Codec queue_numbers,
         common::AdmissionGrantIssuer admission_grants);
 
@@ -65,6 +68,7 @@ public:
 
 private:
     QueueCore* core_;
+    QueueStateStore* store_;
     common::QueueNumberV2Codec queue_numbers_;
     common::AdmissionGrantIssuer admission_grants_;
 };

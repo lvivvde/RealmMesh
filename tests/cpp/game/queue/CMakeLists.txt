@@ -15,6 +15,31 @@ realm_add_gtest(queue_store_test
         realm_queue_service
 )
 
+realm_add_gtest(queue_store_etcd_integration_test
+    SOURCES queue_store_etcd_integration_test.cpp
+    LIBS realm_queue_service
+    INCLUDE_DIRS ${PROJECT_SOURCE_DIR}/tests/cpp/support/include
+    DEFINITIONS REALMMESH_TEST_SOURCE_DIR="${PROJECT_SOURCE_DIR}"
+    LABELS integration
+    DISCOVER_PROPERTIES RUN_SERIAL TRUE TIMEOUT 20
+)
+
+realm_add_gtest(queue_process_restart_test
+    SOURCES queue_process_restart_test.cpp
+    LIBS realm_queue_service
+    INCLUDE_DIRS ${PROJECT_SOURCE_DIR}/tests/cpp/support/include
+    DEFINITIONS
+        REALMMESH_TEST_SOURCE_DIR="${PROJECT_SOURCE_DIR}"
+        REALMMESH_MESH_EXECUTABLE="$<TARGET_FILE:realm_mesh>"
+        REALMMESH_TEST_TLS_CERTIFICATE="${REALMMESH_TEST_TLS_CERTIFICATE}"
+        REALMMESH_TEST_TLS_PRIVATE_KEY="${REALMMESH_TEST_TLS_PRIVATE_KEY}"
+    DEPENDS
+        realm_mesh
+        realmmesh_test_tls_identity
+    LABELS integration
+    DISCOVER_PROPERTIES RUN_SERIAL TRUE TIMEOUT 30
+)
+
 realm_add_gtest(queue_ticketing_test
     SOURCES queue_ticketing_test.cpp
     LIBS realm_queue_service

@@ -2,12 +2,9 @@
 
 #include <atomic>
 #include <chrono>
-#include <cstddef>
 #include <cstdint>
 #include <deque>
 #include <span>
-#include <string>
-#include <unordered_map>
 #include <vector>
 
 namespace realm::game::queue {
@@ -80,32 +77,17 @@ struct QueueReleaseEligibility {
 inline constexpr std::chrono::seconds queue_rate_window{10};
 
 /// 排队权威状态(ADR-0006/0009):两个水位 + 有界放行区间 + 实测
-/// 放行速率 + 发号幂等映射。
+/// 放行速率。发号与身份幂等映射由 QueueStateStore 原子持久化，域核心只
+/// 接受已提交的快照，避免同时存在内存与 etcd 两套发号权威。
 /// 纯域逻辑,无 IO;时间一律由调用方注入,etcd 存取在 QueueStateStore。
 class QueueCore final {
 public:
-    struct Issued {
-        std::uint64_t number;
-        /// false = 同一身份会话(jti)的幂等重放。
-        bool fresh;
-
-        bool operator==(const Issued&) const = default;
-    };
-
     /// release_step:放行步长(0 = 配置关阀);rate_window:放行速率
-    /// 实测固定窗;idempotency_ttl/capacity:幂等映射条目的过期与上限
-    /// (超限先清扫过期条目,发号不因此失败)。
+    /// 实测固定窗;grant_window:已放行号可兑换 Grant 的窗口。
     explicit QueueCore(
         std::uint64_t release_step,
         std::chrono::seconds rate_window = queue_rate_window,
-        std::chrono::seconds idempotency_ttl = std::chrono::seconds{1800},
-        std::size_t idempotency_capacity = 1'000'000,
         std::chrono::seconds grant_window = std::chrono::seconds{300});
-
-    /// 发号(幂等):同一 identity_jti 拿同号。
-    [[nodiscard]] Issued issue(
-        std::string identity_jti,
-        std::chrono::system_clock::time_point now);
 
     [[nodiscard]] std::uint64_t released_number() const noexcept;
     [[nodiscard]] std::uint64_t next_number() const noexcept;
@@ -139,17 +121,10 @@ public:
         std::chrono::system_clock::time_point now) const;
 
 private:
-    struct IdempotencyEntry {
-        std::uint64_t number;
-        std::chrono::system_clock::time_point issued_at;
-    };
-
     void prune_release_batches(std::chrono::system_clock::time_point now);
 
     std::uint64_t release_step_;
     std::chrono::seconds rate_window_;
-    std::chrono::seconds idempotency_ttl_;
-    std::size_t idempotency_capacity_;
     std::chrono::seconds grant_window_;
     /// 两个水位以原子承载(spec §5.1 对外只读量);域操作仍限单帧循环
     /// 线程,原子仅保证观测方读到的水位不撕裂。
@@ -157,7 +132,6 @@ private:
     std::atomic<std::uint64_t> next_number_{1};
     std::uint64_t release_batches_pruned_through_{0};
     std::deque<QueueReleaseBatch> release_batches_;
-    std::unordered_map<std::string, IdempotencyEntry> idempotency_;
 };
 
 }  // namespace realm::game::queue

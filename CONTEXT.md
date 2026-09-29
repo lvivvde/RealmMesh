@@ -85,7 +85,7 @@ _Avoid_: 裸用 token(须指明是身份 Token 还是排队号牌)、login ticke
 _Avoid_: 用户表(账号集不含注册/计费语义)、account service(它是数据源,不是服务)
 
 **Queue Scheduler**:
-发号、查号并按准入额度分批放行玩家进网关集群的服务;唯一权威状态是已放行号。
+发号、查号并按准入额度分批放行玩家进网关集群的服务;权威状态包括每次登录尝试已确认的 Queue Number、下一号码与已放行水位,同一未过期尝试必须可找回原号码。
 _Avoid_: 排队服(可作口头简称,文档用全称)、matchmaking(没有匹配语义)
 
 **Queue Number**:

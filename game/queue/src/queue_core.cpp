@@ -50,13 +50,9 @@ BudgetAggregate aggregate_budgets(
 QueueCore::QueueCore(
     std::uint64_t release_step,
     std::chrono::seconds rate_window,
-    std::chrono::seconds idempotency_ttl,
-    std::size_t idempotency_capacity,
     std::chrono::seconds grant_window)
     : release_step_(release_step),
       rate_window_(rate_window),
-      idempotency_ttl_(idempotency_ttl),
-      idempotency_capacity_(idempotency_capacity),
       grant_window_(grant_window) {
     if (rate_window_ <= std::chrono::seconds::zero()) {
         throw std::invalid_argument("rate window must be positive");
@@ -65,27 +61,6 @@ QueueCore::QueueCore(
         grant_window_ > common::admission_grant_max_window) {
         throw std::invalid_argument("grant window is outside protocol bounds");
     }
-}
-
-QueueCore::Issued QueueCore::issue(
-    std::string identity_jti,
-    std::chrono::system_clock::time_point now) {
-    if (idempotency_.size() >= idempotency_capacity_) {
-        const auto cutoff = now - idempotency_ttl_;
-        std::erase_if(idempotency_, [cutoff](const auto& entry) {
-            return entry.second.issued_at < cutoff;
-        });
-    }
-    const auto number = next_number_.load(std::memory_order_relaxed);
-    const auto [iterator, inserted] = idempotency_.try_emplace(
-        std::move(identity_jti),
-        IdempotencyEntry{number, now});
-    if (inserted) {
-        next_number_.store(number + 1, std::memory_order_relaxed);
-        return {number, true};
-    }
-    iterator->second.issued_at = now;  // 幂等重放刷新时间戳
-    return {iterator->second.number, false};
 }
 
 std::uint64_t QueueCore::released_number() const noexcept {

@@ -14,6 +14,7 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+#include <array>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
@@ -81,6 +82,54 @@ namespace realm::test_support {
             sizeof(address)) == 0;
     ::close(descriptor);
     return open;
+}
+
+/// etcd 开始监听后仍可能处于首次选举窗口。只有健康端点明确报告
+/// 可用，才能让依赖 fail-closed 持久化存储的服务开始启动。
+[[nodiscard]] inline bool etcd_health_ready(std::uint16_t port) {
+    const int descriptor = ::socket(AF_INET, SOCK_STREAM, 0);
+    if (descriptor < 0) return false;
+    const timeval timeout{.tv_sec = 0, .tv_usec = 200'000};
+    static_cast<void>(::setsockopt(
+        descriptor, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)));
+    static_cast<void>(::setsockopt(
+        descriptor, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout)));
+
+    sockaddr_in address{};
+    address.sin_family = AF_INET;
+    address.sin_port = htons(port);
+    address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    if (::connect(
+            descriptor,
+            reinterpret_cast<const sockaddr*>(&address),
+            sizeof(address)) != 0) {
+        ::close(descriptor);
+        return false;
+    }
+
+    constexpr std::string_view request =
+        "GET /health HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n";
+    std::size_t sent = 0;
+    while (sent < request.size()) {
+        const auto count = ::send(
+            descriptor, request.data() + sent, request.size() - sent, 0);
+        if (count <= 0) {
+            ::close(descriptor);
+            return false;
+        }
+        sent += static_cast<std::size_t>(count);
+    }
+
+    std::string response;
+    std::array<char, 1024> buffer{};
+    while (true) {
+        const auto count = ::recv(descriptor, buffer.data(), buffer.size(), 0);
+        if (count <= 0) break;
+        response.append(buffer.data(), static_cast<std::size_t>(count));
+    }
+    ::close(descriptor);
+    return response.find(" 200 ") != std::string::npos &&
+           response.find("\"health\":\"true\"") != std::string::npos;
 }
 
 class EtcdProcess final {
@@ -153,17 +202,14 @@ public:
         return "http://127.0.0.1:" + std::to_string(client_port_);
     }
 
-    /// 客户端 URL 可连接后,单节点 etcd 仍可能在选举窗口内返回瞬时错误;
-    /// 留一小段稳定期,免得服务启动时的就绪探测踩在窗口里。
+    /// 裸端口可连接不代表单节点 etcd 已完成首次选举;等健康端点
+    /// 明确报告可用，避免 fail-closed 服务把启动窗口误判成存储故障。
     void wait_ready(std::chrono::milliseconds timeout =
                         std::chrono::milliseconds{10'000}) {
         using namespace std::chrono_literals;
         const auto deadline = std::chrono::steady_clock::now() + timeout;
         while (std::chrono::steady_clock::now() < deadline) {
-            if (loopback_port_open(client_port_)) {
-                std::this_thread::sleep_for(200ms);
-                return;
-            }
+            if (etcd_health_ready(client_port_)) return;
             std::this_thread::sleep_for(10ms);
         }
         throw std::runtime_error("etcd did not open its client port");

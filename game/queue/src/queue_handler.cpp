@@ -120,6 +120,14 @@ network::Http1Response QueueHandler::handle(
                 401, error_invalid_credentials, "invalid credentials");
         }
         const auto issued = ticketing_->issue(*identity, now);
+        if (issued.status == QueueIssueStatus::Unavailable) {
+            auto response = error_response(
+                503,
+                error_issuance_unavailable,
+                "queue issuance temporarily unavailable");
+            response.headers.emplace_back("Retry-After", "1");
+            return response;
+        }
         return json_response(
             202,
             {{"queue_number_token", JsonValue(issued.queue_number_token)},

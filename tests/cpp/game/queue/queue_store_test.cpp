@@ -163,6 +163,203 @@ TEST(QueueStoreTest, RefreshBudgetsFailsClosedOnEtcdError) {
     EXPECT_FALSE(store.refresh_budgets().has_value());
 }
 
+TEST(QueueStoreTest, NewIssueCommitsMappingAndSnapshotInOneTransaction) {
+    auto client = std::make_shared<ScriptedEtcdClient>();
+    client->enqueue(Json{{"ID", "123"}}.dump());
+    client->enqueue(Json{{"succeeded", true}}.dump());
+    const EtcdQueueStore store(test_options(), client);
+
+    const auto result = store.issue_or_recover(QueueIssueRequest{
+        .identity_jti = "0123456789abcdef0123456789abcdef",
+        .issued_at = std::chrono::system_clock::time_point{
+            std::chrono::seconds{1'700'000'001}},
+        .identity_expires_at = std::chrono::system_clock::time_point{
+            std::chrono::seconds{1'700'001'801}},
+        .snapshot = snapshot_with_release_batch(),
+    });
+
+    EXPECT_EQ(result.status, QueueIssueStatus::Issued);
+    EXPECT_EQ(result.number, 9U);
+    EXPECT_EQ(result.snapshot.next_number, 10U);
+    ASSERT_EQ(client->calls().size(), 2U);
+    EXPECT_EQ(client->calls()[0].first, "/v3/lease/grant");
+    EXPECT_EQ(client->calls()[1].first, "/v3/kv/txn");
+    const auto transaction = Json::parse(client->calls()[1].second);
+    ASSERT_EQ(transaction.at("compare").size(), 1U);
+    ASSERT_EQ(transaction.at("success").size(), 2U);
+}
+
+TEST(QueueStoreTest, ExistingIdentityRecoversOriginalNumberAndIssueTime) {
+    auto client = std::make_shared<ScriptedEtcdClient>();
+    client->enqueue(Json{{"ID", "123"}}.dump());
+    const std::string issuance_key =
+        "/realmmesh/queue/issuance/a55798dd7966ed4b45bd53202cf7a982";
+    const std::string issuance_value =
+        R"({"identity_expires_at":1700001801,"issued_at":1700000001,"number":9})";
+    const std::string snapshot_value =
+        R"({"admit_rate":100,"next_number":10,"release_batches":[{"first_number":3,"last_number":5,"released_at":1700000000}],"release_batches_pruned_through":2,"released_number":5,"updated_at":1700000001})";
+    client->enqueue(Json{
+        {"succeeded", false},
+        {"responses",
+         Json::array({
+             Json{{"response_range",
+                   {{"kvs",
+                     Json::array({Json{{"key", base64_encode(issuance_key)},
+                                       {"value", base64_encode(issuance_value)}}})}}}},
+             Json{{"response_range",
+                   {{"kvs",
+                     Json::array({Json{{"key", base64_encode(snapshot_key)},
+                                       {"value", base64_encode(snapshot_value)}}})}}}},
+         })},
+    }.dump());
+    const EtcdQueueStore store(test_options(), client);
+
+    const auto result = store.issue_or_recover(QueueIssueRequest{
+        .identity_jti = "0123456789abcdef0123456789abcdef",
+        .issued_at = std::chrono::system_clock::time_point{
+            std::chrono::seconds{1'700'000'101}},
+        .identity_expires_at = std::chrono::system_clock::time_point{
+            std::chrono::seconds{1'700'001'801}},
+        .snapshot = snapshot_with_release_batch(),
+    });
+
+    EXPECT_EQ(result.status, QueueIssueStatus::Recovered);
+    EXPECT_EQ(result.number, 9U);
+    EXPECT_EQ(
+        result.issued_at,
+        std::chrono::system_clock::time_point{
+            std::chrono::seconds{1'700'000'001}});
+    EXPECT_EQ(result.snapshot.next_number, 10U);
+}
+
+TEST(QueueStoreTest, AmbiguousCommitReadsBackDurableIssue) {
+    auto client = std::make_shared<ScriptedEtcdClient>();
+    client->enqueue(Json{{"ID", "123"}}.dump());
+    client->enqueue(std::nullopt);  // txn may have committed before reply loss
+    const std::string issuance_key =
+        "/realmmesh/queue/issuance/a55798dd7966ed4b45bd53202cf7a982";
+    const std::string issuance_value =
+        R"({"identity_expires_at":1700001801,"issued_at":1700000001,"number":9})";
+    const std::string snapshot_value =
+        R"({"admit_rate":100,"next_number":10,"release_batches":[{"first_number":3,"last_number":5,"released_at":1700000000}],"release_batches_pruned_through":2,"released_number":5,"updated_at":1700000001})";
+    client->enqueue(Json{
+        {"succeeded", true},
+        {"responses",
+         Json::array({
+             Json{{"response_range",
+                   {{"kvs",
+                     Json::array({Json{{"key", base64_encode(issuance_key)},
+                                       {"value", base64_encode(issuance_value)}}})}}}},
+             Json{{"response_range",
+                   {{"kvs",
+                     Json::array({Json{{"key", base64_encode(snapshot_key)},
+                                       {"value", base64_encode(snapshot_value)}}})}}}},
+         })},
+    }.dump());
+    const EtcdQueueStore store(test_options(), client);
+
+    const auto result = store.issue_or_recover(QueueIssueRequest{
+        .identity_jti = "0123456789abcdef0123456789abcdef",
+        .issued_at = std::chrono::system_clock::time_point{
+            std::chrono::seconds{1'700'000'001}},
+        .identity_expires_at = std::chrono::system_clock::time_point{
+            std::chrono::seconds{1'700'001'801}},
+        .snapshot = snapshot_with_release_batch(),
+    });
+
+    EXPECT_EQ(result.status, QueueIssueStatus::Recovered);
+    EXPECT_EQ(result.number, 9U);
+    EXPECT_EQ(result.snapshot.next_number, 10U);
+    ASSERT_EQ(client->calls().size(), 3U);
+    EXPECT_EQ(client->calls()[2].first, "/v3/kv/txn");
+}
+
+TEST(QueueStoreTest, FailureBeforeCommitReturnsUnavailableWithoutNumber) {
+    auto client = std::make_shared<ScriptedEtcdClient>();
+    client->enqueue(Json{{"ID", "123"}}.dump());
+    client->enqueue(std::nullopt);  // 原事务未得到应答
+    client->enqueue(Json{
+        {"succeeded", true},
+        {"responses",
+         Json::array({
+             Json{{"response_range", {{"kvs", Json::array()}}}},
+             Json{{"response_range", {{"kvs", Json::array()}}}},
+         })},
+    }.dump());
+    const EtcdQueueStore store(test_options(), client);
+
+    const auto result = store.issue_or_recover(QueueIssueRequest{
+        .identity_jti = "0123456789abcdef0123456789abcdef",
+        .issued_at = std::chrono::system_clock::time_point{
+            std::chrono::seconds{1'700'000'001}},
+        .identity_expires_at = std::chrono::system_clock::time_point{
+            std::chrono::seconds{1'700'001'801}},
+        .snapshot = snapshot_with_release_batch(),
+    });
+
+    EXPECT_EQ(result.status, QueueIssueStatus::Unavailable);
+    EXPECT_EQ(result.number, 0U);
+    EXPECT_EQ(result.snapshot.next_number, 1U);
+}
+
+TEST(QueueStoreTest, UnreadableAmbiguousCommitPoisonsFurtherIssuance) {
+    auto client = std::make_shared<ScriptedEtcdClient>();
+    client->enqueue(Json{{"ID", "123"}}.dump());
+    client->enqueue(std::nullopt);  // txn 可能已提交，但应答丢失
+    client->enqueue(std::nullopt);  // 线性一致回读也不可用
+    const EtcdQueueStore store(test_options(), client);
+    const QueueIssueRequest first{
+        .identity_jti = "0123456789abcdef0123456789abcdef",
+        .issued_at = std::chrono::system_clock::time_point{
+            std::chrono::seconds{1'700'000'001}},
+        .identity_expires_at = std::chrono::system_clock::time_point{
+            std::chrono::seconds{1'700'001'801}},
+        .snapshot = snapshot_with_release_batch(),
+    };
+
+    EXPECT_EQ(
+        store.issue_or_recover(first).status,
+        QueueIssueStatus::Unavailable);
+    auto second = first;
+    second.identity_jti = "fedcba9876543210fedcba9876543210";
+    EXPECT_EQ(
+        store.issue_or_recover(second).status,
+        QueueIssueStatus::Unavailable);
+    EXPECT_FALSE(store.save_snapshot(first.snapshot, 1'700'000'002));
+    EXPECT_EQ(client->calls().size(), 3U);
+}
+
+TEST(QueueStoreTest, ReusesOneLeaseForSameExpiryBucket) {
+    auto client = std::make_shared<ScriptedEtcdClient>();
+    client->enqueue(Json{{"ID", "123"}}.dump());
+    client->enqueue(Json{{"succeeded", true}}.dump());
+    client->enqueue(Json{{"succeeded", true}}.dump());
+    const EtcdQueueStore store(test_options(), client);
+    const auto issued_at = std::chrono::system_clock::time_point{
+        std::chrono::seconds{1'700'000'001}};
+    const auto expires_at = std::chrono::system_clock::time_point{
+        std::chrono::seconds{1'700'001'801}};
+
+    const auto first = store.issue_or_recover(QueueIssueRequest{
+        .identity_jti = "0123456789abcdef0123456789abcdef",
+        .issued_at = issued_at,
+        .identity_expires_at = expires_at,
+        .snapshot = snapshot_with_release_batch(),
+    });
+    const auto second = store.issue_or_recover(QueueIssueRequest{
+        .identity_jti = "fedcba9876543210fedcba9876543210",
+        .issued_at = issued_at,
+        .identity_expires_at = expires_at,
+        .snapshot = first.snapshot,
+    });
+
+    EXPECT_EQ(second.status, QueueIssueStatus::Issued);
+    ASSERT_EQ(client->calls().size(), 3U);
+    EXPECT_EQ(client->calls()[0].first, "/v3/lease/grant");
+    EXPECT_EQ(client->calls()[1].first, "/v3/kv/txn");
+    EXPECT_EQ(client->calls()[2].first, "/v3/kv/txn");
+}
+
 TEST(QueueStoreTest, SaveSnapshotPutsEncodedValue) {
     auto client = std::make_shared<ScriptedEtcdClient>();
     client->enqueue(Json{{"header", {}}}.dump());
@@ -194,23 +391,27 @@ TEST(QueueStoreTest, LoadSnapshotParsesStoredValue) {
     auto client = std::make_shared<ScriptedEtcdClient>();
     client->enqueue(range_response(
         {R"({"released_number":5,"next_number":9,"admit_rate":100,"release_batches_pruned_through":2,"release_batches":[{"first_number":3,"last_number":5,"released_at":1700000000}]})"}));
+    client->enqueue(Json{{"count", 0}}.dump());
     const EtcdQueueStore store(test_options(), client);
     const auto snapshot = store.load_snapshot();
     ASSERT_TRUE(snapshot.has_value());
     EXPECT_EQ(*snapshot, snapshot_with_release_batch());
-    // 精确 key 读取:请求体带 key、不带 range_end。
-    ASSERT_EQ(client->calls().size(), 1U);
+    // 快照精确 key 读取不带 range_end；随后扫描 issuance 前缀校验。
+    ASSERT_EQ(client->calls().size(), 2U);
     EXPECT_NE(
         client->calls()[0].second.find(base64_encode(snapshot_key)),
         std::string::npos);
     EXPECT_EQ(
         client->calls()[0].second.find("range_end"), std::string::npos);
+    EXPECT_NE(
+        client->calls()[1].second.find("range_end"), std::string::npos);
 }
 
 TEST(QueueStoreTest, LegacySnapshotRestoresAsExpiredPrefix) {
     auto client = std::make_shared<ScriptedEtcdClient>();
     client->enqueue(range_response(
         {R"({"released_number":5,"next_number":9,"admit_rate":100})"}));
+    client->enqueue(Json{{"count", 0}}.dump());
     const EtcdQueueStore store(test_options(), client);
     const auto snapshot = store.load_snapshot();
     ASSERT_TRUE(snapshot.has_value());
@@ -218,11 +419,68 @@ TEST(QueueStoreTest, LegacySnapshotRestoresAsExpiredPrefix) {
     EXPECT_TRUE(snapshot->release_batches.empty());
 }
 
+TEST(QueueStoreTest, LoadSnapshotValidatesIssuanceAcrossPages) {
+    auto client = std::make_shared<ScriptedEtcdClient>();
+    client->enqueue(range_response(
+        {R"({"released_number":5,"next_number":10,"admit_rate":100})"}));
+    const std::string issuance_key =
+        "/realmmesh/queue/issuance/a55798dd7966ed4b45bd53202cf7a982";
+    const std::string issuance_value =
+        R"({"identity_expires_at":1700001801,"issued_at":1700000001,"number":9})";
+    client->enqueue(Json{
+        {"more", true},
+        {"kvs",
+         Json::array({Json{{"key", base64_encode(issuance_key)},
+                           {"value", base64_encode(issuance_value)}}})},
+    }.dump());
+    client->enqueue(Json{{"count", 0}}.dump());
+    const EtcdQueueStore store(test_options(), client);
+
+    const auto snapshot = store.load_snapshot();
+    ASSERT_TRUE(snapshot.has_value());
+    EXPECT_EQ(snapshot->next_number, 10U);
+    ASSERT_EQ(client->calls().size(), 3U);
+    EXPECT_NE(client->calls()[1].second.find("\"limit\":\"1024\""),
+              std::string::npos);
+    std::string next_key = issuance_key;
+    next_key.push_back('\0');
+    EXPECT_NE(client->calls()[2].second.find(base64_encode(next_key)),
+              std::string::npos);
+}
+
 TEST(QueueStoreTest, LoadSnapshotReturnsNulloptWhenMissing) {
     auto client = std::make_shared<ScriptedEtcdClient>();
     client->enqueue(Json{{"count", 0}}.dump());
+    client->enqueue(Json{{"count", 0}}.dump());
     const EtcdQueueStore store(test_options(), client);
     EXPECT_FALSE(store.load_snapshot().has_value());
+}
+
+TEST(QueueStoreTest, LoadSnapshotRejectsOrphanIssuanceMappings) {
+    auto client = std::make_shared<ScriptedEtcdClient>();
+    client->enqueue(Json{{"count", 0}}.dump());
+    client->enqueue(range_response({R"({"number":1})"}));
+    const EtcdQueueStore store(test_options(), client);
+    EXPECT_THROW(store.load_snapshot(), std::runtime_error);
+}
+
+TEST(QueueStoreTest, LoadSnapshotFailsClosedOnUnavailableIssuanceState) {
+    auto client = std::make_shared<ScriptedEtcdClient>();
+    client->enqueue(range_response(
+        {R"({"released_number":5,"next_number":9,"admit_rate":100})"}));
+    client->enqueue(std::nullopt);
+    const EtcdQueueStore store(test_options(), client);
+    EXPECT_THROW(store.load_snapshot(), std::runtime_error);
+}
+
+TEST(QueueStoreTest, LoadSnapshotRejectsCorruptIssuanceMapping) {
+    auto client = std::make_shared<ScriptedEtcdClient>();
+    client->enqueue(range_response(
+        {R"({"released_number":5,"next_number":9,"admit_rate":100})"}));
+    client->enqueue(range_response(
+        {R"({"identity_expires_at":1700001801,"issued_at":1700000001,"number":9})"}));
+    const EtcdQueueStore store(test_options(), client);
+    EXPECT_THROW(store.load_snapshot(), std::runtime_error);
 }
 
 // 冷备三态契约:不可达/损坏抛出(启动失败,fail-closed),仅缺失从零。

@@ -1,8 +1,7 @@
-/// 排队调度服集成测试(唯一动 socket 的缝):真实 TLS loopback,服务绑
-/// 内核临时端口、std::jthread 驱动 tick;主线程自建 OpenSSL 客户端(先例:
-/// login_verify_service_test)走完整 HTTPS 请求。etcd 存取用 fake store
-/// 注入,验证放行阀门帧、fail-closed 与冷备恢复;真实 etcd 路径由
-/// queue_store_test 覆盖。
+/// 排队调度服进程内集成测试:真实 TLS loopback,服务绑内核临时端口、
+/// std::jthread 驱动 tick;主线程用共享测试客户端走完整 HTTPS 请求。
+/// etcd 存取用 fake store 注入,验证放行阀门帧与确定性故障边界；真实
+/// etcd/真实 Queue 进程重启分别由独立 integration 目标覆盖。
 
 #include "realmmesh/game/queue/queue_service.hpp"
 
@@ -13,15 +12,11 @@
 #include "realmmesh/observability/metrics_registry.hpp"
 #include "realmmesh/test_support/legacy_queue_number.hpp"
 
+#include "queue_test_https.hpp"
+#include "queue_test_store.hpp"
+
 #include <gtest/gtest.h>
-#include <openssl/ssl.h>
 
-#include <arpa/inet.h>
-#include <netinet/in.h>
-#include <sys/socket.h>
-#include <unistd.h>
-
-#include <array>
 #include <atomic>
 #include <chrono>
 #include <cstdint>
@@ -42,105 +37,7 @@ namespace {
 using common::IdentityClaims;
 using common::IdentityTokenCodec;
 using common::JsonCodec;
-
-class Descriptor final {
-public:
-    explicit Descriptor(int value)
-        : value_(value) {}
-    ~Descriptor() {
-        if (value_ >= 0) ::close(value_);
-    }
-    Descriptor(const Descriptor&) = delete;
-    Descriptor& operator=(const Descriptor&) = delete;
-    [[nodiscard]] int get() const noexcept { return value_; }
-
-private:
-    int value_;
-};
-
-struct SslContextDeleter {
-    void operator()(SSL_CTX* value) const noexcept { SSL_CTX_free(value); }
-};
-struct SslDeleter {
-    void operator()(SSL* value) const noexcept { SSL_free(value); }
-};
-
-using SslContextPtr = std::unique_ptr<SSL_CTX, SslContextDeleter>;
-using SslPtr = std::unique_ptr<SSL, SslDeleter>;
-
-void write_all(SSL* ssl, std::string_view bytes) {
-    const auto* data = reinterpret_cast<const unsigned char*>(bytes.data());
-    std::size_t offset = 0;
-    while (offset < bytes.size()) {
-        std::size_t written = 0;
-        ASSERT_EQ(SSL_write_ex(ssl, data + offset, bytes.size() - offset, &written), 1);
-        offset += written;
-    }
-}
-
-/// 读完响应头后按 Content-Length 读取(keep-alive 服务端不会主动关连接)。
-[[nodiscard]] std::string read_response(SSL* ssl) {
-    std::string response;
-    char buffer[4096];
-    std::size_t header_end = std::string::npos;
-    while (header_end == std::string::npos) {
-        std::size_t received = 0;
-        if (SSL_read_ex(ssl, buffer, sizeof(buffer), &received) != 1) {
-            return response;
-        }
-        response.append(buffer, received);
-        header_end = response.find("\r\n\r\n");
-    }
-    const std::string needle = "Content-Length:";
-    std::size_t length_field = response.find(needle);
-    if (length_field == std::string::npos) return response;
-    const std::size_t value_start =
-        response.find_first_not_of(" \t", length_field + needle.size());
-    const std::size_t value_end = response.find("\r\n", value_start);
-    const std::size_t content_length =
-        static_cast<std::size_t>(std::stoul(response.substr(
-            value_start, value_end - value_start)));
-    const std::size_t body_start = header_end + 4;
-    while (response.size() < body_start + content_length) {
-        std::size_t received = 0;
-        if (SSL_read_ex(ssl, buffer, sizeof(buffer), &received) != 1) break;
-        response.append(buffer, received);
-    }
-    return response;
-}
-
-/// 一条 TLS 连接上完成一次请求-响应;失败返回空(用例侧断言有值)。
-[[nodiscard]] std::optional<std::string> https_exchange(
-    std::uint16_t port, std::string_view request) {
-    SslContextPtr context(SSL_CTX_new(TLS_client_method()));
-    SSL_CTX_set_verify(context.get(), SSL_VERIFY_NONE, nullptr);
-    SslPtr ssl(SSL_new(context.get()));
-    // 服务端握手要求协商出 ALPN(http/1.1),不带即被回绝关闭。
-    static constexpr std::array<unsigned char, 9> alpn{
-        8, 'h', 't', 't', 'p', '/', '1', '.', '1'};
-    EXPECT_EQ(SSL_set_alpn_protos(ssl.get(), alpn.data(), alpn.size()), 0);
-
-    const Descriptor socket(::socket(AF_INET, SOCK_STREAM, 0));
-    EXPECT_GE(socket.get(), 0);
-    if (socket.get() < 0) return std::nullopt;
-    sockaddr_in address{};
-    address.sin_family = AF_INET;
-    address.sin_port = htons(port);
-    address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-    const int connected = ::connect(
-        socket.get(), reinterpret_cast<sockaddr*>(&address), sizeof(address));
-    EXPECT_EQ(connected, 0);
-    if (connected != 0) return std::nullopt;
-    const bool attached = SSL_set_fd(ssl.get(), socket.get()) == 1;
-    EXPECT_TRUE(attached);
-    if (!attached) return std::nullopt;
-    if (SSL_connect(ssl.get()) != 1) {
-        ADD_FAILURE() << "TLS handshake failed";
-        return std::nullopt;
-    }
-    write_all(ssl.get(), request);
-    return read_response(ssl.get());
-}
+using test_https::https_exchange;
 
 [[nodiscard]] std::string get_request(
     std::string_view target, const std::optional<std::string>& bearer = std::nullopt) {
@@ -168,64 +65,7 @@ void write_all(SSL* ssl, std::string_view bytes) {
     return std::stoi(response.substr(response.find(' ') + 1, 3));
 }
 
-/// 测试注缝:额度/快照由用例直控;save 调用按序记录供断言。tick 线程
-/// 与主线程并发访问,全部经互斥锁。
-class FakeStore final : public QueueStateStore {
-public:
-    void set_budgets(std::optional<BudgetAggregate> value) {
-        const std::scoped_lock lock(mutex_);
-        budgets_ = std::move(value);
-    }
-
-    void set_snapshot(std::optional<QueueSnapshot> value) {
-        const std::scoped_lock lock(mutex_);
-        snapshot_ = std::move(value);
-    }
-
-    void set_save_success(bool value) {
-        const std::scoped_lock lock(mutex_);
-        save_success_ = value;
-    }
-
-    [[nodiscard]] std::size_t save_attempts() const {
-        const std::scoped_lock lock(mutex_);
-        return save_attempts_;
-    }
-
-    [[nodiscard]] std::vector<QueueSnapshot> saved() const {
-        const std::scoped_lock lock(mutex_);
-        return saved_;
-    }
-
-    [[nodiscard]] std::optional<BudgetAggregate> refresh_budgets() const override {
-        const std::scoped_lock lock(mutex_);
-        return budgets_;
-    }
-
-    [[nodiscard]] std::optional<QueueSnapshot> load_snapshot() const override {
-        const std::scoped_lock lock(mutex_);
-        return snapshot_;
-    }
-
-    [[nodiscard]] bool save_snapshot(
-        const QueueSnapshot& snapshot_value,
-        std::int64_t updated_at_seconds) const override {
-        const std::scoped_lock lock(mutex_);
-        static_cast<void>(updated_at_seconds);
-        ++save_attempts_;
-        if (!save_success_) return false;
-        saved_.push_back(snapshot_value);
-        return true;
-    }
-
-private:
-    mutable std::mutex mutex_;
-    std::optional<BudgetAggregate> budgets_;
-    std::optional<QueueSnapshot> snapshot_;
-    mutable std::vector<QueueSnapshot> saved_;
-    mutable std::size_t save_attempts_{0};
-    bool save_success_{true};
-};
+using FakeStore = TestQueueStateStore;
 
 class QueueServiceTest : public ::testing::Test {
 protected:
@@ -339,10 +179,17 @@ protected:
 
     [[nodiscard]] std::optional<std::string> post_number(
         std::string_view suffix) const {
+        const auto issued = post_number_with_identity(identity_token(jti(suffix)));
+        if (!issued.has_value()) return std::nullopt;
+        return issued->first;
+    }
+
+    [[nodiscard]] std::optional<std::pair<std::string, std::uint64_t>>
+    post_number_with_identity(std::string_view identity) const {
         std::string body;
         body += "POST /v1/queue/tickets HTTP/1.1\r\n";
         body += "Host: localhost\r\n";
-        body += "Authorization: Bearer " + identity_token(jti(suffix)) + "\r\n";
+        body += "Authorization: Bearer " + std::string(identity) + "\r\n";
         body += "Content-Length: 0\r\n";
         body += "Connection: close\r\n";
         body += "\r\n";
@@ -354,7 +201,10 @@ protected:
         const auto* token =
             std::get_if<std::string>(&payload->at("queue_number_token"));
         if (token == nullptr) return std::nullopt;
-        return *token;
+        const auto* number = std::get_if<std::int64_t>(&payload->at("number"));
+        if (number == nullptr || *number <= 0) return std::nullopt;
+        return std::pair{
+            *token, static_cast<std::uint64_t>(*number)};
     }
 
     /// 轮询等待谓词成立(tick 驱动的异步帧不即时)。
@@ -612,6 +462,44 @@ TEST_F(QueueServiceTest, RestoresWaterLevelsFromColdBackup) {
         *token, jti("01"), claims_now + kIdentityTtl, claims_now);
     ASSERT_TRUE(claims.has_value());
     EXPECT_EQ(claims->number, 6U);
+}
+
+TEST_F(QueueServiceTest, RestartRecoversAcknowledgedIssueAndReleasePosition) {
+    const auto identity = identity_token(jti("01"));
+    const auto first = post_number_with_identity(identity);
+    ASSERT_TRUE(first.has_value());
+    EXPECT_EQ(first->second, 1U);
+
+    store_->set_budgets(
+        BudgetAggregate{.gateway_admission = 100, .realm_connections = 100});
+    wait_for([this] {
+        const auto saved = store_->saved();
+        return !saved.empty() && saved.back().released_number == 1U;
+    });
+
+    stopping_.store(true);
+    if (driver_.joinable()) driver_.join();
+    service_->stop();
+    service_->start();
+    port_ = service_->local_endpoints().at(0).port;
+    stopping_.store(false);
+    driver_ = std::jthread([this] {
+        while (!stopping_.load()) {
+            service_->tick();
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+    });
+
+    const auto replay = post_number_with_identity(identity);
+    ASSERT_TRUE(replay.has_value());
+    EXPECT_EQ(replay->second, first->second);
+    EXPECT_EQ(replay->first, first->first);
+    const auto query = https_exchange(
+        port_, get_request("/v1/queue/tickets/me", replay->first));
+    ASSERT_TRUE(query.has_value());
+    EXPECT_EQ(status_of(*query), 200);
+    EXPECT_NE(body_of(*query).find("\"status\":\"admitted\""),
+              std::string_view::npos);
 }
 
 }  // namespace

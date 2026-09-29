@@ -12,7 +12,7 @@
 仍需面对的实际边界：
 
 - Gateway 生产装配仍使用固定延迟并成功的 `DelayedAccountFetchPort`，尚未拉取真实账号数据。见 `framework/service_host/src/service_host.cpp` 与 `game/gateway/src/account_fetch_port.cpp`。
-- Queue 的取号序号和幂等映射先更新内存，当前持久快照随放行写入。两次放行之间重启，已发号码及映射可能未持久化。见 `game/queue/src/queue_core.cpp` 与 `game/queue/src/queue_service.cpp`。
+- Queue 已在 #89 中把每次登录尝试的发号映射与递增后的快照合入同一笔 etcd 事务，响应前提交；响应丢失先回读，进程重启可恢复原号。当前本机 Debug + 单节点 etcd 同步路径实测约 200 次/s，只证明恢复语义，不证明约 1700 次/s 容量目标；批提交或权威存储重选留待 #91 的目标 Linux 负载验收。
 - Realm 当前完成票据验讫、内存会话与心跳；没有选角或游戏消息处理。见 `framework/service_host/src/service_frame.cpp`。
 - `loadgen` 有 `full` 登录目标，但报告没有单列 Realm 入场结果。见 `tools/loadgen/src/loadgen.cpp`。
 - [README](../../README.md) 与[旧登录链规格](../specs/2026-09-12-login-chain-surge.md)的部分段落仍描述 `admitted` Queue Number；现行决策是独立 Admission Grant。旧规格中的容量推演属于假设，不能当作实测结论。

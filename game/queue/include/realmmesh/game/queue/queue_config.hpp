@@ -4,7 +4,6 @@
 #include "realmmesh/scripting/lua_runtime.hpp"
 
 #include <chrono>
-#include <cstddef>
 #include <cstdint>
 #include <string>
 
@@ -34,16 +33,12 @@ struct QueueConfig {
     /// (ADR-0009:号牌与准入凭据自 cutover 起彻底分离,号牌再无准入语义)。
     std::chrono::seconds queued_number_ttl{3600};
     std::chrono::seconds admit_grace{300};
-    /// 发号幂等映射:条目随身份 Token 过期,容量上限尽力保护。
-    std::chrono::seconds idempotency_ttl{1800};
-    std::size_t idempotency_capacity{1'000'000};
-    /// etcd 存取(§5.2 key 契约,与写侧 #43/#46 共享)。
+    /// etcd 存取(§5.2 key 契约,与写侧 #43/#46 共享)。发号映射按身份
+    /// Token 的真实过期时间租约回收，不另配进程内 TTL。
     std::string budget_prefix{"/realmmesh/budgets/service"};
     std::string snapshot_key{"/realmmesh/queue/snapshot"};
+    std::string issuance_prefix{"/realmmesh/queue/issuance"};
     std::string etcd_endpoint{"http://127.0.0.1:2379"};
-    /// 冷备强校验(默认开):启动时快照不可读即失败——冷备未知时从零
-    /// 重发会与存量号牌冲突(fail-closed)。无 etcd 的开发网状显式关闭。
-    bool snapshot_required{true};
 };
 
 class QueueConfigLoader final {

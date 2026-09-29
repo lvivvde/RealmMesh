@@ -44,18 +44,6 @@ namespace {
     return static_cast<std::uint64_t>(value.as<lua_Integer>());
 }
 
-/// 布尔字段;非布尔即抛。
-[[nodiscard]] bool optional_bool(
-    const sol::table& table, std::string_view field, bool fallback) {
-    const sol::object value = table.raw_get<sol::object>(std::string(field));
-    if (value == sol::lua_nil) return fallback;
-    if (!value.is<bool>()) {
-        throw std::invalid_argument(
-            "queue field " + std::string(field) + " must be a boolean");
-    }
-    return value.as<bool>();
-}
-
 /// TLS 路径:配置直填优先,否则按环境变量名解析(先例同 login_verify);
 /// 两路皆空抛 std::invalid_argument。
 [[nodiscard]] std::string path_from_config_or_environment(
@@ -125,20 +113,14 @@ QueueConfig QueueConfigLoader::parse(const sol::table& root) {
         table,
         "admit_grace_seconds",
         static_cast<std::uint64_t>(config.admit_grace.count())));
-    config.idempotency_ttl = std::chrono::seconds(optional_positive(
-        table,
-        "idempotency_ttl_seconds",
-        static_cast<std::uint64_t>(config.idempotency_ttl.count())));
-    config.idempotency_capacity = static_cast<std::size_t>(optional_positive(
-        table, "idempotency_capacity", config.idempotency_capacity));
     config.budget_prefix =
         optional_string(table, "budget_prefix", config.budget_prefix);
     config.snapshot_key =
         optional_string(table, "snapshot_key", config.snapshot_key);
+    config.issuance_prefix =
+        optional_string(table, "issuance_prefix", config.issuance_prefix);
     config.etcd_endpoint =
         optional_string(table, "etcd_endpoint", config.etcd_endpoint);
-    config.snapshot_required =
-        optional_bool(table, "snapshot_required", config.snapshot_required);
     config.tls = network::TransportConfig::TlsServerIdentity{
         .certificate_chain_file = path_from_config_or_environment(
             table,

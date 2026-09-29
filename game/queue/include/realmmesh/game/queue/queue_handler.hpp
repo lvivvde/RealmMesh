@@ -22,7 +22,7 @@ namespace realm::game::queue {
 /// 缓存)、GET /v1/queue/tickets/me(Bearer Queue Number v2,放行即签发
 /// 身份绑定的 Admission Grant)。
 /// 错误模型 {code, message}:1001 身份凭据无效(1xxx 沿用 edge.proto)、
-/// 2001 号牌无效/过期、1000 其余请求性错误。
+/// 2001 号牌无效/过期、2002 发号权威存储暂不可用、1000 其余请求性错误。
 class QueueHandler final {
 public:
     using Clock = std::function<std::chrono::system_clock::time_point()>;
@@ -30,6 +30,7 @@ public:
     static constexpr int error_invalid_request = 1000;
     static constexpr int error_invalid_credentials = 1001;
     static constexpr int error_invalid_number = 2001;
+    static constexpr int error_issuance_unavailable = 2002;
 
     QueueHandler(
         QueueTicketing& ticketing,

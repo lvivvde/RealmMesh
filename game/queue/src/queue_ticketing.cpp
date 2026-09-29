@@ -57,26 +57,38 @@ std::string deterministic_grant_jti(
 
 QueueTicketing::QueueTicketing(
     QueueCore& core,
+    QueueStateStore& store,
     common::QueueNumberV2Codec queue_numbers,
     common::AdmissionGrantIssuer admission_grants)
     : core_(&core),
+      store_(&store),
       queue_numbers_(std::move(queue_numbers)),
       admission_grants_(std::move(admission_grants)) {}
 
 IssuedQueueTicket QueueTicketing::issue(
     const common::IdentityClaims& identity,
     std::chrono::system_clock::time_point now) {
-    const auto issued = core_->issue(identity.jti, now);
+    const auto issued = store_->issue_or_recover(QueueIssueRequest{
+        .identity_jti = identity.jti,
+        .issued_at = now,
+        .identity_expires_at = identity.expires_at,
+        .snapshot = core_->snapshot(now),
+    });
+    if (issued.status == QueueIssueStatus::Unavailable) {
+        return {};
+    }
+    core_->restore(issued.snapshot, now);
     const auto token = queue_numbers_.issue(common::QueueNumberV2Issue{
         .identity_jti = identity.jti,
         .number = issued.number,
-        .issued_at = now,
+        .issued_at = issued.issued_at,
         .identity_expires_at = identity.expires_at,
     });
     const auto released = core_->released_number();
     const auto position =
         issued.number > released ? issued.number - released : 0U;
     return {
+        .status = issued.status,
         .queue_number_token = token,
         .number = issued.number,
         .estimated_wait_seconds =

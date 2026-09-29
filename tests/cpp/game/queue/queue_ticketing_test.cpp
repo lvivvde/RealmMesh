@@ -5,6 +5,8 @@
 #include <chrono>
 #include <string>
 
+#include "queue_test_store.hpp"
+
 namespace realm::game::queue {
 namespace {
 
@@ -62,7 +64,8 @@ common::IdentityClaims identity(
 
 TEST(QueueTicketingTest, IssuesIdentityBoundQueueNumberV2) {
     QueueCore core(100);
-    QueueTicketing ticketing(core, number_codec(), grant_issuer());
+    TestQueueStateStore store;
+    QueueTicketing ticketing(core, store, number_codec(), grant_issuer());
     const auto issued = ticketing.issue(identity(at(90)), at(10));
 
     EXPECT_EQ(issued.number, 1U);
@@ -75,7 +78,8 @@ TEST(QueueTicketingTest, IssuesIdentityBoundQueueNumberV2) {
 
 TEST(QueueTicketingTest, ReturnsQueuedShapeBeforeRelease) {
     QueueCore core(100);
-    QueueTicketing ticketing(core, number_codec(), grant_issuer());
+    TestQueueStateStore store;
+    QueueTicketing ticketing(core, store, number_codec(), grant_issuer());
     const auto issued = ticketing.issue(identity(), at(10));
 
     const auto result = ticketing.query(issued.queue_number_token, at(20));
@@ -87,10 +91,12 @@ TEST(QueueTicketingTest, ReturnsQueuedShapeBeforeRelease) {
 
 TEST(QueueTicketingTest, IdempotentIssueAfterReleaseDoesNotUnderflowEta) {
     QueueCore core(100);
-    QueueTicketing ticketing(core, number_codec(), grant_issuer());
+    TestQueueStateStore store;
+    QueueTicketing ticketing(core, store, number_codec(), grant_issuer());
     const auto first = ticketing.issue(identity(), at(10));
     ASSERT_EQ(
         core.release_batch(BudgetAggregate{100, 100}, at(100)), 1U);
+    ASSERT_TRUE(store.save_snapshot(core.snapshot(at(100)), 100));
 
     const auto replay = ticketing.issue(identity(), at(110));
     EXPECT_EQ(replay.number, first.number);
@@ -98,8 +104,9 @@ TEST(QueueTicketingTest, IdempotentIssueAfterReleaseDoesNotUnderflowEta) {
 }
 
 TEST(QueueTicketingTest, RepeatedQueriesReturnByteIdenticalGrant) {
-    QueueCore core(100, 10s, 30min, 100, 5min);
-    QueueTicketing ticketing(core, number_codec(), grant_issuer());
+    QueueCore core(100, 10s, 5min);
+    TestQueueStateStore store;
+    QueueTicketing ticketing(core, store, number_codec(), grant_issuer());
     const auto issued = ticketing.issue(identity(), at(10));
     ASSERT_EQ(
         core.release_batch(BudgetAggregate{100, 100}, at(100)), 1U);
@@ -122,25 +129,27 @@ TEST(QueueTicketingTest, RepeatedQueriesReturnByteIdenticalGrant) {
 }
 
 TEST(QueueTicketingTest, RestartKeepsOriginalGrantAndReleaseWindow) {
-    QueueCore source(100, 10s, 30min, 100, 5min);
-    QueueTicketing before(source, number_codec(), grant_issuer());
+    QueueCore source(100, 10s, 5min);
+    TestQueueStateStore store;
+    QueueTicketing before(source, store, number_codec(), grant_issuer());
     const auto issued = before.issue(identity(), at(10));
     ASSERT_EQ(
         source.release_batch(BudgetAggregate{100, 100}, at(100)), 1U);
     const auto first = before.query(issued.queue_number_token, at(120));
     ASSERT_TRUE(first.admission_grant.has_value());
 
-    QueueCore restored(100, 10s, 30min, 100, 5min);
+    QueueCore restored(100, 10s, 5min);
     restored.restore(source.snapshot(at(120)), at(200));
-    QueueTicketing after(restored, number_codec(), grant_issuer());
+    QueueTicketing after(restored, store, number_codec(), grant_issuer());
     const auto second = after.query(issued.queue_number_token, at(200));
     ASSERT_TRUE(second.admission_grant.has_value());
     EXPECT_EQ(*first.admission_grant, *second.admission_grant);
 }
 
 TEST(QueueTicketingTest, ReturnsExplicitExpiredAndInvalidOutcomes) {
-    QueueCore core(100, 10s, 30min, 100, 5min);
-    QueueTicketing ticketing(core, number_codec(), grant_issuer());
+    QueueCore core(100, 10s, 5min);
+    TestQueueStateStore store;
+    QueueTicketing ticketing(core, store, number_codec(), grant_issuer());
     const auto issued = ticketing.issue(identity(), at(10));
     ASSERT_EQ(
         core.release_batch(BudgetAggregate{100, 100}, at(100)), 1U);

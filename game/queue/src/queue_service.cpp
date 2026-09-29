@@ -20,6 +20,7 @@ QueueService::QueueService(
         EtcdQueueStore::Options{
             .budget_prefix = config_.budget_prefix,
             .snapshot_key = config_.snapshot_key,
+            .issuance_prefix = config_.issuance_prefix,
         },
         cluster::make_etcd_http_client(
             config_.etcd_endpoint, std::chrono::milliseconds{500}));
@@ -71,10 +72,9 @@ void QueueService::start(observability::Logger* logger) {
         common::seed_from_environment("REALMMESH_IDENTITY_KEY_SEED"),
         config_.identity_kid);
     core_ = std::make_unique<QueueCore>(
-        config_.release_step, queue_rate_window, config_.idempotency_ttl,
-        config_.idempotency_capacity, config_.admit_grace);
+        config_.release_step, queue_rate_window, config_.admit_grace);
     ticketing_ = std::make_unique<QueueTicketing>(
-        *core_, *number_codec_, *admission_grant_issuer_);
+        *core_, *store_, *number_codec_, *admission_grant_issuer_);
     handler_ = std::make_unique<QueueHandler>(
         *ticketing_,
         *identity_codec_,
@@ -83,33 +83,20 @@ void QueueService::start(observability::Logger* logger) {
         metrics_);
 
     // 冷备恢复(§10):有快照即整体替换水位;无快照(确属空状态)从零
-    // 开始;etcd 不可达或快照损坏抛出——不得在未知水位上从零重发存量
-    // 号。snapshot_required=false(开发网状无 etcd)时降级为告警放行。
-    try {
-        if (const auto snapshot = store_->load_snapshot();
-            snapshot.has_value()) {
-            core_->restore(*snapshot);
-            if (logger != nullptr) {
-                static_cast<void>(logger->info(
-                    "queue_snapshot_restored",
-                    "queue state restored from snapshot",
-                    {observability::field(
-                         "released_number",
-                         static_cast<std::int64_t>(snapshot->released_number)),
-                     observability::field(
-                         "next_number",
-                         static_cast<std::int64_t>(snapshot->next_number))}));
-            }
-        }
-    } catch (const std::exception& error) {
-        if (config_.snapshot_required) {
-            throw;
-        }
+    // 开始;etcd 不可达、快照或发号映射损坏一律抛出——不得在未知水位
+    // 上从零重发存量号码，也不存在生产内存降级路径。
+    if (const auto snapshot = store_->load_snapshot(); snapshot.has_value()) {
+        core_->restore(*snapshot);
         if (logger != nullptr) {
-            static_cast<void>(logger->warn(
-                "queue_snapshot_unavailable",
-                std::string{"queue snapshot unavailable, starting from zero: "} +
-                    error.what()));
+            static_cast<void>(logger->info(
+                "queue_snapshot_restored",
+                "queue state restored from snapshot",
+                {observability::field(
+                     "released_number",
+                     static_cast<std::int64_t>(snapshot->released_number)),
+                 observability::field(
+                     "next_number",
+                     static_cast<std::int64_t>(snapshot->next_number))}));
         }
     }
 

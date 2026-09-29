@@ -22,8 +22,8 @@ flowchart LR
 
 - **登录健全服 `login_verify`**：无状态、可水平扩展，只回答账号是否有效（有效/封禁/
   白名单），签发身份 Token（JWT/EdDSA）并暴露 JWKS。
-- **排队调度服 `queue`**：发号、查号，按准入额度分批放行；唯一权威状态是已放行号与
-  放行速率。
+- **排队调度服 `queue`**：发号、查号，按准入额度分批放行；已确认发号映射、下一号码、
+  已放行水位与放行批次由 etcd 持久化，响应丢失或进程重启后可按同一身份尝试找回原号。
 - **网关 `gateway`**：只承载登录管线。Edge Session 三阶段
   `pending → fetching → handed-off`；拉取账号数据完成后下发 EnterRealm 票据与业务服
   端点，不中转业务流量。
@@ -140,7 +140,7 @@ JSON over HTTP/1.1，keep-alive 必开：
 | 端点 | 服务 | 请求 | 成功响应 |
 |---|---|---|---|
 | `POST /v1/login/verify` | 健全服 | `{account, credential}` | `200 {identity_token, account_id, expires_in}` |
-| `POST /v1/queue/tickets` | 排队服 | Bearer 身份 Token | `202 {queue_number_token, number, estimated_wait_seconds}`；同 `sub` 幂等 |
+| `POST /v1/queue/tickets` | 排队服 | Bearer 身份 Token | `202 {queue_number_token, number, estimated_wait_seconds}`；同一未过期 `identity_jti` 幂等；权威存储不可用时 `503` + `Retry-After`，不返回未提交号码 |
 | `GET /v1/queue/progress` | 排队服 | — | `200 {released_number, admit_rate, server_time}`；可 CDN 缓存，位次/ETA 客户端本地算 |
 | `GET /v1/queue/tickets/me` | 排队服 | Bearer 号牌 | `200 {status, position, estimated_wait_seconds}`；放行时 `status="admitted"` 并附 `admit_grant {admission_grant, number, expires_in}` |
 | `GET /.well-known/jwks.json` | 健全服 | — | JWKS |
@@ -148,7 +148,7 @@ JSON over HTTP/1.1，keep-alive 必开：
 
 错误模型为 `{code, message, retry_after_seconds?}`（HTTP 状态与 `code` 并存），段号约定
 沿用 `edge.proto`：`1xxx` 凭据段（`1001` 凭据无效、`1002` 封禁、`1003` 白名单外）、
-`2xxx` 排队段（`2001` 号牌无效/过期）。网关边另有一套 `EdgeError.code`：`1001` 凭据无效、
+`2xxx` 排队段（`2001` 号牌无效/过期、`2002` 发号存储暂不可用）。网关边另有一套 `EdgeError.code`：`1001` 凭据无效、
 `1004` 满额拒绝 attach、`1005` 准入处理中（可重试）、`1006` 准入存储不可用（可重试）、
 `2002` 未认证、`3002` 入场票据无效，以及限流时的 `429`（带 `retry_after_seconds`）。
 这两套 code 与 `Envelope.message_id` 是三个独立编号空间，数值相同不代表同一含义。各服务

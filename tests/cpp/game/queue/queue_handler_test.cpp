@@ -8,8 +8,11 @@
 #include "realmmesh/game/queue/queue_ticketing.hpp"
 #include "realmmesh/observability/metrics_registry.hpp"
 
+#include "queue_test_store.hpp"
+
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <chrono>
 #include <cstdint>
 #include <optional>
@@ -71,8 +74,9 @@ protected:
                 .deployment_id = "test",
                 .grant_window = std::chrono::seconds{300}});
         core_ = std::make_unique<QueueCore>(100);
+        store_ = std::make_unique<TestQueueStateStore>();
         ticketing_ = std::make_unique<QueueTicketing>(
-            *core_, *number_codec_, *grant_issuer_);
+            *core_, *store_, *number_codec_, *grant_issuer_);
         handler_ = std::make_unique<QueueHandler>(
             *ticketing_,
             *identity_codec_,
@@ -136,6 +140,7 @@ protected:
     std::unique_ptr<common::QueueNumberV2Codec> number_codec_;
     std::unique_ptr<common::AdmissionGrantIssuer> grant_issuer_;
     std::unique_ptr<QueueCore> core_;
+    std::unique_ptr<TestQueueStateStore> store_;
     std::unique_ptr<QueueTicketing> ticketing_;
     observability::MetricsRegistry metrics_;
     std::unique_ptr<QueueHandler> handler_;
@@ -187,6 +192,28 @@ TEST_F(QueueHandlerTest, SameIdentityReplaysSameNumber) {
     EXPECT_EQ(
         std::get<std::int64_t>(first_payload->at("number")),
         std::get<std::int64_t>(second_payload->at("number")));
+}
+
+TEST_F(QueueHandlerTest, StoreFailureIsRetryableAndDoesNotAdvanceNumber) {
+    store_->set_issue_available(false);
+    const auto unavailable = handler_->handle(
+        request("POST", "/v1/queue/tickets", identity_token(jti("01"))));
+    EXPECT_EQ(unavailable.status, 503);
+    EXPECT_EQ(code_of(unavailable), QueueHandler::error_issuance_unavailable);
+    ASSERT_FALSE(unavailable.headers.empty());
+    EXPECT_NE(
+        std::find(
+            unavailable.headers.begin(), unavailable.headers.end(),
+            std::pair<std::string, std::string>{"Retry-After", "1"}),
+        unavailable.headers.end());
+
+    store_->set_issue_available(true);
+    const auto issued = handler_->handle(
+        request("POST", "/v1/queue/tickets", identity_token(jti("01"))));
+    ASSERT_EQ(issued.status, 202);
+    const auto payload = JsonCodec::decode(issued.body);
+    ASSERT_TRUE(payload.has_value());
+    EXPECT_EQ(std::get<std::int64_t>(payload->at("number")), 1);
 }
 
 TEST_F(QueueHandlerTest, MissingOrMalformedBearerIs1001) {
