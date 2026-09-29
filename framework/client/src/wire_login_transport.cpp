@@ -16,6 +16,12 @@ namespace common = ::realm::game::common;
 namespace edge_v1 = ::realmmesh::protocol::edge::v1;
 namespace net_client = ::realm::network::client;
 
+/// Queue Scheduler 的 HTTPS 错误模型与 Edge 错误码分属两个编号空间
+/// (见 game/queue/.../queue_handler.hpp 的错误模型注释):`tickets/me`
+/// 的 401 用 2001 表示号牌无效/过期,客户端据此重取号牌。Edge 侧的
+/// 2001 已随 #82 不再分配,不要把这个值当成 Edge 错误码。
+inline constexpr std::int64_t queue_http_error_invalid_number = 2001;
+
 /// 单次请求上限与链路总窗口取小:一个挂死的请求不得吃光整个登录窗口。
 [[nodiscard]] TimePoint request_deadline(TimePoint deadline,
                                         std::chrono::milliseconds budget) {
@@ -77,7 +83,8 @@ struct EdgeErrorRecovery final {
     EdgeErrorRecovery result;
     switch (static_cast<int>(error.code())) {
     case common::edge_error_invalid_credentials:
-    case common::edge_error_invalid_queue_number:
+        // ADR-0009:签名/schema/绑定/部署/时效/已消费一律收敛为凭据无效,
+        // 客户端只此一条终止路径——重头走 Login Verifier。
         result.recovery = PortRecovery::Restart;
         break;
     case common::edge_error_admission_in_progress:
@@ -344,15 +351,13 @@ PortValue<TicketMeResult> WireLoginTransport::ticket_me(
     }
     const auto status =
         net_client::extract_json_string_field(response->body, "status");
-    // 401 不一律等于号牌过期:只有错误码 2001(invalid number,spec §5.1
-    // 错误模型)才是「号牌无效/过期」→ 上层自动重取(spec §7)。其余
-    // 401 按瞬时失败处理(可由下一次轮询重试),不能误触发重取号。
+    // 401 不一律等于号牌过期:只有 Queue 错误码 2001(invalid number,
+    // spec §5.1 错误模型)才是「号牌无效/过期」→ 上层自动重取(spec §7)。
+    // 其余 401 按瞬时失败处理(可由下一次轮询重试),不能误触发重取号。
     if (response->status == 401) {
         const auto code =
             net_client::extract_json_int_field(response->body, "code");
-        if (code.has_value() &&
-            *code == static_cast<std::int64_t>(
-                         common::edge_error_invalid_queue_number)) {
+        if (code.has_value() && *code == queue_http_error_invalid_number) {
             result.status = PortStatus::error(
                 ChainFailure::TicketRejected, "号牌无效或已过期",
                 /*credential_expired=*/true,
@@ -373,14 +378,8 @@ PortValue<TicketMeResult> WireLoginTransport::ticket_me(
         return result;
     }
     if (*status == "admitted") {
-        // 当前排队服把 Grant 嵌在 admit_grant 中；旧 handler 在 #82
-        // 原子切换前仍使用 queue_number_token 这个内层名字，仅作有界兼容。
-        const auto named_grant = net_client::extract_json_string_field(
+        const auto grant = net_client::extract_json_string_field(
             response->body, "admission_grant");
-        const auto legacy_grant = net_client::extract_json_string_field(
-            response->body, "queue_number_token");
-        const auto& grant =
-            named_grant.has_value() ? named_grant : legacy_grant;
         if (!grant.has_value() || grant->empty()) {
             result.status = PortStatus::error(ChainFailure::ProgressFailed,
                                               "放行响应缺 Admission Grant",
@@ -390,11 +389,19 @@ PortValue<TicketMeResult> WireLoginTransport::ticket_me(
             return result;
         }
         result.value.admission_grant = *grant;
-        if (const auto grace =
+        // 放行响应必须带上由 Grant 自身 exp 派生的剩余窗口:缺失或非正
+        // 视为畸形响应,宁可重启整条链也不拿一个猜出来的时长去重试。
+        const auto grace =
             net_client::extract_json_int_field(response->body, "expires_in");
-            grace.has_value() && *grace > 0) {
-            result.value.admission_grant_ttl = std::chrono::seconds{*grace};
+        if (!grace.has_value() || *grace <= 0) {
+            result.status = PortStatus::error(ChainFailure::ProgressFailed,
+                                              "放行响应缺有效 expires_in",
+                                              false,
+                                              PortFailureCategory::Protocol,
+                                              PortRecovery::Restart);
+            return result;
         }
+        result.value.admission_grant_ttl = std::chrono::seconds{*grace};
         result.status = PortStatus::success();
         return result;
     }
@@ -492,21 +499,19 @@ PortStatus WireLoginTransport::attach(GatewaySession& session,
         }
         if (*message_id == edge_v1::MESSAGE_ID_S2C_ERROR) {
             const auto error = common::decode_edge_error(*payload);
-            bool credential_expired = false;
             auto recovery = PortRecovery::Retry;
             std::chrono::seconds retry_after{0};
             if (error.has_value()) {
-                const auto code = static_cast<int>(error->code());
-                credential_expired =
-                    code == common::edge_error_invalid_queue_number;
                 const auto classified = classify_edge_error(*error);
                 recovery = classified.recovery;
                 retry_after = classified.retry_after;
             }
+            // 终止与否只由 classify_edge_error 的 recovery 表达:#79 起
+            // 准入失败一律是 1001(Restart),没有别的「凭据过期」副信道。
             return PortStatus::error(
                 ChainFailure::AttachRejected,
                 error.has_value() ? edge_error_detail(*error) : "attach 被拒",
-                credential_expired,
+                /*credential_expired=*/false,
                 PortFailureCategory::Protocol,
                 recovery,
                 retry_after);

@@ -141,7 +141,6 @@ struct LoginChainConfig final {
     std::chrono::milliseconds gateway_retry_delay{200};
     std::chrono::milliseconds realm_retry_delay{200};
     std::chrono::seconds enter_realm_ttl{60};
-    std::chrono::seconds admit_grace_fallback{300};
     /// 压测策略只替换轮询节奏，不改变状态、凭据或回退语义。
     std::chrono::milliseconds pressure_poll_interval{10};
 };

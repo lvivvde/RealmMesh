@@ -194,9 +194,9 @@ LoginChain::Action LoginChain::poll_until_admitted(TimePoint deadline) {
             poller_.record_success();
             if (!me.value.admission_grant.empty()) {
                 credentials_.admission_grant = me.value.admission_grant;
-                admission_grant_ttl_ = me.value.admission_grant_ttl.count() > 0
-                    ? me.value.admission_grant_ttl
-                    : config_.admit_grace_fallback;
+                // 窗口只用服务端下发的值:它由该 Grant 自身的 exp 派生,
+                // 客户端不再自带一个可能与签发方漂移的常量。
+                admission_grant_ttl_ = me.value.admission_grant_ttl;
                 admitted_at_ = Clock::now();
                 failure_ = ChainFailure::None;
                 failure_detail_.clear();
@@ -352,7 +352,7 @@ LoginResult LoginChain::run(LoginRun request) {
     last_poll_interval_ = std::chrono::milliseconds{0};
     eta_.reset();
     admitted_at_ = TimePoint{};
-    admission_grant_ttl_ = config_.admit_grace_fallback;
+    admission_grant_ttl_ = std::chrono::seconds{0};
     polling_profile_ = request.polling_profile();
 
     const auto target = request.target();

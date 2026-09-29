@@ -484,11 +484,13 @@ TEST(LoginChainTest, AttachRejectionRetriesGatewayWithinGrace) {
     EXPECT_EQ(transport.gateway_closes, 2);
 }
 
-/// 宽限耗尽:号牌视同过期,回排队重取(spec §7)。
+/// 宽限耗尽:窗口按服务端下发的值算,耗尽即重启整条链(spec §7)。
+/// 这里由假传输直接交出零窗口 —— 真实传输会把 expires_in ≤ 0 判为畸形响应
+/// 并同样以 Restart 收场;两种入口都必须落回"重新验证身份",而不是拿一个
+/// 客户端自行猜测的时长继续重试。
 TEST(LoginChainTest, ExhaustedAdmitGraceRetakesTicket) {
     ScriptedTransport transport;
     auto config = fast_config();
-    config.admit_grace_fallback = std::chrono::seconds{0};
     transport.ticket_results = {ticketed("number-token-1", 100),
                                ticketed("number-token-2", 200)};
     transport.progress_results = {progress(100, 10.0), progress(200, 10.0)};

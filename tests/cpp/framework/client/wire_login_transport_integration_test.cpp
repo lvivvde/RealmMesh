@@ -233,7 +233,7 @@ public:
         }
     }
 
-    /// 前 N 次 attach 回 1999 + 2001(号牌过期)。
+    /// 前 N 次 attach 回 1999 + 1001(凭据无效,ADR-0009 的终态)。
     std::atomic<int> reject_attach_remaining{0};
     std::atomic<int> attach_calls{0};
     std::atomic<int> handoff_sent{0};
@@ -549,8 +549,8 @@ TEST(WireLoginTransportIntegrationTest, DrivesLoginChainOverRealTls) {
     EXPECT_FALSE(edge.last_enter_realm_ticket().empty());
 }
 
-/// attach 被 1999 + 2001 拒(号牌过期):真实帧路径上同样自动重取号牌,
-/// 不需要人类重新登录(spec §7 回退规则)。
+/// attach 被 1999 + 1001 拒(凭据无效,ADR-0009 的单一终态):真实帧路径上
+/// 同样自动重取号牌,不需要人类重新登录(spec §7 回退规则)。
 TEST(WireLoginTransportIntegrationTest, AttachRejectionRestartsLogin) {
     const std::array<network::TransportConfig, 1> configs{gateway_config()};
     auto transports = network::TransportFactory::create_enabled(configs);
