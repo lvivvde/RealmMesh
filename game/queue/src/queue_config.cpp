@@ -93,7 +93,14 @@ QueueConfig QueueConfigLoader::parse(const sol::table& root) {
     config.listen_address =
         optional_string(table, "listen_address", config.listen_address);
     config.listen_port = optional_port(table, "listen_port", config.listen_port);
-    config.kid = optional_string(table, "kid", config.kid);
+    config.queue_number_kid = optional_string(
+        table, "queue_number_kid", config.queue_number_kid);
+    config.admission_grant_kid = optional_string(
+        table, "admission_grant_kid", config.admission_grant_kid);
+    config.admission_grant_issuer = optional_string(
+        table, "admission_grant_issuer", config.admission_grant_issuer);
+    config.deployment_id = optional_string(
+        table, "deployment_id", config.deployment_id);
     config.identity_kid =
         optional_string(table, "identity_kid", config.identity_kid);
     config.identity_issuer =

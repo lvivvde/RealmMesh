@@ -121,11 +121,32 @@ QueueTicketQuery QueueTicketing::query(
         .issued_at = eligibility.released_at,
         .identity_expires_at = claims->expires_at,
     });
+    // 剩余窗口与签发时的 exp 同源:min(身份 Token 到期, 放行批次 + 窗口),
+    // 不重新起算,也不给客户端留一个可以自行延长的近似值。
+    const auto grant_expires_at = std::min(
+        claims->expires_at,
+        eligibility.released_at + admission_grants_.grant_window());
+    const auto remaining =
+        std::chrono::duration_cast<std::chrono::seconds>(
+            grant_expires_at - now);
     return {
         .status = QueueTicketQueryStatus::Admitted,
         .number = claims->number,
         .admission_grant = std::move(grant),
+        .admission_grant_expires_in_seconds =
+            remaining.count() > 0
+            ? static_cast<std::uint64_t>(remaining.count())
+            : 0U,
     };
+}
+
+std::uint64_t QueueTicketing::released_number() const noexcept {
+    return core_->released_number();
+}
+
+std::uint64_t QueueTicketing::admit_rate(
+    std::chrono::system_clock::time_point now) const {
+    return core_->admit_rate(now);
 }
 
 }  // namespace realm::game::queue

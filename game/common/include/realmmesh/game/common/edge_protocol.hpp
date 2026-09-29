@@ -27,18 +27,19 @@ using EdgeTransportProtocol =
 inline constexpr std::uint32_t kEdgeProtocolVersion = 1;
 
 /// EdgeError.code 的取值(主 spec §5.1:1xxx 沿用 edge.proto 凭据段、
-/// 2xxx 排队段):1001 身份凭据无效、1004 网关满额拒绝 attach(#43)、
-/// 2001 号牌无效(排队段)、2002 未认证、3002 EnterRealm 直连票据无效
-/// (#46)。
+/// 2xxx 排队段):1001 凭据无效(签名/schema/绑定/部署/时效/已消费一律
+/// 收敛于此,见 docs/adr/0009)、1004 网关满额拒绝 attach(#43)、
+/// 1005 准入进行中、1006 准入存储不可用、429 限流、2002 未认证、
+/// 3002 EnterRealm 直连票据无效(#46)。
 ///
-/// 两个错误码不再分配:2001 曾兼作 realm 登录票据无效(与排队号牌同
-/// 码,按消息上下文区分),3001 为 EnterGame 入场票据无效。
+/// 三个号码不再分配:2001 曾兼作排队号牌无效(排队号牌不再进入 Gateway;
+/// 该语义只活在 Queue 的 HTTPS 错误模型里,与 Edge 错误码分属两个编号
+/// 空间)、realm 登录票据无效、3001 EnterGame 入场票据无效。
 inline constexpr int edge_error_invalid_credentials = 1001;
 inline constexpr int edge_error_attach_out_of_budget = 1004;
 inline constexpr int edge_error_admission_in_progress = 1005;
 inline constexpr int edge_error_admission_unavailable = 1006;
 inline constexpr int edge_error_throttled = 429;
-inline constexpr int edge_error_invalid_queue_number = 2001;
 inline constexpr int edge_error_not_authenticated = 2002;
 inline constexpr int edge_error_invalid_enter_realm_ticket = 3002;
 

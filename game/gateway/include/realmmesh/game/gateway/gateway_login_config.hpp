@@ -1,6 +1,5 @@
 #pragma once
 
-#include "realmmesh/game/common/compact_jws.hpp"
 #include "realmmesh/game/common/session_ticket.hpp"
 #include "realmmesh/game/gateway/gateway_ingress.hpp"
 
@@ -10,6 +9,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace realm::game::gateway {
 
@@ -17,6 +17,14 @@ struct RealmEndpoint {
     std::string address;
     std::uint16_t port{0};
     auto operator<=>(const RealmEndpoint&) const = default;
+};
+
+/// Admission Grant 验证键环的一个条目(kid + 公钥所在的环境变量名)。
+/// 轮换重叠期把退休 kid 一并列在环里,直到该凭据最大寿命 + 时钟容差过去;
+/// 私钥只允许存在于 Queue Scheduler,验证侧永不装载。
+struct AdmissionGrantKeySource final {
+    std::string kid;
+    std::string public_key_environment;
 };
 
 struct GatewayLoginConfig {
@@ -27,27 +35,20 @@ struct GatewayLoginConfig {
     std::chrono::milliseconds handoff_grace{5'000};
     std::optional<RealmEndpoint> static_realm;
     GatewayCredentialIngressConfig credential_ingress;
+    /// Admission Grant 只以 kid 索引的公钥环验证。
+    std::string identity_kid{"login-verify-v1"};
+    std::string identity_issuer{"realmmesh/login-verify"};
+    std::vector<AdmissionGrantKeySource> admission_grant_keys{
+        {"admission-grant-v1", "REALMMESH_ADMISSION_GRANT_PUBLIC_KEY"}};
+    std::string admission_grant_issuer{"realmmesh/queue"};
+    /// 必须与 Queue 的签发窗口一致;协议硬上限见 admission_grant_max_window。
+    std::chrono::seconds admission_grant_window{300};
+    std::string deployment_id{"development"};
+    std::string admission_consumption_prefix{
+        "/realmmesh/admission/consumption"};
+    std::chrono::seconds admission_reservation_ttl{10};
 
     void validate() const;
 };
-
-struct GatewaySigningMaterial {
-    common::Ed25519Seed identity_seed;
-    std::string identity_kid;
-    common::Ed25519Seed queue_seed;
-    std::string queue_kid;
-    common::SessionTicketKey enter_realm_key;
-    std::string identity_issuer;
-
-    [[nodiscard]] static GatewaySigningMaterial from_hex(
-        std::string_view identity_seed_hex,
-        std::string identity_kid,
-        std::string_view queue_seed_hex,
-        std::string queue_kid,
-        std::string_view enter_realm_key_hex,
-        std::string identity_issuer);
-};
-
-[[nodiscard]] GatewaySigningMaterial load_gateway_signing_material();
 
 }  // namespace realm::game::gateway

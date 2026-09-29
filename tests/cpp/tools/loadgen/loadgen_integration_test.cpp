@@ -5,8 +5,11 @@
 #include "realmmesh/loadgen/metrics_scrape.hpp"
 #include "realmmesh/network/tcp/tcp_listener.hpp"
 #include "realmmesh/service_host/mesh_host.hpp"
+#include "realmmesh/cluster/etcd_service_registry.hpp"
+#include "realmmesh/game/common/admission_grant.hpp"
 #include "realmmesh/game/common/compact_jws.hpp"
-#include "realmmesh/game/common/queue_number.hpp"
+#include "realmmesh/game/common/queue_number_v2.hpp"
+#include "realmmesh/test_support/etcd_process.hpp"
 #include "realmmesh/test_support/temporary_directory.hpp"
 
 #include <gtest/gtest.h>
@@ -35,6 +38,7 @@
 #include <iostream>
 #include <map>
 #include <mutex>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -66,14 +70,26 @@ struct TerminateBacktraceInstaller final {
 
 const TerminateBacktraceInstaller terminate_backtrace_installer;
 
-// 固定测试种子(64 位十六进制 = 32 字节):identity 与 queue 两把键同源
-// 注入服务进程,测试侧用同一份构造 codec 做号牌验签断言。
+// 固定测试种子与凭据材料:身份 Token、Queue Number v2、Admission Grant
+// 各一把种子(角色不共材,Queue 侧 validate() 会拒绝共享签名密钥),外加
+// Grant 公钥(网关键环按 kid 索引)与准入消费摘要键。测试侧用同一份构造
+// 各 codec 做验签断言;外部服务组模式由 scripts/dev_services_test.sh 注入
+// 同一组值,改动必须两边同步。
 constexpr std::string_view kTestSeedHex =
     "0102030405060708090a0b0c0d0e0f10"
     "1112131415161718191a1b1c1d1e1f20";
+constexpr std::string_view kQueueNumberSeedHex = kTestSeedHex;
+constexpr std::string_view kGrantSeedHex =
+    "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+constexpr std::string_view kGrantPublicKeyHex =
+    "207a067892821e25d770f1fba0c47c11ff4b813e54162ece9eb839e076231ab6";
+constexpr std::string_view kConsumptionDigestKeyHex =
+    "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210";
+constexpr std::string_view kQueueNumberKid = "queue-number-v2";
+constexpr std::string_view kGrantKid = "admission-grant-v1";
 
-/// TLS 证书/会话票据/两把签名种子的环境变量守护:指向 CMake 预生成的
-/// 自签证书与固定测试密钥,析构还原。
+/// TLS 证书/会话票据/签名种子与准入材料的环境变量守护:指向 CMake 预生成
+/// 的自签证书与固定测试密钥,析构还原。
 class ScopedLoadgenEnvironment final {
 public:
     ScopedLoadgenEnvironment() {
@@ -100,7 +116,26 @@ public:
             ::setenv("REALMMESH_IDENTITY_KEY_SEED", kTestSeedHex.data(), 1),
             0);
         EXPECT_EQ(
-            ::setenv("REALMMESH_QUEUE_KEY_SEED", kTestSeedHex.data(), 1),
+            ::setenv(
+                "REALMMESH_QUEUE_NUMBER_KEY_SEED",
+                kQueueNumberSeedHex.data(),
+                1),
+            0);
+        EXPECT_EQ(
+            ::setenv(
+                "REALMMESH_ADMISSION_GRANT_KEY_SEED", kGrantSeedHex.data(), 1),
+            0);
+        EXPECT_EQ(
+            ::setenv(
+                "REALMMESH_ADMISSION_GRANT_PUBLIC_KEY",
+                kGrantPublicKeyHex.data(),
+                1),
+            0);
+        EXPECT_EQ(
+            ::setenv(
+                "REALMMESH_ADMISSION_CONSUMPTION_DIGEST_KEY",
+                kConsumptionDigestKeyHex.data(),
+                1),
             0);
     }
     ~ScopedLoadgenEnvironment() {
@@ -108,7 +143,11 @@ public:
         static_cast<void>(::unsetenv("REALMMESH_TLS_PRIVATE_KEY_FILE"));
         static_cast<void>(::unsetenv("REALMMESH_SESSION_TICKET_KEY"));
         static_cast<void>(::unsetenv("REALMMESH_IDENTITY_KEY_SEED"));
-        static_cast<void>(::unsetenv("REALMMESH_QUEUE_KEY_SEED"));
+        static_cast<void>(::unsetenv("REALMMESH_QUEUE_NUMBER_KEY_SEED"));
+        static_cast<void>(::unsetenv("REALMMESH_ADMISSION_GRANT_KEY_SEED"));
+        static_cast<void>(::unsetenv("REALMMESH_ADMISSION_GRANT_PUBLIC_KEY"));
+        static_cast<void>(
+            ::unsetenv("REALMMESH_ADMISSION_CONSUMPTION_DIGEST_KEY"));
     }
 };
 
@@ -333,150 +372,81 @@ void write_robot_accounts(
     return output;
 }
 
-[[nodiscard]] std::optional<std::string> base64_decode_text(
-    std::string_view input) {
-    const auto decode = [](char character) -> int {
-        if (character >= 'A' && character <= 'Z') return character - 'A';
-        if (character >= 'a' && character <= 'z') return character - 'a' + 26;
-        if (character >= '0' && character <= '9') return character - '0' + 52;
-        if (character == '+') return 62;
-        if (character == '/') return 63;
-        return -1;
-    };
-    std::string output;
-    output.reserve((input.size() / 4U) * 3U);
-    for (std::size_t offset = 0; offset + 3U < input.size() + 1U;
-         offset += 4U) {
-        if (offset + 4U > input.size()) {
-            return std::nullopt;
-        }
-        const int first = decode(input[offset]);
-        const int second = decode(input[offset + 1U]);
-        const int third =
-            offset + 2U < input.size() && input[offset + 2U] != '='
-                ? decode(input[offset + 2U])
-                : -1;
-        const int fourth =
-            offset + 3U < input.size() && input[offset + 3U] != '='
-                ? decode(input[offset + 3U])
-                : -1;
-        if (first < 0 || second < 0 || third < -1 || fourth < -1) {
-            return std::nullopt;
-        }
-        const std::uint32_t value = (static_cast<std::uint32_t>(first) << 18U) |
-                                    (static_cast<std::uint32_t>(second) << 12U) |
-                                    (static_cast<std::uint32_t>(std::max(third, 0)) << 6U) |
-                                    static_cast<std::uint32_t>(std::max(fourth, 0));
-        output.push_back(static_cast<char>((value >> 16U) & 0xFFU));
-        if (third >= 0) {
-            output.push_back(static_cast<char>((value >> 8U) & 0xFFU));
-        }
-        if (fourth >= 0) {
-            output.push_back(static_cast<char>(value & 0xFFU));
-        }
-    }
-    return output;
-}
 
-/// 最低限度的 etcd v3 KV 面(POST /v3/kv/range + /v3/kv/put,进程内
-/// httplib 服务):放行阀门的生产读取路径原样生效(queue 按 budget_
-/// interval 拉取 /realmmesh/budgets/service/{gateway,realm}/ 前缀),
-/// 只是注册中心换为测试内静态种子——发现关闭的 CI 拓扑里没有预算
-/// publisher,fail-closed 语义下阀门必须由夹具供血。租约/事务不在
-/// 队列存取路径上,不实现。
-class FakeEtcd final {
+/// 用例自带的真实单节点 etcd:网关的准入消费存储要求线性一致 CAS
+/// (ADR-0009),进程内假 KV 证明不了这条契约,而"用假替身证明外部系统的
+/// 契约"会让缺陷无法归因。放行阀门的额度键没有预算 publisher 供血(发现
+/// 关闭的拓扑),由夹具在启动时写进同一实例。
+class TestEtcd final {
 public:
-    FakeEtcd() {
-        kv_.emplace(
+    TestEtcd()
+        : endpoint_(process_.endpoint()) {
+        process_.wait_ready();
+        const auto client = cluster::make_etcd_http_client(
+            endpoint_, std::chrono::milliseconds{500});
+        // 客户端端口可连 ≠ 单节点 etcd 已能服务:选举窗口内它会直接关闭
+        // 连接(实测 "Failed to read connection")。用真实写入做就绪探测,
+        // 而不是靠 sleep 猜;超时即抛错,绝不带着空额度继续往下跑——否则
+        // 症状会漂成"机器人全部超时",与根因相距甚远。
+        wait_accepting_writes(*client);
+        seed(
+            *client,
             "/realmmesh/budgets/service/gateway/gateway-dev-01",
             R"({"conn_free":100000,"fetch_free":100000})");
-        kv_.emplace(
+        seed(
+            *client,
             "/realmmesh/budgets/service/realm/realm-dev-01",
             R"({"conn_free":100000})");
-        server_.Post("/v3/kv/range", [this](const auto& request, auto& response) {
-            handle_range(request, response);
-        });
-        server_.Post("/v3/kv/put", [this](const auto& request, auto& response) {
-            handle_put(request, response);
-        });
-        port_ = static_cast<std::uint16_t>(server_.bind_to_any_port("127.0.0.1"));
-        EXPECT_GT(port_, 0);
-        thread_ = std::thread([this] { static_cast<void>(server_.listen_after_bind()); });
-    }
-    ~FakeEtcd() {
-        server_.stop();
-        if (thread_.joinable()) {
-            thread_.join();
-        }
     }
 
-    FakeEtcd(const FakeEtcd&) = delete;
-    FakeEtcd& operator=(const FakeEtcd&) = delete;
+    TestEtcd(const TestEtcd&) = delete;
+    TestEtcd& operator=(const TestEtcd&) = delete;
 
-    [[nodiscard]] std::uint16_t port() const noexcept { return port_; }
+    [[nodiscard]] const std::string& endpoint() const noexcept {
+        return endpoint_;
+    }
 
 private:
-    void handle_range(
-        const httplib::Request& request, httplib::Response& response) {
-        const auto body = nlohmann::json::parse(
-            request.body, nullptr, false);
-        if (body.is_discarded()) {
-            response.status = 400;
-            return;
-        }
-        const auto start = base64_decode_text(body.value("key", ""));
-        if (!start.has_value()) {
-            response.status = 400;
-            return;
-        }
-        const bool prefix = body.contains("range_end");
-        std::optional<std::string> end;
-        if (prefix) {
-            end = base64_decode_text(body.value("range_end", ""));
-            if (!end.has_value()) {
-                response.status = 400;
+    static bool write_key(
+        cluster::IEtcdHttpClient& client,
+        std::string_view key,
+        std::string_view value,
+        std::string* error) {
+        const auto response = client.post(
+            "/v3/kv/put",
+            nlohmann::json{{"key", base64_encode_text(key)},
+                           {"value", base64_encode_text(value)}}.dump(),
+            error);
+        return response.has_value() &&
+            response->find("\"error\"") == std::string::npos;
+    }
+
+    static void wait_accepting_writes(cluster::IEtcdHttpClient& client) {
+        const auto deadline =
+            std::chrono::steady_clock::now() + std::chrono::seconds{15};
+        std::string error;
+        while (std::chrono::steady_clock::now() < deadline) {
+            if (write_key(client, "/realmmesh/test/readiness", "1", &error)) {
                 return;
             }
+            std::this_thread::sleep_for(std::chrono::milliseconds{50});
         }
-        nlohmann::json kvs = nlohmann::json::array();
-        std::scoped_lock lock{mutex_};
-        for (const auto& [key, value] : kv_) {
-            const bool in_range =
-                prefix ? (key >= *start && key < *end) : (key == *start);
-            if (in_range) {
-                kvs.push_back({
-                    {"key", base64_encode_text(key)},
-                    {"value", base64_encode_text(value)},
-                });
-            }
-        }
-        response.set_content(
-            nlohmann::json{{"kvs", std::move(kvs)}}.dump(), "application/json");
+        throw std::runtime_error("etcd did not accept writes: " + error);
     }
 
-    void handle_put(
-        const httplib::Request& request, httplib::Response& response) {
-        const auto body = nlohmann::json::parse(request.body, nullptr, false);
-        const auto key = body.is_discarded()
-                             ? std::nullopt
-                             : base64_decode_text(body.value("key", ""));
-        const auto value = body.is_discarded()
-                               ? std::nullopt
-                               : base64_decode_text(body.value("value", ""));
-        if (!key.has_value() || !value.has_value()) {
-            response.status = 400;
-            return;
+    static void seed(
+        cluster::IEtcdHttpClient& client,
+        std::string_view key,
+        std::string_view value) {
+        std::string error;
+        if (!write_key(client, key, value, &error)) {
+            throw std::runtime_error(
+                "failed to seed etcd key " + std::string{key} + ": " + error);
         }
-        std::scoped_lock lock{mutex_};
-        kv_.insert_or_assign(*key, *value);
-        response.set_content(nlohmann::json::object().dump(), "application/json");
     }
 
-    httplib::Server server_;
-    std::thread thread_;
-    std::mutex mutex_;
-    std::map<std::string, std::string> kv_;
-    std::uint16_t port_{0};
+    test_support::EtcdProcess process_;
+    std::string endpoint_;
 };
 
 /// 改写 scratch 配置端口:
@@ -488,16 +458,21 @@ private:
 /// - gateway listen_port = 8000 出现两次(TCP 与伴随传输),都指向同一
 ///   空闲端口;downstream 是静态兜底出向端点(1303 grant 报文用,机器
 ///   人不拨它);handoff_grace 抬长使 soak 保持段的会话不被宽限回收。
+/// - relax_ingress_limits:把 credential_ingress 的单来源速率/突发抬到
+///   合成负载之上(仍在协议硬上限内)。默认 20/s + burst 40 是**真实的
+///   生产护栏**,单来源的机器人负载(同一 127.0.0.1)必须先越过它才谈
+///   得上测水位;不抬的话压测测的是限流器而不是网关管线(#88)。
 void use_loadgen_free_ports(
     const std::filesystem::path& root,
     std::uint16_t login_verify_port,
     std::uint16_t queue_port,
     std::uint16_t gateway_port,
     std::uint16_t grant_endpoint_port,
-    std::uint16_t etcd_port,
+    std::string_view etcd_endpoint,
     bool fast_release,
     bool fast_release_frames,
-    bool long_handoff_grace) {
+    bool long_handoff_grace,
+    bool relax_ingress_limits = false) {
     const auto login_verify_path = root / "services" / "login_verify.lua";
     auto login_verify = read_file(login_verify_path);
     login_verify = replace_all(
@@ -515,11 +490,9 @@ void use_loadgen_free_ports(
         "listen_port = 0,",
         "listen_port = " + std::to_string(queue_port) + ",");
     queue = replace_all(queue, "metrics_port = 9105", "metrics_port = 0");
-    if (etcd_port != 0) {
+    if (!etcd_endpoint.empty()) {
         queue = replace_all(
-            queue,
-            "http://127.0.0.1:2379",
-            "http://127.0.0.1:" + std::to_string(etcd_port));
+            queue, "http://127.0.0.1:2379", std::string{etcd_endpoint});
     }
     if (fast_release) {
         queue = replace_all(queue, "release_step = 3000",
@@ -549,7 +522,30 @@ void use_loadgen_free_ports(
         gateway = replace_all(gateway, "handoff_grace_ms = 5000",
                               "handoff_grace_ms = 30000");
     }
+    if (relax_ingress_limits) {
+        // 硬上限:rate ≤ 10000、burst ≤ 20000(gateway_ingress.hpp)。
+        gateway = replace_all(
+            gateway, "source_rate_per_second = 20",
+            "source_rate_per_second = 4000");
+        gateway = replace_all(
+            gateway, "source_burst = 40", "source_burst = 4000");
+        gateway = replace_all(
+            gateway,
+            "source_throttle_close_after = 3",
+            "source_throttle_close_after = 8");
+    }
     ASSERT_TRUE(write_file(gateway_path, gateway));
+
+    // 网关的准入消费存储(ADR-0009)与 realm/queue 的服务发现共用
+    // common/discovery.lua 的 endpoint:必须换成用例自己的 etcd,否则会
+    // 落到开发者 127.0.0.1:2379 上,消费记录跨用例存活。
+    if (!etcd_endpoint.empty()) {
+        const auto discovery_path = root / "common" / "discovery.lua";
+        auto discovery = read_file(discovery_path);
+        discovery = replace_all(
+            discovery, "http://127.0.0.1:2379", std::string{etcd_endpoint});
+        ASSERT_TRUE(write_file(discovery_path, discovery));
+    }
 
     if (grant_endpoint_port != 0) {
         const auto realm_path = root / "services" / "realm.lua";
@@ -685,7 +681,8 @@ TEST(LoadgenIntegrationTest, L1VerifyDirectsTrafficAndCountersAgree) {
     const auto ports = unused_tcp_ports(1);
     const auto login_verify_port = ports.at(0);
     use_loadgen_free_ports(
-        scratch.path(), login_verify_port, 0, 0, 0, 0, false, false, false);
+        scratch.path(),
+        login_verify_port, 0, 0, 0, std::string_view{}, false, false, false);
     write_robot_accounts(scratch.path(), 200);
 
     service_host::MeshHost mesh(
@@ -731,9 +728,9 @@ TEST(LoadgenIntegrationTest, L1TicketsIssueTokensAllValidate) {
     const auto ports = unused_tcp_ports(2);
     const auto login_verify_port = ports.at(0);
     const auto queue_port = ports.at(1);
-    FakeEtcd etcd;
+    TestEtcd etcd;
     use_loadgen_free_ports(
-        scratch.path(), login_verify_port, queue_port, 0, 0, etcd.port(),
+        scratch.path(), login_verify_port, queue_port, 0, 0, etcd.endpoint(),
         true, false, false);
     write_robot_accounts(scratch.path(), 300);
 
@@ -772,16 +769,32 @@ TEST(LoadgenIntegrationTest, L1TicketsIssueTokensAllValidate) {
         parse_metrics_text(mesh.service("queue").prometheus_metrics());
     EXPECT_EQ(metrics.total("tickets_issued_total"), 300);
 
-    // 号码牌验签:测试用同源种子构造签发方同款 codec,kid 与 queue.lua
-    // 一致(queue-v1);每个号牌 claims 可验且号值 ≥ 1。
-    common::QueueNumberCodec codec(
-        common::parse_identity_seed_hex(kTestSeedHex), "queue-v1");
+    // 号牌验签:取号接口签发的是 Queue Number v2,kid 与 queue.lua 的
+    // queue_number_kid 一致;测试侧用同源种子构造签发方同款 codec。v2 与
+    // v1 的关键差别是身份绑定——载荷必须带 identity_jti(#79),而准入
+    // 凭据另有独立的 Admission Grant(由网关验证,不在这里)。
+    const auto queue_number_seed =
+        common::parse_identity_seed_hex(kQueueNumberSeedHex);
+    common::QueueNumberV2Codec codec(
+        common::QueueNumberV2SigningKey{
+            .kid = std::string{kQueueNumberKid}, .seed = queue_number_seed},
+        {{.kid = std::string{kQueueNumberKid},
+          .public_key =
+              common::ed25519_public_key_from_seed(queue_number_seed)}},
+        std::chrono::seconds{3600});
     const auto now = std::chrono::system_clock::now();
     ASSERT_EQ(report.number_tokens.size(), 300);
     for (const auto& token : report.number_tokens) {
         const auto claims = codec.validate(token, now);
         ASSERT_TRUE(claims.has_value());
         EXPECT_GE(claims->number, 1);
+        // v2 的身份绑定:jti 必须是 32 位小写 hex(v1 载荷根本没有它)。
+        EXPECT_EQ(claims->identity_jti.size(), 32U);
+        EXPECT_TRUE(std::ranges::all_of(
+            claims->identity_jti, [](char character) {
+                return (character >= '0' && character <= '9') ||
+                    (character >= 'a' && character <= 'f');
+            }));
     }
 }
 
@@ -799,10 +812,11 @@ TEST(LoadgenIntegrationTest, L1GatewaySoakHoldsWaterLevelWithoutFdLeak) {
     const auto login_verify_port = ports.at(0);
     const auto queue_port = ports.at(1);
     const auto gateway_port = ports.at(2);
-    FakeEtcd etcd;
+    TestEtcd etcd;
     use_loadgen_free_ports(
         scratch.path(), login_verify_port, queue_port, gateway_port,
-        ports.at(3), etcd.port(), true, false, true);
+        ports.at(3), etcd.endpoint(), true, false, true,
+        /*relax_ingress_limits=*/true);
     write_robot_accounts(scratch.path(), 150);
 
     service_host::MeshHost mesh(
@@ -823,16 +837,24 @@ TEST(LoadgenIntegrationTest, L1GatewaySoakHoldsWaterLevelWithoutFdLeak) {
     warmup.duration_seconds = 3;
     warmup.poll_interval = std::chrono::milliseconds{50};
     warmup.endpoints = endpoints;
-    EXPECT_EQ(run_loadgen(warmup).completed, 2);
+    const auto warmup_report = run_loadgen(warmup);
+    if (warmup_report.completed != 2) {
+        std::cout << warmup_report.render();
+    }
+    EXPECT_EQ(warmup_report.completed, 2);
 
     const auto fd_before = count_open_fds();
 
-    // 基线跑:小规模取 attach p50 + 服务侧 fetch 均值,作无漂移对照。
+    // 基线跑:取 attach p50 + 服务侧 fetch 均值,作无漂移对照。
+    // 对照口径必须与主跑**同并发**:准入现在是一次真实存储往返(etcd
+    // 线性一致消费记录,ADR-0009),attach 时延随并发排队增长是预期行为,
+    // 把 30 并发的 p50 拿去和 100 并发的 p50 比,量的是负载曲线而不是
+    // 漂移。同并发对照仍能抓住"病态劣化"(5 倍守门不变)。
     LoadgenConfig baseline;
     baseline.target = LoadgenLoginTarget::GatewaySoak;
-    baseline.robots = 30;
-    baseline.concurrency = 30;
-    baseline.duration_seconds = 4;
+    baseline.robots = 100;
+    baseline.concurrency = 100;
+    baseline.duration_seconds = 5;
     baseline.poll_interval = std::chrono::milliseconds{50};
     baseline.endpoints = endpoints;
     const auto base_report = run_loadgen(baseline);
@@ -954,10 +976,10 @@ TEST(LoadgenIntegrationTest, AdapterAndDecoratorDriveRealGatewayChain) {
     const test_support::TemporaryDirectory scratch("loadgen-it-adapter-");
     ASSERT_TRUE(copy_configs_with_discovery_disabled(source, scratch.path()));
     const auto ports = unused_tcp_ports(4);
-    FakeEtcd etcd;
+    TestEtcd etcd;
     use_loadgen_free_ports(
         scratch.path(), ports.at(0), ports.at(1), ports.at(2), ports.at(3),
-        etcd.port(), true, false, true);
+        etcd.endpoint(), true, false, true);
     write_robot_accounts(scratch.path(), 1);
 
     service_host::MeshHost mesh(
@@ -1013,10 +1035,10 @@ TEST(LoadgenIntegrationTest, FullTargetRedeemsRealmSession) {
     const test_support::TemporaryDirectory scratch("loadgen-it-full-");
     ASSERT_TRUE(copy_configs_with_discovery_disabled(source, scratch.path()));
     const auto ports = unused_tcp_ports(4);
-    FakeEtcd etcd;
+    TestEtcd etcd;
     use_loadgen_free_ports(
         scratch.path(), ports.at(0), ports.at(1), ports.at(2), ports.at(3),
-        etcd.port(), true, false, true);
+        etcd.endpoint(), true, false, true);
     write_robot_accounts(scratch.path(), 1);
 
     service_host::MeshHost mesh(
@@ -1060,10 +1082,10 @@ TEST(LoadgenIntegrationTest, M2ReducedChainCompletesWithLowFetchFailure) {
     const auto login_verify_port = ports.at(0);
     const auto queue_port = ports.at(1);
     const auto gateway_port = ports.at(2);
-    FakeEtcd etcd;
+    TestEtcd etcd;
     use_loadgen_free_ports(
         scratch.path(), login_verify_port, queue_port, gateway_port,
-        ports.at(3), etcd.port(), true, false, false);
+        ports.at(3), etcd.endpoint(), true, false, false);
     write_robot_accounts(scratch.path(), 250);
 
     service_host::MeshHost mesh(
@@ -1116,9 +1138,9 @@ TEST(LoadgenIntegrationTest, M3SmokeTenThousandTicketsAndConcurrentPolls) {
     const auto ports = unused_tcp_ports(2);
     const auto login_verify_port = ports.at(0);
     const auto queue_port = ports.at(1);
-    FakeEtcd etcd;
+    TestEtcd etcd;
     use_loadgen_free_ports(
-        scratch.path(), login_verify_port, queue_port, 0, 0, etcd.port(),
+        scratch.path(), login_verify_port, queue_port, 0, 0, etcd.endpoint(),
         false, true, false);
     write_robot_accounts(scratch.path(), 10000);
 
@@ -1183,10 +1205,10 @@ TEST(LoadgenIntegrationTest, SuccessfulGatewayDialTimeIsExcludedFromAttach) {
     const auto login_verify_port = ports.at(0);
     const auto queue_port = ports.at(1);
     const auto gateway_port = ports.at(2);
-    FakeEtcd etcd;
+    TestEtcd etcd;
     use_loadgen_free_ports(
         scratch.path(), login_verify_port, queue_port, gateway_port,
-        ports.at(3), etcd.port(), true, true, false);
+        ports.at(3), etcd.endpoint(), true, true, false);
     write_robot_accounts(scratch.path(), 1);
 
     service_host::MeshHost mesh(
@@ -1229,10 +1251,10 @@ TEST(LoadgenIntegrationTest, GatewayDialFailureIsChargedToAttach) {
     const auto login_verify_port = ports.at(0);
     const auto queue_port = ports.at(1);
     const auto closed_gateway_port = ports.at(2);
-    FakeEtcd etcd;
+    TestEtcd etcd;
     use_loadgen_free_ports(
         scratch.path(), login_verify_port, queue_port, closed_gateway_port,
-        0, etcd.port(), true, true, false);
+        0, etcd.endpoint(), true, true, false);
     write_robot_accounts(scratch.path(), 1);
 
     service_host::MeshHost mesh(

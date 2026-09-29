@@ -45,17 +45,8 @@ struct GatewayLoginAdvanceResult {
 /// Runtime 意图、Handoff、预算与指标状态均封装在一次 advance() 内。
 class GatewayLoginPipeline final {
 public:
-    [[nodiscard]] static GatewayLoginPipeline create(
-        GatewayLoginConfig config,
-        GatewaySigningMaterial signing_material,
-        GatewayPrimaryTransport& primary_transport,
-        AccountFetchPort& account_fetch,
-        observability::Logger* logger = nullptr,
-        observability::MetricsRegistry* metrics = nullptr);
-
-    /// #82 切换前的 Admission Grant 装配入口。外部仍只有 advance()；
-    /// GatewayAdmission 在 Pipeline 内部吞掉 reserve/commit/release 顺序。
-    /// 最终切换会删除上面的 admitted Queue Number 装配入口。
+    /// Admission Grant 是 Gateway 唯一接受的准入凭据。Pipeline 内部吞掉
+    /// reserve/commit/release 的顺序，外部始终只有 advance()。
     [[nodiscard]] static GatewayLoginPipeline create(
         GatewayLoginConfig config,
         common::SessionTicketKey enter_realm_key,

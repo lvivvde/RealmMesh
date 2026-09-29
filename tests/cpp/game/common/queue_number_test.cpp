@@ -1,4 +1,4 @@
-#include "realmmesh/game/common/queue_number.hpp"
+#include "realmmesh/test_support/legacy_queue_number.hpp"
 
 #include <gtest/gtest.h>
 
@@ -8,10 +8,16 @@
 #include "realmmesh/game/common/base64url.hpp"
 #include "realmmesh/game/common/json.hpp"
 
+// 本用例锁定的是**测试夹具**的保真度,不是生产契约:v1 admitted 排队号牌
+// 已随 #82 从生产库删除(见 docs/adr/0009),夹具保留只为让负例测试能铸出
+// 旧世界的凭据并断言生产系统拒绝它。
 namespace realm::game::common {
 namespace {
 
 using namespace std::chrono_literals;
+
+using test_support::LegacyQueueNumberClaims;
+using test_support::LegacyQueueNumberCodec;
 
 constexpr std::string_view seed_hex =
     "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60";
@@ -20,12 +26,13 @@ std::chrono::system_clock::time_point at_time(std::int64_t seconds) {
     return std::chrono::system_clock::time_point(std::chrono::seconds{seconds});
 }
 
-QueueNumberCodec test_codec() {
-    return QueueNumberCodec(parse_identity_seed_hex(seed_hex), "test-kid");
+LegacyQueueNumberCodec test_codec() {
+    return LegacyQueueNumberCodec(
+        parse_identity_seed_hex(seed_hex), "test-kid");
 }
 
-QueueNumberClaims test_claims() {
-    return QueueNumberClaims{
+LegacyQueueNumberClaims test_claims() {
+    return LegacyQueueNumberClaims{
         .number = 42,
         .admitted = false,
         .issued_at = at_time(1'700'000'000),
@@ -33,8 +40,8 @@ QueueNumberClaims test_claims() {
     };
 }
 
-TEST(QueueNumberCodecTest, RoundTripsQueuedTicket) {
-    const QueueNumberCodec codec = test_codec();
+TEST(LegacyQueueNumberCodecTest, RoundTripsQueuedTicket) {
+    const LegacyQueueNumberCodec codec = test_codec();
     const auto token = codec.issue(test_claims());
     const auto claims = codec.validate(token, at_time(1'700'000'100));
     ASSERT_TRUE(claims.has_value());
@@ -44,21 +51,23 @@ TEST(QueueNumberCodecTest, RoundTripsQueuedTicket) {
     EXPECT_EQ(claims->expires_at, test_claims().expires_at);
 }
 
-TEST(QueueNumberCodecTest, RoundTripsAdmittedTicket) {
-    const QueueNumberCodec codec = test_codec();
+TEST(LegacyQueueNumberCodecTest, RoundTripsAdmittedTicket) {
+    const LegacyQueueNumberCodec codec = test_codec();
     auto claims = test_claims();
     claims.admitted = true;
     claims.expires_at = claims.issued_at + 300s;
-    const auto decoded = codec.validate(codec.issue(claims), claims.issued_at + 1s);
+    const auto decoded =
+        codec.validate(codec.issue(claims), claims.issued_at + 1s);
     ASSERT_TRUE(decoded.has_value());
     EXPECT_TRUE(decoded->admitted);
     EXPECT_EQ(decoded->number, 42U);
 }
 
-// #79 replacement point: the current v1 credential proves only a queue number
-// and release bit. It has no subject, identity-token binding, audience, purpose,
-// or explicit wire version.
-TEST(QueueNumberCodecTest, CurrentV1PayloadHasNoIdentityBindingOrContext) {
+// #79 replacement point: the v1 credential proves only a queue number and
+// release bit. It has no subject, identity-token binding, audience, purpose,
+// or explicit wire version — which is exactly why the production library no
+// longer ships it, and why the fixture must reproduce that shape verbatim.
+TEST(LegacyQueueNumberCodecTest, V1PayloadHasNoIdentityBindingOrContext) {
     const auto token = test_codec().issue(test_claims());
     const auto first = token.find('.');
     const auto second = token.find('.', first + 1);
@@ -83,47 +92,49 @@ TEST(QueueNumberCodecTest, CurrentV1PayloadHasNoIdentityBindingOrContext) {
     }
 }
 
-TEST(QueueNumberCodecTest, AcceptsWithinLeewayAfterExpiry) {
-    const QueueNumberCodec codec = test_codec();
+TEST(LegacyQueueNumberCodecTest, AcceptsWithinLeewayAfterExpiry) {
+    const LegacyQueueNumberCodec codec = test_codec();
     const auto token = codec.issue(test_claims());
     // 容差边界内(60s)仍有效,超出即拒绝。
     const auto claims = test_claims();
     EXPECT_TRUE(
-        codec.validate(token, claims.expires_at + common::jws_clock_leeway).has_value());
+        codec.validate(token, claims.expires_at + common::jws_clock_leeway)
+            .has_value());
     EXPECT_FALSE(
         codec.validate(token, claims.expires_at + common::jws_clock_leeway + 1s)
             .has_value());
 }
 
-TEST(QueueNumberCodecTest, RejectsTokenFromFuture) {
-    const QueueNumberCodec codec = test_codec();
+TEST(LegacyQueueNumberCodecTest, RejectsTokenFromFuture) {
+    const LegacyQueueNumberCodec codec = test_codec();
     const auto token = codec.issue(test_claims());
     EXPECT_FALSE(
-        codec.validate(token, test_claims().issued_at - common::jws_clock_leeway - 1s)
+        codec.validate(
+                 token,
+                 test_claims().issued_at - common::jws_clock_leeway - 1s)
             .has_value());
 }
 
-TEST(QueueNumberCodecTest, RejectsWrongKid) {
-    const QueueNumberCodec codec =
-        QueueNumberCodec(common::parse_identity_seed_hex(seed_hex), "other-kid");
+TEST(LegacyQueueNumberCodecTest, RejectsWrongKid) {
+    const LegacyQueueNumberCodec codec = LegacyQueueNumberCodec(
+        common::parse_identity_seed_hex(seed_hex), "other-kid");
     const auto token = codec.issue(test_claims());
     EXPECT_FALSE(
         test_codec().validate(token, at_time(1'700'000'100)).has_value());
 }
 
-TEST(QueueNumberCodecTest, RejectsZeroNumber) {
-    const QueueNumberCodec codec = test_codec();
+TEST(LegacyQueueNumberCodecTest, RejectsZeroNumber) {
+    const LegacyQueueNumberCodec codec = test_codec();
     auto claims = test_claims();
     claims.number = 0;
     const auto token = codec.issue(claims);
     EXPECT_FALSE(codec.validate(token, at_time(1'700'000'100)).has_value());
 }
 
-TEST(QueueNumberCodecTest, RejectsGarbage) {
-    const QueueNumberCodec codec = test_codec();
+TEST(LegacyQueueNumberCodecTest, RejectsGarbage) {
+    const LegacyQueueNumberCodec codec = test_codec();
     EXPECT_FALSE(codec.validate("", at_time(1'700'000'100)).has_value());
-    EXPECT_FALSE(
-        codec.validate("a.b.c", at_time(1'700'000'100)).has_value());
+    EXPECT_FALSE(codec.validate("a.b.c", at_time(1'700'000'100)).has_value());
 }
 
 }  // namespace

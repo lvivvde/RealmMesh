@@ -35,6 +35,9 @@ struct QueueTicketQuery final {
     std::uint64_t position{0};
     std::uint64_t estimated_wait_seconds{0};
     std::optional<std::string> admission_grant;
+    /// Grant 的剩余有效秒数(由该凭据自身的 exp 派生,下发时向下取整)。
+    /// 客户端据此安排重试窗口,不再自带一个可能与签发方漂移的常量。
+    std::uint64_t admission_grant_expires_in_seconds{0};
 };
 
 /// Queue Scheduler 的新凭据模块。它是未来 HTTP handler 的单一 seam：
@@ -54,6 +57,10 @@ public:
 
     [[nodiscard]] QueueTicketQuery query(
         std::string_view queue_number_token,
+        std::chrono::system_clock::time_point now) const;
+
+    [[nodiscard]] std::uint64_t released_number() const noexcept;
+    [[nodiscard]] std::uint64_t admit_rate(
         std::chrono::system_clock::time_point now) const;
 
 private:

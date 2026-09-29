@@ -4,7 +4,9 @@
 #include "realmmesh/game/queue/queue_core.hpp"
 #include "realmmesh/game/queue/queue_handler.hpp"
 #include "realmmesh/game/queue/queue_store.hpp"
-#include "realmmesh/game/common/queue_number.hpp"
+#include "realmmesh/game/common/admission_grant.hpp"
+#include "realmmesh/game/common/queue_number_v2.hpp"
+#include "realmmesh/game/queue/queue_ticketing.hpp"
 #include "realmmesh/network/transport/message_transport.hpp"
 
 #include <chrono>
@@ -44,8 +46,8 @@ public:
     QueueService(const QueueService&) = delete;
     QueueService& operator=(const QueueService&) = delete;
 
-    /// 装载 REALMMESH_QUEUE_KEY_SEED(号牌签发)与
-    /// REALMMESH_IDENTITY_KEY_SEED(身份验签)并绑定监听;种子缺失
+    /// 装载 Queue Number v2 与 Admission Grant 两个独立签发密钥，以及
+    /// 身份验签材料并绑定监听;任一材料缺失
     /// 抛异常,成功返回即存活。logger 可为空(测试装配)。
     void start(observability::Logger* logger = nullptr);
     void stop();
@@ -68,8 +70,10 @@ private:
     observability::MetricsRegistry* metrics_{nullptr};
     std::shared_ptr<QueueStateStore> store_;
     std::unique_ptr<common::IdentityTokenCodec> identity_codec_;
-    std::unique_ptr<common::QueueNumberCodec> number_codec_;
+    std::unique_ptr<common::QueueNumberV2Codec> number_codec_;
+    std::unique_ptr<common::AdmissionGrantIssuer> admission_grant_issuer_;
     std::unique_ptr<QueueCore> core_;
+    std::unique_ptr<QueueTicketing> ticketing_;
     std::unique_ptr<QueueHandler> handler_;
     std::unique_ptr<network::HttpServer> server_;
     std::vector<network::TransportEndpoint> endpoints_;

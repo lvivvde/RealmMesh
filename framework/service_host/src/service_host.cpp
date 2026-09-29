@@ -6,25 +6,40 @@
 #include "realmmesh/cluster/service_publisher.hpp"
 #include "realmmesh/cluster/service_resolver.hpp"
 #include "realmmesh/game/gateway/account_fetch_port.hpp"
+#include "realmmesh/game/gateway/admission_consumption_store.hpp"
+#include "realmmesh/game/gateway/gateway_admission.hpp"
 #include "realmmesh/game/gateway/gateway_login_pipeline.hpp"
 #include "realmmesh/game/gateway/gateway_primary_transport.hpp"
 #include "realmmesh/game/gateway/gateway_runtime.hpp"
+#include "realmmesh/game/common/admission_grant.hpp"
+#include "realmmesh/game/common/compact_jws.hpp"
+#include "realmmesh/game/common/identity_token.hpp"
 #include "realmmesh/game/login_verify/login_verify_service.hpp"
 #include "realmmesh/game/queue/queue_service.hpp"
 #include "realmmesh/observability/logger.hpp"
 #include "realmmesh/service_host/service_frame.hpp"
 
 #include <chrono>
+#include <cstdlib>
 #include <optional>
 #include <stdexcept>
 #include <string>
 #include <utility>
+#include <vector>
 
 namespace realm::service_host {
 namespace {
 
 /// 注册到发现中心的服务版本(与原 main 装配一致)。
 constexpr std::string_view service_version = "0.1.0";
+
+[[nodiscard]] std::string_view required_environment(const char* name) {
+    const char* value = std::getenv(name);
+    if (value == nullptr || *value == '\0') {
+        throw std::runtime_error(std::string(name) + " is not set");
+    }
+    return value;
+}
 
 /// 依赖解析对象映射:gateway→Realm(#45:handoff 直连端点来自 Realm
 /// 发现,缺失退回静态下游)、realm→Gateway;login_verify/queue 无下游
@@ -111,13 +126,6 @@ ServiceHost::ServiceHost(
         return;
     }
     const bool is_gateway = service_name_ == "gateway";
-    const auto gateway_signing_material =
-        is_gateway
-            ? std::optional<
-                  game::gateway::
-                      GatewaySigningMaterial>{game::gateway::
-                                                  load_gateway_signing_material()}
-            : std::nullopt;
     const auto frame_downstream_address = config.downstream_address;
     const auto frame_downstream_port = config.downstream_port;
     const auto max_events_per_frame = config.max_events_per_frame;
@@ -130,6 +138,39 @@ ServiceHost::ServiceHost(
     runtime_ = std::make_unique<game::gateway::GatewayRuntime>(
         std::move(config), logger_.get());
     if (is_gateway) {
+        const auto consumption_key =
+            game::gateway::parse_admission_consumption_digest_key(
+                required_environment("REALMMESH_ADMISSION_CONSUMPTION_DIGEST_KEY"));
+        admission_consumption_store_ =
+            std::make_unique<game::gateway::EtcdAdmissionConsumptionStore>(
+                game::gateway::AdmissionConsumptionOptions{
+                    .key_prefix = gateway_login_config.admission_consumption_prefix,
+                    .reservation_ttl = gateway_login_config.admission_reservation_ttl,
+                    .digest_key = consumption_key},
+                cluster::make_etcd_http_client(
+                    discovery_config_.endpoint, std::chrono::milliseconds{500}));
+        // 验证键环逐把装载:轮换重叠期允许活动键与退休键同时存在,未知 kid
+        // 仍由验证器直接拒绝,不试遍全环。
+        std::vector<game::common::AdmissionGrantVerificationKey> admission_keys;
+        admission_keys.reserve(gateway_login_config.admission_grant_keys.size());
+        for (const auto& source : gateway_login_config.admission_grant_keys) {
+            admission_keys.push_back(
+                {.kid = source.kid,
+                 .public_key = game::common::parse_ed25519_public_key_hex(
+                     required_environment(
+                         source.public_key_environment.c_str()))});
+        }
+        gateway_admission_ = std::make_unique<game::gateway::GatewayAdmission>(
+            game::common::IdentityTokenCodec(
+                game::common::seed_from_environment("REALMMESH_IDENTITY_KEY_SEED"),
+                gateway_login_config.identity_kid),
+            gateway_login_config.identity_issuer,
+            game::common::AdmissionGrantVerifier(
+                std::move(admission_keys),
+                {.issuer = gateway_login_config.admission_grant_issuer,
+                 .deployment_id = gateway_login_config.deployment_id,
+                 .grant_window = gateway_login_config.admission_grant_window}),
+            *admission_consumption_store_);
         gateway_primary_transport_ =
             std::make_unique<game::gateway::GatewayRuntimePrimaryTransport>(
                 *runtime_);
@@ -141,7 +182,10 @@ ServiceHost::ServiceHost(
             std::make_unique<game::gateway::GatewayLoginPipeline>(
                 game::gateway::GatewayLoginPipeline::create(
                     std::move(gateway_login_config),
-                    *gateway_signing_material,
+                    game::common::parse_ticket_key_hex(required_environment(
+                        "REALMMESH_SESSION_TICKET_KEY")),
+                    *gateway_admission_,
+                    instance_,
                     *gateway_primary_transport_,
                     *account_fetch_,
                     logger_.get(),

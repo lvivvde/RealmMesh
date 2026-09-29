@@ -66,6 +66,12 @@ public:
 
     [[nodiscard]] std::string issue(const AdmissionGrantIssue& input) const;
 
+    /// 本签发方使用的准入窗口:Queue 据此把 Grant 的剩余秒数下发给客户端,
+    /// 让客户端的重试窗口只有一个真相源(凭据自身的 exp)。
+    [[nodiscard]] std::chrono::seconds grant_window() const noexcept {
+        return policy_.grant_window;
+    }
+
 private:
     CompactJws signer_;
     std::string active_kid_;

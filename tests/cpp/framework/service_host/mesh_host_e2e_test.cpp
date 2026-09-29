@@ -57,8 +57,14 @@ public:
             0);
         EXPECT_EQ(
             ::setenv(
-                "REALMMESH_QUEUE_KEY_SEED",
-                "4ccd089b28ff96da9db6c346ec114e0f5b8a319f35aba624da8cf6ed4fb8a6fb",
+                "REALMMESH_ADMISSION_GRANT_PUBLIC_KEY",
+                "207a067892821e25d770f1fba0c47c11ff4b813e54162ece9eb839e076231ab6",
+                1),
+            0);
+        EXPECT_EQ(
+            ::setenv(
+                "REALMMESH_ADMISSION_CONSUMPTION_DIGEST_KEY",
+                "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210",
                 1),
             0);
     }
@@ -67,7 +73,9 @@ public:
         static_cast<void>(::unsetenv("REALMMESH_TLS_PRIVATE_KEY_FILE"));
         static_cast<void>(::unsetenv("REALMMESH_SESSION_TICKET_KEY"));
         static_cast<void>(::unsetenv("REALMMESH_IDENTITY_KEY_SEED"));
-        static_cast<void>(::unsetenv("REALMMESH_QUEUE_KEY_SEED"));
+        static_cast<void>(::unsetenv("REALMMESH_ADMISSION_GRANT_PUBLIC_KEY"));
+        static_cast<void>(
+            ::unsetenv("REALMMESH_ADMISSION_CONSUMPTION_DIGEST_KEY"));
     }
 };
 

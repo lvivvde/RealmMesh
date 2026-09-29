@@ -40,6 +40,24 @@ return {
         concurrent_verifications = 128,
         max_tracked_sources = 16384,
     },
+    admission = {
+        identity_kid = "login-verify-v1",
+        identity_issuer = "realmmesh/login-verify",
+        admission_grant_issuer = "realmmesh/queue",
+        deployment_id = "development",
+        -- 验证键环:kid + 公钥所在的环境变量。轮换重叠期把退休 kid 一并
+        -- 列在这里,直到该凭据最大寿命 + 时钟容差过去再删除;私钥永不装载。
+        grant_keys = {
+            {
+                kid = "admission-grant-v1",
+                public_key_environment = "REALMMESH_ADMISSION_GRANT_PUBLIC_KEY",
+            },
+        },
+        -- 必须与 Queue 的签发窗口一致;协议硬上限 600s。
+        grant_window_seconds = 300,
+        consumption_prefix = "/realmmesh/admission/consumption",
+        reservation_ttl_seconds = 10,
+    },
     runtime = {
         inbound_capacity = 65536,
         outbound_capacity = 65536,

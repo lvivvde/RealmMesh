@@ -1,8 +1,10 @@
+#include "realmmesh/game/common/admission_grant.hpp"
 #include "realmmesh/game/common/edge_protocol.hpp"
 #include "realmmesh/game/common/identity_token.hpp"
-#include "realmmesh/game/common/queue_number.hpp"
 #include "realmmesh/network/codec/length_field_codec.hpp"
 #include "realmmesh/network/tcp/tcp_listener.hpp"
+#include "realmmesh/test_support/etcd_process.hpp"
+#include "realmmesh/test_support/legacy_queue_number.hpp"
 
 #include <gtest/gtest.h>
 #include <openssl/ssl.h>
@@ -116,6 +118,47 @@ private:
     return ports;
 }
 
+/// 测试与被拉起进程共享的固定种子与身份:身份 Token、排队号牌 v2、Admission
+/// Grant 各一把签名种子,外加准入消费摘要键。外部服务组模式下由
+/// scripts/dev_services_test.sh 注入同一组值,改动必须两边同步。
+constexpr std::string_view identity_seed_hex =
+    "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60";
+constexpr std::string_view queue_number_seed_hex =
+    "4ccd089b28ff96da9db6c346ec114e0f5b8a319f35aba624da8cf6ed4fb8a6fb";
+constexpr std::string_view admission_grant_seed_hex =
+    "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+/// admission_grant_seed_hex 对应的 Ed25519 公钥;下面的用例断言两者一致,
+/// 免得用例与脚本各自漂移后只剩一个"验签失败"的表象。
+constexpr std::string_view admission_grant_public_key_hex =
+    "207a067892821e25d770f1fba0c47c11ff4b813e54162ece9eb839e076231ab6";
+constexpr std::string_view admission_consumption_digest_key_hex =
+    "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210";
+constexpr std::string_view session_ticket_key_hex =
+    "0102030405060708090a0b0c0d0e0f10"
+    "1112131415161718191a1b1c1d1e1f20";
+constexpr std::string_view admission_grant_kid = "admission-grant-v1";
+constexpr std::string_view admission_grant_issuer = "realmmesh/queue";
+constexpr std::string_view deployment_id = "development";
+constexpr std::string_view account_jti = "bbbb000000000001bbbb000000000001";
+
+[[nodiscard]] std::string hex_encode(const std::array<std::byte, 32>& bytes) {
+    static constexpr std::string_view digits = "0123456789abcdef";
+    std::string encoded;
+    encoded.reserve(bytes.size() * 2);
+    for (const auto value : bytes) {
+        const auto byte = std::to_integer<unsigned>(value);
+        encoded.push_back(digits.at(byte >> 4U));
+        encoded.push_back(digits.at(byte & 0x0fU));
+    }
+    return encoded;
+}
+
+/// 子进程继承环境:所有必需材料显式注入,缺一项就在启动时失败——这正是
+/// 跨进程用例要覆盖的启动契约,不用"默认值凑巧可用"掩盖。
+void set_environment(const char* name, std::string_view value) {
+    ASSERT_EQ(::setenv(name, std::string(value).c_str(), 1), 0);
+}
+
 /// 把服务配置里的固定端口改写成一组空闲端口。gateway 的静态兜底下游
 /// 就是 realm,必须同步指向改写后的 realm 端口,否则 handoff 签发的端点
 /// 指向错误端口;realm 的下游(静态兜底)指向 gateway,同理。
@@ -160,6 +203,32 @@ void use_free_ports(
         if (!write_file(path, contents)) {
             throw std::runtime_error("cannot rewrite service metrics port");
         }
+    }
+}
+
+/// 把网关与队列的 etcd 端点指向本用例自带的 etcd。配置默认指向开发机的
+/// 2379:跨进程用例不能靠"开发机上恰好有个 etcd",否则准入消费记录会在
+/// 多次运行之间残留,重放保护反而把用例变成随机失败。
+void point_services_at_etcd(
+    const std::filesystem::path& root, const std::string& endpoint) {
+    const auto gateway_path = root / "services" / "gateway.lua";
+    auto gateway = read_file(gateway_path);
+    gateway = replace_all(
+        gateway,
+        "service_discovery = {",
+        "service_discovery = {\n        endpoint = \"" + endpoint + "\",");
+    if (!write_file(gateway_path, gateway)) {
+        throw std::runtime_error("cannot rewrite gateway.lua etcd endpoint");
+    }
+
+    const auto queue_path = root / "services" / "queue.lua";
+    auto queue = read_file(queue_path);
+    queue = replace_all(
+        queue,
+        "etcd_endpoint = \"http://127.0.0.1:2379\"",
+        "etcd_endpoint = \"" + endpoint + "\"");
+    if (!write_file(queue_path, queue)) {
+        throw std::runtime_error("cannot rewrite queue.lua etcd endpoint");
     }
 }
 
@@ -333,8 +402,8 @@ TlsSocket connect_when_ready(std::uint16_t port) {
     throw std::runtime_error("service did not open expected port");
 }
 
-/// TCP 探活:裸 connect 确认端口已被监听,用于等待 realm_mesh 全链路就绪。
-void wait_for_tcp_ready(std::uint16_t port) {
+/// TCP 探活:裸 connect 确认端口已被监听,用于等待 realm_mesh 与 etcd 就绪。
+void wait_for_tcp_ready(std::uint16_t port, std::string_view description) {
     using namespace std::chrono_literals;
     for (int attempt = 0; attempt < 500; ++attempt) {
         const int descriptor = ::socket(AF_INET, SOCK_STREAM, 0);
@@ -354,7 +423,8 @@ void wait_for_tcp_ready(std::uint16_t port) {
         }
         std::this_thread::sleep_for(10ms);
     }
-    throw std::runtime_error("realm_mesh did not open expected port");
+    throw std::runtime_error(
+        std::string(description) + " did not open expected port");
 }
 
 void send_all(SSL* ssl, std::span<const std::byte> bytes) {
@@ -403,7 +473,7 @@ std::vector<std::byte> receive_message(TlsSocket& socket) {
 }
 
 /// 子进程与测试共用同一份签名种子(经环境注入):测试内直接签出网关
-/// attach 需要的身份 Token 与排队号牌,不必经 HTTP 边服务取票。
+/// attach 需要的身份 Token 与 Admission Grant,不必经 HTTP 边服务取票。
 [[nodiscard]] Ed25519Seed seed_from_env(const char* name) {
     const char* value = std::getenv(name);
     if (value == nullptr) {
@@ -424,11 +494,35 @@ std::vector<std::byte> receive_message(TlsSocket& socket) {
         .expires_at = now + std::chrono::minutes{30}});
 }
 
-[[nodiscard]] std::string number_token() {
-    const QueueNumberCodec codec(
-        seed_from_env("REALMMESH_QUEUE_KEY_SEED"), "queue-v1");
+/// Admission Grant:由 Queue 的签发种子签出,身份绑定 jti、目标 deployment
+/// 与来源号值都与被拉起进程的配置一致。
+[[nodiscard]] std::string admission_grant_token(std::string_view identity_jti) {
+    const AdmissionGrantIssuer issuer(
+        AdmissionGrantSigningKey{
+            .kid = std::string(admission_grant_kid),
+            .seed = seed_from_env("REALMMESH_ADMISSION_GRANT_KEY_SEED")},
+        AdmissionGrantPolicy{
+            .issuer = std::string(admission_grant_issuer),
+            .deployment_id = std::string(deployment_id),
+            .grant_window = std::chrono::seconds{300}});
     const auto now = std::chrono::system_clock::now();
-    return codec.issue(QueueNumberClaims{
+    return issuer.issue(AdmissionGrantIssue{
+        .grant_jti = "bbbb000000000002bbbb000000000002",
+        .identity_jti = std::string(identity_jti),
+        .queue_number = 7,
+        .released_at = now,
+        .issued_at = now,
+        .identity_expires_at = now + std::chrono::minutes{30}});
+}
+
+/// 旧世界的反面夹具:仍由当前排队号牌 v2 的签名种子签出、但带 admitted
+/// 准入语义的 v1 号牌。它必须拿不到受理与 Handoff —— 这是 #82 的否证面,
+/// 生产库已不再持有构造它的能力(B 计划:能力只活在测试支持里)。
+[[nodiscard]] std::string legacy_admitted_number_token() {
+    const test_support::LegacyQueueNumberCodec codec(
+        seed_from_env("REALMMESH_QUEUE_NUMBER_KEY_SEED"), "queue-v1");
+    const auto now = std::chrono::system_clock::now();
+    return codec.issue(test_support::LegacyQueueNumberClaims{
         .number = 7,
         .admitted = true,
         .issued_at = now,
@@ -475,51 +569,67 @@ TEST(NewChainFlowTest, AttachesToGatewayAndEntersRealm) {
                 service_log_path(config_root, service), error);
         }
     }
+    // 网关的准入消费存储是线性一致存储,attach 路径真实依赖它:自起进程时
+    // 连一个真 etcd 一起拉起并改写配置(外部服务组模式由脚本负责 etcd)。
+    std::unique_ptr<test_support::EtcdProcess> etcd;
+    if (!external_service_group) {
+        etcd = std::make_unique<test_support::EtcdProcess>();
+        etcd->wait_ready();
+        point_services_at_etcd(config_root, etcd->endpoint());
+    }
+    // 用例与脚本共享的一组材料:身份/号牌/Grant 三把种子,加上网关验证侧
+    // 需要的公钥与消费摘要键。公钥常量必须与种子推导结果一致,否则用例与
+    // dev_services_test.sh 会各自漂移,只剩一个"验签失败"的表象。
     ASSERT_EQ(
-        ::setenv(
-            "REALMMESH_SESSION_TICKET_KEY",
-            "0102030405060708090a0b0c0d0e0f10"
-            "1112131415161718191a1b1c1d1e1f20",
-            1),
-        0);
-    ASSERT_EQ(
-        ::setenv(
-            "REALMMESH_IDENTITY_KEY_SEED",
-            "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60",
-            1),
-        0);
-    ASSERT_EQ(
-        ::setenv(
-            "REALMMESH_QUEUE_KEY_SEED",
-            "4ccd089b28ff96da9db6c346ec114e0f5b8a319f35aba624da8cf6ed4fb8a6fb",
-            1),
-        0);
-    ASSERT_EQ(
-        ::setenv(
-            "REALMMESH_TLS_CERTIFICATE_FILE",
-            REALMMESH_TEST_TLS_CERTIFICATE,
-            1),
-        0);
-    ASSERT_EQ(
-        ::setenv(
-            "REALMMESH_TLS_PRIVATE_KEY_FILE",
-            REALMMESH_TEST_TLS_PRIVATE_KEY,
-            1),
-        0);
+        hex_encode(
+            ed25519_public_key_from_seed(
+                parse_identity_seed_hex(admission_grant_seed_hex))
+                .bytes),
+        admission_grant_public_key_hex)
+        << "用例的 Grant 种子与公钥常量已漂移,请同步 dev_services_test.sh";
+    set_environment("REALMMESH_IDENTITY_KEY_SEED", identity_seed_hex);
+    set_environment("REALMMESH_QUEUE_NUMBER_KEY_SEED", queue_number_seed_hex);
+    set_environment(
+        "REALMMESH_ADMISSION_GRANT_KEY_SEED", admission_grant_seed_hex);
+    set_environment(
+        "REALMMESH_ADMISSION_GRANT_PUBLIC_KEY", admission_grant_public_key_hex);
+    set_environment(
+        "REALMMESH_ADMISSION_CONSUMPTION_DIGEST_KEY",
+        admission_consumption_digest_key_hex);
+    set_environment("REALMMESH_SESSION_TICKET_KEY", session_ticket_key_hex);
+    set_environment(
+        "REALMMESH_TLS_CERTIFICATE_FILE", REALMMESH_TEST_TLS_CERTIFICATE);
+    set_environment(
+        "REALMMESH_TLS_PRIVATE_KEY_FILE", REALMMESH_TEST_TLS_PRIVATE_KEY);
 
     std::unique_ptr<ChildProcess> mesh;
     if (!external_service_group) {
         mesh = std::make_unique<ChildProcess>(
             REALMMESH_MESH_EXECUTABLE, config_root);
     }
-    wait_for_tcp_ready(realm_port);
-    wait_for_tcp_ready(gateway_port);
+    wait_for_tcp_ready(realm_port, "realm");
+    wait_for_tcp_ready(gateway_port, "gateway");
 
-    // 客户端 → Gateway:1301 attach(身份 Token + 放行号牌)→ 1302 受理。
+    // 否证面先走一遍:旧世界那种"重签 admitted 的排队号牌"即使由当前号牌
+    // 种子签出,也必须拿不到受理与 Handoff。
+    {
+        auto legacy_socket = connect_when_ready(gateway_port);
+        EdgeAttach legacy_attach;
+        legacy_attach.set_identity_token(identity_token(account_jti));
+        legacy_attach.set_admission_grant(legacy_admitted_number_token());
+        send_message(legacy_socket, encode(legacy_attach, 1));
+        const auto rejected_wire = receive_message(legacy_socket);
+        EXPECT_EQ(edge_request_id(rejected_wire), 1);
+        const auto rejected = decode_edge_error(rejected_wire);
+        ASSERT_TRUE(rejected.has_value());
+        EXPECT_EQ(rejected->code(), edge_error_invalid_credentials);
+    }
+
+    // 客户端 → Gateway:1301 attach(身份 Token + Admission Grant)→ 1302 受理。
     auto gateway_socket = connect_when_ready(gateway_port);
     EdgeAttach attach;
-    attach.set_identity_token(identity_token("bbbb000000000001bbbb000000000001"));
-    attach.set_admission_grant(number_token());
+    attach.set_identity_token(identity_token(account_jti));
+    attach.set_admission_grant(admission_grant_token(account_jti));
     send_message(gateway_socket, encode(attach, 1));
     const auto accepted_wire = receive_message(gateway_socket);
     EXPECT_EQ(edge_request_id(accepted_wire), 1);
@@ -589,7 +699,10 @@ TEST(NewChainFlowTest, AttachesToGatewayAndEntersRealm) {
 
     static_cast<void>(::unsetenv("REALMMESH_SESSION_TICKET_KEY"));
     static_cast<void>(::unsetenv("REALMMESH_IDENTITY_KEY_SEED"));
-    static_cast<void>(::unsetenv("REALMMESH_QUEUE_KEY_SEED"));
+    static_cast<void>(::unsetenv("REALMMESH_QUEUE_NUMBER_KEY_SEED"));
+    static_cast<void>(::unsetenv("REALMMESH_ADMISSION_GRANT_KEY_SEED"));
+    static_cast<void>(::unsetenv("REALMMESH_ADMISSION_GRANT_PUBLIC_KEY"));
+    static_cast<void>(::unsetenv("REALMMESH_ADMISSION_CONSUMPTION_DIGEST_KEY"));
     static_cast<void>(::unsetenv("REALMMESH_TLS_CERTIFICATE_FILE"));
     static_cast<void>(::unsetenv("REALMMESH_TLS_PRIVATE_KEY_FILE"));
 }

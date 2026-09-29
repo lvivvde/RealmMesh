@@ -61,3 +61,9 @@ realm_add_gtest(gateway_login_pipeline_test
     SOURCES gateway_login_pipeline_test.cpp
     LIBS realm_gateway_service
 )
+
+# 入口守卫的限流契约:进程内、不占端口,进快速子集。
+realm_add_gtest(gateway_ingress_throttle_test
+    SOURCES gateway_ingress_throttle_test.cpp
+    LIBS realm_gateway_service
+)

@@ -1,4 +1,5 @@
 #include "realmmesh/scripting/lua_runtime.hpp"
+#include "realmmesh/game/common/admission_grant.hpp"
 #include "realmmesh/game/queue/queue_config.hpp"
 #include "realmmesh/service_host/layered_config_loader.hpp"
 
@@ -110,7 +111,11 @@ TEST_F(ConfigsLoadSmokeTest, QueueConfigLoadsThroughDedicatedLoader) {
     // TLS 路径经环境变量解析(ScopedTlsEnvironment 已指向测试证书)。
     EXPECT_FALSE(config.queue.tls.certificate_chain_file.empty());
     EXPECT_FALSE(config.queue.tls.private_key_file.empty());
-    EXPECT_EQ(config.queue.kid, "queue-v1");
+    // 两种凭据角色各自一把 kid,绝不共用(#79 / ADR-0009)。
+    EXPECT_EQ(config.queue.queue_number_kid, "queue-number-v2");
+    EXPECT_EQ(config.queue.admission_grant_kid, "admission-grant-v1");
+    EXPECT_NE(config.queue.queue_number_kid, config.queue.admission_grant_kid);
+    EXPECT_EQ(config.queue.identity_kid, "login-verify-v1");
     EXPECT_EQ(config.queue.identity_issuer, "realmmesh/login-verify");
     EXPECT_TRUE(config.queue.release_step > 0);
     EXPECT_GE(config.queue.release_interval, std::chrono::seconds{2});
@@ -121,6 +126,31 @@ TEST_F(ConfigsLoadSmokeTest, QueueConfigLoadsThroughDedicatedLoader) {
     // 开发配置显式关闭冷备强校验(无 etcd 网状);代码默认必须为 true。
     EXPECT_FALSE(config.queue.snapshot_required);
     EXPECT_TRUE((game::queue::QueueConfig{}.snapshot_required));
+}
+
+/// 出厂的 gateway.lua 必须真的能过 #79 的准入配置校验:键环非空、kid 唯一、
+/// 每条都指名公钥环境变量、窗口在协议上限内,且与 Queue 的 admit_grace 一致
+/// —— 两边窗口不一致会让合法 Grant 在网关侧被误判为过期。
+TEST_F(ConfigsLoadSmokeTest, GatewayAdmissionConfigLoadsAndValidates) {
+    const auto config = LayeredConfigLoader::load(configs_root(), "gateway");
+    ASSERT_FALSE(config.login.admission_grant_keys.empty());
+    EXPECT_EQ(
+        config.login.admission_grant_keys.front().kid, "admission-grant-v1");
+    EXPECT_EQ(
+        config.login.admission_grant_keys.front().public_key_environment,
+        "REALMMESH_ADMISSION_GRANT_PUBLIC_KEY");
+    EXPECT_EQ(config.login.admission_grant_issuer, "realmmesh/queue");
+    EXPECT_EQ(config.login.deployment_id, "development");
+    EXPECT_GT(config.login.admission_grant_window, std::chrono::seconds{0});
+    EXPECT_LE(
+        config.login.admission_grant_window,
+        game::common::admission_grant_max_window);
+    EXPECT_NO_THROW(config.login.validate());
+
+    const auto queue = LayeredConfigLoader::load_queue(configs_root(), "queue");
+    EXPECT_EQ(config.login.admission_grant_window, queue.queue.admit_grace);
+    EXPECT_EQ(config.login.admission_grant_issuer, queue.queue.admission_grant_issuer);
+    EXPECT_EQ(config.login.deployment_id, queue.queue.deployment_id);
 }
 
 TEST_F(ConfigsLoadSmokeTest, EveryConfigFileCompilesInLuaRuntime) {

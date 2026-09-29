@@ -3,7 +3,6 @@
 #include "realmmesh/game/common/admission_grant.hpp"
 #include "realmmesh/game/common/edge_protocol.hpp"
 #include "realmmesh/game/common/identity_token.hpp"
-#include "realmmesh/game/common/queue_number.hpp"
 #include "realmmesh/game/common/session_ticket.hpp"
 #include "realmmesh/game/gateway/admission_consumption_store.hpp"
 #include "realmmesh/game/gateway/gateway_admission.hpp"
@@ -44,24 +43,12 @@ const auto system_origin =
 const auto steady_origin =
     std::chrono::steady_clock::time_point{std::chrono::seconds{10}};
 
-[[nodiscard]] GatewaySigningMaterial signing_material() {
-    return GatewaySigningMaterial::from_hex(
-        identity_seed_hex,
-        "login-verify-v1",
-        queue_seed_hex,
-        "queue-v1",
-        ticket_key_hex,
-        "realmmesh/login-verify");
-}
-
 class GatewayLoginPipelineTest : public ::testing::Test {
 protected:
     void SetUp() override {
         identity_codec_.emplace(
             common::parse_identity_seed_hex(identity_seed_hex),
             "login-verify-v1");
-        number_codec_.emplace(
-            common::parse_identity_seed_hex(queue_seed_hex), "queue-v1");
     }
 
     [[nodiscard]] GatewayLoginConfig config(
@@ -78,14 +65,7 @@ protected:
     }
 
     void create(GatewayLoginConfig pipeline_config) {
-        pipeline_.emplace(
-            GatewayLoginPipeline::create(
-                std::move(pipeline_config),
-                signing_material(),
-                transport_,
-                fetch_,
-                nullptr,
-                &metrics_));
+        create_admission(std::move(pipeline_config));
     }
 
     [[nodiscard]] std::string identity_token(
@@ -95,16 +75,6 @@ protected:
                 .issuer = "realmmesh/login-verify",
                 .account_id = account_id,
                 .jti = std::string(jti),
-                .issued_at = system_origin,
-                .expires_at = system_origin + 30min,
-            });
-    }
-
-    [[nodiscard]] std::string number_token(std::uint64_t number = 7) const {
-        return number_codec_->issue(
-            common::QueueNumberClaims{
-                .number = number,
-                .admitted = true,
                 .issued_at = system_origin,
                 .expires_at = system_origin + 30min,
             });
@@ -195,7 +165,7 @@ protected:
             transport_,
             session_id,
             identity_token(jti),
-            number_token(),
+            grant_token(jti),
             request_id);
     }
 
@@ -261,29 +231,25 @@ protected:
     ScriptedAccountFetchPort fetch_;
     observability::MetricsRegistry metrics_;
     std::optional<common::IdentityTokenCodec> identity_codec_;
-    std::optional<common::QueueNumberCodec> number_codec_;
     std::unique_ptr<InMemoryAdmissionConsumptionStore> consumption_store_;
     std::unique_ptr<GatewayAdmission> admission_;
     std::optional<GatewayLoginPipeline> pipeline_;
 };
 
-TEST_F(GatewayLoginPipelineTest, CreationValidatesConfigurationAndSigningIds) {
+TEST_F(GatewayLoginPipelineTest, CreationValidatesConfigurationAndInstance) {
     auto invalid_config = config();
     invalid_config.fetch_capacity = 0;
-    EXPECT_THROW(
-        static_cast<void>(GatewayLoginPipeline::create(
-            invalid_config, signing_material(), transport_, fetch_)),
-        std::invalid_argument);
-
-    auto invalid_material = signing_material();
-    invalid_material.identity_issuer.clear();
-    EXPECT_THROW(
-        static_cast<void>(GatewayLoginPipeline::create(
-            config(), std::move(invalid_material), transport_, fetch_)),
-        std::invalid_argument);
-
     InMemoryAdmissionConsumptionStore store(consumption_options());
     auto admission = make_admission(store);
+    EXPECT_THROW(
+        static_cast<void>(GatewayLoginPipeline::create(
+            invalid_config,
+            common::parse_ticket_key_hex(ticket_key_hex),
+            admission,
+            "gateway-a",
+            transport_,
+            fetch_)),
+        std::invalid_argument);
     EXPECT_THROW(
         static_cast<void>(GatewayLoginPipeline::create(
             config(),
@@ -355,8 +321,10 @@ TEST_F(
     auto rejected = common::decode_edge_error(
         last_command(PrimaryTransportCommandKind::Decline).payload);
     ASSERT_TRUE(rejected.has_value());
-    EXPECT_EQ(rejected->code(), common::edge_error_invalid_credentials);
-    EXPECT_NE(
+    // 同一 identity_jti 的并发准入是「别人正在处理」:对外可重试(1005),
+    // 既不消耗凭据也不计入重放拒绝——凭据此刻仍然有效(ADR-0009)。
+    EXPECT_EQ(rejected->code(), common::edge_error_admission_in_progress);
+    EXPECT_EQ(
         metrics_.render().find("edge_jti_replay_rejected_total 1\n"),
         std::string::npos);
 
@@ -366,20 +334,24 @@ TEST_F(
     attach(EdgeSessionId{3}, jti_a, 3);
     static_cast<void>(advance(3ms, 3ms));
     EXPECT_EQ(command_count(PrimaryTransportCommandKind::Decline), 2U);
+    // 已提交消费之后的重放是终态:对外统一收敛为凭据无效,内部留下重放
+    // 拒绝计数以便与跨身份拼接区分。
+    const auto replayed = common::decode_edge_error(
+        last_command(PrimaryTransportCommandKind::Decline).payload);
+    ASSERT_TRUE(replayed.has_value());
+    EXPECT_EQ(replayed->code(), common::edge_error_invalid_credentials);
     EXPECT_NE(
-        metrics_.render().find("edge_jti_replay_rejected_total 2\n"),
+        metrics_.render().find("edge_jti_replay_rejected_total 1\n"),
         std::string::npos);
 }
 
-// #79 replacement point: v1 validates these credentials independently. The
-// grant associated with Bob can therefore authorize Alice's identity.
 TEST_F(
     GatewayLoginPipelineTest,
-    CurrentAttachAcceptsCrossIdentityCredentialSplice) {
+    AdmissionRejectsCrossIdentityCredentialSplice) {
     create(config(1, 1));
     const auto alice_identity = identity_token(jti_a, 42);
     const auto bob_identity = identity_token(jti_b, 84);
-    const auto grant_obtained_by_bob = number_token(84);
+    const auto grant_obtained_by_bob = grant_token(jti_b);
     ASSERT_TRUE(
         identity_codec_
             ->validate(bob_identity, "realmmesh/login-verify", system_origin)
@@ -393,74 +365,8 @@ TEST_F(
         grant_obtained_by_bob);
     static_cast<void>(advance());
 
-    ASSERT_EQ(command_count(PrimaryTransportCommandKind::Accept), 1U);
-    const auto accepted = common::decode_edge_attach_accepted(
-        last_command(PrimaryTransportCommandKind::Accept).payload);
-    ASSERT_TRUE(accepted.has_value());
-    EXPECT_EQ(accepted->account_id(), 42U);
-    static_cast<void>(advance(1ms, 1ms));
-    ASSERT_EQ(fetch_.submitted_requests().size(), 1U);
-    EXPECT_EQ(fetch_.submitted_requests()[0].account_id, 42U);
-}
-
-// Each pipeline owns its replay sets. The same signed pair therefore commits
-// once in every independent Gateway instance.
-TEST_F(
-    GatewayLoginPipelineTest,
-    SameCredentialCurrentlyCommitsInTwoIndependentPipelineInstances) {
-    InMemoryGatewayPrimaryTransport first_transport;
-    InMemoryGatewayPrimaryTransport second_transport;
-    ScriptedAccountFetchPort first_fetch;
-    ScriptedAccountFetchPort second_fetch;
-    observability::MetricsRegistry first_metrics;
-    observability::MetricsRegistry second_metrics;
-    auto first = GatewayLoginPipeline::create(
-        config(1, 1),
-        signing_material(),
-        first_transport,
-        first_fetch,
-        nullptr,
-        &first_metrics);
-    auto second = GatewayLoginPipeline::create(
-        config(1, 1),
-        signing_material(),
-        second_transport,
-        second_fetch,
-        nullptr,
-        &second_metrics);
-    const auto identity = identity_token(jti_a);
-    const auto grant = number_token();
-    for (auto* transport : {&first_transport, &second_transport}) {
-        transport->push_event({
-            .kind = GatewayEventKind::SessionOpened,
-            .session_id = EdgeSessionId{1},
-            .source = "127.0.0.1",
-        });
-        attach_with_tokens(
-            *transport, EdgeSessionId{1}, identity, grant);
-    }
-
-    const GatewayLoginFrame input{
-        .now = steady_origin,
-        .verification_now = system_origin,
-    };
-    static_cast<void>(first.advance(input));
-    static_cast<void>(second.advance(input));
-
-    EXPECT_EQ(first_transport.owned_commands().size(), 1U);
-    EXPECT_EQ(second_transport.owned_commands().size(), 1U);
-    EXPECT_EQ(
-        first_transport.owned_commands()[0].kind,
-        PrimaryTransportCommandKind::Accept);
-    EXPECT_EQ(
-        second_transport.owned_commands()[0].kind,
-        PrimaryTransportCommandKind::Accept);
-    EXPECT_NE(
-        first_metrics.render().find("edge_jti_replay_rejected_total 0\n"),
-        std::string::npos);
-    EXPECT_NE(
-        second_metrics.render().find("edge_jti_replay_rejected_total 0\n"),
-        std::string::npos);
+    EXPECT_EQ(command_count(PrimaryTransportCommandKind::Accept), 0U);
+    EXPECT_EQ(command_count(PrimaryTransportCommandKind::Decline), 1U);
 }
 
 TEST_F(

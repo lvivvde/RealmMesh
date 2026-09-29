@@ -25,6 +25,8 @@ class AccountFetchPort;
 class GatewayLoginPipeline;
 class GatewayPrimaryTransport;
 class GatewayRuntime;
+class GatewayAdmission;
+class AdmissionConsumptionStore;
 }  // namespace realm::game::gateway
 
 namespace realm::game::login_verify {
@@ -104,6 +106,9 @@ private:
     std::unique_ptr<game::gateway::GatewayPrimaryTransport>
         gateway_primary_transport_;
     std::unique_ptr<game::gateway::AccountFetchPort> account_fetch_;
+    std::unique_ptr<game::gateway::AdmissionConsumptionStore>
+        admission_consumption_store_;
+    std::unique_ptr<game::gateway::GatewayAdmission> gateway_admission_;
     std::unique_ptr<game::gateway::GatewayLoginPipeline>
         gateway_login_pipeline_;
     std::unique_ptr<game::login_verify::LoginVerifyService> login_verify_;

@@ -1,5 +1,6 @@
 #include "realmmesh/game/queue/queue_service.hpp"
 
+#include "realmmesh/game/common/admission_security_config.hpp"
 #include "realmmesh/network/http/http_server.hpp"
 #include "realmmesh/observability/logger.hpp"
 #include "realmmesh/observability/metrics_registry.hpp"
@@ -35,13 +36,35 @@ QueueService::QueueService(
 QueueService::~QueueService() = default;
 
 void QueueService::start(observability::Logger* logger) {
-    // 号牌签发键与身份验签键分置:验签走健全服发布的身份种子,签发走
-    // queue 自己的种子(kid 在 JWKS 语义上由签发方独占)。
-    // TODO(#42):号牌签发私钥只应存在于排队调度服;当前经环境变量分发
-    // 属过渡形态,生产由密钥管理注入并收敛到本服务。
-    number_codec_ = std::make_unique<common::QueueNumberCodec>(
-        common::seed_from_environment("REALMMESH_QUEUE_KEY_SEED"),
-        config_.kid);
+    const auto queue_seed = common::seed_from_environment(
+        "REALMMESH_QUEUE_NUMBER_KEY_SEED");
+    const auto grant_seed = common::seed_from_environment(
+        "REALMMESH_ADMISSION_GRANT_KEY_SEED");
+    const common::QueueNumberV2SigningKey queue_key{
+        .kid = config_.queue_number_kid, .seed = queue_seed};
+    const common::AdmissionGrantSigningKey grant_key{
+        .kid = config_.admission_grant_kid, .seed = grant_seed};
+    common::QueueAdmissionSecurityConfig security{
+        .active_queue_number_key = queue_key,
+        .queue_number_verification_keys = {{
+            .kid = config_.queue_number_kid,
+            .public_key = common::ed25519_public_key_from_seed(queue_seed)}},
+        .active_admission_grant_key = grant_key,
+        .admission_grant_verification_keys = {{
+            .kid = config_.admission_grant_kid,
+            .public_key = common::ed25519_public_key_from_seed(grant_seed)}},
+        .queue_number_ttl = config_.queued_number_ttl,
+        .admission_grant = {.issuer = config_.admission_grant_issuer,
+                            .deployment_id = config_.deployment_id,
+                            .grant_window = config_.admit_grace},
+    };
+    security.validate();
+    number_codec_ = std::make_unique<common::QueueNumberV2Codec>(
+        *security.active_queue_number_key,
+        security.queue_number_verification_keys,
+        security.queue_number_ttl);
+    admission_grant_issuer_ = std::make_unique<common::AdmissionGrantIssuer>(
+        *security.active_admission_grant_key, security.admission_grant);
     // TODO(#42):身份验签当前信任环境变量注入的对称种子;生产应改为
     // 消费 login_verify 发布的 JWKS/公钥并支持轮换。
     identity_codec_ = std::make_unique<common::IdentityTokenCodec>(
@@ -50,14 +73,13 @@ void QueueService::start(observability::Logger* logger) {
     core_ = std::make_unique<QueueCore>(
         config_.release_step, queue_rate_window, config_.idempotency_ttl,
         config_.idempotency_capacity, config_.admit_grace);
+    ticketing_ = std::make_unique<QueueTicketing>(
+        *core_, *number_codec_, *admission_grant_issuer_);
     handler_ = std::make_unique<QueueHandler>(
-        *core_,
+        *ticketing_,
         *identity_codec_,
-        *number_codec_,
         [] { return std::chrono::system_clock::now(); },
         config_.identity_issuer,
-        config_.queued_number_ttl,
-        config_.admit_grace,
         metrics_);
 
     // 冷备恢复(§10):有快照即整体替换水位;无快照(确属空状态)从零
@@ -124,8 +146,10 @@ void QueueService::start(observability::Logger* logger) {
 void QueueService::stop() {
     server_.reset();
     handler_.reset();
+    ticketing_.reset();
     core_.reset();
     number_codec_.reset();
+    admission_grant_issuer_.reset();
     identity_codec_.reset();
     budgets_.reset();
     // store_ 不随停机释放:注入的基础设施(测试 fake / etcd 客户端)

@@ -17,9 +17,12 @@ struct QueueConfig {
     network::TransportConfig::TlsServerIdentity tls;
     std::string listen_address{"127.0.0.1"};
     std::uint16_t listen_port{8444};
-    /// 号牌签名键(kid 随 JWKS 语义单调;queue 不发布 JWKS,消费方
-    /// 只有内网网关,静态载入)。
-    std::string kid{"queue-v1"};
+    /// 两种凭据角色绝不复用 kid 或密钥：Queue Number v2 仅用于排位，
+    /// Admission Grant 才能进入 Gateway。
+    std::string queue_number_kid{"queue-number-v2"};
+    std::string admission_grant_kid{"admission-grant-v1"};
+    std::string admission_grant_issuer{"realmmesh/queue"};
+    std::string deployment_id{"development"};
     /// 身份 Token 验签:期望签发方与对应 kid(由健全服发布)。
     std::string identity_kid{"login-verify-v1"};
     std::string identity_issuer{"realmmesh/login-verify"};
@@ -27,8 +30,8 @@ struct QueueConfig {
     std::uint64_t release_step{3000};
     std::chrono::milliseconds release_interval{2000};
     std::chrono::milliseconds budget_interval{1000};
-    /// 排队中号牌时效;admit_grace 在 #84 同时作为新 release ledger 的
-    /// Grant 窗口，旧路由仍用它重签 admitted 号牌直至最终 cutover。
+    /// 排队中号牌时效;admit_grace 同时作为 release ledger 的 Grant 窗口
+    /// (ADR-0009:号牌与准入凭据自 cutover 起彻底分离,号牌再无准入语义)。
     std::chrono::seconds queued_number_ttl{3600};
     std::chrono::seconds admit_grace{300};
     /// 发号幂等映射:条目随身份 Token 过期,容量上限尽力保护。

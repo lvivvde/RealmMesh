@@ -64,27 +64,17 @@ using common::JsonValue;
                               : std::optional<std::string_view>{credential};
 }
 
-/// 估时(§5.1/ADR-0006):ceil(位次/速率);速率为 0(未建立)或位次
-/// 为 0 时取 0,客户端以本地插值为准(spec #42 裁决)。
-[[nodiscard]] std::int64_t estimate_wait(
-    std::uint64_t position, std::uint64_t rate) {
-    if (position == 0 || rate == 0) {
-        return 0;
-    }
-    return static_cast<std::int64_t>((position + rate - 1U) / rate);
-}
-
 /// 放行响应(§5.1):凭据嵌套在 admit_grant 对象内(JsonCodec 只编扁平
 /// 对象,嵌套成员按 login_verify jwks() 先例拼接)。encode 输出键序确
 /// 定且 "admit_grant" 字典序先于响应其余键,首个键前即拼接点。
 [[nodiscard]] network::Http1Response admitted_response(
     std::string_view grant_token,
     std::uint64_t number,
-    std::chrono::seconds admit_grace) {
+    std::uint64_t expires_in_seconds) {
     const std::string grant = common::JsonCodec::encode(
-        {{"queue_number_token", JsonValue(std::string(grant_token))},
+        {{"admission_grant", JsonValue(std::string(grant_token))},
          {"number", static_cast<std::int64_t>(number)},
-         {"expires_in", static_cast<std::int64_t>(admit_grace.count())}});
+         {"expires_in", static_cast<std::int64_t>(expires_in_seconds)}});
     network::Http1Response response = json_response(
         200,
         {{"status", std::string{"admitted"}},
@@ -97,21 +87,15 @@ using common::JsonValue;
 }  // namespace
 
 QueueHandler::QueueHandler(
-    QueueCore& core,
+    QueueTicketing& ticketing,
     const common::IdentityTokenCodec& identity_codec,
-    const common::QueueNumberCodec& number_codec,
     Clock clock,
     std::string_view identity_issuer,
-    std::chrono::seconds queued_number_ttl,
-    std::chrono::seconds admit_grace,
     observability::MetricsRegistry* metrics)
-    : core_(&core),
+    : ticketing_(&ticketing),
       identity_codec_(&identity_codec),
-      number_codec_(&number_codec),
       clock_(std::move(clock)),
       identity_issuer_(identity_issuer),
-      queued_number_ttl_(queued_number_ttl),
-      admit_grace_(admit_grace),
       metrics_(metrics) {}
 
 network::Http1Response QueueHandler::handle(
@@ -135,21 +119,13 @@ network::Http1Response QueueHandler::handle(
             return error_response(
                 401, error_invalid_credentials, "invalid credentials");
         }
-        const auto issued = core_->issue(identity->jti, now);
-        const auto token = number_codec_->issue(common::QueueNumberClaims{
-            .number = issued.number,
-            .admitted = false,
-            .issued_at = now,
-            .expires_at = now + queued_number_ttl_,
-        });
+        const auto issued = ticketing_->issue(*identity, now);
         return json_response(
             202,
-            {{"queue_number_token", JsonValue(std::move(token))},
+            {{"queue_number_token", JsonValue(issued.queue_number_token)},
              {"number", static_cast<std::int64_t>(issued.number)},
-             {"estimated_wait_seconds",
-              estimate_wait(
-                  issued.number - core_->released_number(),
-                  core_->admit_rate(now))}});
+             {"estimated_wait_seconds", static_cast<std::int64_t>(
+                  issued.estimated_wait_seconds)}});
     }
 
     if (path == "/v1/queue/progress") {
@@ -165,8 +141,8 @@ network::Http1Response QueueHandler::handle(
         network::Http1Response response = json_response(
             200,
             {{"released_number",
-              static_cast<std::int64_t>(core_->released_number())},
-             {"admit_rate", static_cast<std::int64_t>(core_->admit_rate(now))},
+              static_cast<std::int64_t>(ticketing_->released_number())},
+             {"admit_rate", static_cast<std::int64_t>(ticketing_->admit_rate(now))},
              {"server_time",
               std::chrono::duration_cast<std::chrono::seconds>(
                   now.time_since_epoch())
@@ -187,28 +163,27 @@ network::Http1Response QueueHandler::handle(
             return error_response(
                 401, error_invalid_number, "missing bearer number");
         }
-        const auto claims = number_codec_->validate(*credential, now);
-        if (!claims.has_value()) {
+        const auto result = ticketing_->query(*credential, now);
+        if (result.status == QueueTicketQueryStatus::InvalidQueueNumber) {
             return error_response(
                 401, error_invalid_number, "invalid or expired queue number");
         }
-        if (claims->admitted || claims->number <= core_->released_number()) {
-            // 放行凭证 = 号牌重签 admitted(ADR-0006);宽限自重签起算。
-            const auto grant = number_codec_->issue(common::QueueNumberClaims{
-                .number = claims->number,
-                .admitted = true,
-                .issued_at = now,
-                .expires_at = now + admit_grace_,
-            });
-            return admitted_response(grant, claims->number, admit_grace_);
+        if (result.status == QueueTicketQueryStatus::ReleaseExpired) {
+            return error_response(
+                401, error_invalid_number, "queue release window expired");
         }
-        const auto position = claims->number - core_->released_number();
+        if (result.status == QueueTicketQueryStatus::Admitted) {
+            return admitted_response(
+                *result.admission_grant,
+                result.number,
+                result.admission_grant_expires_in_seconds);
+        }
         return json_response(
             200,
             {{"status", std::string{"queued"}},
-             {"position", static_cast<std::int64_t>(position)},
-             {"estimated_wait_seconds",
-              estimate_wait(position, core_->admit_rate(now))}});
+             {"position", static_cast<std::int64_t>(result.position)},
+             {"estimated_wait_seconds", static_cast<std::int64_t>(
+                  result.estimated_wait_seconds)}});
     }
 
     if (path == "/healthz") {

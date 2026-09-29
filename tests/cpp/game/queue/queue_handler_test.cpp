@@ -2,8 +2,10 @@
 
 #include "realmmesh/game/common/identity_token.hpp"
 #include "realmmesh/game/common/json.hpp"
+#include "realmmesh/game/common/admission_grant.hpp"
 #include "realmmesh/game/queue/queue_core.hpp"
-#include "realmmesh/game/common/queue_number.hpp"
+#include "realmmesh/game/common/queue_number_v2.hpp"
+#include "realmmesh/game/queue/queue_ticketing.hpp"
 #include "realmmesh/observability/metrics_registry.hpp"
 
 #include <gtest/gtest.h>
@@ -15,6 +17,7 @@
 #include <string_view>
 #include <utility>
 #include <variant>
+#include <vector>
 
 namespace realm::game::queue {
 namespace {
@@ -50,17 +53,31 @@ protected:
         identity_codec_ = std::make_unique<IdentityTokenCodec>(
             common::parse_identity_seed_hex(kSeedHex),
             std::string{kIdentityKid});
-        number_codec_ = std::make_unique<common::QueueNumberCodec>(
-            common::parse_identity_seed_hex(kSeedHex), std::string{kKid});
+        number_codec_ = std::make_unique<common::QueueNumberV2Codec>(
+            common::QueueNumberV2SigningKey{
+                .kid = std::string{kKid},
+                .seed = common::parse_identity_seed_hex(kSeedHex)},
+            std::vector<common::QueueNumberV2VerificationKey>{{
+                .kid = std::string{kKid},
+                .public_key = common::ed25519_public_key_from_seed(
+                    common::parse_identity_seed_hex(kSeedHex))}},
+            std::chrono::seconds{3600});
+        grant_issuer_ = std::make_unique<common::AdmissionGrantIssuer>(
+            common::AdmissionGrantSigningKey{
+                .kid = "grant-test-1",
+                .seed = common::parse_identity_seed_hex(kGrantSeedHex)},
+            common::AdmissionGrantPolicy{
+                .issuer = "realmmesh/queue",
+                .deployment_id = "test",
+                .grant_window = std::chrono::seconds{300}});
         core_ = std::make_unique<QueueCore>(100);
+        ticketing_ = std::make_unique<QueueTicketing>(
+            *core_, *number_codec_, *grant_issuer_);
         handler_ = std::make_unique<QueueHandler>(
-            *core_,
+            *ticketing_,
             *identity_codec_,
-            *number_codec_,
             [this] { return now_; },
             std::string{kIssuer},
-            std::chrono::seconds{3600},
-            std::chrono::seconds{300},
             &metrics_);
     }
 
@@ -107,14 +124,19 @@ protected:
         "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
     static constexpr std::string_view kKid = "queue-test-1";
     static constexpr std::string_view kIdentityKid = "login-verify-test-1";
+    static constexpr std::string_view kGrantSeedHex =
+        "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
     static constexpr std::string_view kIssuer = "realmmesh/login-verify";
 
     std::chrono::system_clock::time_point now_ =
         std::chrono::system_clock::time_point{
             std::chrono::seconds{1'700'000'000}};
     std::unique_ptr<IdentityTokenCodec> identity_codec_;
-    std::unique_ptr<common::QueueNumberCodec> number_codec_;
+    std::unique_ptr<common::QueueNumberV2Codec> number_codec_;
+    std::unique_ptr<common::AdmissionGrantIssuer> grant_issuer_;
     std::unique_ptr<QueueCore> core_;
+    std::unique_ptr<QueueTicketing> ticketing_;
     observability::MetricsRegistry metrics_;
     std::unique_ptr<QueueHandler> handler_;
 };
@@ -134,18 +156,20 @@ TEST_F(QueueHandlerTest, IssuesSequentialNumbersForDistinctIdentities) {
     ASSERT_TRUE(second_payload.has_value());
     EXPECT_EQ(std::get<std::int64_t>(second_payload->at("number")), 2);
 
-    // 号牌可由号牌验签方解码:号值一致、未放行、时效为排队 TTL。
+    // Queue Number v2 绑定身份 jti；它没有 admitted 准入 claim。
     const auto* token = std::get_if<std::string>(
         &first_payload->at("queue_number_token"));
     ASSERT_NE(token, nullptr);
     const auto claims = number_codec_->validate(*token, now_);
     ASSERT_TRUE(claims.has_value());
     EXPECT_EQ(claims->number, 1U);
-    EXPECT_FALSE(claims->admitted);
+    EXPECT_EQ(claims->identity_jti, jti("01"));
+    // 号牌寿命 = min(身份 Token 到期, iat + queued_number_ttl)(#79):身份
+    // Token 的 1800s 比 3600s 的号牌 TTL 更短,凭据不得比它绑定的身份活得久。
     EXPECT_EQ(
         std::chrono::duration_cast<std::chrono::seconds>(
             claims->expires_at - claims->issued_at),
-        std::chrono::seconds{3600});
+        std::chrono::seconds{1800});
 }
 
 TEST_F(QueueHandlerTest, SameIdentityReplaysSameNumber) {
@@ -307,7 +331,7 @@ TEST_F(QueueHandlerTest, QueuedNumberReportsLivePosition) {
     EXPECT_EQ(payload->find("queue_number_token"), payload->end());
 }
 
-TEST_F(QueueHandlerTest, AdmittedNumberGetsResignedGrant) {
+TEST_F(QueueHandlerTest, ReleasedNumberGetsIdentityBoundAdmissionGrant) {
     const auto issued = handler_->handle(
         request("POST", "/v1/queue/tickets", identity_token(jti("01"))));
     ASSERT_EQ(issued.status, 202);
@@ -329,30 +353,27 @@ TEST_F(QueueHandlerTest, AdmittedNumberGetsResignedGrant) {
     // 外层契约(§5.1):状态/位次/估时,无散置凭证字段;凭证嵌套在
     // admit_grant 内且含号值(encode 键序确定,首尾段可比对)。
     EXPECT_TRUE(std::string_view{admitted.body}.starts_with(
-        R"({"admit_grant":{"expires_in":300,"number":1,"queue_number_token":")"));
+        R"({"admit_grant":{"admission_grant":")"));
     EXPECT_TRUE(std::string_view{admitted.body}.ends_with(
         R"(,"estimated_wait_seconds":0,"position":0,"status":"admitted"})"));
     const auto grant_payload = decode_admit_grant(admitted.body);
     ASSERT_TRUE(grant_payload.has_value());
     EXPECT_EQ(std::get<std::int64_t>(grant_payload->at("number")), 1);
-    EXPECT_EQ(std::get<std::int64_t>(grant_payload->at("expires_in")), 300);
+    // 剩余窗口必须由 Grant 自身的 exp 派生下发(而不是一个占位 0,更不能让
+    // 客户端拿自己的常量去猜):这里放行批次刚建立,窗口即配置的全长。
+    const auto expires_in =
+        std::get<std::int64_t>(grant_payload->at("expires_in"));
+    EXPECT_EQ(expires_in, 300);
 
-    // 放行凭证 = 重签号牌:admitted 置位、号值不变、时效为放行宽限。
+    // 放行凭证与 Queue Number 分离，HTTP 只返回 Admission Grant。
     const auto* grant = std::get_if<std::string>(
-        &grant_payload->at("queue_number_token"));
+        &grant_payload->at("admission_grant"));
     ASSERT_NE(grant, nullptr);
-    const auto grant_claims = number_codec_->validate(*grant, now_);
-    ASSERT_TRUE(grant_claims.has_value());
-    EXPECT_EQ(grant_claims->number, 1U);
-    EXPECT_TRUE(grant_claims->admitted);
-    EXPECT_EQ(
-        std::chrono::duration_cast<std::chrono::seconds>(
-            grant_claims->expires_at - grant_claims->issued_at),
-        std::chrono::seconds{300});
+    EXPECT_FALSE(grant->empty());
 
-    // 凭证再查仍为放行(宽限自重签起算,重新拿新凭证)。
+    // 原 Queue Number 可重复查询；Grant 保持确定性而非二次作为查询票据。
     const auto again = handler_->handle(
-        request("GET", "/v1/queue/tickets/me", *grant));
+        request("GET", "/v1/queue/tickets/me", *token));
     ASSERT_EQ(again.status, 200);
     const auto again_payload = decode_admit_grant(again.body);
     ASSERT_TRUE(again_payload.has_value());
@@ -360,9 +381,7 @@ TEST_F(QueueHandlerTest, AdmittedNumberGetsResignedGrant) {
         R"("status":"admitted"})"));
 }
 
-// #79 replacement point: polling an already released v1 number currently
-// creates a fresh grace window instead of returning a stable release grant.
-TEST_F(QueueHandlerTest, RepeatedPollingCurrentlyRenewsAdmissionWindow) {
+TEST_F(QueueHandlerTest, RepeatedPollingReturnsStableAdmissionGrant) {
     const auto issued = handler_->handle(
         request("POST", "/v1/queue/tickets", identity_token(jti("01"))));
     const auto issued_payload = JsonCodec::decode(issued.body);
@@ -381,10 +400,8 @@ TEST_F(QueueHandlerTest, RepeatedPollingCurrentlyRenewsAdmissionWindow) {
     const auto first_payload = decode_admit_grant(first.body);
     ASSERT_TRUE(first_payload.has_value());
     const auto* first_token = std::get_if<std::string>(
-        &first_payload->at("queue_number_token"));
+        &first_payload->at("admission_grant"));
     ASSERT_NE(first_token, nullptr);
-    const auto first_claims = number_codec_->validate(*first_token, now_);
-    ASSERT_TRUE(first_claims.has_value());
 
     now_ += std::chrono::seconds{240};
     const auto second = handler_->handle(
@@ -392,24 +409,9 @@ TEST_F(QueueHandlerTest, RepeatedPollingCurrentlyRenewsAdmissionWindow) {
     const auto second_payload = decode_admit_grant(second.body);
     ASSERT_TRUE(second_payload.has_value());
     const auto* second_token = std::get_if<std::string>(
-        &second_payload->at("queue_number_token"));
+        &second_payload->at("admission_grant"));
     ASSERT_NE(second_token, nullptr);
-    const auto second_claims = number_codec_->validate(*second_token, now_);
-    ASSERT_TRUE(second_claims.has_value());
-
-    EXPECT_NE(*first_token, *second_token);
-    EXPECT_EQ(
-        second_claims->issued_at,
-        first_claims->issued_at + std::chrono::seconds{240});
-    EXPECT_EQ(
-        second_claims->expires_at,
-        first_claims->expires_at + std::chrono::seconds{240});
-    EXPECT_EQ(
-        first_claims->expires_at - first_claims->issued_at,
-        std::chrono::seconds{300});
-    EXPECT_EQ(
-        second_claims->expires_at - second_claims->issued_at,
-        std::chrono::seconds{300});
+    EXPECT_EQ(*first_token, *second_token);
 }
 
 TEST_F(QueueHandlerTest, InvalidOrExpiredNumberIs2001) {
@@ -423,11 +425,11 @@ TEST_F(QueueHandlerTest, InvalidOrExpiredNumberIs2001) {
     EXPECT_EQ(code_of(garbage), QueueHandler::error_invalid_number);
 
     // 过期号牌:签发于 now,查询时已越过 exp + 宽限。
-    const auto stale = number_codec_->issue(common::QueueNumberClaims{
+    const auto stale = number_codec_->issue(common::QueueNumberV2Issue{
+        .identity_jti = jti("01"),
         .number = 1,
-        .admitted = false,
         .issued_at = now_,
-        .expires_at = now_,
+        .identity_expires_at = now_ + std::chrono::seconds{1},
     });
     now_ += std::chrono::seconds{3600};
     const auto expired = handler_->handle(

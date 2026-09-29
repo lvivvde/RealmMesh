@@ -4,11 +4,13 @@
 #include "realmmesh/cluster/service_registry.hpp"
 #include "realmmesh/cluster/service_resolver.hpp"
 #include "realmmesh/common/v1/envelope.pb.h"
+#include "realmmesh/game/common/admission_grant.hpp"
 #include "realmmesh/game/common/edge_protocol.hpp"
 #include "realmmesh/game/common/identity_token.hpp"
-#include "realmmesh/game/common/queue_number.hpp"
 #include "realmmesh/game/common/session_ticket.hpp"
 #include "realmmesh/game/gateway/account_fetch_port.hpp"
+#include "realmmesh/game/gateway/admission_consumption_store.hpp"
+#include "realmmesh/game/gateway/gateway_admission.hpp"
 #include "realmmesh/game/gateway/gateway_login_config.hpp"
 #include "realmmesh/game/gateway/gateway_login_pipeline.hpp"
 #include "realmmesh/game/gateway/gateway_primary_transport.hpp"
@@ -54,20 +56,27 @@ using cluster::InstanceBudgetSnapshot;
 
 constexpr std::string_view identity_seed_hex =
     "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60";
-constexpr std::string_view number_seed_hex =
-    "4ccd089b28ff96da9db6c346ec114e0f5b8a319f35aba624da8cf6ed4fb8a6fb";
+/// Admission Grant 的签发种子与身份 Token 种子独立(角色不共材);
+/// 公钥由种子现场导出,不引入第二份需要同步的常量。
+constexpr std::string_view grant_seed_hex =
+    "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+constexpr std::string_view consumption_digest_key_hex =
+    "c5aa8df43f9f837bedb7442f31dcb7b166d38535076f094b85ce3a2e0b4458f7";
+constexpr std::string_view grant_kid = "admission-grant-v1";
+constexpr std::string_view grant_issuer_name = "realmmesh/queue";
+constexpr std::string_view deployment_id = "development";
 constexpr std::string_view ticket_key_hex =
     "0102030405060708090a0b0c0d0e0f10"
     "1112131415161718191a1b1c1d1e1f20";
 
-[[nodiscard]] game::gateway::GatewaySigningMaterial signing_material() {
-    return game::gateway::GatewaySigningMaterial::from_hex(
-        identity_seed_hex,
-        "login-verify-v1",
-        number_seed_hex,
-        "queue-v1",
-        ticket_key_hex,
-        "realmmesh/login-verify");
+/// Admission Grant 签发策略与 Gateway 验证策略同源:同一份 issuer /
+/// deployment / window,测试才是「凭据链闭合」而不是「两边各写各的」。
+[[nodiscard]] game::common::AdmissionGrantPolicy grant_policy() {
+    return {
+        .issuer = std::string{grant_issuer_name},
+        .deployment_id = std::string{deployment_id},
+        .grant_window = std::chrono::seconds{300},
+    };
 }
 
 /// 签名种子/TLS/票据环境守护:指向 CMake 预生成的自签证书与固定测试
@@ -100,15 +109,12 @@ public:
             ::setenv(
                 "REALMMESH_IDENTITY_KEY_SEED", identity_seed_hex.data(), 1),
             0);
-        EXPECT_EQ(
-            ::setenv("REALMMESH_QUEUE_KEY_SEED", number_seed_hex.data(), 1), 0);
     }
     ~ScopedEdgeEnvironment() {
         static_cast<void>(::unsetenv("REALMMESH_TLS_CERTIFICATE_FILE"));
         static_cast<void>(::unsetenv("REALMMESH_TLS_PRIVATE_KEY_FILE"));
         static_cast<void>(::unsetenv("REALMMESH_SESSION_TICKET_KEY"));
         static_cast<void>(::unsetenv("REALMMESH_IDENTITY_KEY_SEED"));
-        static_cast<void>(::unsetenv("REALMMESH_QUEUE_KEY_SEED"));
     }
 };
 
@@ -411,13 +417,18 @@ protected:
         identity_codec_.emplace(
             game::common::parse_identity_seed_hex(identity_seed_hex),
             "login-verify-v1");
-        number_codec_.emplace(
-            game::common::parse_identity_seed_hex(number_seed_hex), "queue-v1");
+        grant_issuer_.emplace(
+            game::common::AdmissionGrantSigningKey{
+                .kid = std::string{grant_kid},
+                .seed = game::common::parse_identity_seed_hex(grant_seed_hex)},
+            grant_policy());
     }
 
     void TearDown() override {
         frame_.reset();
         pipeline_.reset();
+        admission_.reset();
+        consumption_store_.reset();
         fetch_port_.reset();
         primary_transport_.reset();
         runtime_->stop();
@@ -437,6 +448,8 @@ protected:
         std::uint16_t downstream_port = 0) {
         frame_.reset();
         pipeline_.reset();
+        admission_.reset();
+        consumption_store_.reset();
         fetch_port_.reset();
         primary_transport_.reset();
         primary_transport_.emplace(*runtime_);
@@ -453,10 +466,33 @@ protected:
             login_config.static_realm = game::gateway::RealmEndpoint{
                 std::move(downstream_address), downstream_port};
         }
+        // 集群消费 seam 用确定性内存适配器(#79):每次重建都是干净状态,
+        // 生产装配走 etcd,绝不回退到进程内。
+        consumption_store_ =
+            std::make_unique<game::gateway::InMemoryAdmissionConsumptionStore>(
+                game::gateway::AdmissionConsumptionOptions{
+                    .key_prefix = "/realmmesh/admission/test",
+                    .reservation_ttl = std::chrono::seconds{10},
+                    .digest_key =
+                        game::gateway::parse_admission_consumption_digest_key(
+                            consumption_digest_key_hex)});
+        admission_ = std::make_unique<game::gateway::GatewayAdmission>(
+            game::common::IdentityTokenCodec(
+                game::common::parse_identity_seed_hex(identity_seed_hex),
+                "login-verify-v1"),
+            "realmmesh/login-verify",
+            game::common::AdmissionGrantVerifier(
+                {{.kid = std::string{grant_kid},
+                  .public_key = game::common::ed25519_public_key_from_seed(
+                      game::common::parse_identity_seed_hex(grant_seed_hex))}},
+                grant_policy()),
+            *consumption_store_);
         pipeline_.emplace(
             game::gateway::GatewayLoginPipeline::create(
                 std::move(login_config),
-                signing_material(),
+                game::common::parse_ticket_key_hex(ticket_key_hex),
+                *admission_,
+                instance_id_,
                 *primary_transport_,
                 *fetch_port_,
                 &*logger_,
@@ -467,27 +503,25 @@ protected:
     /// 客户端连接并发送 attach 帧;返回保持连接的客户端(析构即断开)。
     [[nodiscard]] std::unique_ptr<AttachClient> attach_with_tokens(
         std::string identity_token,
-        std::string number_token,
+        std::string grant_token,
         std::uint64_t request_id) {
         auto client = std::make_unique<AttachClient>(static_cast<std::uint16_t>(
             runtime_->local_endpoints().front().port));
         game::common::EdgeAttach message;
         message.set_identity_token(std::move(identity_token));
-        message.set_admission_grant(std::move(number_token));
+        message.set_admission_grant(std::move(grant_token));
         const network::LengthFieldCodec codec(1024);
         client->send(codec.encode(game::common::encode(message, request_id)));
         client_ = client.get();
         return client;
     }
 
-    /// 使用固定签名夹具提交 attach;request_id 由用例显式给出,
-    /// 使线契约断言不依赖 helper 内部常量。
+    /// 使用固定签名夹具提交 attach:身份令牌与 Admission Grant 绑定同一个
+    /// jti,request_id 由用例显式给出,使线契约断言不依赖 helper 内部常量。
     [[nodiscard]] std::unique_ptr<AttachClient> attach(
-        std::string_view jti,
-        bool admitted = true,
-        std::uint64_t request_id = 5) {
+        std::string_view jti, std::uint64_t request_id = 5) {
         return attach_with_tokens(
-            identity_token(jti), number_token(admitted), request_id);
+            identity_token(jti), grant_token(jti), request_id);
     }
 
     /// 边推帧边收帧:测试是唯一驱动者,收帧与 tick 交替进行,帧不会
@@ -591,14 +625,18 @@ protected:
         primary_transport_;
     std::unique_ptr<FixedOutcomeAccountFetchPort> fetch_port_;
     std::optional<game::gateway::GatewayLoginPipeline> pipeline_;
+    std::unique_ptr<game::gateway::InMemoryAdmissionConsumptionStore>
+        consumption_store_;
+    std::unique_ptr<game::gateway::GatewayAdmission> admission_;
     std::optional<cluster::ServiceResolver> realm_resolver_;
     AttachClient* client_{nullptr};
     std::optional<ServiceFrame> frame_;
     observability::MetricsRegistry metrics_;
     std::optional<game::common::IdentityTokenCodec> identity_codec_;
-    std::optional<game::common::QueueNumberCodec> number_codec_;
+    std::optional<game::common::AdmissionGrantIssuer> grant_issuer_;
 
-private:
+    /// 测试侧对偶签发:身份 Token(固定身份 iss/exp)与绑定同一 jti 的
+    /// Admission Grant。负例用例可分别取用,自行拼出跨身份组合。
     [[nodiscard]] std::string identity_token(std::string_view jti) const {
         const auto now = std::chrono::system_clock::now();
         return identity_codec_->issue(
@@ -610,14 +648,16 @@ private:
                 .expires_at = now + std::chrono::minutes{30}});
     }
 
-    [[nodiscard]] std::string number_token(bool admitted) const {
+    [[nodiscard]] std::string grant_token(std::string_view identity_jti) const {
         const auto now = std::chrono::system_clock::now();
-        return number_codec_->issue(
-            game::common::QueueNumberClaims{
-                .number = 7,
-                .admitted = admitted,
+        return grant_issuer_->issue(
+            game::common::AdmissionGrantIssue{
+                .grant_jti = "aaaa0000000000ffaaaa0000000000ff",
+                .identity_jti = std::string{identity_jti},
+                .queue_number = 7,
+                .released_at = now,
                 .issued_at = now,
-                .expires_at = now + std::chrono::seconds{300}});
+                .identity_expires_at = now + std::chrono::minutes{30}});
     }
 };
 
@@ -642,7 +682,7 @@ TEST_F(ServiceFrameEdgeBudgetTest, PublishesCapacityThenConsumesOnAttach) {
 TEST_F(ServiceFrameEdgeBudgetTest, AttachAcceptancePreservesWireContract) {
     constexpr std::uint64_t request_id = 0x1020'3040;
     const auto client =
-        attach("aaaa000000000013aaaa000000000013", true, request_id);
+        attach("aaaa000000000013aaaa000000000013", request_id);
 
     const auto response = receive_while_driving(std::chrono::seconds{2});
     ASSERT_TRUE(response.has_value());
@@ -655,13 +695,14 @@ TEST_F(ServiceFrameEdgeBudgetTest, AttachAcceptancePreservesWireContract) {
     EXPECT_EQ(accepted->account_id(), 42U);
 }
 
-/// #75 保留拒绝映射:身份凭据与 Queue Number 分属不同错误码,
-/// 但都用 1999 回包并回显请求 ID。#79 后续会替换准入凭据
-/// 类型,不得在 #75 偷改现有线行为。
+/// #75 保留拒绝映射:凭据类失败一律用 1999 回包、回显请求 ID,并且
+/// **只暴露一个外部结果**(ADR-0009:invalid signature / schema / binding /
+/// deployment / expiry / Consumed 全部收敛为 1001),不告诉攻击者两支
+/// 凭据里哪一支是好的。#79 替换准入凭据类型后这条线契约不变。
 TEST_F(ServiceFrameEdgeBudgetTest, AttachRejectionsPreserveWireContract) {
     constexpr std::uint64_t identity_request_id = 41;
     const auto invalid_identity = attach_with_tokens(
-        "not-an-identity-token", "not-a-number", identity_request_id);
+        "not-an-identity-token", "not-a-grant", identity_request_id);
     const auto identity_response =
         receive_while_driving(std::chrono::seconds{2});
     ASSERT_TRUE(identity_response.has_value());
@@ -676,20 +717,24 @@ TEST_F(ServiceFrameEdgeBudgetTest, AttachRejectionsPreserveWireContract) {
     EXPECT_EQ(
         identity_error->code(), game::common::edge_error_invalid_credentials);
 
-    constexpr std::uint64_t number_request_id = 43;
-    const auto invalid_number =
-        attach("aaaa000000000014aaaa000000000014", false, number_request_id);
-    const auto number_response = receive_while_driving(std::chrono::seconds{2});
-    ASSERT_TRUE(number_response.has_value());
+    // 跨身份拼接:两支凭据各自都能验签通过,但 Grant 绑定的 jti 与身份
+    // Token 不同 —— 这正是 #79 要堵的缝。外部结果必须与"签名坏"同码。
+    constexpr std::uint64_t splice_request_id = 43;
+    const auto spliced = attach_with_tokens(
+        identity_token("aaaa000000000014aaaa000000000014"),
+        grant_token("bbbb000000000014bbbb000000000014"),
+        splice_request_id);
+    const auto splice_response = receive_while_driving(std::chrono::seconds{2});
+    ASSERT_TRUE(splice_response.has_value());
     EXPECT_EQ(
-        game::common::edge_message_id(*number_response),
+        game::common::edge_message_id(*splice_response),
         game::common::EdgeMessageId::MESSAGE_ID_S2C_ERROR);
     EXPECT_EQ(
-        game::common::edge_request_id(*number_response), number_request_id);
-    const auto number_error = game::common::decode_edge_error(*number_response);
-    ASSERT_TRUE(number_error.has_value());
+        game::common::edge_request_id(*splice_response), splice_request_id);
+    const auto splice_error = game::common::decode_edge_error(*splice_response);
+    ASSERT_TRUE(splice_error.has_value());
     EXPECT_EQ(
-        number_error->code(), game::common::edge_error_invalid_queue_number);
+        splice_error->code(), game::common::edge_error_invalid_credentials);
     const auto metrics = metrics_.render();
     EXPECT_NE(
         metrics.find("# TYPE edge_jti_replay_rejected_total counter\n"),
@@ -704,11 +749,11 @@ TEST_F(
     ServiceFrameEdgeBudgetTest,
     CredentialFailuresKeepRawCredentialsAndJtiOutOfTelemetry) {
     const std::string raw_identity = "raw-secret-identity-token";
-    const std::string raw_number = "raw-secret-queue-number-token";
+    const std::string raw_grant = "raw-secret-admission-grant-token";
     const std::string identity_jti = "aaaa000000000079aaaa000000000079";
 
     const auto invalid_identity_client =
-        attach_with_tokens(raw_identity, raw_number, 79);
+        attach_with_tokens(raw_identity, raw_grant, 79);
     ASSERT_TRUE(receive_while_driving(std::chrono::seconds{2}).has_value());
 
     const auto now = std::chrono::system_clock::now();
@@ -719,8 +764,8 @@ TEST_F(
             .jti = identity_jti,
             .issued_at = now,
             .expires_at = now + std::chrono::minutes{30}});
-    const auto invalid_number_client =
-        attach_with_tokens(valid_identity, raw_number, 80);
+    const auto invalid_grant_client =
+        attach_with_tokens(valid_identity, raw_grant, 80);
     ASSERT_TRUE(receive_while_driving(std::chrono::seconds{2}).has_value());
 
     ASSERT_TRUE(logger_->flush(std::chrono::seconds{2}));
@@ -730,7 +775,7 @@ TEST_F(
         std::istreambuf_iterator<char>{}};
     const auto metrics = metrics_.render();
     for (const auto& secret :
-         {raw_identity, raw_number, valid_identity, identity_jti}) {
+         {raw_identity, raw_grant, valid_identity, identity_jti}) {
         EXPECT_EQ(logs.find(secret), std::string::npos);
         EXPECT_EQ(metrics.find(secret), std::string::npos);
     }
@@ -744,11 +789,12 @@ TEST_F(ServiceFrameEdgeBudgetTest, ReplayedJtiPreservesWireRejection) {
         },
         std::chrono::seconds{2}));
 
-    // 同一身份令牌(jti)在新连接重放:凭据无效 → 拒绝并终结,拉取额度
-    // 不被消耗(conn 的一次瞬时占用由 SessionClosed 归还)。
+    // 同一 identity_jti 在第二个连接上重放(即便带一枚同样有效的 Grant):
+    // 集群消费记录已 Consumed(ADR-0009 的一身份一次准入)→ 凭据无效并
+    // 终结,拉取额度不被消耗(conn 的一次瞬时占用由 SessionClosed 归还)。
     constexpr std::uint64_t request_id = 53;
     const auto replayed =
-        attach("aaaa000000000002aaaa000000000002", true, request_id);
+        attach("aaaa000000000002aaaa000000000002", request_id);
     const auto response = receive_while_driving(std::chrono::seconds{2});
     ASSERT_TRUE(response.has_value());
     EXPECT_EQ(
@@ -810,7 +856,7 @@ TEST_F(
     // (conn 的瞬时占用归还后回到 {2,0})。
     constexpr std::uint64_t request_id = 47;
     const auto third =
-        attach("aaaa000000000005aaaa000000000005", true, request_id);
+        attach("aaaa000000000005aaaa000000000005", request_id);
     const auto response = receive_while_driving(std::chrono::seconds{2});
     ASSERT_TRUE(response.has_value());
     EXPECT_EQ(

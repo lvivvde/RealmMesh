@@ -7,7 +7,6 @@ add_library(realm_game_common
     src/edge_protocol.cpp
     src/identity_token.cpp
     src/json.cpp
-    src/queue_number.cpp
     src/queue_number_v2.cpp
     src/session_ticket.cpp
 )

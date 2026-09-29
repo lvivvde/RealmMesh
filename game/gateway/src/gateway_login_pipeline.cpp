@@ -1,9 +1,6 @@
 #include "realmmesh/game/gateway/gateway_login_pipeline.hpp"
 
-#include "realmmesh/game/common/compact_jws.hpp"
 #include "realmmesh/game/common/edge_protocol.hpp"
-#include "realmmesh/game/common/identity_token.hpp"
-#include "realmmesh/game/common/queue_number.hpp"
 #include "realmmesh/game/common/session_ticket.hpp"
 #include "realmmesh/game/gateway/gateway_admission.hpp"
 #include "realmmesh/observability/logger.hpp"
@@ -49,8 +46,6 @@ struct PipelineSession {
     bool closing{false};
     bool fetch_reserved{false};
     std::uint64_t account_id{0};
-    std::string reserved_jti;
-    std::chrono::system_clock::time_point jti_expires_at{};
     std::optional<GatewayAdmissionReservation> admission_reservation;
     unsigned fetch_failures{0};
     std::chrono::steady_clock::time_point fetch_due{};
@@ -102,30 +97,6 @@ class GatewayLoginPipeline::Impl final {
 public:
     Impl(
         GatewayLoginConfig config,
-        GatewaySigningMaterial signing_material,
-        GatewayPrimaryTransport& primary_transport,
-        AccountFetchPort& account_fetch,
-        observability::Logger* logger,
-        observability::MetricsRegistry* metrics)
-        : config_(std::move(config)),
-          ingress_(config_.credential_ingress),
-          identity_codec_(
-              std::in_place,
-              signing_material.identity_seed,
-              signing_material.identity_kid),
-          number_codec_(
-              std::in_place,
-              signing_material.queue_seed,
-              signing_material.queue_kid),
-          tickets_(signing_material.enter_realm_key),
-          identity_issuer_(std::move(signing_material.identity_issuer)),
-          primary_transport_(&primary_transport),
-          account_fetch_(&account_fetch),
-          logger_(logger),
-          metrics_(metrics) {}
-
-    Impl(
-        GatewayLoginConfig config,
         common::SessionTicketKey enter_realm_key,
         GatewayAdmission& admission,
         std::string gateway_instance,
@@ -149,7 +120,7 @@ public:
             if (session.active_attempt.has_value()) {
                 account_fetch_->cancel(*session.active_attempt);
             }
-            release_jti_reservation(session);
+            release_admission_reservation(session);
         }
     }
 
@@ -163,7 +134,6 @@ public:
         if (admission_ != nullptr) {
             static_cast<void>(admission_->refresh_availability(frame.now));
         }
-        evict_jtis(frame.verification_now);
         auto events = primary_transport_->drain_events(max_events_per_advance);
         preapply_lifecycle(events);
         process_messages(events, frame);
@@ -298,13 +268,10 @@ private:
             return;
         }
 
-        if (admission_ != nullptr) {
-            const auto owner = gateway_instance_ + "/" +
-                std::to_string(event.session_id.value) + "/" +
-                std::to_string(next_admission_attempt_id_++);
-            // Admission Grant is the only credential accepted at this seam;
-            // Queue Number remains a queue-position credential only.
-            auto started = admission_->reserve(
+        const auto owner = gateway_instance_ + "/" +
+            std::to_string(event.session_id.value) + "/" +
+            std::to_string(next_admission_attempt_id_++);
+        auto started = admission_->reserve(
                 attach.identity_token(),
                 attach.admission_grant(),
                 owner,
@@ -355,55 +322,6 @@ private:
             accepted.set_account_id(session.account_id);
             session.intent = RuntimeIntent{
                 IntentKind::Accept, common::encode(accepted, request_id)};
-            return;
-        }
-
-        const auto identity = identity_codec_->validate(
-            attach.identity_token(), identity_issuer_, frame.verification_now);
-        if (!identity.has_value()) {
-            record_credential_result("invalid");
-            schedule_decline(
-                session,
-                common::edge_error_invalid_credentials,
-                "invalid credentials",
-                request_id);
-            return;
-        }
-        const auto number = number_codec_->validate(
-            attach.admission_grant(), frame.verification_now);
-        if (!number.has_value() || !number->admitted) {
-            record_credential_result("invalid");
-            schedule_decline(
-                session,
-                common::edge_error_invalid_queue_number,
-                "invalid queue number",
-                request_id);
-            return;
-        }
-        if (reserved_jtis_.contains(identity->jti) ||
-            consumed_jtis_.contains(identity->jti)) {
-            ++replay_rejections_;
-            record_credential_result("invalid");
-            schedule_decline(
-                session,
-                common::edge_error_invalid_credentials,
-                "invalid credentials",
-                request_id);
-            return;
-        }
-
-        reserved_jtis_.emplace(identity->jti, identity->expires_at);
-        session.reserved_jti = identity->jti;
-        session.jti_expires_at = identity->expires_at;
-        session.account_id = identity->account_id;
-        session.fetch_reserved = true;
-        ++fetch_used_;
-
-        common::EdgeAttachAccepted accepted;
-        accepted.set_account_id(identity->account_id);
-        session.intent = RuntimeIntent{
-            IntentKind::Accept, common::encode(accepted, request_id)};
-        record_credential_result("reserved");
     }
 
     void apply_handoff_expiry(std::chrono::steady_clock::time_point now) {
@@ -647,15 +565,6 @@ private:
         EdgeSessionId session_id,
         PipelineSession& session,
         std::chrono::steady_clock::time_point now) {
-        if (admission_ == nullptr) {
-            const auto reserved = reserved_jtis_.find(session.reserved_jti);
-            if (reserved != reserved_jtis_.end()) {
-                reserved_jtis_.erase(reserved);
-            }
-            consumed_jtis_.insert_or_assign(
-                session.reserved_jti, session.jti_expires_at);
-            session.reserved_jti.clear();
-        }
         session.stage = PublicStage::Fetching;
         session.fetch_due = now;
         if (logger_ != nullptr) {
@@ -707,7 +616,7 @@ private:
             session.active_attempt.reset();
         }
         release_fetch_reservation(session);
-        release_jti_reservation(session);
+        release_admission_reservation(session);
         session.closing = true;
         session.intent = RuntimeIntent{
             IntentKind::Decline,
@@ -737,7 +646,7 @@ private:
             session.active_attempt.reset();
         }
         release_fetch_reservation(session);
-        release_jti_reservation(session);
+        release_admission_reservation(session);
         session.closing = true;
         session.intent = RuntimeIntent{IntentKind::Close, {}};
     }
@@ -748,7 +657,7 @@ private:
             attempts_.erase(session.active_attempt->value);
         }
         release_fetch_reservation(session);
-        release_jti_reservation(session);
+        release_admission_reservation(session);
     }
 
     void release_fetch_reservation(PipelineSession& session) {
@@ -757,24 +666,13 @@ private:
         --fetch_used_;
     }
 
-    void release_jti_reservation(PipelineSession& session) {
+    void release_admission_reservation(PipelineSession& session) {
         if (session.admission_reservation.has_value()) {
             static_cast<void>(admission_->abandon(
                 *session.admission_reservation, verification_now_));
             session.admission_reservation.reset();
             return;
         }
-        if (session.reserved_jti.empty()) return;
-        reserved_jtis_.erase(session.reserved_jti);
-        session.reserved_jti.clear();
-    }
-
-    void evict_jtis(std::chrono::system_clock::time_point now) {
-        const auto expired = [now](const auto& entry) {
-            return entry.second + common::jws_clock_leeway < now;
-        };
-        std::erase_if(reserved_jtis_, expired);
-        std::erase_if(consumed_jtis_, expired);
     }
 
     void mark_unhealthy() {
@@ -785,7 +683,7 @@ private:
                 account_fetch_->cancel(*session.active_attempt);
                 session.active_attempt.reset();
             }
-            release_jti_reservation(session);
+            release_admission_reservation(session);
         }
         attempts_.clear();
     }
@@ -893,11 +791,8 @@ private:
 
     GatewayLoginConfig config_;
     GatewayCredentialIngress ingress_;
-    std::optional<common::IdentityTokenCodec> identity_codec_;
-    std::optional<common::QueueNumberCodec> number_codec_;
     common::SessionTickets tickets_;
-    std::string identity_issuer_;
-    GatewayAdmission* admission_{nullptr};
+    GatewayAdmission* admission_;
     std::string gateway_instance_;
     GatewayPrimaryTransport* primary_transport_;
     AccountFetchPort* account_fetch_;
@@ -905,10 +800,6 @@ private:
     observability::MetricsRegistry* metrics_;
     GatewayPipelineHealth health_{GatewayPipelineHealth::Healthy};
     std::unordered_map<EdgeSessionId, PipelineSession> sessions_;
-    std::unordered_map<std::string, std::chrono::system_clock::time_point>
-        reserved_jtis_;
-    std::unordered_map<std::string, std::chrono::system_clock::time_point>
-        consumed_jtis_;
     std::unordered_map<std::uint64_t, EdgeSessionId> attempts_;
     std::uint64_t fetch_used_{0};
     std::uint64_t next_attempt_id_{1};
@@ -920,30 +811,6 @@ private:
     std::array<std::uint64_t, 5> credential_results_{};
     std::chrono::system_clock::time_point verification_now_{};
 };
-
-GatewayLoginPipeline GatewayLoginPipeline::create(
-    GatewayLoginConfig config,
-    GatewaySigningMaterial signing_material,
-    GatewayPrimaryTransport& primary_transport,
-    AccountFetchPort& account_fetch,
-    observability::Logger* logger,
-    observability::MetricsRegistry* metrics) {
-    config.validate();
-    if (signing_material.identity_kid.empty() ||
-        signing_material.queue_kid.empty() ||
-        signing_material.identity_issuer.empty()) {
-        throw std::invalid_argument(
-            "gateway signing identifiers must not be empty");
-    }
-    return GatewayLoginPipeline(
-        std::make_unique<Impl>(
-            std::move(config),
-            std::move(signing_material),
-            primary_transport,
-            account_fetch,
-            logger,
-            metrics));
-}
 
 GatewayLoginPipeline GatewayLoginPipeline::create(
     GatewayLoginConfig config,

@@ -6,9 +6,12 @@
 
 #include "realmmesh/game/queue/queue_service.hpp"
 
+#include "realmmesh/game/common/admission_grant.hpp"
 #include "realmmesh/game/common/identity_token.hpp"
 #include "realmmesh/game/common/json.hpp"
+#include "realmmesh/game/common/queue_number_v2.hpp"
 #include "realmmesh/observability/metrics_registry.hpp"
+#include "realmmesh/test_support/legacy_queue_number.hpp"
 
 #include <gtest/gtest.h>
 #include <openssl/ssl.h>
@@ -234,14 +237,22 @@ protected:
             0);
         ASSERT_EQ(
             ::setenv(
-                "REALMMESH_QUEUE_KEY_SEED",
+                "REALMMESH_QUEUE_NUMBER_KEY_SEED",
                 std::string{kSeedHex}.c_str(), 1),
+            0);
+        // 凭据角色不得共用签名材料:Admission Grant 用独立种子,
+        // 否则 QueueAdmissionSecurityConfig::validate() 拒绝启动。
+        ASSERT_EQ(
+            ::setenv(
+                "REALMMESH_ADMISSION_GRANT_KEY_SEED",
+                std::string{kGrantSeedHex}.c_str(), 1),
             0);
     }
 
     static void TearDownTestSuite() {
         static_cast<void>(::unsetenv("REALMMESH_IDENTITY_KEY_SEED"));
-        static_cast<void>(::unsetenv("REALMMESH_QUEUE_KEY_SEED"));
+        static_cast<void>(::unsetenv("REALMMESH_QUEUE_NUMBER_KEY_SEED"));
+        static_cast<void>(::unsetenv("REALMMESH_ADMISSION_GRANT_KEY_SEED"));
     }
 
     void SetUp() override {
@@ -249,7 +260,8 @@ protected:
         QueueConfig config;
         config.listen_address = "127.0.0.1";
         config.listen_port = 0;
-        config.kid = std::string{kKid};
+        config.queue_number_kid = std::string{kKid};
+        config.admission_grant_kid = std::string{kGrantKid};
         config.identity_kid = std::string{kIdentityKid};
         config.release_step = 100;
         config.release_interval = std::chrono::milliseconds{20};
@@ -284,9 +296,27 @@ protected:
             std::string{kIdentityKid});
     }
 
-    [[nodiscard]] common::QueueNumberCodec number_codec() const {
-        return common::QueueNumberCodec(
-            common::parse_identity_seed_hex(kSeedHex), std::string{kKid});
+    /// 服务侧 Queue Number v2 验签键的测试侧对偶(同种子同 kid)。
+    [[nodiscard]] common::QueueNumberV2Codec queue_number_codec() const {
+        const auto seed = common::parse_identity_seed_hex(kSeedHex);
+        return common::QueueNumberV2Codec(
+            common::QueueNumberV2SigningKey{
+                .kid = std::string{kKid}, .seed = seed},
+            {{.kid = std::string{kKid},
+              .public_key = common::ed25519_public_key_from_seed(seed)}},
+            std::chrono::seconds{3600});
+    }
+
+    /// 服务侧 Admission Grant 验签键环的测试侧对偶(独立种子,角色不共材)。
+    [[nodiscard]] common::AdmissionGrantVerifier admission_grant_verifier()
+        const {
+        const auto seed = common::parse_identity_seed_hex(kGrantSeedHex);
+        return common::AdmissionGrantVerifier(
+            {{.kid = std::string{kGrantKid},
+              .public_key = common::ed25519_public_key_from_seed(seed)}},
+            {.issuer = "realmmesh/queue",
+             .deployment_id = "development",
+             .grant_window = std::chrono::seconds{300}});
     }
 
     /// jti 需 32 字符小写 hex;suffix 变体保证不同身份。
@@ -340,8 +370,15 @@ protected:
     static constexpr std::string_view kSeedHex =
         "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
         "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    static constexpr std::string_view kGrantSeedHex =
+        "4ccd089b28ff96da9db6c346ec114e0f"
+        "5b8a319f35aba624da8cf6ed4fb8a6fb";
     static constexpr std::string_view kKid = "queue-test-1";
+    static constexpr std::string_view kGrantKid = "grant-test-1";
     static constexpr std::string_view kIdentityKid = "login-verify-test-1";
+    /// 与 identity_token() 的 exp 上界一致;Grant 验签要求
+    /// exp ≤ identity_expires_at,测试侧只用它做上界,不重复计时。
+    static constexpr std::chrono::seconds kIdentityTtl{1800};
 
     // 注册表声明在首位(成员逆序析构):服务持有的指针最后失效。
     observability::MetricsRegistry metrics_;
@@ -362,6 +399,14 @@ TEST_F(QueueServiceTest, ServesHealthzOverTls) {
 TEST_F(QueueServiceTest, IssuesAndReleasesByBudgetFrame) {
     const auto token = post_number("01");
     ASSERT_TRUE(token.has_value());
+
+    // 号牌是 v2 排位凭据:绑定签发时的 identity jti,且只证明位次。
+    const auto identity_now = std::chrono::system_clock::now();
+    const auto number_claims = queue_number_codec().validate(
+        *token, jti("01"), identity_now + kIdentityTtl, identity_now);
+    ASSERT_TRUE(number_claims.has_value());
+    EXPECT_EQ(number_claims->identity_jti, jti("01"));
+    EXPECT_EQ(number_claims->number, 1U);
 
     // 未放行前:progress 水位 0,号牌查询为排队态。
     const auto before = https_exchange(
@@ -385,8 +430,9 @@ TEST_F(QueueServiceTest, IssuesAndReleasesByBudgetFrame) {
     EXPECT_EQ(saved.at(0).release_batches.front().first_number, 1U);
     EXPECT_EQ(saved.at(0).release_batches.front().last_number, 1U);
 
-    // 放行后:号牌查询重签放行凭证(spec:凭证嵌套 admit_grant,外层
-    // 只带状态/位次/估时;JsonCodec 只编扁平对象,以尾段与嵌套截取核验)。
+    // 放行后:查询返回 Admission Grant(spec:凭据嵌套 admit_grant 对象,
+    // 外层只带状态/位次/估时;JsonCodec 只编扁平对象,以尾段与嵌套截取
+    // 核验)。#79 起准入凭据是独立的 Grant,不再是重签 admitted 号牌。
     const auto after = https_exchange(
         port_, get_request("/v1/queue/tickets/me", token));
     ASSERT_TRUE(after.has_value());
@@ -401,13 +447,17 @@ TEST_F(QueueServiceTest, IssuesAndReleasesByBudgetFrame) {
     const auto grant_payload = JsonCodec::decode(
         admitted_body.substr(grant_start, grant_end - grant_start + 1));
     ASSERT_TRUE(grant_payload.has_value());
+    EXPECT_EQ(std::get<std::int64_t>(grant_payload->at("number")), 1);
     const auto* grant = std::get_if<std::string>(
-        &grant_payload->at("queue_number_token"));
+        &grant_payload->at("admission_grant"));
     ASSERT_NE(grant, nullptr);
-    const auto grant_claims = number_codec().validate(*grant, std::chrono::system_clock::now());
+    const auto grant_now = std::chrono::system_clock::now();
+    const auto grant_claims = admission_grant_verifier().validate(
+        *grant, jti("01"), grant_now + kIdentityTtl, grant_now);
     ASSERT_TRUE(grant_claims.has_value());
-    EXPECT_EQ(grant_claims->number, 1U);
-    EXPECT_TRUE(grant_claims->admitted);
+    // Grant 绑定同一身份与来源号值:跨身份拼接在签发侧就不可能。
+    EXPECT_EQ(grant_claims->identity_jti, jti("01"));
+    EXPECT_EQ(grant_claims->queue_number, 1U);
 
     const auto progress = https_exchange(port_, get_request("/v1/queue/progress"));
     ASSERT_TRUE(progress.has_value());
@@ -415,6 +465,30 @@ TEST_F(QueueServiceTest, IssuesAndReleasesByBudgetFrame) {
     ASSERT_TRUE(progress_payload.has_value());
     EXPECT_EQ(
         std::get<std::int64_t>(progress_payload->at("released_number")), 1);
+}
+
+/// 旧世界的 admitted 号牌(#82 已从生产库删除,夹具见 test_support)必须
+/// 在 Queue HTTP 边界被拒:问位次只认 v2 排位凭据。
+TEST_F(QueueServiceTest, RejectsLegacyAdmittedQueueNumberAtQueryBoundary) {
+    const test_support::LegacyQueueNumberCodec legacy(
+        common::parse_identity_seed_hex(kSeedHex), std::string{kKid});
+    const auto now = std::chrono::system_clock::now();
+    const auto legacy_token = legacy.issue(
+        test_support::LegacyQueueNumberClaims{
+            .number = 1,
+            .admitted = true,
+            .issued_at = now,
+            .expires_at = now + std::chrono::seconds{300}});
+
+    const auto response = https_exchange(
+        port_, get_request("/v1/queue/tickets/me", legacy_token));
+    ASSERT_TRUE(response.has_value());
+    EXPECT_EQ(status_of(*response), 401);
+    const auto payload = JsonCodec::decode(body_of(*response));
+    ASSERT_TRUE(payload.has_value());
+    EXPECT_EQ(
+        std::get<std::int64_t>(payload->at("code")),
+        QueueHandler::error_invalid_number);
 }
 
 TEST_F(QueueServiceTest, FailedSnapshotWriteDoesNotPublishRelease) {
@@ -533,7 +607,9 @@ TEST_F(QueueServiceTest, RestoresWaterLevelsFromColdBackup) {
 
     const auto token = post_number("01");
     ASSERT_TRUE(token.has_value());
-    const auto claims = number_codec().validate(*token, std::chrono::system_clock::now());
+    const auto claims_now = std::chrono::system_clock::now();
+    const auto claims = queue_number_codec().validate(
+        *token, jti("01"), claims_now + kIdentityTtl, claims_now);
     ASSERT_TRUE(claims.has_value());
     EXPECT_EQ(claims->number, 6U);
 }

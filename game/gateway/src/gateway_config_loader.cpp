@@ -318,6 +318,79 @@ GatewayConfig GatewayConfigLoader::parse(const sol::table& root) {
             security.max_tracked_sources);
     }
 
+    const sol::object admission_value = root.raw_get<sol::object>("admission");
+    if (admission_value != sol::lua_nil) {
+        if (!admission_value.is<sol::table>()) {
+            throw std::invalid_argument("gateway config admission must be a table");
+        }
+        const auto admission = admission_value.as<sol::table>();
+        config.login.identity_kid = optional_string(
+            admission, "identity_kid", config.login.identity_kid);
+        config.login.identity_issuer = optional_string(
+            admission, "identity_issuer", config.login.identity_issuer);
+        // 单 kid 的旧键名一律拒绝:静默忽略会让运维以为改生效了,而网关
+        // 仍在用别的 kid 验签。
+        if (admission.raw_get<sol::object>("admission_grant_kid") !=
+            sol::lua_nil) {
+            throw std::invalid_argument(
+                "gateway config admission_grant_kid is retired; list every "
+                "verification key under admission.grant_keys");
+        }
+        const sol::object grant_keys_value =
+            admission.raw_get<sol::object>("grant_keys");
+        if (grant_keys_value != sol::lua_nil) {
+            if (!grant_keys_value.is<sol::table>()) {
+                throw std::invalid_argument(
+                    "gateway config admission.grant_keys must be a table");
+            }
+            const sol::table grant_keys = grant_keys_value.as<sol::table>();
+            std::vector<AdmissionGrantKeySource> ring;
+            ring.reserve(grant_keys.size());
+            for (std::size_t index = 1; index <= grant_keys.size(); ++index) {
+                const sol::object entry_value =
+                    grant_keys.raw_get<sol::object>(index);
+                if (!entry_value.is<sol::table>()) {
+                    throw std::invalid_argument(
+                        "gateway config admission.grant_keys entries must be "
+                        "tables");
+                }
+                const sol::table entry = entry_value.as<sol::table>();
+                AdmissionGrantKeySource source;
+                source.kid = optional_string(entry, "kid", std::string{});
+                source.public_key_environment = optional_string(
+                    entry, "public_key_environment", std::string{});
+                if (source.kid.empty() ||
+                    source.public_key_environment.empty()) {
+                    throw std::invalid_argument(
+                        "gateway config admission.grant_keys entries need kid "
+                        "and public_key_environment");
+                }
+                ring.push_back(std::move(source));
+            }
+            if (ring.empty()) {
+                throw std::invalid_argument(
+                    "gateway config admission.grant_keys must not be empty");
+            }
+            config.login.admission_grant_keys = std::move(ring);
+        }
+        config.login.admission_grant_issuer = optional_string(
+            admission, "admission_grant_issuer", config.login.admission_grant_issuer);
+        config.login.admission_grant_window = std::chrono::seconds{
+            optional_integer<std::int64_t>(
+                admission,
+                "grant_window_seconds",
+                config.login.admission_grant_window.count())};
+        config.login.deployment_id = optional_string(
+            admission, "deployment_id", config.login.deployment_id);
+        config.login.admission_consumption_prefix = optional_string(
+            admission, "consumption_prefix", config.login.admission_consumption_prefix);
+        config.login.admission_reservation_ttl = std::chrono::seconds{
+            optional_integer<std::int64_t>(
+                admission,
+                "reservation_ttl_seconds",
+                config.login.admission_reservation_ttl.count())};
+    }
+
     const sol::object runtime_value = root.raw_get<sol::object>("runtime");
     if (runtime_value != sol::lua_nil) {
         if (!runtime_value.is<sol::table>()) {

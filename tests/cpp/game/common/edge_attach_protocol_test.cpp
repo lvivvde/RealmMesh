@@ -33,10 +33,11 @@ TEST(EdgeAttachProtocolTest, AttachAcceptedRoundTripsAccountId) {
     EXPECT_EQ(decoded->account_id(), 42U);
 }
 
+/// Edge 错误码的稳定编号。#82 起 2001 不再分配给 Edge:排队号牌不再进入
+/// Gateway,「号牌无效」只活在 Queue 的 HTTPS 错误模型里(另一个编号空间)。
 TEST(EdgeAttachProtocolTest, AttachErrorCodesFollowSpec) {
     EXPECT_EQ(edge_error_invalid_credentials, 1001);
     EXPECT_EQ(edge_error_attach_out_of_budget, 1004);
-    EXPECT_EQ(edge_error_invalid_queue_number, 2001);
     EXPECT_EQ(edge_error_invalid_enter_realm_ticket, 3002);
 }
 
