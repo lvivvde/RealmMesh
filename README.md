@@ -1,7 +1,9 @@
 # RealmMesh
 
-RealmMesh 是一个 C++20 分布式游戏服务端框架，目标场景是**瞬时登录洪峰**：百万级
-客户端在分钟级窗口内同时发起登录，系统按准入额度有序放行，不雪崩、不丢位次。
+RealmMesh 是一个 C++20 分布式游戏服务端框架。接入侧的目标场景是**瞬时登录洪峰**：
+百万级客户端在分钟级窗口内同时发起登录，系统按准入额度有序放行，不雪崩、不丢位次。
+业务侧将以一条轻量 MMO 参考链路验证服务拆分、跨进程路由、持久化与故障隔离；
+下文的“必做路线图”是尚待交付的项目承诺，不代表当前实现。
 
 接入链路按「健全 → 排队 → 网关管线 → 直连业务服」分层：
 
@@ -11,7 +13,7 @@ flowchart LR
     Edge -->|HTTPS 回源| LV[登录健全服<br/>login_verify]
     LV -->|身份 Token| C
     C -->|HTTPS + 身份 Token| QS[排队调度服<br/>queue]
-    QS -->|号牌| C
+    QS -->|号牌 · 放行时 Admission Grant| C
     C -->|QUIC 主 / TLS·TCP 降级 竞速| GW[网关<br/>gateway · 登录管线]
     GW -->|EnterRealm 票据 + 业务端点| C
     C -->|竞速 直连| RL[业务服<br/>realm]
@@ -25,7 +27,8 @@ flowchart LR
 - **网关 `gateway`**：只承载登录管线。Edge Session 三阶段
   `pending → fetching → handed-off`；拉取账号数据完成后下发 EnterRealm 票据与业务服
   端点，不中转业务流量。
-- **业务服 `realm`**：选角与游戏业务，EnterRealm 票据兑换点，长连接的落点。
+- **业务服 `realm`**：当前是 EnterRealm 票据兑换点与客户端长连接落点；选角、
+  场景指令路由和聊天入口列在后续必做路线图中。
 - **边缘 CDN/WAF**：只定契约（验签放行、DDoS 防护），不在本仓库实现；边缘验签是
   能力分级优化，健全服/排队服/网关的本地验签不可省略。
 - 业务消息为 4 字节大端长度 + Protobuf `Envelope`（上限 64KiB）；不支持裸 TCP/UDP、
@@ -43,6 +46,10 @@ flowchart LR
 ## 实施状态
 
 规格本身仍是评审稿；下表"已实现"指代码、配置与测试均已落地。
+网关准入凭据是绑定身份的 **Admission Grant**；排队号牌只用于排位与找回，网关不接受
+号牌（[ADR-0009](docs/adr/0009-identity-bound-admission-grant.md)、
+[协议文档](docs/protocol.md#凭据链与网关-attach)）。阶段 0 的收束范围与完成标准见下方
+必做路线图。
 
 | 范围 | 状态 |
 |---|---|
@@ -65,6 +72,34 @@ flowchart LR
 旧 `Login → Realm 选角 → Gateway 入场` 链路已整体退役：`login` 服务身份、7000 端口与
 旧入场消息编号都已删除，线名 `login` 永不复用（见[架构文档](docs/architecture.md)）。
 启用新链路不需要任何开关，仓库里就只有这一条链路。
+
+## 必做路线图
+
+按单人、逐步可验收的节奏推进。每阶段完成前保留“规划中”状态；实现状态以代码、
+测试和可重复运行的验收记录为准。详细步骤见[接入与参考业务路线图](docs/plans/2026-09-27-login-chain-roadmap.md)，
+当前与目标拓扑见[架构文档](docs/architecture.md)。
+
+| 顺序 | 必做交付 | 完成标准 |
+|---|---|---|
+| 0 | 收束 Admission Grant 迁移 | 当前源码重新构建、测试；凭据不可互换、重复消费和存储故障均有证据；文档与现行协议一致。 |
+| 1 | macOS 本机四服务登录闭环 | 可控数据桩下完成取号、放行、Gateway Handoff、Realm 入场、心跳和断开；Queue 重启保号，故障与恢复可重复验收。 |
+| 2 | Linux 登录链接入可靠性与 M1–M4 | 验证 QUIC/TLS、跨进程和跨机器的接入链、故障恢复及分级负载；各级结果有环境、配置和指标报告。 |
+| 3 | 真实账号与角色数据 | 账号与角色有真实持久来源；完成角色列表、创建、选择和归属校验，重启后可恢复；数据故障有明确反馈。 |
+| 4 | 多实例 Scene 参考业务 | 客户端保持 Realm 长连接，Realm 将业务指令路由到独立 Scene 实例；两个玩家移动可互相看到，跨实例转场；实例动态加入、排空，故障隔离后可重新入场并恢复已确认的角色落点。 |
+| 5 | 独立 Chat 服务 | 场景内和跨场景频道可在线收发；同频道消息顺序与失败反馈有验收；Chat 故障不阻断场景业务。 |
+| 6 | 云端百万登录 M5 | 单独测量百万级瞬时登录的放行、位次、故障恢复和最终 Realm 连接容量；不以此宣称百万玩家移动或聊天容量。 |
+
+**服务与部署边界：** 已接线的 `login_verify`、`queue`、`gateway`、`realm`，以及计划新增的
+`scene`、`chat`，都应能以独立服务身份、独立进程部署和扩容；开发时允许同机合并运行。
+`gateway` 只承载登录管线，业务消息由客户端直连 `realm` 后转交 Scene 或 Chat。
+同一种 `scene` 服务可以有多个实例，各自承载场景分片；地图或房间不各占一个服务身份。
+账号、角色与已确认场景落点由相应业务边界持久化，并复用存储接口，不预设通用
+`storage` 服务或具体数据库产品。新增 Scene/Chat 业务链的必做验收范围是**本机多进程**；
+Linux 跨机器 M1–M4 针对登录链接入，二者的验收结论分别记录。
+
+**候选方向，尚非必做：** 好友、邮件、FPS 大厅/匹配/房间，以及聊天历史和离线补投。
+新增独立服务身份应有独立扩缩容、状态归属或故障隔离的真实需求；不为候选功能预建目录或
+注册服务身份。
 
 ## 传输与安全
 
@@ -89,8 +124,9 @@ ALPN、鉴权或协议错误不会。网络不可达结果按当前网络缓存 
 
 | 凭据 | 格式 | 签发方 | 消费方 | 有效期 | 单次消费 |
 |---|---|---|---|---|---|
-| 身份 Token | JWT/EdDSA（`iss=realmmesh/login-verify`） | 健全服 | 边缘验签、排队服、网关 | 30 min | 网关入口单次消费 `jti` |
-| 排队号牌 | JWT/EdDSA（`iss=realmmesh/queue`，含号值与 `admitted`） | 排队服 | 客户端轮询、网关校验 `admitted` | 放行 + 5 min 宽限 | 否（位次查询复用） |
+| 身份 Token | JWT/EdDSA（`iss=realmmesh/login-verify`） | 健全服 | 边缘验签、排队服、网关 | 30 min | 是（经 Admission Grant 按 `jti` 至多一次） |
+| 排队号牌 | JWT/EdDSA（`iss=realmmesh/queue`，`aud=realmmesh-queue`、`purpose=queue-position`，含号值与 `identity_jti`） | 排队服 | 排队服查号、客户端轮询与找回 | ≤ 身份 Token 到期（`queued_number_ttl` 默认 1 h） | 否（位次查询复用） |
+| Admission Grant | JWT/EdDSA（`iss=realmmesh/queue`，`aud=realmmesh-gateway`、`purpose=gateway-admission`，绑定 `identity_jti`、来源号值与 `deployment_id`） | 排队服 | 网关校验与集群消费 | 放行批次起算（`admit_grace` 默认 5 min，协议上限 10 min），且 ≤ 身份 Token 到期 | 是（同一 `identity_jti` 在一个 deployment 内至多一次） |
 | EnterRealm 票据 | SessionTicket（对称键，用途字节 `EnterRealm=3`；旧用途字节作废不复用） | 网关 | 业务服 Realm 兑换 | 60 s | 是（重放防护） |
 
 Ed25519 私钥只在健全服（`REALMMESH_IDENTITY_KEY_SEED`，hex 注入），公钥经
@@ -106,16 +142,17 @@ JSON over HTTP/1.1，keep-alive 必开：
 | `POST /v1/login/verify` | 健全服 | `{account, credential}` | `200 {identity_token, account_id, expires_in}` |
 | `POST /v1/queue/tickets` | 排队服 | Bearer 身份 Token | `202 {queue_number_token, number, estimated_wait_seconds}`；同 `sub` 幂等 |
 | `GET /v1/queue/progress` | 排队服 | — | `200 {released_number, admit_rate, server_time}`；可 CDN 缓存，位次/ETA 客户端本地算 |
-| `GET /v1/queue/tickets/me` | 排队服 | Bearer 号牌 | `200 {status, position, estimated_wait_seconds, admit_grant?}` |
+| `GET /v1/queue/tickets/me` | 排队服 | Bearer 号牌 | `200 {status, position, estimated_wait_seconds}`；放行时 `status="admitted"` 并附 `admit_grant {admission_grant, number, expires_in}` |
 | `GET /.well-known/jwks.json` | 健全服 | — | JWKS |
 | `/healthz` | 两个服务 | — | 健康检查 |
 
 错误模型为 `{code, message, retry_after_seconds?}`（HTTP 状态与 `code` 并存），段号约定
 沿用 `edge.proto`：`1xxx` 凭据段（`1001` 凭据无效、`1002` 封禁、`1003` 白名单外）、
 `2xxx` 排队段（`2001` 号牌无效/过期）。网关边另有一套 `EdgeError.code`：`1001` 凭据无效、
-`1004` 满额拒绝 attach、`2001` 号牌无效、`2002` 未认证、`3002` 入场票据无效。这两套 code
-与 `Envelope.message_id` 是三个独立编号空间，数值相同不代表同一含义。各服务在独立
-metrics 端口暴露 Prometheus 指标（见“运行”）。
+`1004` 满额拒绝 attach、`1005` 准入处理中（可重试）、`1006` 准入存储不可用（可重试）、
+`2002` 未认证、`3002` 入场票据无效，以及限流时的 `429`（带 `retry_after_seconds`）。
+这两套 code 与 `Envelope.message_id` 是三个独立编号空间，数值相同不代表同一含义。各服务
+在独立 metrics 端口暴露 Prometheus 指标（见“运行”）。
 
 ## 网关登录管线
 
@@ -127,7 +164,7 @@ metrics 端口暴露 Prometheus 指标（见“运行”）。
 ```mermaid
 stateDiagram-v2
     [*] --> Pending: 握手成功
-    Pending --> Fetching: 身份 Token + admitted 号牌验讫（jti 单次消费）
+    Pending --> Fetching: 身份 Token + Admission Grant 验讫（按 identity_jti 集群单次消费）
     Pending --> Closed: 凭据无效 / 额度外拒绝
     Fetching --> HandedOff: 拉取完成，签发 EnterRealm + 端点下发
     Fetching --> Closed: 重试耗尽（归还连接与拉取额度）
@@ -135,11 +172,11 @@ stateDiagram-v2
     Closed --> [*]
 ```
 
-`pending → fetching` 的三重闸是身份 Token → `admitted` 号牌 → `jti` 单次消费，全部
-通过才迁移并占用拉取额度；额度探针先于 `jti` 消费，满额拒绝不烧凭据。拉取按全局预算
-池限流，指数退避 ≤3 次 × 2s，失败断开并归还连接额度与拉取预算。协议上网关以
-`EdgeAttach`（1301/1302）接收凭据、以 `EnterRealmGranted`（1303）下发直连凭证与业务
-服端点。
+`pending → fetching` 的三重闸是身份 Token → Admission Grant → 集群消费提交，全部
+通过才迁移并占用拉取额度；额度探针先于消费提交，满额拒绝不烧凭据，准入存储不可用
+只返回可重试结果。拉取按全局预算池限流，指数退避 ≤3 次 × 2s，失败断开并归还连接额度
+与拉取预算。协议上网关以 `EdgeAttach`（1301/1302）接收凭据、以 `EnterRealmGranted`
+（1303）下发直连凭证与业务服端点。
 
 MsQuic 回调、TLS/epoll 事件被适配为统一 `GatewayEvent`，再进入有界入站队列；帧线程
 只消费事件并提交有界出站命令。过载时可靠连接会被关闭，不允许无界增长。
@@ -200,7 +237,7 @@ MsQuic 开发安装脚本固定使用 Microsoft 官方 `libmsquic 2.5.10` 包和
 
 私钥不得提交仓库。下面示例生成仅用于本机的短期证书；生产环境应由受信 CA 签发，
 客户端必须进行 DNS 名称和证书链校验。健全服与排队服还需各自的 Ed25519 签名种子
-（hex）：
+（hex），网关另需 Admission Grant 验签公钥与消费记录摘要键：
 
 ```bash
 mkdir -p .local/tls
@@ -214,8 +251,14 @@ export REALMMESH_TLS_CERTIFICATE_FILE="$PWD/.local/tls/certificate.pem"
 export REALMMESH_TLS_PRIVATE_KEY_FILE="$PWD/.local/tls/private-key.pem"
 export REALMMESH_SESSION_TICKET_KEY="$(openssl rand -hex 32)"   # 网关签发 / Realm 兑换
 export REALMMESH_IDENTITY_KEY_SEED="$(openssl rand -hex 32)"   # 健全服签发身份 Token
-export REALMMESH_QUEUE_KEY_SEED="$(openssl rand -hex 32)"      # 排队服签发号牌
+export REALMMESH_QUEUE_NUMBER_KEY_SEED="$(openssl rand -hex 32)"      # 排队服签发排队号牌
+export REALMMESH_ADMISSION_GRANT_KEY_SEED="$(openssl rand -hex 32)"   # 排队服签发 Admission Grant
+export REALMMESH_ADMISSION_GRANT_PUBLIC_KEY="<与上一行种子配对的 Ed25519 公钥 hex>"  # 网关验签
+export REALMMESH_ADMISSION_CONSUMPTION_DIGEST_KEY="$(openssl rand -hex 32)"  # 网关消费记录摘要键
 ```
+
+网关只持 Admission Grant 公钥，私钥仅存在于排队服；仓库目前没有从种子导出公钥的脚本，
+公钥由部署方的密钥流程提供。集群消费记录用摘要键派生稳定的 `grant` 摘要，不保存原始凭据。
 
 统一入口当前会忽略 `SIGHUP`，证书与私钥只在进程启动时加载。轮换开发或生产凭据后，
 需要重启对应进程。
@@ -326,7 +369,8 @@ ctest --preset dev -L lua     # 只筛 Lua 用例
 
 集成测试覆盖真实 TLS 1.3/ALPN 往返、真实 MsQuic 往返（仅 Linux）、无 ALPN 不创建
 业务连接、QUIC 竞速与安全降级分类、IPv6 双栈、端点序列化、Edge Session 三阶段管线
-与凭据校验链（身份 Token 回放守卫、号牌 `admitted` 校验、EnterRealm 票据单次兑换），
+与凭据校验链（身份 Token 校验、Admission Grant 身份绑定与集群单次消费、EnterRealm
+票据单次兑换），
 以及完整的 Gateway 准入→直连票据→Realm 入场链路；同时覆盖 all-in-one 和同机多进程
 启动、就绪门禁、失败整组回收与反序停机，以及已退役消息编号在 Realm 与 Gateway 两侧
 被拒。prometheus 规则与 Grafana 仪表盘的指标引用由 `observability_artifacts_test`

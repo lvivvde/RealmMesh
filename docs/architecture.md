@@ -25,9 +25,39 @@ flowchart LR
 ```
 
 LoginVerify 是登录链路第一站(无状态 HTTPS JSON 服务,#41):校验账号后签发身份
-Token。Queue 负责取号与放行(#42)。客户端带身份 Token 与放行号牌 attach 到
-Gateway,Gateway 拉取完成后下发 Realm 直连票据与候选端点;Realm 单次兑换票据即
-完成入场。候选端点含主机名、数字端口、协议与优先级,不依赖客户端隐式约定。
+Token。Queue 负责取号与放行(#42),放行时另外签发与身份绑定的 Admission Grant。
+客户端带身份 Token 与 Admission Grant attach 到 Gateway,Gateway 拉取完成后下发
+Realm 直连票据与候选端点;Realm 单次兑换票据即完成入场。候选端点含主机名、数字端口、
+协议与优先级,不依赖客户端隐式约定。排队号牌只用于位次查询与找回,网关不接受它。
+
+## 目标业务拓扑（规划中）
+
+以下是 [README 必做路线图](../README.md#必做路线图) 的目标边界，不是当前运行拓扑。
+客户端完成现有登录链后保持与 Realm 的长连接；Realm 负责会话、角色入口和业务消息路由，
+Scene 实例负责权威场景状态，Chat 实例负责场景内与跨场景的在线消息路由。Gateway
+仍只负责登录，不中转业务流量。
+
+```mermaid
+flowchart LR
+    Client[客户端] -->|登录后长连接| Realm[Realm 会话与角色入口]
+    Realm -->|场景指令 / 转场| SceneA[Scene 实例 A]
+    Realm -->|场景指令 / 转场| SceneB[Scene 实例 B]
+    Realm -->|在线聊天| Chat[Chat 服务]
+    Realm & SceneA & SceneB & Chat <-->|注册 / 发现| Etcd[(etcd)]
+    Realm --> CharacterData[(角色与落点持久数据)]
+```
+
+`scene` 是一种计划新增的服务身份，可启动多个实例，每个实例承载若干场景分片；
+场景或地图本身不是新的服务身份。Realm 需要为角色确定唯一场景归属，在跨实例转场、
+Scene 实例动态加入与排空时保持路由一致。两个玩家在同一场景移动时应互相看到状态；
+Scene 故障不能拖垮其他场景，受影响玩家可以重新入场并恢复已确认的角色落点。
+Chat 作为独立身份提供场景内及跨场景频道，保证在线同频道消息顺序与失败反馈；
+Chat 故障不阻断场景业务。聊天记录与离线补投不在已承诺范围内。
+
+六种目标服务身份（现有四种与计划新增的 `scene`、`chat`）都应能独立进程部署和扩容，
+开发环境可同机合并运行。账号、角色和落点的持久数据由对应业务边界持有并复用存储接口，
+不预设通用 `storage` 服务。Scene/Chat 参考业务的必做验收限定在本机多进程；既有
+Linux 跨机器 M1–M4 验收只针对登录链接入，不作为新业务链的跨机器验证。
 
 ## Gateway 建连与会话
 
@@ -36,7 +66,7 @@ stateDiagram-v2
     [*] --> SecureHandshake
     SecureHandshake --> Pending: TLS 1.3 + ALPN 成功
     SecureHandshake --> Closed: 超时/证书/ALPN/协议失败
-    Pending --> Established: 身份 Token 与放行号牌校验通过
+    Pending --> Established: 身份 Token 与 Admission Grant 校验通过
     Pending --> Closed: 鉴权失败或过载
     Established --> Established: QUIC 地址迁移
     Established --> Closed: primary transport 断开
@@ -53,8 +83,8 @@ primary transport 与阶段(pending/established)。QUIC 和 TLS/TCP 是初次连
 
 Gateway 的业务帧不再编排 attach、拉取、重试与 Handoff 的分步 helper。每帧只取得
 当前 Realm 端点并调用一次 `GatewayLoginPipeline::advance`;该管线是
-`pending → fetching → handed-off` 阶段、`jti` 单次消费、连接/拉取额度、账号拉取
-结算、直连票据、收尾与指标的唯一权威。`GatewayRuntimePrimaryTransport` 把真实
+`pending → fetching → handed-off` 阶段、Admission Grant 验证与按 `identity_jti` 的
+集群单次消费、连接/拉取额度、账号拉取结算、直连票据、收尾与指标的唯一权威。`GatewayRuntimePrimaryTransport` 把真实
 runtime 事件/命令接入管线,`DelayedAccountFetchPort` 提供非阻塞账号拉取边界。
 
 宿主在 listener 启动前完成配置校验、签名材料加载、两个生产 adapter 与管线构造。
@@ -126,9 +156,10 @@ MsQuic 自有调度不会直接调用业务逻辑。回调只完成长度帧组�
 
 ## 未实现的服务与模块
 
-目录树只反映已实现代码:规划中的服务与模块不预先创建空目录,意图记录在本节(理由见
-[ADR-0003](adr/0003-lean-tree-no-speculative-placeholders.md))。新增服务时按需创建
-`game/<service>/`、`apps/<service>/` 与对应 `CMakeLists.txt`。
+目录树只反映已实现代码:规划中的服务与模块不预先创建空目录(理由见
+[ADR-0003](adr/0003-lean-tree-no-speculative-placeholders.md))。必做承诺以
+[README 路线图](../README.md#必做路线图)为准；本节记录当前实现身份，上文记录目标拓扑。
+新增服务时按实际入口按需创建目录与对应 `CMakeLists.txt`，不预留空骨架。
 
 服务身份的权威列表在 `realm::cluster::ServiceType`
 (`framework/cluster/include/realmmesh/cluster/service_registry.hpp`),线名映射在

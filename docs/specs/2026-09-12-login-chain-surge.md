@@ -5,6 +5,14 @@
 - 状态：评审稿（评审通过后本节状态改"定稿"）
 - 术语：见 [CONTEXT.md](../../CONTEXT.md)（Network / Cluster / Gateway / Access / Messaging 各节）
 
+> **修订标注（2026-09-28）**：本规格与已退役服务名 `login` 同为历史决策记录。它描述的
+> "放行＝重签带 `admitted` 的排队号牌、网关验 `admitted`"准入链已被
+> [ADR-0009](../adr/0009-identity-bound-admission-grant.md) 与
+> [Security Spec #79](https://github.com/lvivvde/RealmMesh/issues/79) 取代：排队号牌只用于
+> 排位与找回，网关准入改用绑定身份、集群单次消费的 **Admission Grant**。下文相关段落
+> 保留原文并就地标注「已被 ADR-0009 取代」；当前实现以 [ADR-0009](../adr/0009-identity-bound-admission-grant.md)、
+> [ADR-0006 修订](../adr/0006-stateless-queue-number.md) 与 [协议文档](../protocol.md) 为准。
+
 ## 1. 目标与范围
 
 **目标场景＝瞬时登录洪峰**：100 万客户端短时间内（≤10 分钟）同时发起登录，系统有序放行、不雪崩、不丢位次。**稳态百万在线不在本规格范围**（但洪峰 10 分钟末约 100 万长连接落点的容量归属在 §6 覆盖）。
@@ -30,15 +38,18 @@ flowchart LR
     QS -->|Watch 额度·放行| Etcd
 ```
 
-时序：verify → 取号 → 轮询 progress → admitted（号牌重签）→ 连网关 → fetching（限流拉取）→ handoff（EnterRealm + 端点下发，网关会话终结）→ 直连 Realm（兑换 EnterRealm → 选角/业务）。**网关只承载登录管线，不中转业务流量**（ADR-0005）。
+> 图中 `QS -->|号牌 重签admitted| C` 已被 ADR-0009 取代：放行时签发的是绑定身份的
+> Admission Grant，号牌不再重签、不再承载准入语义。
+
+时序：verify → 取号 → 轮询 progress → admitted（号牌重签）（已被 ADR-0009 取代）→ 连网关 → fetching（限流拉取）→ handoff（EnterRealm + 端点下发，网关会话终结）→ 直连 Realm（兑换 EnterRealm → 选角/业务）。**网关只承载登录管线，不中转业务流量**（ADR-0005）。
 
 ## 3. 服务职责
 
 | 服务 | 职责 | 关键属性 |
 |---|---|---|
 | 登录健全服 `login_verify` | 只回答"账号是否有效"（有效/封禁/白名单），签发身份 Token；暴露 JWKS | 无状态、可水平扩展、JWT/EdDSA（ADR-0004） |
-| 排队调度服 `queue` | 发号、查号、按额度分批放行 | 唯一状态＝已放行号+放行速率两个原子量；v1 单实例+etcd 快照冷备（ADR-0006） |
-| 网关集群 `gateway` | 登录管线：验票（身份 Token+号牌）→ 限流拉取账号数据 → handoff | 三阶段 Edge Session；分片共享无关；瞬时承载、稳态零负载 |
+| 排队调度服 `queue` | 发号、查号、按额度分批放行 | 唯一状态＝已放行号+放行速率两个原子量；v1 单实例+etcd 快照冷备（ADR-0006）**（已被 ADR-0009 取代：放行另签发 Admission Grant，网关不再验号牌）** |
+| 网关集群 `gateway` | 登录管线：验票（身份 Token+号牌）→ 限流拉取账号数据 → handoff | 三阶段 Edge Session；分片共享无关；瞬时承载、稳态零负载**（已被 ADR-0009 取代：验票改为身份 Token + Admission Grant，网关拒绝号牌）** |
 | 业务服 `realm` | 选角与游戏业务；EnterRealm 兑换点 | 直连长连接的家；conn_free 额度上报 |
 | `AccountStore` | 账号有效性数据源抽象 | v1＝Lua 配置装载内存表（含封禁/白名单样例）；TODO：DB 真源、Redis 起服预热 |
 
@@ -47,7 +58,7 @@ flowchart LR
 | 凭据 | 格式 | 签发方 | 消费方 | TTL | 单次消费 |
 |---|---|---|---|---|---|
 | 身份 Token | JWT/EdDSA（`iss=realmmesh/login-verify`） | 健全服 | 边缘验签（能力分级）、排队服、网关 | 30 min | `jti` 仅在网关入口单次消费 |
-| 排队号牌 | JWT/EdDSA（`iss=realmmesh/queue`，号值+`admitted`） | 排队服 | 客户端轮询、网关验 `admitted=true` | 放行 + 5 min 宽限 | 否（位次查询复用） |
+| 排队号牌 | JWT/EdDSA（`iss=realmmesh/queue`，号值+`admitted`） | 排队服 | 客户端轮询、网关验 `admitted=true` | 放行 + 5 min 宽限 | 否（位次查询复用）**（已被 ADR-0009 取代：号牌只保留排位职责，网关准入改用 Admission Grant）** |
 | EnterRealm 票据 | SessionTicket（对称键，原 EnterGame 用途更名） | 网关 | Realm 兑换 | 60 s | 是（`TicketReplayGuard`） |
 | 旧 SessionTicket Login 用途 | — | — | — | — | **退役**（随旧 Login 服） |
 
@@ -65,11 +76,11 @@ flowchart LR
 | 1 | `POST /v1/login/verify` | 健全服 | `{account, credential}` | `200 {identity_token, account_id, expires_in}` |
 | 2 | `POST /v1/queue/tickets` | 排队服 | Bearer 身份 Token | `202 {queue_number_token, number, estimated_wait_seconds}`；同 `sub` 幂等 |
 | 3 | `GET /v1/queue/progress` | 排队服 | — | `200 {released_number, admit_rate, server_time}`；CDN 缓存 1~2s；位次/ETA 客户端本地算 |
-| 4 | `GET /v1/queue/tickets/me` | 排队服 | Bearer 号牌 | `200 {status, position, estimated_wait_seconds, admit_grant?}`；首查与兜底 |
+| 4 | `GET /v1/queue/tickets/me` | 排队服 | Bearer 号牌 | `200 {status, position, estimated_wait_seconds, admit_grant?}`；首查与兜底；放行时 `admit_grant.admission_grant` 即网关准入凭据（ADR-0009） |
 | 5 | `GET /.well-known/jwks.json` | 健全服 | — | JWKS |
 | 6 | `/healthz`、`/metrics` | 两服务 | — | 健康 / Prometheus |
 
-错误模型：`{code, message, retry_after_seconds?}`；HTTP `401`/`403`/`429`（必带 retry_after）/`202`/`200`。code 分段沿用 edge.proto 的段号约定：`1xxx` 凭据段（`1001` 凭据无效、`1002` 封禁、`1003` 白名单外）、`2xxx` 排队段（`2001` 号牌无效/过期）；排队中非错误态用 `200+status=queued`。**这套 code 与 `Envelope.message_id` 是两个独立编号空间**，数值相同不代表同一含义（`edge.proto` 的 `1001`/`1002` 是已退役的消息编号）。网关边另有一套 `EdgeError.code`：`1001` 身份凭据无效、`1004` 满额拒绝 attach、`2001` 号牌无效、`2002` 未认证、`3002` 入场票据无效。**边缘 block 行为不保证我方错误体**（如 Cloudflare 默认 403 HTML）。封禁/白名单 v1 显式细分，上线前评估切模糊拒绝（配置开关，TODO）。
+错误模型：`{code, message, retry_after_seconds?}`；HTTP `401`/`403`/`429`（必带 retry_after）/`202`/`200`。code 分段沿用 edge.proto 的段号约定：`1xxx` 凭据段（`1001` 凭据无效、`1002` 封禁、`1003` 白名单外）、`2xxx` 排队段（`2001` 号牌无效/过期）；排队中非错误态用 `200+status=queued`。**这套 code 与 `Envelope.message_id` 是两个独立编号空间**，数值相同不代表同一含义（`edge.proto` 的 `1001`/`1002` 是已退役的消息编号）。网关边另有一套 `EdgeError.code`：`1001` 身份凭据无效、`1004` 满额拒绝 attach、`2001` 号牌无效、`2002` 未认证、`3002` 入场票据无效**（已被 ADR-0009 取代：网关不再接受号牌，`1001` 覆盖 Admission Grant 的全部校验失败，新增 `1005` 准入处理中、`1006` 准入存储不可用与限流 `429`）**。**边缘 block 行为不保证我方错误体**（如 Cloudflare 默认 403 HTML）。封禁/白名单 v1 显式细分，上线前评估切模糊拒绝（配置开关，TODO）。
 
 ### 5.2 etcd 额度结构
 
@@ -91,11 +102,19 @@ stateDiagram-v2
     Closed --> [*]
 ```
 
+> 图中 `Pending --> Fetching: 身份Token+admitted号牌验讫(jti 单次消费)` 已被 ADR-0009
+> 取代：迁移条件是身份 Token + Admission Grant 校验通过，并按 `identity_jti` 在
+> deployment 内单次消费（`Reserved → Consumed` 两阶段，见 [ADR-0009](../adr/0009-identity-bound-admission-grant.md)）。
+
 - 拉取：每实例全局预算池、可注入延迟桩（TODO 真 DB）；指数退避 ≤3 次 × 2s；失败断开并**归还连接额度与拉取预算**。
 - 分片：进程内共享无关多分片（每分片全套 runtime），EdgeSessionId 哈希钉住；`shard_count` 配置化（默认＝核/2，8~16 片撑 10 万连接）。
 - IO 分片与每连接资源模型见[调研](../research/2026-09-12-https-stack.md)与票 #28 定案；额度语义见票 #27。
 
 ## 6. 容量模型
+
+> **性质说明（2026-09-28）**：本节数字全部是设计期推演与输入假设，**不是实测结果**，
+> 也没有对应的验收记录；引用时必须注明来源为本规格的假设。M1–M4 的门槛以带环境、
+> 配置与原始输出的验收报告为准（见 [路线图](../plans/2026-09-27-login-chain-roadmap.md) 阶段 2）。
 
 **输入假设**（均标注"实现时核实"）：机器 64 GB / 32 核 / fd 1048576；每连接 TLS/TCP ≈ 8 KB、QUIC ≈ 20~30 KB；洪峰 100 万、10 分钟放完（≈1700/s）；轮询 ≥2s 自适应分档。
 
@@ -109,7 +128,7 @@ stateDiagram-v2
 
 ## 7. 客户端契约
 
-- **状态机（七态）**：`verifying → queued → admitted → gateway_connecting → handoff_received → realm_connecting → in_game`；回退：verify 失败→idle；号牌过期→自动重取；网关连接失败→admitted 号牌重入（宽限内）；Realm 直连失败→EnterRealm 重试（60s 内）。
+- **状态机（七态）**：`verifying → queued → admitted → gateway_connecting → handoff_received → realm_connecting → in_game`；回退：verify 失败→idle；号牌过期→自动重取；网关连接失败→admitted 号牌重入（宽限内）**（已被 ADR-0009 取代：宽限内以 Admission Grant 重入，号牌不参与准入）**；Realm 直连失败→EnterRealm 重试（60s 内）。
 - **轮询分档**：初始 2s；`position>1000`→5s、`≤100`→2s、`≤10`→1s；±20% 抖动；连续 3 次失败→指数退避至 30s；progress 带 `Cache-Control`；ETA 本地插值。
 - **竞速**：0ms QUIC + 350ms TLS/TCP staged race 原样适用于两条连接（连网关、直连业务服），各自独立。
 - **凭据**：纯内存持有、只走 HTTPS Bearer；进程重启＝重新登录排队。

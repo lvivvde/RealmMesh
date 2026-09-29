@@ -14,10 +14,19 @@ status: accepted
 
 ## Consequences
 
-- 空目录不再"提醒"下一步要建什么;规划的入口收敛到 `docs/architecture.md` 一处,改规划必须改文档。
-- 新增服务 = 新建目录 + `CMakeLists.txt` + 根 `CMakeLists.txt` 一行 `add_subdirectory`,没有现成骨架可填。
+- 空目录不再"提醒"下一步要建什么;在本决策作出时,规划入口收敛到 `docs/architecture.md`。
+- 当时的新增服务方式是新建目录与 `CMakeLists.txt`,再由根构建文件接入;没有现成骨架可填。
 - 5 个 framework 预留模块(`base`/`memory`/`rpc`/`serialization`/`storage`)在代码与文档中都没有任何职责定义,因此按"有代码才建"处理,不为它们补写推测性说明。
 - 被删目录在 git 历史中仍可恢复,但恢复与否都不影响构建——没有任何构建脚本引用这些路径。
 - 同一原则延伸到代码:2026-09-11 从 `ServiceType` 枚举与 etcd 线名映射中移除了 6 个未实现的
   身份(`Coordinator`/`Lobby`/`Scene`/`Friend`/`Chat`/`Storage`),新服务在实现时才登记身份;
   实例类型在线上是字符串编码,删除不影响既有 etcd 数据的解码。
+
+## 2026-09-28 文档入口调整
+
+项目已决定在根 [README](../../README.md#必做路线图) 公开必做范围、实施顺序与完成标准，
+由 [架构文档](../architecture.md#目标业务拓扑规划中)记录当前实现和目标服务拓扑。
+这取代了上文“规划只放在架构文档一处”的文档分工；**只为已实现代码建立目录与服务身份**
+的决定继续有效。规划中的 `scene` 与 `chat` 因而只出现在文档里，实际实现时才登记身份。
+当前应用入口已统一为 `apps/mesh_host`，新增服务按实际代码与宿主接线创建所需目录，
+不再要求每个服务都有独立的 `apps/<service>/` 入口。

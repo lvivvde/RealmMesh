@@ -57,8 +57,31 @@ QUIC 在一个客户端发起的长期可靠双向流上承载该字节流；不
 KeepAlive 代替。Gateway 会话不承载心跳：attach 受理后网关只负责下发直连凭证。
 
 Gateway 的两个传输可以并行进行安全握手，但只有竞速胜出的连接可以发送
-`EdgeAttach`。身份 Token 的 `jti` 在 Gateway 的 pending→fetching 迁移处单次消费，
+`EdgeAttach`。Admission Grant 由网关按 `identity_jti` 在一个 deployment 内单次消费，
 后到连接不得重发；`EnterRealm` 直连凭证在 Realm 单次兑换，重复提交按重放拒绝。
+
+## 凭据链与网关 attach
+
+接入链每个阶段使用一种凭据，各自独立签发与验签（[ADR-0009](adr/0009-identity-bound-admission-grant.md)；
+完整协议与验收条件见 [Security Spec #79](https://github.com/lvivvde/RealmMesh/issues/79)）：
+
+```text
+身份 Token → 排队号牌 → Admission Grant → EnterRealm 票据
+```
+
+| 凭据 | 签发方 | 职责 | 消费方与次数 |
+|---|---|---|---|
+| 身份 Token | `login_verify` | 一次登录尝试的身份（`account_id` 与 `jti`） | 排队服查号、网关校验；不单独构成准入 |
+| 排队号牌 | `queue` | 位次查询与断线找回（`aud=realmmesh-queue`、`purpose=queue-position`） | 排队服查号，可重复使用；网关不接受 |
+| Admission Grant | `queue` | 放行后的准入（`aud=realmmesh-gateway`、`purpose=gateway-admission`，绑定 `identity_jti`、来源号值与 `deployment_id`） | 网关按 `identity_jti` 在 deployment 内单次消费 |
+| EnterRealm 票据 | `gateway` | 业务服直连兑换 | Realm 单次兑换 |
+
+`EdgeAttach`（1301）提交 `identity_token` 与 `admission_grant`。校验通过后网关返回
+`EdgeAttachAccepted`（1302），随后以 `EnterRealmGranted`（1303）下发 EnterRealm 票据与
+`ServiceEndpoint` 候选列表。拒绝时返回 `EdgeError`：`1001` 凭据无效（含 Grant 的签名、
+绑定、deployment、时效与已消费），`1004` 网关满额拒绝 attach，`1005` 准入处理中，`1006` 准入
+存储不可用，`429` 限流（带 `retry_after_seconds`）。`1005`/`1006`/`429` 在 Grant 仍
+有效时可重试同一凭据链，`1001` 必须重新走登录链。
 
 ## 初次降级规则
 
