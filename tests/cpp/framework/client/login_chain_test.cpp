@@ -113,10 +113,18 @@ public:
     class ScriptedRealmSession final : public RealmSession {
     public:
         explicit ScriptedRealmSession(int& closes) : closes_(closes) {}
-        ~ScriptedRealmSession() override { ++closes_; }
+        ~ScriptedRealmSession() override { close(); }
+        [[nodiscard]] bool heartbeat(TimePoint) override { return !closed_; }
+        void close() noexcept override {
+            if (!closed_) {
+                ++closes_;
+                closed_ = true;
+            }
+        }
 
     private:
         int& closes_;
+        bool closed_{false};
     };
 
     /// 脚本用尽后重复最后一条;空脚本返回默认值(测试写错时不崩)。

@@ -51,6 +51,7 @@ struct LoadgenReport final {
     PhaseCounters poll;
     PhaseCounters attach;
     PhaseCounters handoff;
+    PhaseCounters realm;
     std::optional<MetricsSnapshot> service_metrics;
     /// collect_number_tokens 时非空:按完成顺序汇入的取号结果。
     std::vector<std::string> number_tokens;
@@ -59,7 +60,8 @@ struct LoadgenReport final {
 };
 
 /// 起跑 robots 个机器人(线程模型:线程数 = 并发槽数,机器人从原子
-/// 游标依次领号;爬坡按序错峰)。阻塞至窗口关闭或全部结束。
+/// 游标依次领号;爬坡按序错峰)。Full 成功还会发送一次 Realm 心跳并
+/// 显式关闭会话；阻塞至窗口关闭或全部结束。
 [[nodiscard]] LoadgenReport run_loadgen(const LoadgenConfig& config);
 
 }  // namespace realm::loadgen

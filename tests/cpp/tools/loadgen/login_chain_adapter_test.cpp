@@ -14,7 +14,16 @@ namespace {
 using std::chrono::milliseconds;
 
 class TestGatewaySession final : public client::GatewaySession {};
-class TestRealmSession final : public client::RealmSession {};
+class TestRealmSession final : public client::RealmSession {
+public:
+    [[nodiscard]] bool heartbeat(client::TimePoint) override {
+        return !closed_;
+    }
+    void close() noexcept override { closed_ = true; }
+
+private:
+    bool closed_{false};
+};
 
 template <typename T>
 [[nodiscard]] client::PortValue<T> value_with(client::PortStatus status,
@@ -81,15 +90,17 @@ public:
         std::span<const network::client::EndpointCandidate>,
         client::TimePoint) override {
         return value_with(
-            client::PortStatus::success(),
-            std::unique_ptr<client::RealmSession>{
-                std::make_unique<TestRealmSession>()});
+            realm_status,
+            realm_status.ok
+                ? std::unique_ptr<client::RealmSession>{
+                      std::make_unique<TestRealmSession>()}
+                : nullptr);
     }
 
     client::PortStatus enter_realm(client::RealmSession&,
                                    std::string_view,
                                    client::TimePoint) override {
-        return client::PortStatus::success();
+        return enter_realm_status;
     }
 
     client::PortStatus verify_status{client::PortStatus::success()};
@@ -99,11 +110,13 @@ public:
     client::PortStatus gateway_status{client::PortStatus::success()};
     client::PortStatus attach_status{client::PortStatus::success()};
     client::PortStatus handoff_status{client::PortStatus::success()};
+    client::PortStatus realm_status{client::PortStatus::success()};
+    client::PortStatus enter_realm_status{client::PortStatus::success()};
 };
 
 [[nodiscard]] LoginChainCounters counters_for(LoadgenReport& report) {
     return {report.verify, report.tickets, report.poll, report.attach,
-            report.handoff};
+            report.handoff, report.realm};
 }
 
 [[nodiscard]] LoadgenLoginOptions valid_options(LoadgenLoginTarget target) {
@@ -232,6 +245,10 @@ TEST(LoginChainMetricsTest, MapsOperationsToExistingPhaseCounters) {
     EXPECT_FALSE(
         measured.attach(*gateway.value, "identity", "grant", deadline).ok);
     EXPECT_FALSE(measured.await_handoff(*gateway.value, deadline).status.ok);
+    auto realm = measured.connect_realm({}, deadline);
+    ASSERT_TRUE(realm.status.ok);
+    ASSERT_NE(realm.value, nullptr);
+    EXPECT_TRUE(measured.enter_realm(*realm.value, "ticket", deadline).ok);
 
     EXPECT_EQ(report.verify.attempts, 1U);
     EXPECT_EQ(report.verify.failures, 0U);
@@ -240,6 +257,57 @@ TEST(LoginChainMetricsTest, MapsOperationsToExistingPhaseCounters) {
     EXPECT_EQ(report.poll.by_kind.at(FailureKind::ConnectionError), 1U);
     EXPECT_EQ(report.attach.by_kind.at(FailureKind::AttachTimeout), 1U);
     EXPECT_EQ(report.handoff.by_kind.at(FailureKind::HandoffRejected), 1U);
+    EXPECT_EQ(report.realm.attempts, 1U);
+    EXPECT_EQ(report.realm.failures, 0U);
+}
+
+TEST(LoginChainMetricsTest, RecordsRealmEntryFailuresAndLatency) {
+    const auto deadline = client::Clock::now() + std::chrono::seconds{1};
+    {
+        ScriptedLoginTransport inner;
+        inner.realm_status = client::PortStatus::error(
+            client::ChainFailure::RealmConnectFailed, "dial failed", false,
+            client::PortFailureCategory::Transport);
+        LoadgenReport report;
+        MetricsLoginChainTransport measured(inner, counters_for(report));
+
+        const auto realm = measured.connect_realm({}, deadline);
+
+        EXPECT_FALSE(realm.status.ok);
+        EXPECT_EQ(report.realm.attempts, 1U);
+        EXPECT_EQ(report.realm.failures, 1U);
+        EXPECT_EQ(report.realm.by_kind.at(FailureKind::ConnectionError), 1U);
+    }
+    {
+        ScriptedLoginTransport inner;
+        inner.enter_realm_status = client::PortStatus::error(
+            client::ChainFailure::EnterRealmRejected, "expired", false,
+            client::PortFailureCategory::Protocol);
+        LoadgenReport report;
+        MetricsLoginChainTransport measured(inner, counters_for(report));
+        auto realm = measured.connect_realm({}, deadline);
+        ASSERT_TRUE(realm.status.ok);
+        ASSERT_NE(realm.value, nullptr);
+
+        EXPECT_FALSE(
+            measured.enter_realm(*realm.value, "ticket", deadline).ok);
+
+        EXPECT_EQ(report.realm.attempts, 1U);
+        EXPECT_EQ(report.realm.failures, 1U);
+        EXPECT_EQ(report.realm.by_kind.at(FailureKind::RealmRejected), 1U);
+        EXPECT_EQ(report.realm.latency.samples(), 1U);
+    }
+    {
+        ScriptedLoginTransport inner;
+        inner.realm_status = client::PortStatus::error(
+            client::ChainFailure::RealmConnectFailed, "deadline", true,
+            client::PortFailureCategory::Timeout);
+        LoadgenReport report;
+        MetricsLoginChainTransport measured(inner, counters_for(report));
+
+        EXPECT_FALSE(measured.connect_realm({}, deadline).status.ok);
+        EXPECT_EQ(report.realm.by_kind.at(FailureKind::RealmTimeout), 1U);
+    }
 }
 
 TEST(LoginChainMetricsTest, PreservesGatewayDialAttachBucketing) {

@@ -1,7 +1,7 @@
 # RealmMesh 接入链与参考业务路线图
 
 - 日期：2026-09-27
-- 状态：规划确认；阶段 0 的 Admission Grant 迁移（#82）已实施并在 2026-09-30 通过全量验收（518 条用例全绿，另有 6 条 dev-services 用例在可用 `ps` 的环境下 6/6），验收证据见 #82 评论
+- 状态：规划确认；阶段 0 的 Admission Grant 迁移（#82）与阶段 1 的 macOS 登录闭环（#89、#90）已实施。#90 在 2026-09-30 通过 536 条全量用例，并由 `scripts/run-macos-login-acceptance.sh` 重复验证 TLS/TCP 闭环、故障恢复与 L1 soak
 - 实施节奏：单人逐步交付；每一步产出可重复运行的验收证据
 - 第一验收环境：macOS 本机四服务多进程、真实 TLS/TCP 与 etcd，账号拉取使用可控数据桩
 
@@ -14,7 +14,7 @@
 - Gateway 生产装配仍使用固定延迟并成功的 `DelayedAccountFetchPort`，尚未拉取真实账号数据。见 `framework/service_host/src/service_host.cpp` 与 `game/gateway/src/account_fetch_port.cpp`。
 - Queue 已在 #89 中把每次登录尝试的发号映射与递增后的快照合入同一笔 etcd 事务，响应前提交；响应丢失先回读，进程重启可恢复原号。当前本机 Debug + 单节点 etcd 同步路径实测约 200 次/s，只证明恢复语义，不证明约 1700 次/s 容量目标；批提交或权威存储重选留待 #91 的目标 Linux 负载验收。
 - Realm 当前完成票据验讫、内存会话与心跳；没有选角或游戏消息处理。见 `framework/service_host/src/service_frame.cpp`。
-- `loadgen` 有 `full` 登录目标，但报告没有单列 Realm 入场结果。见 `tools/loadgen/src/loadgen.cpp`。
+- `loadgen` 的 `full` 登录目标已单列 Realm 入场成功、失败与延迟；macOS 验收脚本把六阶段结果、配置哈希和原始日志写入 `build/dev/acceptance/`。见 `tools/loadgen/src/loadgen.cpp` 与 `scripts/run-macos-login-acceptance.sh`。
 - [README](../../README.md) 与[旧登录链规格](../specs/2026-09-12-login-chain-surge.md)的部分段落仍描述 `admitted` Queue Number；现行决策是独立 Admission Grant。旧规格中的容量推演属于假设，不能当作实测结论。
 
 ## 实施顺序

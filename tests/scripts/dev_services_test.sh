@@ -8,6 +8,7 @@ realmmesh_mesh_binary="${3:?realm_mesh binary is required}"
 realmmesh_tls_certificate="${4:?TLS certificate is required}"
 realmmesh_tls_private_key="${5:?TLS private key is required}"
 realmmesh_new_chain_test="${6:-}"
+realmmesh_loadgen_binary="${7:-}"
 
 # dev-services.sh 用 ps 认服务进程(判断"这个 pid 还是不是我的那个服务")。
 # 拿不到 ps 的环境里(受限沙箱会把 /bin/ps 直接拒掉)它既判不了就绪、也停不掉
@@ -61,6 +62,7 @@ cleanup() {
     # 用例自带的 etcd:必须在 pid 文件清理之前收掉,否则下一条用例会看到
     # 上一轮残留的准入消费记录(重放断言会因此误判)。
     if [[ -n "${realmmesh_etcd_pid:-}" ]]; then
+        kill -CONT "${realmmesh_etcd_pid}" 2>/dev/null || true
         kill -TERM "${realmmesh_etcd_pid}" 2>/dev/null || true
         wait "${realmmesh_etcd_pid}" 2>/dev/null || true
     fi
@@ -123,7 +125,7 @@ import socket
 
 chosen = []
 sockets = []
-while len(chosen) < 6:
+while len(chosen) < 10:
     port = random.randint(20000, 30000)
     if port in chosen:
         continue
@@ -145,6 +147,10 @@ realmmesh_realm_metrics_port="${realmmesh_ports[2]}"
 realmmesh_gateway_metrics_port="${realmmesh_ports[3]}"
 realmmesh_etcd_client_port="${realmmesh_ports[4]}"
 realmmesh_etcd_peer_port="${realmmesh_ports[5]}"
+realmmesh_login_verify_port="${realmmesh_ports[6]}"
+realmmesh_queue_port="${realmmesh_ports[7]}"
+realmmesh_login_verify_metrics_port="${realmmesh_ports[8]}"
+realmmesh_queue_metrics_port="${realmmesh_ports[9]}"
 realmmesh_etcd_endpoint="http://127.0.0.1:${realmmesh_etcd_client_port}"
 
 # 网关的准入消费存储是线性一致存储(ADR-0009):服务组必须有**真** etcd,
@@ -221,12 +227,22 @@ rewrite_config "${realmmesh_test_root}/configs/services/gateway.lua" \
     -e "s/listen_port = 8000/listen_port = ${realmmesh_gateway_port}/g" \
     -e "s/downstream_port = 7100/downstream_port = ${realmmesh_realm_port}/" \
     -e "s/metrics_port = 9103/metrics_port = ${realmmesh_gateway_metrics_port}/"
+rewrite_config "${realmmesh_test_root}/configs/services/login_verify.lua" \
+    -e "s/listen_port = 0/listen_port = ${realmmesh_login_verify_port}/" \
+    -e "s/metrics_port = 9104/metrics_port = ${realmmesh_login_verify_metrics_port}/"
+rewrite_config "${realmmesh_test_root}/configs/services/queue.lua" \
+    -e "s/listen_port = 0/listen_port = ${realmmesh_queue_port}/" \
+    -e "s/metrics_port = 9105/metrics_port = ${realmmesh_queue_metrics_port}/"
 
 # 服务发现的 endpoint 由 common 层提供,gateway 与 realm 共用;网关的
 # 准入消费存储正是拿 discovery_config_.endpoint 建 etcd 客户端,所以
 # 这里必须换成用例自己的 etcd,而不是 127.0.0.1:2379。
 rewrite_config "${realmmesh_test_root}/configs/common/discovery.lua" \
     -e "s|endpoint = \"http://127.0.0.1:2379\"|endpoint = \"${realmmesh_etcd_endpoint}\"|"
+if [[ "${realmmesh_case}" == four_process_* ]]; then
+    rewrite_config "${realmmesh_test_root}/configs/common/discovery.lua" \
+        -e "s/enabled = false/enabled = true/"
+fi
 # Queue 的 etcd 存取(额度/快照/放行账本)走自己的配置键。
 rewrite_config "${realmmesh_test_root}/configs/services/queue.lua" \
     -e "s|etcd_endpoint = \"http://127.0.0.1:2379\"|etcd_endpoint = \"${realmmesh_etcd_endpoint}\"|"
@@ -258,6 +274,155 @@ export REALMMESH_ADMISSION_GRANT_PUBLIC_KEY="207a067892821e25d770f1fba0c47c11ff4
 export REALMMESH_ADMISSION_CONSUMPTION_DIGEST_KEY="fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210"
 export REALMMESH_REALM_METRICS_URL="http://127.0.0.1:${realmmesh_realm_metrics_port}/metrics"
 export REALMMESH_GATEWAY_METRICS_URL="http://127.0.0.1:${realmmesh_gateway_metrics_port}/metrics"
+
+write_acceptance_account() {
+    printf '%s\n' \
+        'return {' \
+        '    accounts = {' \
+        '        { account = "robot-0", credential = "loadgen-credential", whitelisted = true },' \
+        '    },' \
+        '}' > "${realmmesh_test_root}/configs/common/accounts.lua"
+}
+
+standalone_pid_file() {
+    printf '%s\n' "${realmmesh_test_root}/.runtime/pids/$1.pid"
+}
+
+start_standalone_service() {
+    local realmmesh_service="$1"
+    local realmmesh_pid_file
+    realmmesh_pid_file="$(standalone_pid_file "${realmmesh_service}")"
+    local realmmesh_log_dir="${realmmesh_test_root}/.runtime/logs/${realmmesh_service}"
+    mkdir -p "$(dirname "${realmmesh_pid_file}")" "${realmmesh_log_dir}"
+    (
+        cd "${realmmesh_test_root}"
+        exec "${realmmesh_mesh_binary}" \
+            --config "${realmmesh_test_root}/configs" \
+            --service "${realmmesh_service}"
+    ) >> "${realmmesh_log_dir}/console.log" 2>&1 &
+    printf '%s\n' "$!" > "${realmmesh_pid_file}"
+}
+
+stop_standalone_service() {
+    local realmmesh_service="$1"
+    local realmmesh_pid_file
+    realmmesh_pid_file="$(standalone_pid_file "${realmmesh_service}")"
+    [[ -f "${realmmesh_pid_file}" ]] || return 0
+    local realmmesh_pid
+    realmmesh_pid="$(<"${realmmesh_pid_file}")"
+    kill -TERM "${realmmesh_pid}" 2>/dev/null || true
+    (
+        sleep 5
+        kill -KILL "${realmmesh_pid}" 2>/dev/null || true
+    ) &
+    local realmmesh_shutdown_watchdog=$!
+    wait "${realmmesh_pid}" 2>/dev/null || true
+    kill -TERM "${realmmesh_shutdown_watchdog}" 2>/dev/null || true
+    wait "${realmmesh_shutdown_watchdog}" 2>/dev/null || true
+    rm -f -- "${realmmesh_pid_file}"
+}
+
+service_metrics_port() {
+    case "$1" in
+        login_verify) printf '%s\n' "${realmmesh_login_verify_metrics_port}" ;;
+        queue) printf '%s\n' "${realmmesh_queue_metrics_port}" ;;
+        realm) printf '%s\n' "${realmmesh_realm_metrics_port}" ;;
+        gateway) printf '%s\n' "${realmmesh_gateway_metrics_port}" ;;
+    esac
+}
+
+wait_for_standalone_ready() {
+    local realmmesh_service="$1"
+    local realmmesh_metrics_port
+    realmmesh_metrics_port="$(service_metrics_port "${realmmesh_service}")"
+    local realmmesh_attempt
+    for realmmesh_attempt in {1..150}; do
+        if curl --silent --fail --connect-timeout 0.1 --max-time 0.2 \
+            "http://127.0.0.1:${realmmesh_metrics_port}/metrics" 2>/dev/null |
+            grep -Eq \
+                "^realmmesh_service_ready\\{service_name=\"${realmmesh_service}\",service_instance=\"[^\"]+\"\\} 1$"; then
+            return 0
+        fi
+        sleep 0.1
+    done
+    printf '%s did not become ready\n' "${realmmesh_service}" >&2
+    return 1
+}
+
+wait_for_standalone_unready() {
+    local realmmesh_service="$1"
+    local realmmesh_metrics_port
+    realmmesh_metrics_port="$(service_metrics_port "${realmmesh_service}")"
+    local realmmesh_attempt
+    for realmmesh_attempt in {1..100}; do
+        if ! curl --silent --fail --connect-timeout 0.1 --max-time 0.2 \
+            "http://127.0.0.1:${realmmesh_metrics_port}/metrics" 2>/dev/null |
+            grep -Eq \
+                "^realmmesh_service_ready\\{service_name=\"${realmmesh_service}\",service_instance=\"[^\"]+\"\\} 1$"; then
+            return 0
+        fi
+        sleep 0.1
+    done
+    printf '%s stayed ready after dependency outage\n' \
+        "${realmmesh_service}" >&2
+    return 1
+}
+
+start_four_services() {
+    write_acceptance_account
+    local realmmesh_service
+    for realmmesh_service in login_verify queue realm gateway; do
+        start_standalone_service "${realmmesh_service}"
+    done
+    for realmmesh_service in login_verify realm gateway queue; do
+        wait_for_standalone_ready "${realmmesh_service}"
+    done
+}
+
+run_full_login() {
+    "${realmmesh_loadgen_binary}" \
+        --phase full \
+        --robots 1 \
+        --concurrency 1 \
+        --duration 8 \
+        --poll-interval-ms 50 \
+        --login-verify "127.0.0.1:${realmmesh_login_verify_port}" \
+        --queue "127.0.0.1:${realmmesh_queue_port}" \
+        --gateway "127.0.0.1:${realmmesh_gateway_port}" \
+        --account-prefix robot \
+        --credential loadgen-credential
+}
+
+expect_full_login_failure() {
+    if run_full_login; then
+        printf 'Full Login Chain unexpectedly succeeded during injected failure\n' >&2
+        return 1
+    fi
+}
+
+print_acceptance_runtime() {
+    printf 'acceptance_runtime login_verify=127.0.0.1:%s queue=127.0.0.1:%s gateway=127.0.0.1:%s realm=127.0.0.1:%s etcd=%s\n' \
+        "${realmmesh_login_verify_port}" \
+        "${realmmesh_queue_port}" \
+        "${realmmesh_gateway_port}" \
+        "${realmmesh_realm_port}" \
+        "${realmmesh_etcd_endpoint}"
+    if command -v shasum >/dev/null 2>&1; then
+        (cd "${realmmesh_test_root}" && shasum -a 256 \
+            configs/main.config configs/common/discovery.lua \
+            configs/common/accounts.lua configs/services/login_verify.lua \
+            configs/services/queue.lua configs/services/gateway.lua \
+            configs/services/realm.lua) |
+            sed 's/^/acceptance_runtime_config /'
+    else
+        (cd "${realmmesh_test_root}" && sha256sum \
+            configs/main.config configs/common/discovery.lua \
+            configs/common/accounts.lua configs/services/login_verify.lua \
+            configs/services/queue.lua configs/services/gateway.lua \
+            configs/services/realm.lua) |
+            sed 's/^/acceptance_runtime_config /'
+    fi
+}
 
 case "${realmmesh_case}" in
     start_uses_supervisor)
@@ -332,6 +497,64 @@ case "${realmmesh_case}" in
             "${realmmesh_new_chain_test}" \
             --gtest_filter=NewChainFlowTest.AttachesToGatewayAndEntersRealm
         bash "${realmmesh_script}" stop >/dev/null
+        ;;
+    four_process_full_repeats)
+        [[ -x "${realmmesh_loadgen_binary}" ]]
+        start_four_services
+        print_acceptance_runtime
+        realmmesh_repeat_count="${REALMMESH_ACCEPTANCE_REPEATS:-3}"
+        [[ "${realmmesh_repeat_count}" =~ ^[1-9][0-9]*$ ]]
+        for ((realmmesh_repeat = 0;
+             realmmesh_repeat < realmmesh_repeat_count;
+             ++realmmesh_repeat)); do
+            run_full_login
+        done
+        ;;
+    four_process_failure_recovery)
+        [[ -x "${realmmesh_loadgen_binary}" ]]
+        start_four_services
+
+        stop_standalone_service gateway
+        expect_full_login_failure
+        start_standalone_service gateway
+        wait_for_standalone_ready gateway
+        run_full_login
+
+        stop_standalone_service realm
+        expect_full_login_failure
+        start_standalone_service realm
+        wait_for_standalone_ready realm
+        wait_for_standalone_ready gateway
+        run_full_login
+
+        stop_standalone_service queue
+        start_standalone_service queue
+        wait_for_standalone_ready queue
+        run_full_login
+
+        kill -STOP "${realmmesh_etcd_pid}"
+        wait_for_standalone_unready gateway
+        expect_full_login_failure
+        kill -CONT "${realmmesh_etcd_pid}"
+        realmmesh_etcd_ready=0
+        for _ in {1..40}; do
+            if curl --silent --fail --connect-timeout 0.3 --max-time 0.5 \
+                --header 'Content-Type: application/json' \
+                --request POST --data "${realmmesh_etcd_probe_body}" \
+                "${realmmesh_etcd_endpoint}/v3/kv/put" >/dev/null; then
+                realmmesh_etcd_ready=1
+                break
+            fi
+            sleep 0.25
+        done
+        [[ "${realmmesh_etcd_ready}" -eq 1 ]]
+        wait_for_standalone_ready gateway
+        # outage 中撞上不确定 etcd 写入的 Queue 会按 #89 fail-closed；重启后
+        # 从权威快照恢复，才允许再次发号。
+        stop_standalone_service queue
+        start_standalone_service queue
+        wait_for_standalone_ready queue
+        run_full_login
         ;;
     *)
         printf 'Unknown test case: %s\n' "${realmmesh_case}" >&2

@@ -133,14 +133,30 @@ client::PortValue<std::unique_ptr<client::RealmSession>>
 MetricsLoginChainTransport::connect_realm(
     std::span<const network::client::EndpointCandidate> candidates,
     client::TimePoint deadline) {
-    return inner_.connect_realm(candidates, deadline);
+    realm_started_ = client::Clock::now();
+    auto result = inner_.connect_realm(candidates, deadline);
+    if (!result.status.ok) {
+        record(counters_.realm, result.status, *realm_started_,
+               FailureKind::RealmRejected, FailureKind::RealmTimeout);
+        realm_started_.reset();
+    } else if (result.value == nullptr) {
+        counters_.realm.record_failure(
+            FailureKind::ConnectionError, elapsed_ms(*realm_started_));
+        realm_started_.reset();
+    }
+    return result;
 }
 
 client::PortStatus MetricsLoginChainTransport::enter_realm(
     client::RealmSession& session,
     std::string_view enter_realm_ticket,
     client::TimePoint deadline) {
-    return inner_.enter_realm(session, enter_realm_ticket, deadline);
+    const auto started = realm_started_.value_or(client::Clock::now());
+    auto status = inner_.enter_realm(session, enter_realm_ticket, deadline);
+    record(counters_.realm, status, started, FailureKind::RealmRejected,
+           FailureKind::RealmTimeout);
+    realm_started_.reset();
+    return status;
 }
 
 }  // namespace realm::loadgen

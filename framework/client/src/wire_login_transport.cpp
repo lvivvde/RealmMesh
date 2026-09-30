@@ -130,16 +130,43 @@ public:
         : connection_(std::move(connection)), stream_(std::move(stream)) {}
 
     ~WireRealmSession() override {
-        if (stream_ != nullptr) {
-            stream_->shutdown();
-        }
+        close();
     }
 
     net_client::ISecureByteStream& stream() noexcept { return *stream_; }
 
+    [[nodiscard]] bool heartbeat(TimePoint deadline) override {
+        if (stream_ == nullptr) {
+            return false;
+        }
+        net_client::EdgeClientConnection edge(*stream_);
+        common::HeartbeatRequest request;
+        const auto request_id = next_request_id_++;
+        if (!edge.send_frame(common::encode(request, request_id), deadline)) {
+            return false;
+        }
+        const auto payload = edge.receive_frame(deadline);
+        if (!payload.has_value()) {
+            return false;
+        }
+        return common::edge_message_id(*payload) ==
+                   edge_v1::MESSAGE_ID_S2C_HEARTBEAT_RESPONSE &&
+            common::edge_request_id(*payload) == request_id &&
+            common::decode_heartbeat_response(*payload).has_value();
+    }
+
+    void close() noexcept override {
+        if (stream_ != nullptr) {
+            stream_->shutdown();
+            stream_.reset();
+        }
+        connection_.reset();
+    }
+
 private:
     std::shared_ptr<net_client::ISecureConnection> connection_;
     std::shared_ptr<net_client::ISecureByteStream> stream_;
+    std::uint64_t next_request_id_{1};
 };
 
 }  // namespace

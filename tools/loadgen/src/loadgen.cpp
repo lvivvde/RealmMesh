@@ -50,6 +50,7 @@ std::string LoadgenReport::render() const {
     render_phase("poll", poll);
     render_phase("attach", attach);
     render_phase("handoff", handoff);
+    render_phase("realm", realm);
 
     // 拨号失败分型(仅在有失败时占行):connection_error 只说"网络层
     // 失败",细分计数把内核层原因(端口不可用/拒连/握手中断)带出来。
@@ -212,6 +213,7 @@ LoadgenReport run_loadgen(const LoadgenConfig& config) {
                 PhaseCounters poll;
                 PhaseCounters attach;
                 PhaseCounters handoff;
+                PhaseCounters realm;
 
                 auto options = login_options_for(
                     config,
@@ -234,9 +236,20 @@ LoadgenReport run_loadgen(const LoadgenConfig& config) {
                 client::WireLoginTransport wire(
                     adapted->wire, redeemer, adapted->transport);
                 MetricsLoginChainTransport measured(
-                    wire, {verify, tickets, poll, attach, handoff});
+                    wire, {verify, tickets, poll, attach, handoff, realm});
                 client::LoginChain chain(measured, std::move(adapted->chain));
                 auto result = chain.run(std::move(adapted->run));
+                bool completed = result.succeeded();
+                if (completed && config.target == LoadgenLoginTarget::Full) {
+                    auto* success = std::get_if<client::FullSuccess>(
+                        result.success());
+                    completed = success != nullptr &&
+                        success->session != nullptr &&
+                        success->session->heartbeat(deadline);
+                    if (success != nullptr && success->session != nullptr) {
+                        success->session->close();
+                    }
+                }
 
                 // AdmitTimeout 是状态机内部的终态，不来自某次端口调用；
                 // 显式补进旧 poll 失败分型，保持报告含义。
@@ -256,7 +269,8 @@ LoadgenReport run_loadgen(const LoadgenConfig& config) {
                 report.poll.merge(poll);
                 report.attach.merge(attach);
                 report.handoff.merge(handoff);
-                if (result.succeeded()) {
+                report.realm.merge(realm);
+                if (completed) {
                     ++report.completed;
                 }
                 if (config.collect_number_tokens &&

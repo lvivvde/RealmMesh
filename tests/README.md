@@ -24,6 +24,7 @@
 | 手动快速子集 | `ctest --preset dev -L unit`(或 `-L lua` 只筛 Lua 用例) |
 | 一键全量(构建 + 全部测试) | `./scripts/build.sh` |
 | 仅全量测试 | `ctest --preset dev` |
+| macOS 登录链验收 | `./scripts/run-macos-login-acceptance.sh`（TLS/TCP，成功链默认重复 3 次，并在 `build/dev/acceptance/` 生成报告和原始日志） |
 | 全量兜底 | push / PR 时 GitHub Actions 在 macOS + Linux 双平台跑 `ctest --preset dev`(`.github/workflows/ci.yml`) |
 
 ## 前置条件

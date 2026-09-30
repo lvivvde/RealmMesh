@@ -29,6 +29,10 @@ enum class FailureKind {
     HandoffTimeout,
     /// 交付相位收到坏帧或被 EdgeError 拒绝。
     HandoffRejected,
+    /// Realm 拒绝 EnterRealm 或返回坏帧。
+    RealmRejected,
+    /// 未在时限内完成 Realm 入场。
+    RealmTimeout,
     /// TLS/网络层失败(拨号、握手、读写、解析)。
     ConnectionError,
 };

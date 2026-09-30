@@ -190,12 +190,31 @@ public:
 
     void stop() noexcept {
         if (pid_ <= 0) return;
+        if (paused_) {
+            static_cast<void>(::kill(pid_, SIGCONT));
+            paused_ = false;
+        }
         static_cast<void>(::kill(pid_, SIGTERM));
         int status = 0;
         static_cast<void>(::waitpid(pid_, &status, 0));
         pid_ = -1;
         std::error_code error;
         std::filesystem::remove_all(data_dir_, error);
+    }
+
+    /// 保留进程和数据目录，只暂停对外服务，用于可恢复依赖故障注入。
+    void pause() {
+        if (pid_ <= 0 || ::kill(pid_, SIGSTOP) != 0) {
+            throw std::runtime_error("cannot pause etcd process");
+        }
+        paused_ = true;
+    }
+
+    void resume() {
+        if (pid_ <= 0 || ::kill(pid_, SIGCONT) != 0) {
+            throw std::runtime_error("cannot resume etcd process");
+        }
+        paused_ = false;
     }
 
     [[nodiscard]] std::string endpoint() const {
@@ -238,6 +257,7 @@ private:
     std::uint16_t client_port_{0};
     std::uint16_t peer_port_{0};
     std::filesystem::path data_dir_;
+    bool paused_{false};
 };
 
 }  // namespace realm::test_support

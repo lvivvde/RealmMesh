@@ -26,6 +26,10 @@ std::string_view failure_kind_name(FailureKind kind) {
         return "handoff_timeout";
     case FailureKind::HandoffRejected:
         return "handoff_rejected";
+    case FailureKind::RealmRejected:
+        return "realm_rejected";
+    case FailureKind::RealmTimeout:
+        return "realm_timeout";
     case FailureKind::ConnectionError:
         return "connection_error";
     }

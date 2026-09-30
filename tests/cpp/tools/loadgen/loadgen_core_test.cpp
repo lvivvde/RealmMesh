@@ -62,6 +62,7 @@ TEST(LoadgenReportTest, RenderLocksPhaseFieldsAndFailureNames) {
     report.verify.record_failure(FailureKind::VerifyRejected, 20);
     report.tickets.record_success(30);
     report.attach.record_failure(FailureKind::ConnectionError, 40);
+    report.realm.record_success(50);
 
     const std::string rendered = report.render();
 
@@ -81,6 +82,10 @@ TEST(LoadgenReportTest, RenderLocksPhaseFieldsAndFailureNames) {
         rendered.find("attach: attempts=1 failures=1 p50_ms=40.000000 "
                       "p99_ms=40.000000 max_ms=40.000000\n"
                       "  connection_error: 1\n"),
+        std::string::npos);
+    EXPECT_NE(
+        rendered.find("realm: attempts=1 failures=0 p50_ms=50.000000 "
+                      "p99_ms=50.000000 max_ms=50.000000\n"),
         std::string::npos);
     // 零 attempt 的相位不占报告行。
     EXPECT_EQ(rendered.find("poll:"), std::string::npos);
@@ -105,6 +110,10 @@ TEST(FailureKindNameTest, NamesEveryKind) {
               "connection_error");
     EXPECT_EQ(failure_kind_name(FailureKind::HandoffRejected),
               "handoff_rejected");
+    EXPECT_EQ(failure_kind_name(FailureKind::RealmRejected),
+              "realm_rejected");
+    EXPECT_EQ(failure_kind_name(FailureKind::RealmTimeout),
+              "realm_timeout");
 }
 
 TEST(ParseLoadgenLoginTargetTest, AcceptsExplicitTargetsAndAllAlias) {

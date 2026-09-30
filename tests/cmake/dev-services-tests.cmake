@@ -36,3 +36,17 @@ add_dev_services_test(
     30
     "$<TARGET_FILE:new_chain_flow_test>"
 )
+add_dev_services_test(
+    FourProcessFullRepeats
+    four_process_full_repeats
+    90
+    "$<TARGET_FILE:new_chain_flow_test>"
+    "$<TARGET_FILE:realm_mesh_loadgen>"
+)
+add_dev_services_test(
+    FourProcessFailureRecovery
+    four_process_failure_recovery
+    120
+    "$<TARGET_FILE:new_chain_flow_test>"
+    "$<TARGET_FILE:realm_mesh_loadgen>"
+)

@@ -1,6 +1,8 @@
+#include "realmmesh/cluster/etcd_service_registry.hpp"
 #include "realmmesh/game/common/admission_grant.hpp"
 #include "realmmesh/game/common/edge_protocol.hpp"
 #include "realmmesh/game/common/identity_token.hpp"
+#include "realmmesh/game/gateway/admission_consumption_store.hpp"
 #include "realmmesh/network/codec/length_field_codec.hpp"
 #include "realmmesh/network/tcp/tcp_listener.hpp"
 #include "realmmesh/test_support/etcd_process.hpp"
@@ -57,13 +59,15 @@ public:
     ChildProcess(const ChildProcess&) = delete;
     ChildProcess& operator=(const ChildProcess&) = delete;
 
-    void stop() noexcept {
+    void terminate(int signal) noexcept {
         if (pid_ <= 0) return;
-        static_cast<void>(::kill(pid_, SIGINT));
+        static_cast<void>(::kill(pid_, signal));
         int status = 0;
         static_cast<void>(::waitpid(pid_, &status, 0));
         pid_ = -1;
     }
+
+    void stop() noexcept { terminate(SIGINT); }
 
 private:
     pid_t pid_{-1};
@@ -140,6 +144,8 @@ constexpr std::string_view admission_grant_kid = "admission-grant-v1";
 constexpr std::string_view admission_grant_issuer = "realmmesh/queue";
 constexpr std::string_view deployment_id = "development";
 constexpr std::string_view account_jti = "bbbb000000000001bbbb000000000001";
+constexpr std::string_view admission_grant_jti =
+    "bbbb000000000002bbbb000000000002";
 
 [[nodiscard]] std::string hex_encode(const std::array<std::byte, 32>& bytes) {
     static constexpr std::string_view digits = "0123456789abcdef";
@@ -507,11 +513,33 @@ std::vector<std::byte> receive_message(TlsSocket& socket) {
             .grant_window = std::chrono::seconds{300}});
     const auto now = std::chrono::system_clock::now();
     return issuer.issue(AdmissionGrantIssue{
-        .grant_jti = "bbbb000000000002bbbb000000000002",
+        .grant_jti = std::string(admission_grant_jti),
         .identity_jti = std::string(identity_jti),
         .queue_number = 7,
         .released_at = now,
         .issued_at = now,
+        .identity_expires_at = now + std::chrono::minutes{30}});
+}
+
+[[nodiscard]] std::string expired_admission_grant_token(
+    std::string_view identity_jti) {
+    const AdmissionGrantIssuer issuer(
+        AdmissionGrantSigningKey{
+            .kid = std::string(admission_grant_kid),
+            .seed = seed_from_env("REALMMESH_ADMISSION_GRANT_KEY_SEED")},
+        AdmissionGrantPolicy{
+            .issuer = std::string(admission_grant_issuer),
+            .deployment_id = std::string(deployment_id),
+            .grant_window = std::chrono::seconds{1}});
+    const auto now = std::chrono::system_clock::now();
+    const auto issued_at =
+        now - game::common::jws_clock_leeway - std::chrono::seconds{2};
+    return issuer.issue(AdmissionGrantIssue{
+        .grant_jti = "cccc000000000002cccc000000000002",
+        .identity_jti = std::string(identity_jti),
+        .queue_number = 8,
+        .released_at = issued_at,
+        .issued_at = issued_at,
         .identity_expires_at = now + std::chrono::minutes{30}});
 }
 
@@ -697,6 +725,124 @@ TEST(NewChainFlowTest, AttachesToGatewayAndEntersRealm) {
     // 旧 Login 服务已退役:配置树里不再有它的身份,也不再生成它的日志目录。
     EXPECT_FALSE(std::filesystem::exists(config_root / "logs" / "login"));
 
+    static_cast<void>(::unsetenv("REALMMESH_SESSION_TICKET_KEY"));
+    static_cast<void>(::unsetenv("REALMMESH_IDENTITY_KEY_SEED"));
+    static_cast<void>(::unsetenv("REALMMESH_QUEUE_NUMBER_KEY_SEED"));
+    static_cast<void>(::unsetenv("REALMMESH_ADMISSION_GRANT_KEY_SEED"));
+    static_cast<void>(::unsetenv("REALMMESH_ADMISSION_GRANT_PUBLIC_KEY"));
+    static_cast<void>(::unsetenv("REALMMESH_ADMISSION_CONSUMPTION_DIGEST_KEY"));
+    static_cast<void>(::unsetenv("REALMMESH_TLS_CERTIFICATE_FILE"));
+    static_cast<void>(::unsetenv("REALMMESH_TLS_PRIVATE_KEY_FILE"));
+}
+
+TEST(NewChainFlowTest, RestartKeepsCommittedAdmissionConsumed) {
+    ScratchConfigRoot scratch(
+        std::filesystem::path(REALMMESH_TEST_SOURCE_DIR) / "configs");
+    const auto ports = unused_tcp_ports(2);
+    const auto realm_port = ports.at(0);
+    const auto gateway_port = ports.at(1);
+    use_free_ports(scratch.path(), realm_port, gateway_port);
+
+    test_support::EtcdProcess etcd;
+    etcd.wait_ready();
+    point_services_at_etcd(scratch.path(), etcd.endpoint());
+
+    set_environment("REALMMESH_IDENTITY_KEY_SEED", identity_seed_hex);
+    set_environment("REALMMESH_QUEUE_NUMBER_KEY_SEED", queue_number_seed_hex);
+    set_environment(
+        "REALMMESH_ADMISSION_GRANT_KEY_SEED", admission_grant_seed_hex);
+    set_environment(
+        "REALMMESH_ADMISSION_GRANT_PUBLIC_KEY", admission_grant_public_key_hex);
+    set_environment(
+        "REALMMESH_ADMISSION_CONSUMPTION_DIGEST_KEY",
+        admission_consumption_digest_key_hex);
+    set_environment("REALMMESH_SESSION_TICKET_KEY", session_ticket_key_hex);
+    set_environment(
+        "REALMMESH_TLS_CERTIFICATE_FILE", REALMMESH_TEST_TLS_CERTIFICATE);
+    set_environment(
+        "REALMMESH_TLS_PRIVATE_KEY_FILE", REALMMESH_TEST_TLS_PRIVATE_KEY);
+
+    const auto identity = identity_token(account_jti);
+    const auto grant = admission_grant_token(account_jti);
+    constexpr std::string_view expiring_jti =
+        "cccc000000000001cccc000000000001";
+    const auto expiring_identity = identity_token(expiring_jti);
+    const auto expiring_grant = expired_admission_grant_token(expiring_jti);
+
+    // 用生产 EtcdAdmissionConsumptionStore 在同一个真实 etcd 中持有
+    // reservation。状态屏障由线性一致事务完成，不依赖两个 Gateway 请求
+    // 恰好挤进某个调度窗口。
+    gateway::EtcdAdmissionConsumptionStore admission_store(
+        gateway::AdmissionConsumptionOptions{
+            .key_prefix = "/realmmesh/admission/consumption",
+            .reservation_ttl = std::chrono::seconds{10},
+            .digest_key = gateway::parse_admission_consumption_digest_key(
+                admission_consumption_digest_key_hex)},
+        cluster::make_etcd_http_client(
+            etcd.endpoint(), std::chrono::milliseconds{500}));
+    const auto reservation_now = std::chrono::system_clock::now();
+    auto held = admission_store.reserve(gateway::AdmissionReserveRequest{
+        .identity_jti = std::string(account_jti),
+        .grant_jti = std::string(admission_grant_jti),
+        .owner = "acceptance-reservation-holder",
+        .now = reservation_now,
+        .consume_until = reservation_now + std::chrono::minutes{10}});
+    ASSERT_EQ(held.status, gateway::AdmissionReserveStatus::Reserved);
+    ASSERT_TRUE(held.reservation.has_value());
+
+    auto mesh = std::make_unique<ChildProcess>(
+        REALMMESH_MESH_EXECUTABLE, scratch.path());
+    wait_for_tcp_ready(gateway_port, "gateway");
+
+    {
+        auto socket = connect_when_ready(gateway_port);
+        EdgeAttach attach;
+        attach.set_identity_token(identity);
+        attach.set_admission_grant(grant);
+        send_message(socket, encode(attach, 11));
+        const auto response = receive_message(socket);
+        EXPECT_EQ(edge_request_id(response), 11);
+        const auto in_progress = decode_edge_error(response);
+        ASSERT_TRUE(in_progress.has_value());
+        EXPECT_EQ(in_progress->code(), edge_error_admission_in_progress);
+    }
+
+    ASSERT_EQ(
+        admission_store.commit(
+            *held.reservation, std::chrono::system_clock::now()),
+        gateway::AdmissionMutationStatus::Applied);
+    mesh->terminate(SIGTERM);
+    mesh = std::make_unique<ChildProcess>(
+        REALMMESH_MESH_EXECUTABLE, scratch.path());
+    wait_for_tcp_ready(gateway_port, "gateway after restart");
+
+    {
+        auto socket = connect_when_ready(gateway_port);
+        EdgeAttach replay;
+        replay.set_identity_token(identity);
+        replay.set_admission_grant(grant);
+        send_message(socket, encode(replay, 12));
+        const auto response = receive_message(socket);
+        EXPECT_EQ(edge_request_id(response), 12);
+        const auto rejected = decode_edge_error(response);
+        ASSERT_TRUE(rejected.has_value());
+        EXPECT_EQ(rejected->code(), edge_error_invalid_credentials);
+    }
+
+    {
+        auto socket = connect_when_ready(gateway_port);
+        EdgeAttach expired;
+        expired.set_identity_token(expiring_identity);
+        expired.set_admission_grant(expiring_grant);
+        send_message(socket, encode(expired, 13));
+        const auto response = receive_message(socket);
+        EXPECT_EQ(edge_request_id(response), 13);
+        const auto rejected = decode_edge_error(response);
+        ASSERT_TRUE(rejected.has_value());
+        EXPECT_EQ(rejected->code(), edge_error_invalid_credentials);
+    }
+
+    mesh->stop();
     static_cast<void>(::unsetenv("REALMMESH_SESSION_TICKET_KEY"));
     static_cast<void>(::unsetenv("REALMMESH_IDENTITY_KEY_SEED"));
     static_cast<void>(::unsetenv("REALMMESH_QUEUE_NUMBER_KEY_SEED"));

@@ -3,6 +3,8 @@
 #include "realmmesh/client/login_chain.hpp"
 #include "realmmesh/loadgen/stats.hpp"
 
+#include <optional>
+
 namespace realm::loadgen {
 
 struct LoginChainCounters final {
@@ -11,9 +13,10 @@ struct LoginChainCounters final {
     PhaseCounters& poll;
     PhaseCounters& attach;
     PhaseCounters& handoff;
+    PhaseCounters& realm;
 };
 
-/// LoginChainTransport Decorator：只把既有端口动词翻译到既有五相位
+/// LoginChainTransport Decorator：只把既有端口动词翻译到既有六相位
 /// 计数器，不观察 LoginChain 的内部阶段。
 class MetricsLoginChainTransport final : public client::LoginChainTransport {
 public:
@@ -62,6 +65,7 @@ private:
     client::LoginChainTransport& inner_;
     LoginChainCounters counters_;
     std::string last_number_token_;
+    std::optional<client::TimePoint> realm_started_;
 };
 
 }  // namespace realm::loadgen

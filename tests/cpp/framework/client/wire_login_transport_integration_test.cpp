@@ -503,12 +503,12 @@ TEST(WireLoginTransportIntegrationTest, DrivesLoginChainOverRealTls) {
     WireLoginTransport transport(endpoints, redeemer, fast_wire_options());
 
     LoginChain chain(transport, fast_chain_config(gateway_port));
-    const auto result = chain.run(LoginRun::full(
+    auto result = chain.run(LoginRun::full(
         "alice", "secret", Clock::now() + std::chrono::seconds{10}));
 
     ASSERT_TRUE(result.succeeded());
     ASSERT_NE(result.success(), nullptr);
-    const auto* success = std::get_if<FullSuccess>(result.success());
+    auto* success = std::get_if<FullSuccess>(result.success());
     ASSERT_NE(success, nullptr);
     EXPECT_NE(success->session, nullptr);
     EXPECT_EQ(success->number, 100U);
@@ -547,6 +547,11 @@ TEST(WireLoginTransportIntegrationTest, DrivesLoginChainOverRealTls) {
     // Realm 段:生产兑换口把网关签发的真实票据兑换成了 InGame;能到 InGame
     // 就说明真实 realm 服务验签通过并回了 1305(拒绝分支不可能到 InGame)。
     EXPECT_FALSE(edge.last_enter_realm_ticket().empty());
+    ASSERT_TRUE(success->session->heartbeat(
+        Clock::now() + std::chrono::seconds{2}));
+    success->session->close();
+    EXPECT_FALSE(success->session->heartbeat(
+        Clock::now() + std::chrono::milliseconds{20}));
 }
 
 /// attach 被 1999 + 1001 拒(凭据无效,ADR-0009 的单一终态):真实帧路径上

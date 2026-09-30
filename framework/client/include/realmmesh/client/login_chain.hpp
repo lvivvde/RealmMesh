@@ -94,6 +94,11 @@ public:
     virtual ~RealmSession() = default;
     RealmSession(const RealmSession&) = delete;
     RealmSession& operator=(const RealmSession&) = delete;
+
+    /// 已认证 Realm Session 的最小生命周期 Interface：心跳走生产
+    /// 1105/1106 wire，close 幂等地执行有序关闭。
+    [[nodiscard]] virtual bool heartbeat(TimePoint deadline) = 0;
+    virtual void close() noexcept = 0;
 };
 
 /// 登录链路唯一远程依赖 Seam。Session 参数把协议操作绑定到准确连接，

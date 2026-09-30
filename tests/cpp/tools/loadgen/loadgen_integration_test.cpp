@@ -406,6 +406,12 @@ public:
         return endpoint_;
     }
 
+    void pause() { process_.pause(); }
+    void resume() {
+        process_.resume();
+        process_.wait_ready();
+    }
+
 private:
     static bool write_key(
         cluster::IEtcdHttpClient& client,
@@ -1010,7 +1016,7 @@ TEST(LoadgenIntegrationTest, AdapterAndDecoratorDriveRealGatewayChain) {
     MetricsLoginChainTransport measured(
         wire,
         {report.verify, report.tickets, report.poll, report.attach,
-         report.handoff});
+         report.handoff, report.realm});
     client::LoginChain chain(measured, std::move(adapted->chain));
     const auto result = chain.run(std::move(adapted->run));
 
@@ -1050,16 +1056,42 @@ TEST(LoadgenIntegrationTest, FullTargetRedeemsRealmSession) {
     ASSERT_TRUE(mesh.start_all());
     const TickDriver driver(mesh);
 
-    LoadgenConfig config;
-    config.target = LoadgenLoginTarget::Full;
-    config.robots = 1;
-    config.concurrency = 1;
-    config.duration_seconds = 10;
-    config.poll_interval = std::chrono::milliseconds{50};
-    config.endpoints =
+    LoadgenLoginOptions options;
+    options.target = LoadgenLoginTarget::Full;
+    options.endpoints =
         loadgen_endpoints(ports.at(0), ports.at(1), ports.at(2));
+    options.account = "robot-0";
+    options.credential = "loadgen-credential";
+    options.poll_interval = std::chrono::milliseconds{50};
+    options.deadline = client::Clock::now() + std::chrono::seconds{10};
 
-    const auto report = run_loadgen(config);
+    auto adaptation = adapt_login_run(options);
+    auto* adapted = std::get_if<AdaptedLoginRun>(&adaptation);
+    ASSERT_NE(adapted, nullptr);
+
+    LoadgenReport report;
+    report.robots = 1;
+    client::WireEnterRealmRedeemer redeemer;
+    client::WireLoginTransport wire(
+        adapted->wire, redeemer, adapted->transport);
+    MetricsLoginChainTransport measured(
+        wire,
+        {report.verify, report.tickets, report.poll, report.attach,
+         report.handoff, report.realm});
+    client::LoginChain chain(measured, std::move(adapted->chain));
+    auto result = chain.run(std::move(adapted->run));
+    ASSERT_TRUE(result.succeeded());
+    auto* success = std::get_if<client::FullSuccess>(result.success());
+    ASSERT_NE(success, nullptr);
+    ASSERT_NE(success->session, nullptr);
+    ASSERT_TRUE(success->session->heartbeat(
+        client::Clock::now() + std::chrono::seconds{2}));
+    success->session->close();
+    EXPECT_FALSE(success->session->heartbeat(
+        client::Clock::now() + std::chrono::milliseconds{20}));
+    report.completed = 1;
+
+    std::cout << report.render();
 
     EXPECT_EQ(report.completed, 1U);
     EXPECT_EQ(report.verify.failures, 0U);
@@ -1068,6 +1100,67 @@ TEST(LoadgenIntegrationTest, FullTargetRedeemsRealmSession) {
     EXPECT_EQ(report.attach.failures, 0U);
     EXPECT_EQ(report.handoff.failures, 0U);
     EXPECT_EQ(report.handoff.attempts, 1U);
+    EXPECT_EQ(report.realm.failures, 0U);
+    EXPECT_EQ(report.realm.attempts, 1U);
+}
+
+TEST(LoadgenIntegrationTest, GatewayReadinessRecoversAfterEtcdOutage) {
+    const ScopedLoadgenEnvironment environment;
+    const std::filesystem::path source = REALMMESH_SOURCE_DIR "/configs";
+    const test_support::TemporaryDirectory scratch("loadgen-it-recovery-");
+    ASSERT_TRUE(copy_configs_with_discovery_disabled(source, scratch.path()));
+    const auto ports = unused_tcp_ports(4);
+    TestEtcd etcd;
+    use_loadgen_free_ports(
+        scratch.path(), ports.at(0), ports.at(1), ports.at(2), ports.at(3),
+        etcd.endpoint(), true, false, true);
+    write_robot_accounts(scratch.path(), 1);
+
+    service_host::MeshHost mesh(
+        scratch.path(),
+        {{"login_verify", {}, false},
+         {"queue", {}, false},
+         {"realm", {}, false},
+         {"gateway", {"login_verify", "realm"}, true}});
+    ASSERT_TRUE(mesh.start_all());
+    const TickDriver driver(mesh);
+    ASSERT_TRUE(mesh.service("gateway").ready());
+
+    etcd.pause();
+    bool unavailable = false;
+    for (int attempt = 0; attempt < 60; ++attempt) {
+        if (!mesh.service("gateway").ready()) {
+            unavailable = true;
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds{100});
+    }
+    ASSERT_TRUE(unavailable);
+
+    etcd.resume();
+    bool recovered = false;
+    for (int attempt = 0; attempt < 80; ++attempt) {
+        if (mesh.service("gateway").ready()) {
+            recovered = true;
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds{100});
+    }
+    ASSERT_TRUE(recovered);
+
+    LoadgenConfig config;
+    config.target = LoadgenLoginTarget::Full;
+    config.robots = 1;
+    config.concurrency = 1;
+    config.duration_seconds = 10;
+    config.poll_interval = std::chrono::milliseconds{50};
+    config.endpoints =
+        loadgen_endpoints(ports.at(0), ports.at(1), ports.at(2));
+    const auto report = run_loadgen(config);
+
+    EXPECT_EQ(report.completed, 1U);
+    EXPECT_EQ(report.realm.attempts, 1U);
+    EXPECT_EQ(report.realm.failures, 0U);
 }
 
 /// M2 缩减版:250 机器人单趟全链路(verify → handed-off),断言完成率

@@ -66,7 +66,9 @@ realm_add_gtest(new_chain_flow_test
     SOURCES new_chain_flow_test.cpp
     LIBS
         nlohmann_json::nlohmann_json
+        realm_cluster
         realm_game_common
+        realm_gateway_service
         realm_network
     INCLUDE_DIRS ${PROJECT_SOURCE_DIR}/tests/cpp/support/include
     DEFINITIONS
