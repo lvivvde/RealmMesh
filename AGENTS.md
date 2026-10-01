@@ -11,7 +11,7 @@ C++20 distributed game server framework (CMake, Lua config, protobuf wire). Proj
 
 ## Platforms
 
-macOS is the dev baseline and builds TLS/TCP only; QUIC compiles and runs only on Linux (ADR-0002). A green macOS run leaves QUIC paths unverified: CI's `linux` job is their gate.
+Linux is the production baseline and always builds QUIC; macOS is the dev baseline and builds QUIC only when Homebrew `libmsquic` is installed, otherwise TLS/TCP only (ADR-0002, ADR-0011). Check the configure line `realm_network: QUIC transport enabled` before trusting a macOS run on QUIC paths. CI's `macos` job never builds QUIC, so CI's `linux` job is their gate.
 
 ## Testing
 
