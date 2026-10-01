@@ -16,7 +16,7 @@ jobs:
   # Linux), while configure/build/test are identical. This job installs no
   # libmsquic, so it builds TLS/TCP only and the QUIC paths are covered by the
   # linux job alone; developer Macs with Homebrew libmsquic build QUIC locally
-  # (ADR-0011).
+  # (ADR-0012).
   macos:
     name: macOS (clang, kqueue backend)
     runs-on: macos-latest

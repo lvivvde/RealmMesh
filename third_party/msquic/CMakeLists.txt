@@ -1,4 +1,4 @@
-# MsQuic 发现按平台分支(ADR-0011 修订 ADR-0002):
+# MsQuic 发现按平台分支(ADR-0012 修订 ADR-0002):
 # - Linux 是生产基准,缺失 MsQuic 即配置失败,保证 linux CI 一定编入 QUIC;
 # - macOS 自动检测 Homebrew libmsquic,找不到就只走 TLS/TCP,不让配置失败;
 # - 其他平台只走 TLS/TCP。
@@ -31,7 +31,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
         message(STATUS
             "MsQuic: not found, QUIC disabled (TLS/TCP only). "
             "Enable it with `brew install libmsquic` and reconfigure, "
-            "or set MSQUIC_ROOT (ADR-0011)."
+            "or set MSQUIC_ROOT (ADR-0012)."
         )
         return()
     endif()

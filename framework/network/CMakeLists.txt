@@ -22,7 +22,7 @@ add_library(realm_network
 )
 
 # The QUIC transport is built only where MsQuic was found (Linux always, macOS
-# with Homebrew libmsquic; ADR-0011).
+# with Homebrew libmsquic; ADR-0012).
 # Elsewhere the Transport Factory serves the TLS/TCP fallback only. CMake
 # supplies both the capability value and the QUIC construction seam, so the
 # transport layer itself carries no preprocessor branch (ADR-0001).
@@ -42,7 +42,7 @@ else()
     target_compile_definitions(realm_network PRIVATE
         REALM_NETWORK_QUIC_AVAILABLE=0
     )
-    message(STATUS "realm_network: QUIC transport disabled (no MsQuic, TLS/TCP only; ADR-0002, ADR-0011)")
+    message(STATUS "realm_network: QUIC transport disabled (no MsQuic, TLS/TCP only; ADR-0002, ADR-0012)")
 endif()
 
 # Platform Event Loop backend (ADR-0001): exactly one backend implementation is

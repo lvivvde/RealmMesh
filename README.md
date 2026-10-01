@@ -200,7 +200,7 @@ Watch 该前缀，按 `min(Σ网关 fetch_free/conn_free, Σ业务服 conn_free,
 ## 构建
 
 三平台支持等级见 [ADR-0002](docs/adr/0002-cross-platform-support-policy.md) 与
-[ADR-0011](docs/adr/0011-macos-local-quic.md)：Linux 是生产与行为基准（缺失 MsQuic
+[ADR-0012](docs/adr/0012-macos-local-quic.md)：Linux 是生产与行为基准（缺失 MsQuic
 即配置失败，CI 的 QUIC 回归在此），macOS 是开发基准（编译、起拓扑、`ctest` 全绿；
 装了 Homebrew `libmsquic` 即在本地编入并测试 QUIC，未装则 `TransportFactory` 按平台
 能力禁用 QUIC，只走 TLS/TCP），Windows 当前只交付后端开关（`iocp` 可配置但显式未实现，不进 CI）。同一构建只编入一个平台后端，

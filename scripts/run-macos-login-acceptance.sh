@@ -92,7 +92,7 @@ cd "${project_root}"
 run_logged "Configure" "${cmake_bin}" --preset dev
 run_logged "Build" "${cmake_bin}" --build --preset dev
 
-# 装了 libmsquic 的 Mac 会编入 QUIC(ADR-0011),Gateway 随之多起一个 QUIC
+# 装了 libmsquic 的 Mac 会编入 QUIC(ADR-0012),Gateway 随之多起一个 QUIC
 # 监听;客户端仍只拨 TLS/TCP,报告记下监听状态以便对照。
 gateway_quic_listener="not compiled in"
 if grep -q 'realm_network: QUIC transport enabled' "${log_path}"; then

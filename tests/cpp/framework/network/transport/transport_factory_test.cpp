@@ -101,7 +101,7 @@ TEST(TransportCapabilitiesTest, AlwaysServesSecureTlsTcp) {
     EXPECT_TRUE(platform_transport_capabilities().tls_tcp);
 }
 
-// ADR-0002/0011: builds without MsQuic (Windows, macOS without libmsquic)
+// ADR-0002/0012: builds without MsQuic (Windows, macOS without libmsquic)
 // serve the TLS/TCP fallback and silently drop QUIC entries instead of
 // failing to start.
 TEST(TransportFactoryTest, ServesOnlyTlsFallbackWithoutQuicCapability) {
