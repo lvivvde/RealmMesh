@@ -4,7 +4,7 @@
 # 安装到项目本地 .tools/ 目录(ADR-0011),供 CI 与 Linux 开发机使用。
 # 用法：./scripts/install-mongodb.sh
 # 仅支持 Linux x86_64(Ubuntu 24.04 构建)。macOS 直接用 Homebrew:
-#   brew tap mongodb/brew && brew install mongodb-community mongosh
+#   brew tap mongodb/brew && brew trust mongodb/brew && brew install mongodb-community mongosh
 # 脚本与测试夹具都先查 PATH,再退回这里装到 .tools/ 的版本。版本、下载地址与
 # 校验和都固定在下方:mongod 取自 fastdl.mongodb.org,mongosh 取自 GitHub releases
 # 公布的 SHA256。
@@ -38,7 +38,7 @@ case "${host_os}-${arch}" in
         printf 'install-mongodb: no pinned MongoDB build for %s-%s\n' \
             "${host_os}" "${arch}" >&2
         if [[ "${host_os}" == Darwin ]]; then
-            printf 'on macOS use: brew tap mongodb/brew && brew install mongodb-community mongosh\n' >&2
+            printf 'on macOS use: brew tap mongodb/brew && brew trust mongodb/brew && brew install mongodb-community mongosh\n' >&2
         fi
         exit 1
         ;;

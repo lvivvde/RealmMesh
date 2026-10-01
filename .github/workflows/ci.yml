@@ -42,9 +42,11 @@ jobs:
       # Player Data 的权威来源是 MongoDB 副本集(ADR-0011):存储层与跨进程
       # 集成用例各自拉起单节点 rs0。macOS 与开发机一致，用 Homebrew 安装;
       # 夹具与脚本从 PATH 找 mongod/mongosh,缺失即失败而不是跳过。
+      # 新版 Homebrew 拒绝加载未信任第三方 tap 的公式，须先 brew trust。
       - name: Install MongoDB
         run: |
           brew tap mongodb/brew
+          brew trust mongodb/brew
           brew install mongodb-community mongosh
 
       - name: Show toolchain

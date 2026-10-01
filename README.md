@@ -241,7 +241,7 @@ MsQuic 开发安装脚本固定使用 Microsoft 官方 `libmsquic 2.5.10` 包和
 `./scripts/run-etcd-dev.sh` 以前台单节点启动。
 
 玩家数据需要本地 MongoDB（[ADR-0011](docs/adr/0011-mongodb-authoritative-player-data.md)）。
-macOS 用 Homebrew 安装：`brew tap mongodb/brew && brew install mongodb-community mongosh`；
+macOS 用 Homebrew 安装：`brew tap mongodb/brew && brew trust mongodb/brew && brew install mongodb-community mongosh`；
 Linux 用 `./scripts/install-mongodb.sh` 安装固定版本到 `.tools/`。
 `./scripts/run-mongodb-dev.sh` 以前台单节点副本集 `rs0` 在 `127.0.0.1:27017` 启动它，
 数据放在 `.runtime/mongodb`，首次启动自动初始化副本集。它不使用 Homebrew 服务

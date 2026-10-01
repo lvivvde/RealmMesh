@@ -35,5 +35,5 @@ realmmesh_mongosh_binary() {
 }
 
 realmmesh_mongodb_install_hint() {
-    printf 'MongoDB is required: on macOS run "brew tap mongodb/brew && brew install mongodb-community mongosh"; on Linux run ./scripts/install-mongodb.sh\n'
+    printf 'MongoDB is required: on macOS run "brew tap mongodb/brew && brew trust mongodb/brew && brew install mongodb-community mongosh"; on Linux run ./scripts/install-mongodb.sh\n'
 }
