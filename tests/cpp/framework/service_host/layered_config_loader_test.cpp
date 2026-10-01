@@ -5,13 +5,37 @@
 
 #include <chrono>
 #include <cstdint>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <optional>
 #include <stdexcept>
 #include <string>
 
 namespace realm::service_host {
 namespace {
+
+class ScopedPlayerDataUri final {
+public:
+    explicit ScopedPlayerDataUri(const char* value) {
+        if (const char* previous = std::getenv(name)) previous_ = previous;
+        if (value) {
+            EXPECT_EQ(::setenv(name, value, 1), 0);
+        } else {
+            EXPECT_EQ(::unsetenv(name), 0);
+        }
+    }
+    ~ScopedPlayerDataUri() {
+        if (previous_) {
+            static_cast<void>(::setenv(name, previous_->c_str(), 1));
+        } else {
+            static_cast<void>(::unsetenv(name));
+        }
+    }
+    static constexpr const char* name = "REALMMESH_TEST_MONGODB_URI";
+private:
+    std::optional<std::string> previous_;
+};
 
 class LayeredConfigTest : public ::testing::Test {
 protected:
@@ -74,22 +98,28 @@ TEST_F(LayeredConfigTest, CliOverridesInstanceIdentity) {
         std::string::npos);
 }
 
-TEST_F(LayeredConfigTest, ResolvesSharedPlayerDataDatabaseFromConfigRoot) {
+TEST_F(LayeredConfigTest, ParsesSharedPlayerDataDeployment) {
     write(
         root_ / "common" / "player_data.lua",
-        "return { player_data = { database_file = \"data/players.sqlite\", "
+        "return { player_data = { "
+        "uri = \"mongodb://127.0.0.1:27017/?replicaSet=rs0\", "
+        "database = \"realmmesh\", server_selection_timeout_ms = 750, "
+        "socket_timeout_ms = 1500, "
         "bootstrap_accounts_file = \"common/accounts.lua\", "
-        "credential_hash_cost = \"minimum\", busy_timeout_ms = 750 } }");
+        "credential_hash_cost = \"minimum\" } }");
     write(root_ / "services" / "realm.lua", "return {}");
 
     const auto config = LayeredConfigLoader::load(root_, "realm");
 
     EXPECT_EQ(
-        config.player_data.database_file,
-        root_ / "data" / "players.sqlite");
+        config.player_data.uri, "mongodb://127.0.0.1:27017/?replicaSet=rs0");
+    EXPECT_EQ(config.player_data.database, "realmmesh");
     EXPECT_EQ(
-        config.player_data.options.busy_timeout,
+        config.player_data.options.server_selection_timeout,
         std::chrono::milliseconds{750});
+    EXPECT_EQ(
+        config.player_data.options.socket_timeout,
+        std::chrono::milliseconds{1500});
     EXPECT_EQ(
         config.player_data.options.bootstrap_accounts_file,
         root_ / "common" / "accounts.lua");
@@ -98,11 +128,76 @@ TEST_F(LayeredConfigTest, ResolvesSharedPlayerDataDatabaseFromConfigRoot) {
         game::common::CredentialHashCost::Minimum);
 }
 
+TEST_F(LayeredConfigTest, RequiresDatabaseWhenUriIsSet) {
+    write(
+        root_ / "common" / "player_data.lua",
+        "return { player_data = { "
+        "uri = \"mongodb://127.0.0.1:27017/?replicaSet=rs0\" } }");
+    write(root_ / "services" / "realm.lua", "return {}");
+
+    EXPECT_THROW(
+        static_cast<void>(LayeredConfigLoader::load(root_, "realm")),
+        std::invalid_argument);
+}
+
+TEST_F(LayeredConfigTest, PrivatePlayerDataUriOverridesDefaultWithoutLuaOsAccess) {
+    const ScopedPlayerDataUri environment(
+        "mongodb://test_user:test_secret@127.0.0.1:27018/?directConnection=true");
+    write(root_ / "common" / "player_data.lua",
+          "return { player_data = { uri = 'mongodb://127.0.0.1:27017/', "
+          "uri_environment = 'REALMMESH_TEST_MONGODB_URI', database = 'realmmesh' } }");
+    write(root_ / "services" / "realm.lua", "return {}");
+    EXPECT_EQ(LayeredConfigLoader::load(root_, "realm").player_data.uri,
+              std::getenv(ScopedPlayerDataUri::name));
+}
+
+TEST_F(LayeredConfigTest, UnsetPlayerDataUriEnvironmentPreservesLocalDefault) {
+    const ScopedPlayerDataUri environment(nullptr);
+    write(root_ / "common" / "player_data.lua",
+          "return { player_data = { uri = 'mongodb://127.0.0.1:27017/', "
+          "uri_environment = 'REALMMESH_TEST_MONGODB_URI', database = 'realmmesh' } }");
+    write(root_ / "services" / "realm.lua", "return {}");
+    EXPECT_EQ(LayeredConfigLoader::load(root_, "realm").player_data.uri,
+              "mongodb://127.0.0.1:27017/");
+}
+
+TEST_F(LayeredConfigTest, MissingPrivatePlayerDataUriFailsWithoutDefault) {
+    const ScopedPlayerDataUri environment(nullptr);
+    write(root_ / "common" / "player_data.lua",
+          "return { player_data = { uri_environment = 'REALMMESH_TEST_MONGODB_URI', "
+          "database = 'realmmesh' } }");
+    write(root_ / "services" / "realm.lua", "return {}");
+    EXPECT_THROW(static_cast<void>(LayeredConfigLoader::load(root_, "realm")),
+                 std::invalid_argument);
+}
+
+TEST_F(LayeredConfigTest, EmptyPrivatePlayerDataUriFailsInsteadOfConnectingLocally) {
+    const ScopedPlayerDataUri environment("");
+    write(root_ / "common" / "player_data.lua",
+          "return { player_data = { uri = 'mongodb://127.0.0.1:27017/', "
+          "uri_environment = 'REALMMESH_TEST_MONGODB_URI', database = 'realmmesh' } }");
+    write(root_ / "services" / "realm.lua", "return {}");
+    EXPECT_THROW(static_cast<void>(LayeredConfigLoader::load(root_, "realm")),
+                 std::invalid_argument);
+}
+
+TEST_F(LayeredConfigTest, RejectsRetiredSqlitePlayerDataKeys) {
+    // ADR-0010 的本地文件键在 ADR-0011 后失效；静默忽略会让旧配置误以为
+    // 仍指向本地库。
+    write(
+        root_ / "common" / "player_data.lua",
+        "return { player_data = { database_file = \"data/players.sqlite\" } }");
+    write(root_ / "services" / "realm.lua", "return {}");
+
+    EXPECT_THROW(
+        static_cast<void>(LayeredConfigLoader::load(root_, "realm")),
+        std::invalid_argument);
+}
+
 TEST_F(LayeredConfigTest, RejectsUnknownCredentialHashCost) {
     write(
         root_ / "common" / "player_data.lua",
-        "return { player_data = { database_file = \"data/players.sqlite\", "
-        "credential_hash_cost = \"cheap\" } }");
+        "return { player_data = { credential_hash_cost = \"cheap\" } }");
     write(root_ / "services" / "realm.lua", "return {}");
 
     EXPECT_THROW(

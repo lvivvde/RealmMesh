@@ -9,6 +9,7 @@
 #include <optional>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 
 namespace realm::game::common {
 
@@ -61,33 +62,40 @@ enum class CredentialHashCost : std::uint8_t {
     Minimum,
 };
 
-struct SqlitePlayerDataOptions final {
-    std::chrono::milliseconds busy_timeout{500};
-    /// 非空时，打开库后对空库执行一次性 Lua 导入（见 bootstrap_from_lua）。
-    /// 三个服务共用同一配置，谁先打开空库谁完成导入。
+struct MongoPlayerDataOptions final {
+    /// 找到可写 primary 的上限；超时即按数据源不可用失败。
+    std::chrono::milliseconds server_selection_timeout{2'000};
+    /// 单次网络读写的套接字超时，界定一次查询最多占用调用方多久。
+    std::chrono::milliseconds socket_timeout{2'000};
+    /// 非空时，连接后对尚未导入过的库执行一次性 Lua 导入（见
+    /// bootstrap_from_lua）。三个服务共用同一配置，谁先到谁完成导入。
     std::optional<std::filesystem::path> bootstrap_accounts_file;
     CredentialHashCost credential_hash_cost{CredentialHashCost::Interactive};
 };
 
-/// 公共 `player_data` 配置段：三个服务读取同一份，指向同一个 SQLite 文件。
-/// database_file 为空表示未配置权威数据源（仅隔离测试使用）。
+/// 公共 `player_data` 配置段：三个服务读取同一份，指向同一个 MongoDB
+/// 副本集与库（ADR-0011）。uri 为空表示未配置权威数据源（仅隔离测试使用）。
 struct PlayerDataConfig final {
-    std::filesystem::path database_file;
-    SqlitePlayerDataOptions options;
+    std::string uri;
+    std::string database;
+    MongoPlayerDataOptions options;
 };
 
-/// 单机部署的权威账号/角色存储。每次查询读取最新已提交事务；WAL 与
-/// FULL synchronous 保证进程重启后已提交数据仍可恢复。
-class SqlitePlayerDataStore final : public AccountStore,
-                                    public PlayerDataReader {
+/// 权威账号/角色存储（ADR-0011）。准入事实以 majority + journal 写入、
+/// majority 读取，任一服务看到的都是已持久提交的最新事实；部署必须是
+/// 副本集。线程安全：内部持有连接池，可被多个线程同时调用。
+class MongoPlayerDataStore final : public AccountStore,
+                                   public PlayerDataReader {
 public:
-    explicit SqlitePlayerDataStore(
-        std::filesystem::path database_file,
-        SqlitePlayerDataOptions options = {});
-    ~SqlitePlayerDataStore();
+    /// 连接失败、不是副本集或 schema 版本高于本二进制时抛 PlayerDataError。
+    MongoPlayerDataStore(
+        std::string uri,
+        std::string database,
+        MongoPlayerDataOptions options = {});
+    ~MongoPlayerDataStore();
 
-    SqlitePlayerDataStore(const SqlitePlayerDataStore&) = delete;
-    SqlitePlayerDataStore& operator=(const SqlitePlayerDataStore&) = delete;
+    MongoPlayerDataStore(const MongoPlayerDataStore&) = delete;
+    MongoPlayerDataStore& operator=(const MongoPlayerDataStore&) = delete;
 
     [[nodiscard]] std::optional<AccountRecord> authenticate(
         std::string_view account,

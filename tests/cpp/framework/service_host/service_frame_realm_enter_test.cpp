@@ -264,6 +264,40 @@ private:
     };
 }
 
+/// Realm 只经 PlayerDataReader 重新确认票据里的角色归属；内存替身足以
+/// 驱动兑换路径，MongoDB 读语义由 player_data_store_test 覆盖。
+class SingleCharacterPlayerData final : public game::common::PlayerDataReader {
+public:
+    explicit SingleCharacterPlayerData(game::common::CharacterRecord character)
+        : character_(std::move(character)) {}
+
+    [[nodiscard]] std::optional<game::common::AccountLoginFacts> login_facts(
+        std::uint64_t account_id) const override {
+        if (account_id != character_.account_id) return std::nullopt;
+        return game::common::AccountLoginFacts{
+            .account_id = account_id,
+            .character_id = character_.character_id,
+            .realm_id = character_.realm_id,
+            .character_revision = character_.revision,
+        };
+    }
+
+    [[nodiscard]] std::optional<game::common::CharacterRecord> character(
+        std::uint64_t account_id,
+        std::uint32_t realm_id,
+        std::uint64_t character_id) const override {
+        if (account_id != character_.account_id ||
+            realm_id != character_.realm_id ||
+            character_id != character_.character_id) {
+            return std::nullopt;
+        }
+        return character_;
+    }
+
+private:
+    game::common::CharacterRecord character_;
+};
+
 class ServiceFrameRealmEnterTest : public ::testing::Test {
 protected:
     void SetUp() override {
@@ -276,20 +310,12 @@ protected:
             logger_config,
             observability::ServiceIdentity{.service_name = "realm"});
 
-        player_data_.emplace(log_directory_->path() / "player-data.sqlite");
-        player_data_->provision_account({
-            .account_id = 42,
-            .account_name = "realm-test-account",
-            .credential = "realm-test-credential",
-            .whitelisted = true,
-        });
-        player_data_->provision_character({
+        player_data_.emplace(game::common::CharacterRecord{
             .character_id = 7001,
             .account_id = 42,
             .realm_id = 1,
             .name = "realm-test-character",
         });
-        player_data_->select_character(42, 7001);
 
         cluster::ServiceInstance instance{
             .type = cluster::ServiceType::Realm,
@@ -427,7 +453,7 @@ protected:
     std::optional<cluster::InstanceBudgetReporter> reporter_;
     std::optional<game::gateway::GatewayRuntime> runtime_;
     std::optional<game::common::SessionTickets> tickets_;
-    std::optional<game::common::SqlitePlayerDataStore> player_data_;
+    std::optional<SingleCharacterPlayerData> player_data_;
     RealmTestClient* client_{nullptr};
     std::optional<ServiceFrame> frame_;
 };
