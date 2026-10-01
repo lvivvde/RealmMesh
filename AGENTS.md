@@ -1,29 +1,34 @@
 # RealmMesh
 
-C++ game server / client framework (CMake, Lua scripting, protobuf protocols).
+C++20 distributed game server framework (CMake, Lua config, protobuf wire). Project docs (CONTEXT, ADRs, specs, architecture) are written in Chinese; write additions to them in Chinese.
 
-## Agent skills
+## Orientation
 
-### Issue tracker
+- **Glossary first**: read `CONTEXT.md` before naming a domain concept in code, tests, issues, or docs, and use its terms (each entry's `_Avoid_` list names the rejected synonyms). Read the `docs/adr/` entries touching your area; when your change contradicts one, say so explicitly. Details: `docs/agents/domain.md`.
+- **Login chain** (verify → queue → gateway pipeline → direct Realm connect): design in `docs/specs/`, implemented structure in `docs/architecture.md`, wire format in `docs/protocol.md`.
+- **Services**: `game/login_verify` and `game/queue` are HTTPS/JSON services; `gateway` and `realm` both run on `game::gateway::GatewayRuntime` inside `game/gateway/` (realm has no directory of its own). Shared code lives in `game/common`. `apps/mesh_host` builds the single `realm_mesh` binary (`--service <name>` runs one service). The retired `login` wire name stays unused.
+- **Lean tree** (ADR-0003): a directory appears in the same change as the code that fills it.
 
-Issues are tracked in GitHub Issues (github.com/lvivvde/RealmMesh) via the `gh` CLI. See `docs/agents/issue-tracker.md`.
+## Platforms
 
-### Triage labels
+macOS is the dev baseline and builds TLS/TCP only; QUIC compiles and runs only on Linux (ADR-0002). A green macOS run leaves QUIC paths unverified: CI's `linux` job is their gate.
 
-Default triage label vocabulary: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`. See `docs/agents/triage-labels.md`.
+## Testing
 
-### Domain docs
+Read `tests/README.md` before adding a test. Every target carries a ctest label, and any target that binds ports or spawns `realm_mesh` needs `LABELS integration`.
 
-Single-context: one `CONTEXT.md` + `docs/adr/` at the repo root. See `docs/agents/domain.md`.
+- Fast loop: `ctest --preset dev -L unit` (no processes, no etcd).
+- Full run: `./scripts/build.sh` (configure + build + all tests). Integration tests start a real etcd, installed once by `./scripts/install-etcd.sh`.
 
-### Architecture
+## Docs travel with code
 
-The login-chain topology (verify → queue → gateway pipeline → direct Realm connect) is specified in `docs/specs/2026-09-12-login-chain-surge.md`, with decisions in `docs/adr/0004`–`0008` (0004–0007 cover the server-side chain, 0008 the client chain's shared wire and redeemer seam); `docs/architecture.md` holds the implemented structure. Services live in `game/<service>/`: `login_verify` and `queue` are HTTPS/JSON services, while `gateway` and `realm` share `game::gateway::GatewayRuntime`. The old `login` service is retired and its wire name is never reused. `apps/mesh_host` is the single `realm_mesh` entry point (`--service <name>` narrows to one service).
+A change that alters implemented structure, wire format, or domain terms updates `docs/architecture.md`, `docs/protocol.md`, `CONTEXT.md`, and the README 实施状态 table in the same PR.
 
-### Code discovery
+## Code discovery
 
-Prefer `codebase-memory-mcp` tools (`search_graph`, `trace_path`, `get_code_snippet`) over Grep/Glob for code lookup; use Grep for string literals and `third_party/`. After `git pull` with changes, run `index_repository` (incremental).
+When `codebase-memory-mcp` is connected, use `search_graph` / `trace_path` / `get_code_snippet` for code lookup, and Grep for string literals and `third_party/` (excluded from the index by `.cbmignore`). After pulling changes, run `index_repository` (incremental).
 
-### Testing
+## Issues and commits
 
-Tests live under `tests/`: C++ GTest in `tests/cpp` (mirrors the source tree), Lua suites in `tests/lua`, script-driven integration in `tests/scripts`. Read `tests/README.md` before adding tests — every test must carry a ctest label (`unit`/`integration`; Lua suites additionally carry the `lua` filter label); fast subset is `ctest -L unit`, full run is `./scripts/build.sh`.
+- GitHub Issues via `gh`: operations in `docs/agents/issue-tracker.md`, triage label mapping in `docs/agents/triage-labels.md`.
+- Commit subjects follow Conventional Commits with a scope and the issue number: `fix(queue): persist issued positions across restart (#89)`.
