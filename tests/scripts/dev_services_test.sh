@@ -208,6 +208,22 @@ if [[ "${realmmesh_etcd_ready}" -ne 1 ]]; then
     exit 1
 fi
 
+etcd_range_body() {
+    python3 - "$1" <<'PY'
+import base64
+import json
+import sys
+
+print(json.dumps({"key": base64.b64encode(sys.argv[1].encode()).decode()}))
+PY
+}
+realmmesh_gateway_budget_range_body="$(etcd_range_body \
+    /realmmesh/budgets/service/gateway/gateway-dev-01/budget)"
+realmmesh_realm_budget_range_body="$(etcd_range_body \
+    /realmmesh/budgets/service/realm/realm-dev-01/budget)"
+realmmesh_queue_registration_range_body="$(etcd_range_body \
+    /realmmesh/services/queue/queue-dev-01)"
+
 # BSD sed 的 -i 需要一个后缀参数,多段 -e 会被当成文件名("sed: -e: No such
 # file or directory")。用重定向 + mv 重写配置,在 GNU/BSD sed 上行为一致。
 rewrite_config() {
@@ -322,6 +338,18 @@ stop_standalone_service() {
     rm -f -- "${realmmesh_pid_file}"
 }
 
+crash_standalone_service() {
+    local realmmesh_service="$1"
+    local realmmesh_pid_file
+    realmmesh_pid_file="$(standalone_pid_file "${realmmesh_service}")"
+    [[ -f "${realmmesh_pid_file}" ]]
+    local realmmesh_pid
+    realmmesh_pid="$(<"${realmmesh_pid_file}")"
+    kill -KILL "${realmmesh_pid}"
+    wait "${realmmesh_pid}" 2>/dev/null || true
+    rm -f -- "${realmmesh_pid_file}"
+}
+
 service_metrics_port() {
     case "$1" in
         login_verify) printf '%s\n' "${realmmesh_login_verify_metrics_port}" ;;
@@ -366,6 +394,40 @@ wait_for_standalone_unready() {
     printf '%s stayed ready after dependency outage\n' \
         "${realmmesh_service}" >&2
     return 1
+}
+
+wait_for_etcd_key_state() {
+    local realmmesh_range_body="$1"
+    local realmmesh_expected_state="$2"
+    local realmmesh_attempt
+    for realmmesh_attempt in {1..100}; do
+        local realmmesh_range_response
+        if realmmesh_range_response="$(
+            curl --silent --fail --connect-timeout 0.1 --max-time 0.2 \
+                --header 'Content-Type: application/json' \
+                --request POST --data "${realmmesh_range_body}" \
+                "${realmmesh_etcd_endpoint}/v3/kv/range" 2>/dev/null
+        )"; then
+            local realmmesh_key_state="absent"
+            if grep -Eq '"count":"?[1-9][0-9]*"?' \
+                <<<"${realmmesh_range_response}"; then
+                realmmesh_key_state="present"
+            fi
+            if [[ "${realmmesh_key_state}" == "${realmmesh_expected_state}" ]]; then
+                return 0
+            fi
+        fi
+        sleep 0.1
+    done
+    printf 'etcd key did not become %s\n' "${realmmesh_expected_state}" >&2
+    return 1
+}
+
+queue_released_number() {
+    curl --silent --fail --connect-timeout 0.1 --max-time 0.2 \
+        "http://127.0.0.1:${realmmesh_queue_metrics_port}/metrics" |
+        awk '$1 == "released_number" { print int($2); found = 1 }
+             END { if (!found) exit 1 }'
 }
 
 start_four_services() {
@@ -514,27 +576,80 @@ case "${realmmesh_case}" in
         [[ -x "${realmmesh_loadgen_binary}" ]]
         start_four_services
 
-        stop_standalone_service gateway
+        wait_for_etcd_key_state \
+            "${realmmesh_gateway_budget_range_body}" present
+        realmmesh_recovery_started="${SECONDS}"
+        crash_standalone_service gateway
+        wait_for_etcd_key_state \
+            "${realmmesh_gateway_budget_range_body}" absent
+        realmmesh_recovery_elapsed="$((SECONDS - realmmesh_recovery_started))"
+        [[ "${realmmesh_recovery_elapsed}" -le 10 ]]
+        printf 'acceptance_fault gateway_budget_removal elapsed_s=%s threshold_s=10 result=PASS\n' \
+            "${realmmesh_recovery_elapsed}"
         expect_full_login_failure
+        realmmesh_recovery_started="${SECONDS}"
         start_standalone_service gateway
         wait_for_standalone_ready gateway
+        wait_for_etcd_key_state \
+            "${realmmesh_gateway_budget_range_body}" present
         run_full_login
+        realmmesh_recovery_elapsed="$((SECONDS - realmmesh_recovery_started))"
+        [[ "${realmmesh_recovery_elapsed}" -le 10 ]]
+        printf 'acceptance_fault gateway_budget_restore elapsed_s=%s threshold_s=10 result=PASS\n' \
+            "${realmmesh_recovery_elapsed}"
 
+        wait_for_etcd_key_state \
+            "${realmmesh_realm_budget_range_body}" present
+        realmmesh_recovery_started="${SECONDS}"
         stop_standalone_service realm
+        wait_for_etcd_key_state \
+            "${realmmesh_realm_budget_range_body}" absent
+        realmmesh_recovery_elapsed="$((SECONDS - realmmesh_recovery_started))"
+        [[ "${realmmesh_recovery_elapsed}" -le 10 ]]
+        printf 'acceptance_fault realm_budget_removal elapsed_s=%s threshold_s=10 result=PASS\n' \
+            "${realmmesh_recovery_elapsed}"
         expect_full_login_failure
+        realmmesh_recovery_started="${SECONDS}"
         start_standalone_service realm
         wait_for_standalone_ready realm
+        wait_for_etcd_key_state \
+            "${realmmesh_realm_budget_range_body}" present
         wait_for_standalone_ready gateway
         run_full_login
+        realmmesh_recovery_elapsed="$((SECONDS - realmmesh_recovery_started))"
+        [[ "${realmmesh_recovery_elapsed}" -le 10 ]]
+        printf 'acceptance_fault realm_budget_restore elapsed_s=%s threshold_s=10 result=PASS\n' \
+            "${realmmesh_recovery_elapsed}"
 
-        stop_standalone_service queue
+        realmmesh_released_before="$(queue_released_number)"
+        [[ "${realmmesh_released_before}" =~ ^[0-9]+$ ]]
+        [[ "${realmmesh_released_before}" -gt 0 ]]
+        realmmesh_recovery_started="${SECONDS}"
+        crash_standalone_service queue
+        wait_for_etcd_key_state \
+            "${realmmesh_queue_registration_range_body}" absent
         start_standalone_service queue
         wait_for_standalone_ready queue
+        realmmesh_released_after="$(queue_released_number)"
+        [[ "${realmmesh_released_after}" =~ ^[0-9]+$ ]]
+        [[ "${realmmesh_released_after}" -ge "${realmmesh_released_before}" ]]
+        printf 'acceptance_fault queue_released_number before=%s after=%s result=PASS\n' \
+            "${realmmesh_released_before}" "${realmmesh_released_after}"
         run_full_login
+        realmmesh_recovery_elapsed="$((SECONDS - realmmesh_recovery_started))"
+        [[ "${realmmesh_recovery_elapsed}" -le 30 ]]
+        printf 'acceptance_fault queue_cold_restart elapsed_s=%s threshold_s=30 result=PASS\n' \
+            "${realmmesh_recovery_elapsed}"
 
+        realmmesh_recovery_started="${SECONDS}"
         kill -STOP "${realmmesh_etcd_pid}"
         wait_for_standalone_unready gateway
+        realmmesh_recovery_elapsed="$((SECONDS - realmmesh_recovery_started))"
+        [[ "${realmmesh_recovery_elapsed}" -le 10 ]]
+        printf 'acceptance_fault etcd_outage_unready elapsed_s=%s threshold_s=10 result=PASS\n' \
+            "${realmmesh_recovery_elapsed}"
         expect_full_login_failure
+        realmmesh_recovery_started="${SECONDS}"
         kill -CONT "${realmmesh_etcd_pid}"
         realmmesh_etcd_ready=0
         for _ in {1..40}; do
@@ -549,12 +664,21 @@ case "${realmmesh_case}" in
         done
         [[ "${realmmesh_etcd_ready}" -eq 1 ]]
         wait_for_standalone_ready gateway
+        realmmesh_recovery_elapsed="$((SECONDS - realmmesh_recovery_started))"
+        [[ "${realmmesh_recovery_elapsed}" -le 10 ]]
+        printf 'acceptance_fault etcd_recovery elapsed_s=%s threshold_s=10 result=PASS\n' \
+            "${realmmesh_recovery_elapsed}"
         # outage 中撞上不确定 etcd 写入的 Queue 会按 #89 fail-closed；重启后
         # 从权威快照恢复，才允许再次发号。
+        realmmesh_recovery_started="${SECONDS}"
         stop_standalone_service queue
         start_standalone_service queue
         wait_for_standalone_ready queue
         run_full_login
+        realmmesh_recovery_elapsed="$((SECONDS - realmmesh_recovery_started))"
+        [[ "${realmmesh_recovery_elapsed}" -le 30 ]]
+        printf 'acceptance_fault queue_authoritative_recovery elapsed_s=%s threshold_s=30 result=PASS\n' \
+            "${realmmesh_recovery_elapsed}"
         ;;
     *)
         printf 'Unknown test case: %s\n' "${realmmesh_case}" >&2

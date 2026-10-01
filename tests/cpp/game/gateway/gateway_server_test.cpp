@@ -167,7 +167,7 @@ TEST(LayeredConfigLoaderTest, MergesAuthoritativeGatewayTreeFieldByField) {
     EXPECT_EQ(config.service_discovery.node_id, "development-node");
     EXPECT_EQ(config.service_discovery.zone, "development");
     EXPECT_EQ(config.service_discovery.advertise_address, "127.0.0.1");
-    EXPECT_EQ(config.service_discovery.lease_ttl, std::chrono::seconds(15));
+    EXPECT_EQ(config.service_discovery.lease_ttl, std::chrono::seconds(5));
     EXPECT_EQ(
         config.service_discovery.request_timeout,
         std::chrono::milliseconds(500));

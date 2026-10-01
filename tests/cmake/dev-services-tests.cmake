@@ -50,3 +50,14 @@ add_dev_services_test(
     "$<TARGET_FILE:new_chain_flow_test>"
     "$<TARGET_FILE:realm_mesh_loadgen>"
 )
+
+add_test(
+    NAME LinuxAcceptanceScriptTest.PlanDescribesEveryMilestone
+    COMMAND bash
+        "${PROJECT_SOURCE_DIR}/tests/scripts/linux_login_acceptance_test.sh"
+        "${PROJECT_SOURCE_DIR}"
+)
+set_tests_properties(
+    LinuxAcceptanceScriptTest.PlanDescribesEveryMilestone
+    PROPERTIES LABELS integration
+)

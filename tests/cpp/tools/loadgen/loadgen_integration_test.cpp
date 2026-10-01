@@ -851,10 +851,10 @@ TEST(LoadgenIntegrationTest, L1GatewaySoakHoldsWaterLevelWithoutFdLeak) {
 
     const auto fd_before = count_open_fds();
 
-    // 基线跑:取 attach p50 + 服务侧 fetch 均值,作无漂移对照。
+    // 基线跑:取 attach p99 + 服务侧 fetch 均值,作无漂移对照。
     // 对照口径必须与主跑**同并发**:准入现在是一次真实存储往返(etcd
     // 线性一致消费记录,ADR-0009),attach 时延随并发排队增长是预期行为,
-    // 把 30 并发的 p50 拿去和 100 并发的 p50 比,量的是负载曲线而不是
+    // 把 30 并发的 p99 拿去和 100 并发的 p99 比,量的是负载曲线而不是
     // 漂移。同并发对照仍能抓住"病态劣化"(5 倍守门不变)。
     LoadgenConfig baseline;
     baseline.target = LoadgenLoginTarget::GatewaySoak;
@@ -864,7 +864,13 @@ TEST(LoadgenIntegrationTest, L1GatewaySoakHoldsWaterLevelWithoutFdLeak) {
     baseline.poll_interval = std::chrono::milliseconds{50};
     baseline.endpoints = endpoints;
     const auto base_report = run_loadgen(baseline);
-    const auto base_p50 = base_report.attach.latency.summary().p50_ms;
+    const auto base_latency = base_report.attach.latency.summary();
+    ASSERT_EQ(base_report.completed, 100);
+    ASSERT_EQ(base_report.attach.failures, 0);
+    ASSERT_EQ(base_report.handoff.failures, 0);
+    ASSERT_EQ(base_report.attach.latency.samples(),
+              base_report.attach.attempts);
+    ASSERT_GT(base_report.attach.latency.samples(), 0);
     const auto base_metrics =
         parse_metrics_text(mesh.service("gateway").prometheus_metrics());
     const auto base_fetch_sum =
@@ -872,7 +878,7 @@ TEST(LoadgenIntegrationTest, L1GatewaySoakHoldsWaterLevelWithoutFdLeak) {
     const auto base_fetch_count =
         base_metrics.total("edge_fetch_duration_seconds_count");
 
-    // 采样线程:主跑期间 150ms 一次抓网关水位。
+    // 采样线程:主跑期间 20ms 一次抓网关水位,避免错过并发阶段重叠。
     std::vector<WaterSample> samples;
     std::mutex samples_mutex;
     std::atomic_bool sampling{true};
@@ -882,7 +888,7 @@ TEST(LoadgenIntegrationTest, L1GatewaySoakHoldsWaterLevelWithoutFdLeak) {
                 mesh.service("gateway").prometheus_metrics());
             std::scoped_lock lock{samples_mutex};
             samples.push_back(sample_water(snapshot));
-            std::this_thread::sleep_for(std::chrono::milliseconds{150});
+            std::this_thread::sleep_for(std::chrono::milliseconds{20});
         }
     });
 
@@ -908,7 +914,10 @@ TEST(LoadgenIntegrationTest, L1GatewaySoakHoldsWaterLevelWithoutFdLeak) {
     // 100 个机器人全持,取 ≥ 50 宽松)。
     ASSERT_FALSE(samples.empty());
     double capacity = 0;
+    double max_pending = 0;
+    double max_fetching = 0;
     double max_handed_off = 0;
+    bool saw_mixed_water = false;
     for (const auto& sample : samples) {
         const auto total =
             sample.pending + sample.fetching + sample.handed_off +
@@ -917,17 +926,24 @@ TEST(LoadgenIntegrationTest, L1GatewaySoakHoldsWaterLevelWithoutFdLeak) {
             capacity = total;
         }
         EXPECT_DOUBLE_EQ(total, capacity);
+        max_pending = std::max(max_pending, sample.pending);
+        max_fetching = std::max(max_fetching, sample.fetching);
         max_handed_off = std::max(max_handed_off, sample.handed_off);
+        const auto active_stages = static_cast<int>(sample.pending > 0) +
+                                   static_cast<int>(sample.fetching > 0) +
+                                   static_cast<int>(sample.handed_off > 0);
+        saw_mixed_water = saw_mixed_water || active_stages >= 2;
     }
     EXPECT_GT(capacity, 0);
+    EXPECT_GT(max_fetching, 0);
     EXPECT_GE(max_handed_off, 50);
+    EXPECT_TRUE(saw_mixed_water);
 
-    // 时延无漂移:主跑 attach p50 相对自身基线不劣化超过 5 倍(宽松守
-    // 门;基线为 0 时跳过,毫秒精度下 0 表示无样本)。
-    const auto main_p50 = report.attach.latency.summary().p50_ms;
-    if (base_p50 > 0) {
-        EXPECT_LT(main_p50, base_p50 * 5);
-    }
+    // 时延无漂移:主跑 attach p99 相对自身基线不劣化超过 5 倍。1ms
+    // 是计时精度下限,避免极快环境把 0ms 基线变成关闭门禁的特例。
+    const auto main_latency = report.attach.latency.summary();
+    const auto base_p99_gate = std::max(base_latency.p99_ms, 1.0);
+    EXPECT_LT(main_latency.p99_ms, base_p99_gate * 5);
 
     // 服务侧拉取时延同口径对照(spec:soak 看的是服务时延,不只是客户
     // 端 attach 代理):主跑相对基线的 edge_fetch 增量均值不劣化超过
@@ -974,6 +990,21 @@ TEST(LoadgenIntegrationTest, L1GatewaySoakHoldsWaterLevelWithoutFdLeak) {
         std::this_thread::sleep_for(std::chrono::milliseconds{100});
     }
     EXPECT_TRUE(fds_settled);
+    const auto fd_after = count_open_fds();
+    std::cout << "acceptance_m1 gateway_soak completed=" << report.completed
+              << " attach_failures=" << report.attach.failures
+              << " handoff_failures=" << report.handoff.failures
+              << " capacity=" << capacity
+              << " max_pending=" << max_pending
+              << " max_fetching=" << max_fetching
+              << " max_handed_off=" << max_handed_off
+              << " mixed_water_sample=" << saw_mixed_water
+              << " baseline_attach_p50_ms=" << base_latency.p50_ms
+              << " main_attach_p50_ms=" << main_latency.p50_ms
+              << " baseline_attach_p99_ms=" << base_latency.p99_ms
+              << " main_attach_p99_ms=" << main_latency.p99_ms
+              << " fd_before=" << fd_before
+              << " fd_after=" << fd_after << '\n';
 }
 
 TEST(LoadgenIntegrationTest, AdapterAndDecoratorDriveRealGatewayChain) {
@@ -1215,9 +1246,23 @@ TEST(LoadgenIntegrationTest, M2ReducedChainCompletesWithLowFetchFailure) {
     const auto retry_total = metrics.total("edge_fetch_retry_total");
     const auto fetch_count =
         metrics.total("edge_fetch_duration_seconds_count");
+    const auto fetch_failure_rate = retry_total + fetch_count > 0
+                                        ? retry_total /
+                                              (retry_total + fetch_count)
+                                        : 0.0;
+    std::cout << "acceptance_m2 robots=" << report.robots
+              << " completed=" << report.completed
+              << " skipped=" << report.skipped
+              << " attach_attempts=" << report.attach.attempts
+              << " attach_failures=" << report.attach.failures
+              << " handoff_attempts=" << report.handoff.attempts
+              << " handoff_failures=" << report.handoff.failures
+              << " fetch_count=" << fetch_count
+              << " fetch_retries=" << retry_total
+              << " fetch_failure_rate=" << fetch_failure_rate << '\n';
     EXPECT_GE(fetch_count, 248);
     if (retry_total + fetch_count > 0) {
-        EXPECT_LT(retry_total / (retry_total + fetch_count), 0.01);
+        EXPECT_LT(fetch_failure_rate, 0.01);
     }
 }
 
@@ -1279,6 +1324,13 @@ TEST(LoadgenIntegrationTest, M3SmokeTenThousandTicketsAndConcurrentPolls) {
     poll_run.poll_interval = std::chrono::milliseconds{50};
     poll_run.endpoints = loadgen_endpoints(login_verify_port, queue_port, 0);
     const auto poll_report = run_loadgen(poll_run);
+    std::cout << "acceptance_m3 tickets_robots=" << tickets_report.robots
+              << " tickets_completed=" << tickets_report.completed
+              << " tickets_skipped=" << tickets_report.skipped
+              << " poll_robots=" << poll_report.robots
+              << " poll_completed=" << poll_report.completed
+              << " poll_skipped=" << poll_report.skipped
+              << " poll_attempts=" << poll_report.poll.attempts << '\n';
     if (poll_report.completed < 1998) {
         std::cout << poll_report.render();
     }

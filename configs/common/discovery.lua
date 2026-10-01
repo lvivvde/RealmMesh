@@ -9,7 +9,9 @@ return {
         required = false,
         endpoint = "http://127.0.0.1:2379",
         key_prefix = "/realmmesh/services",
-        lease_ttl_seconds = 15,
+        -- M4 crash convergence gate is 10s. Five seconds leaves room for
+        -- etcd expiry propagation while the publisher renews every ttl/3.
+        lease_ttl_seconds = 5,
         request_timeout_ms = 500,
         watch_interval_ms = 500,
         startup_timeout_ms = 5000,

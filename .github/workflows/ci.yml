@@ -94,3 +94,18 @@ jobs:
 
       - name: Test
         run: ctest --preset dev
+
+      - name: Linux M1-M4 acceptance
+        env:
+          REALMMESH_LINUX_ACCEPTANCE_SKIP_BUILD: "1"
+        run: ./scripts/run-linux-login-acceptance.sh
+
+      - name: Upload Linux acceptance report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-login-chain-m1-m4
+          path: |
+            build/dev/acceptance/linux-login-chain-m1-m4.md
+            build/dev/acceptance/linux-login-chain-m1-m4.log
+          if-no-files-found: warn
