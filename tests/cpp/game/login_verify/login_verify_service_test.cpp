@@ -8,7 +8,7 @@
 
 #include "realmmesh/game/common/identity_token.hpp"
 #include "realmmesh/game/common/json.hpp"
-#include "realmmesh/test_support/temporary_directory.hpp"
+#include "realmmesh/test_support/mongod_process.hpp"
 
 #include <gtest/gtest.h>
 #include <openssl/ssl.h>
@@ -188,9 +188,8 @@ protected:
     }
 
     void SetUp() override {
-        database_ = directory_.path() / "player-data.sqlite";
         {
-            common::SqlitePlayerDataStore store(database_);
+            common::MongoPlayerDataStore store(mongod_.uri(), database_);
             store.provision_account(common::AccountProvisioning{
                 .account_id = 4242,
                 .account_name = "pinned",
@@ -210,7 +209,8 @@ protected:
         config.listen_address = "127.0.0.1";
         config.listen_port = 0;
         config.kid = std::string{kKid};
-        config.player_data.database_file = database_;
+        config.player_data.uri = mongod_.uri();
+        config.player_data.database = database_;
         config.tls = network::TransportConfig::TlsServerIdentity{
             .certificate_chain_file = REALMMESH_TEST_TLS_CERTIFICATE,
             .private_key_file = REALMMESH_TEST_TLS_PRIVATE_KEY,
@@ -243,8 +243,8 @@ protected:
 
     static constexpr std::string_view kKid = "login-verify-test-1";
 
-    test_support::TemporaryDirectory directory_{"login-verify-service-test-"};
-    std::filesystem::path database_;
+    test_support::MongodProcess& mongod_{test_support::MongodProcess::shared()};
+    std::string database_{test_support::MongodProcess::fresh_database()};
     std::unique_ptr<LoginVerifyService> service_;
     std::jthread driver_;
     std::atomic_bool stopping_{false};
@@ -271,7 +271,7 @@ TEST_F(LoginVerifyServiceTest, VerifiesAccountOverTlsAndIssuesToken) {
 }
 
 TEST_F(LoginVerifyServiceTest, SeesCommittedAccountAccessUpdates) {
-    common::SqlitePlayerDataStore writer(database_);
+    common::MongoPlayerDataStore writer(mongod_.uri(), database_);
     writer.set_account_access(4242, true, true);
 
     const auto exchanged = https_exchange(

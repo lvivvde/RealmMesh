@@ -2,6 +2,7 @@
 
 #include "realmmesh/game/gateway/gateway_runtime.hpp"
 #include "realmmesh/network/tcp/tcp_listener.hpp"
+#include "realmmesh/test_support/mongod_process.hpp"
 #include "realmmesh/test_support/temporary_directory.hpp"
 
 #include <gtest/gtest.h>
@@ -199,7 +200,14 @@ void use_free_ports(
     if (contents.find("enabled = false") == std::string::npos) return false;
     std::ofstream output(target / "common" / "discovery.lua", std::ios::trunc);
     output << contents;
-    return static_cast<bool>(output);
+    if (!output) return false;
+
+    // realm/gateway 启动即连 Player Data Store:改指本进程共享的 mongod。
+    realm::test_support::point_player_data_at(
+        target,
+        realm::test_support::MongodProcess::shared(),
+        realm::test_support::MongodProcess::fresh_database());
+    return true;
 }
 
 /// 模式 1(全拓扑一体)E2E:真实配置起 realm → gateway,

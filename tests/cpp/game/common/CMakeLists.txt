@@ -4,13 +4,14 @@ realm_add_gtest(account_store_test
     INCLUDE_DIRS ${PROJECT_SOURCE_DIR}/tests/cpp/support/include
 )
 
-# 测试直接读库校验口令哈希参数；导入目标按目录作用域，需在此再查找。
-find_package(SQLite3 REQUIRED)
-
 realm_add_gtest(player_data_store_test
     SOURCES player_data_store_test.cpp
-    LIBS realm_game_common SQLite3::SQLite3
+    LIBS realm_game_common
     INCLUDE_DIRS ${PROJECT_SOURCE_DIR}/tests/cpp/support/include
+    DEFINITIONS REALMMESH_TEST_SOURCE_DIR="${PROJECT_SOURCE_DIR}"
+    # 拉起真实单节点 mongod 副本集(ADR-0011),占端口：属集成测试。
+    LABELS integration
+    DISCOVER_PROPERTIES TIMEOUT 60
 )
 
 realm_add_gtest(admission_grant_test

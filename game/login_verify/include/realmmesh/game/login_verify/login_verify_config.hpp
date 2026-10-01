@@ -20,7 +20,7 @@ struct LoginVerifyConfig {
     std::string kid{"login-verify-v1"};
     /// 相对 config_root(即 configs/ 目录)解析;默认即 configs/common/accounts.lua。
     std::filesystem::path accounts_file{"common/accounts.lua"};
-    /// database_file 非空时使用 SQLite 权威数据源，accounts_file 不再参与
+    /// uri 非空时使用 MongoDB 权威数据源(ADR-0011),accounts_file 不再参与
     /// 认证；Lua 账号表只经 player_data.bootstrap_accounts_file 导入空库。
     common::PlayerDataConfig player_data;
 };

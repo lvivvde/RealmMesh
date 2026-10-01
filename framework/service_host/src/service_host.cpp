@@ -176,17 +176,19 @@ ServiceHost::ServiceHost(
         gateway_primary_transport_ =
             std::make_unique<game::gateway::GatewayRuntimePrimaryTransport>(
                 *runtime_);
-        if (player_data.database_file.empty()) {
+        if (player_data.uri.empty()) {
             account_fetch_ =
                 std::make_unique<game::gateway::DelayedAccountFetchPort>(
                     std::chrono::milliseconds{100},
                     gateway_login_config.fetch_capacity);
         } else {
             account_fetch_ =
-                std::make_unique<game::gateway::SqliteAccountFetchPort>(
-                    player_data.database_file,
-                    gateway_login_config.fetch_capacity,
-                    player_data.options);
+                std::make_unique<game::gateway::PlayerDataAccountFetchPort>(
+                    std::make_unique<game::common::MongoPlayerDataStore>(
+                        player_data.uri,
+                        player_data.database,
+                        player_data.options),
+                    gateway_login_config.fetch_capacity);
         }
         gateway_login_pipeline_ =
             std::make_unique<game::gateway::GatewayLoginPipeline>(
@@ -201,9 +203,9 @@ ServiceHost::ServiceHost(
                     logger_.get(),
                     &metrics_registry_));
     }
-    if (service_name_ == "realm" && !player_data.database_file.empty()) {
-        player_data_ = std::make_unique<game::common::SqlitePlayerDataStore>(
-            player_data.database_file, player_data.options);
+    if (service_name_ == "realm" && !player_data.uri.empty()) {
+        player_data_ = std::make_unique<game::common::MongoPlayerDataStore>(
+            player_data.uri, player_data.database, player_data.options);
     }
     frame_ = std::make_unique<ServiceFrame>(
         service_name_,
