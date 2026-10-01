@@ -59,7 +59,7 @@ _Avoid_: Login Chain(客户端概念)、Gateway(部署身份不等于管线)、�
 _Avoid_: Client Session(旧名)、Pending Connection(旧名,pending 是阶段,不是另一种实体)、player(玩家是业务概念)、connection、handle、established(旧终态名:网关没有业务长连,终态是 handed-off)
 
 **Fetching**:
-Edge Session 的中间阶段:准入暂扣——凭据已验讫,正在限额拉取玩家账号数据,或拉取已完成但 Handoff 尚未被 Primary Transport 接纳;fetch 额度在拉取完成时即可归还,阶段只在 Handoff 被接纳后迁出。每次进出该阶段都是一次原子状态迁移。
+Edge Session 的中间阶段:准入暂扣——凭据已验讫,正在限额拉取玩家账号数据,或拉取已完成但 Handoff 尚未被 Primary Transport 接纳;fetch 额度在拉取完成时即可归还,阶段只在 Handoff 被接纳后迁出。每次拉取由有界工作者并发执行并受单次截止(`fetch_timeout_ms`)约束;账号不具备准入资格(封禁/不在白名单/无选定角色)即以 1007 终止,玩家数据暂不可用重试耗尽以 1008 收尾。每次进出该阶段都是一次原子状态迁移。
 _Avoid_: loading、provisioning、暂扣(是阶段名,不是动作)
 
 **Handoff**:
