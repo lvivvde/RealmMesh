@@ -17,3 +17,9 @@ status: accepted
 
 - 边缘 TLS 终结后回源明文/内网协议作为契约选项记录,但仅在边缘具备 EdDSA 验签能力的拓扑(Workers/Compute 类)成立,无该能力的边缘(如 Akamai)回退回源 HTTPS + 回源验签;选项不替代原生 HTTPS 监听能力。
 - service_host 装配为加法式扩展(可选 HTTP listener,配置门控),不改 TransportFactory/IMessageTransport/QUIC 路径。
+
+## 补记:挂起响应(#98)
+
+原 handler 契约是「loop 线程同步返回响应,不得阻塞」,但健全服验签必须跑 Argon2 并查询 MongoDB 账号源,同步执行会把整个 poll 循环卡在单次验签上。补记后服务边增加挂起响应:handler 可返回 `HttpDeferred`,慢工作交给 loop 外的有界工作者,结果回到属主线程后经 `HttpServer::complete(token, response)` 补发。挂起期间该连接暂停解析后续流水线请求(已收字节留在缓冲,补发后按序继续),截止按 idle_timeout 计;对端半关闭(close_notify)不放弃该响应——连接改为只写、无待写时从 event loop 摘下(EOF 在水平触发下恒可读,不摘会空转),补发写完后再关闭;截止到期、连接出错或背压关闭后,迟到的 complete 返回 false。
+
+这不是转向线程池阻塞模型:事件循环仍是单 loop 非阻塞,只有确实阻塞的请求(当前仅 `POST /v1/login/verify`)进入有界工作者;工作者满额立即回 `503` + `Retry-After`(code `1005`),不排进无界队列。同步 `HttpHandler` 仍可用(排队调度服不变)。

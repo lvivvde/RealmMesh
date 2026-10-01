@@ -1,5 +1,6 @@
 add_library(realm_login_verify_service
     src/login_verify_config.cpp
+    src/login_verify_dispatcher.cpp
     src/login_verify_handler.cpp
     src/login_verify_service.cpp
 )
@@ -14,6 +15,7 @@ target_include_directories(realm_login_verify_service
 
 target_link_libraries(realm_login_verify_service PUBLIC
     realm_cluster
+    realm_concurrency
     realm_game_common
     realm_network
     realm_observability

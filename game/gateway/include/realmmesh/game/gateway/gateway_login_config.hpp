@@ -30,6 +30,10 @@ struct AdmissionGrantKeySource final {
 struct GatewayLoginConfig {
     std::uint64_t conn_capacity{0};
     std::uint64_t fetch_capacity{1'000};
+    /// 并发查询玩家数据的工作线程数;fetch_capacity 只限排队 + 在途总量。
+    std::uint64_t fetch_workers{4};
+    /// 单次拉取的截止:超时即取消该尝试,按 Unavailable 计一次失败重试。
+    std::chrono::milliseconds fetch_timeout{3'000};
     std::chrono::milliseconds fetch_retry_base{2'000};
     unsigned fetch_retry_max{3};
     std::chrono::milliseconds handoff_grace{5'000};

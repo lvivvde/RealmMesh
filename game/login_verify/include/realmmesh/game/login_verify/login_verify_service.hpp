@@ -1,6 +1,7 @@
 #pragma once
 
 #include "realmmesh/game/login_verify/login_verify_config.hpp"
+#include "realmmesh/game/login_verify/login_verify_dispatcher.hpp"
 #include "realmmesh/game/login_verify/login_verify_handler.hpp"
 #include "realmmesh/network/transport/message_transport.hpp"
 
@@ -25,7 +26,7 @@ namespace realm::game::login_verify {
 
 /// 健全服运行体:HTTPS 服务边(#39)+ AccountStore(#40)+ 身份 Token
 /// 编解码(#37)的装配。start 装载种子与账号集并绑定监听;tick 驱动
-/// 服务边轮询,由 ServiceHost 每帧调用。
+/// 服务边轮询并补发工作者完成的验签响应(#98),由 ServiceHost 每帧调用。
 class LoginVerifyService final {
 public:
     /// metrics(#47):宿主持有的指标注册表;可空(测试装配)。
@@ -42,7 +43,7 @@ public:
     void start(observability::Logger* logger = nullptr);
     void stop();
 
-    /// 驱动一轮服务边轮询;未启动时为空操作。
+    /// 驱动一轮服务边轮询,再把已完成的验签响应交回服务边;未启动时为空操作。
     void tick();
 
     [[nodiscard]] bool running() const noexcept;
@@ -55,6 +56,9 @@ private:
     std::unique_ptr<common::AccountStore> store_;
     std::unique_ptr<common::IdentityTokenCodec> codec_;
     std::unique_ptr<LoginVerifyHandler> handler_;
+    /// 声明在 handler_ 之后、server_ 之前:析构先停服务边,再收工作者,
+    /// 最后才释放工作者引用的 handler。
+    std::unique_ptr<LoginVerifyDispatcher> dispatcher_;
     std::unique_ptr<network::HttpServer> server_;
     std::vector<network::TransportEndpoint> endpoints_;
 };

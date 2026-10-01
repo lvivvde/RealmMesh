@@ -21,6 +21,7 @@
 #include <string>
 #include <string_view>
 #include <thread>
+#include <utility>
 #include <vector>
 
 namespace realm::network {
@@ -177,6 +178,13 @@ public:
 
     void expect_closed() { expect_connection_closed(ssl_.get()); }
 
+    /// 发送 close_notify 并对 TCP 写方向发 FIN,读方向仍可收响应
+    /// (TLS 1.3 半关闭);服务端此后看到的 EOF 在水平触发下恒可读。
+    void half_close() {
+        ASSERT_GE(SSL_shutdown(ssl_.get()), 0);
+        ASSERT_EQ(::shutdown(socket_->get(), SHUT_WR), 0);
+    }
+
 private:
     std::unique_ptr<Descriptor> socket_;
     std::unique_ptr<SSL_CTX, SslContextDeleter> context_;
@@ -330,6 +338,189 @@ TEST(HttpServerTest, HonorsClientRequestedClose) {
     EXPECT_EQ(response.find("HTTP/1.1 200 "), 0U);
     EXPECT_NE(response.find("Connection: close"), std::string::npos);
     client.expect_closed();
+
+    stop = true;
+    server_thread.join();
+}
+
+[[nodiscard]] HttpServerConfig test_config() {
+    HttpServerConfig config;
+    config.tls_identity = {
+        .certificate_chain_file = REALMMESH_TEST_TLS_CERTIFICATE,
+        .private_key_file = REALMMESH_TEST_TLS_PRIVATE_KEY,
+        .alpn = "http/1.1",
+    };
+    return config;
+}
+
+/// 挂起响应(#98,ADR-0007 补记):handler 挂起后 poll_once 不回写,
+/// 同连接上流水线到达的下一个请求在补发前不进 handler;属主线程
+/// complete 后按序回写,keep-alive 连接继续服务。
+TEST(HttpServerTest, DeferredResponseHoldsPipelinedRequestsUntilCompleted) {
+    std::vector<std::string> dispatched;
+    std::vector<std::pair<HttpResponseToken, std::string>> pending;
+    std::mutex capture_mutex;
+    std::atomic<bool> release{false};
+    HttpServer server(
+        "127.0.0.1",
+        0,
+        test_config(),
+        [&](const Http1Request& request,
+            HttpResponseToken token) -> HttpHandlerResult {
+            const std::lock_guard lock(capture_mutex);
+            dispatched.push_back(request.target);
+            pending.emplace_back(token, request.target);
+            return HttpDeferred{};
+        });
+    std::atomic<bool> stop{false};
+    std::jthread server_thread([&] {
+        const auto deadline =
+            std::chrono::steady_clock::now() + std::chrono::seconds(10);
+        while (!stop.load() && std::chrono::steady_clock::now() < deadline) {
+            server.poll_once(std::chrono::milliseconds(5));
+            if (!release.load()) continue;
+            std::vector<std::pair<HttpResponseToken, std::string>> ready;
+            {
+                const std::lock_guard lock(capture_mutex);
+                ready.swap(pending);
+            }
+            for (auto& [token, target] : ready) {
+                EXPECT_TRUE(server.complete(
+                    token,
+                    {.status = 200, .headers = {}, .body = "done" + target}));
+            }
+        }
+    });
+
+    TlsClient client;
+    ASSERT_NO_FATAL_FAILURE(client.connect(server.local_port()));
+    client.send("GET /a HTTP/1.1\r\nHost: x\r\n\r\n"
+                "GET /b HTTP/1.1\r\nHost: x\r\n\r\n");
+    std::this_thread::sleep_for(std::chrono::milliseconds(150));
+    {
+        const std::lock_guard lock(capture_mutex);
+        EXPECT_EQ(dispatched, std::vector<std::string>{"/a"});
+    }
+
+    release = true;
+    const auto first = client.read_response();
+    EXPECT_EQ(first.find("HTTP/1.1 200 "), 0U);
+    EXPECT_NE(first.find("Connection: keep-alive"), std::string::npos);
+    EXPECT_NE(first.rfind("done/a"), std::string::npos);
+    const auto second = client.read_response();
+    EXPECT_NE(second.rfind("done/b"), std::string::npos);
+
+    client.send("GET /c HTTP/1.1\r\nHost: x\r\n\r\n");
+    const auto third = client.read_response();
+    EXPECT_NE(third.rfind("done/c"), std::string::npos);
+
+    stop = true;
+    server_thread.join();
+}
+
+/// 挂起中的连接仍受截止约束:超时关闭后 complete 返回 false,迟到的
+/// 结果被丢弃而不是写进复用了同一句柄的新连接。
+TEST(HttpServerTest, CompletingAfterConnectionClosedReturnsFalse) {
+    auto config = test_config();
+    config.idle_timeout = std::chrono::milliseconds(100);
+    std::atomic<HttpResponseToken> token{0};
+    std::atomic<bool> deferred{false};
+    HttpServer server(
+        "127.0.0.1",
+        0,
+        config,
+        [&](const Http1Request&, HttpResponseToken issued) -> HttpHandlerResult {
+            token = issued;
+            deferred = true;
+            return HttpDeferred{};
+        });
+
+    TlsClient client;
+    std::atomic<bool> stop{false};
+    std::jthread server_thread = run_server(server, stop);
+    ASSERT_NO_FATAL_FAILURE(client.connect(server.local_port()));
+    client.send("GET /slow HTTP/1.1\r\nHost: x\r\n\r\n");
+    client.expect_closed();
+    stop = true;
+    server_thread.join();
+
+    ASSERT_TRUE(deferred.load());
+    EXPECT_FALSE(server.complete(
+        token.load(), {.status = 200, .headers = {}, .body = "late"}));
+}
+
+/// 客户端发完请求即半关闭(close_notify):挂起中的响应照常补发,
+/// 写完后服务端再关闭连接,而不是在对端 EOF 时丢弃响应。
+TEST(HttpServerTest, DeferredResponseSurvivesClientHalfClose) {
+    std::atomic<HttpResponseToken> token{0};
+    std::atomic<bool> deferred{false};
+    std::atomic<bool> release{false};
+    std::atomic<bool> completed{false};
+    HttpServer server(
+        "127.0.0.1",
+        0,
+        test_config(),
+        [&](const Http1Request&, HttpResponseToken issued) -> HttpHandlerResult {
+            token = issued;
+            deferred = true;
+            return HttpDeferred{};
+        });
+    std::atomic<bool> stop{false};
+    std::jthread server_thread([&] {
+        const auto deadline =
+            std::chrono::steady_clock::now() + std::chrono::seconds(10);
+        while (!stop.load() && std::chrono::steady_clock::now() < deadline) {
+            server.poll_once(std::chrono::milliseconds(5));
+            if (release.load() && deferred.load() && !completed.load()) {
+                completed = server.complete(
+                    token.load(), {.status = 200, .headers = {}, .body = "late"});
+            }
+        }
+    });
+
+    TlsClient client;
+    ASSERT_NO_FATAL_FAILURE(client.connect(server.local_port()));
+    client.send("GET /slow HTTP/1.1\r\nHost: x\r\n\r\n");
+    // 先确认已挂起,close_notify 再单独到达(与请求同批到达是另一条路径)。
+    const auto deferred_by =
+        std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    while (!deferred.load() && std::chrono::steady_clock::now() < deferred_by) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    ASSERT_TRUE(deferred.load());
+    ASSERT_NO_FATAL_FAILURE(client.half_close());
+    // 留出几轮 poll,让服务端先读到 close_notify 再补发。
+    std::this_thread::sleep_for(std::chrono::milliseconds(150));
+
+    release = true;
+    const auto response = client.read_response();
+    EXPECT_EQ(response.find("HTTP/1.1 200 "), 0U);
+    EXPECT_NE(response.rfind("late"), std::string::npos);
+    client.expect_closed();
+    EXPECT_TRUE(completed.load());
+
+    stop = true;
+    server_thread.join();
+}
+
+/// 同步 handler 与挂起 handler 共存:立即返回 Http1Response 的分支照旧回写。
+TEST(HttpServerTest, DeferringHandlerMayAnswerImmediately) {
+    HttpServer server(
+        "127.0.0.1",
+        0,
+        test_config(),
+        [](const Http1Request&, HttpResponseToken) -> HttpHandlerResult {
+            return Http1Response{.status = 503, .headers = {{"Retry-After", "1"}}, .body = ""};
+        });
+    std::atomic<bool> stop{false};
+    std::jthread server_thread = run_server(server, stop);
+
+    TlsClient client;
+    ASSERT_NO_FATAL_FAILURE(client.connect(server.local_port()));
+    client.send("GET /busy HTTP/1.1\r\nHost: x\r\n\r\n");
+    const auto response = client.read_response();
+    EXPECT_EQ(response.find("HTTP/1.1 503 "), 0U);
+    EXPECT_NE(response.find("Retry-After: 1"), std::string::npos);
 
     stop = true;
     server_thread.join();

@@ -849,18 +849,31 @@ TEST(LoadgenIntegrationTest, L1GatewaySoakHoldsWaterLevelWithoutFdLeak) {
         loadgen_endpoints(login_verify_port, queue_port, gateway_port);
 
     // 预热:吸收一次性开销(OpenSSL/Lua/日志句柄),fd 基线从这之后取。
+    // 并发须盖过验签/拉取工作者数(各 4,#98):MongoDB 连接池按并发
+    // 需求增长并常驻,预热不把池撑满,主跑的合法增长会被误判为泄漏。
+    constexpr std::uint64_t warmup_robots = 16;
     LoadgenConfig warmup;
     warmup.target = LoadgenLoginTarget::Gateway;
-    warmup.robots = 2;
-    warmup.concurrency = 2;
-    warmup.duration_seconds = 3;
+    warmup.robots = warmup_robots;
+    warmup.concurrency = warmup_robots;
+    warmup.duration_seconds = 5;
     warmup.poll_interval = std::chrono::milliseconds{50};
     warmup.endpoints = endpoints;
     const auto warmup_report = run_loadgen(warmup);
-    if (warmup_report.completed != 2) {
+    if (warmup_report.completed != warmup_robots) {
         std::cout << warmup_report.render();
     }
-    EXPECT_EQ(warmup_report.completed, 2);
+    EXPECT_EQ(warmup_report.completed, warmup_robots);
+    // 预热会话排空后再取基线:在途关闭会把基线虚高,放过真泄漏。
+    for (int attempt = 0; attempt < 150; ++attempt) {
+        const auto snapshot = sample_water(parse_metrics_text(
+            mesh.service("gateway").prometheus_metrics()));
+        if (snapshot.handed_off == 0 && snapshot.pending == 0 &&
+            snapshot.fetching == 0) {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds{100});
+    }
 
     const auto fd_before = count_open_fds();
 
@@ -878,6 +891,9 @@ TEST(LoadgenIntegrationTest, L1GatewaySoakHoldsWaterLevelWithoutFdLeak) {
     baseline.endpoints = endpoints;
     const auto base_report = run_loadgen(baseline);
     const auto base_latency = base_report.attach.latency.summary();
+    if (base_report.completed != 100) {
+        std::cout << base_report.render();
+    }
     ASSERT_EQ(base_report.completed, 100);
     ASSERT_EQ(base_report.attach.failures, 0);
     ASSERT_EQ(base_report.handoff.failures, 0);

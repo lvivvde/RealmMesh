@@ -158,7 +158,7 @@ TEST(PlayerDataAccountFetchPortTest, LoadsSelectedCharacterWithoutBlockingSubmit
     const auto state = std::make_shared<FakePlayerDataReader::State>();
     state->released = false;
     PlayerDataAccountFetchPort port(
-        std::make_unique<FakePlayerDataReader>(state), 1);
+        std::make_unique<FakePlayerDataReader>(state), 1, 1);
     const auto now = std::chrono::steady_clock::now();
     // 查询被挡在工作线程里，submit 仍立即返回。
     EXPECT_EQ(
@@ -182,10 +182,40 @@ TEST(PlayerDataAccountFetchPortTest, LoadsSelectedCharacterWithoutBlockingSubmit
     EXPECT_EQ(completion->character_revision, 4U);
 }
 
+TEST(PlayerDataAccountFetchPortTest, SlowQueriesDoNotSerializeAcrossWorkers) {
+    const auto state = std::make_shared<FakePlayerDataReader::State>();
+    state->released = false;
+    PlayerDataAccountFetchPort port(
+        std::make_unique<FakePlayerDataReader>(state), 4, 2);
+    const auto now = std::chrono::steady_clock::now();
+    ASSERT_EQ(
+        port.submit({AccountFetchAttemptId{1}, EdgeSessionId{1}, 41}, now),
+        AccountFetchSubmitResult::Submitted);
+    ASSERT_EQ(
+        port.submit({AccountFetchAttemptId{2}, EdgeSessionId{2}, 42}, now),
+        AccountFetchSubmitResult::Submitted);
+
+    // 第一个查询卡住时,第二个工作线程仍接走第二个查询。
+    const auto deadline = std::chrono::steady_clock::now() + 2s;
+    while (state->queries.load() < 2 &&
+           std::chrono::steady_clock::now() < deadline) {
+        std::this_thread::sleep_for(1ms);
+    }
+    EXPECT_EQ(state->queries.load(), 2);
+
+    {
+        const std::scoped_lock lock(state->mutex);
+        state->released = true;
+    }
+    state->released_condition.notify_all();
+    ASSERT_TRUE(wait_for_completion(port).has_value());
+    ASSERT_TRUE(wait_for_completion(port).has_value());
+}
+
 TEST(PlayerDataAccountFetchPortTest, RechecksAccountAccessOnEveryAttempt) {
     const auto state = std::make_shared<FakePlayerDataReader::State>();
     PlayerDataAccountFetchPort port(
-        std::make_unique<FakePlayerDataReader>(state), 2);
+        std::make_unique<FakePlayerDataReader>(state), 2, 1);
     ASSERT_EQ(
         port.submit(
             {AccountFetchAttemptId{1}, EdgeSessionId{1}, 42},
@@ -215,7 +245,7 @@ TEST(PlayerDataAccountFetchPortTest, StoreFailureCompletesAsUnavailable) {
     const auto state = std::make_shared<FakePlayerDataReader::State>();
     state->unavailable = true;
     PlayerDataAccountFetchPort port(
-        std::make_unique<FakePlayerDataReader>(state), 1);
+        std::make_unique<FakePlayerDataReader>(state), 1, 1);
     ASSERT_EQ(
         port.submit(
             {AccountFetchAttemptId{1}, EdgeSessionId{1}, 42},
@@ -228,12 +258,17 @@ TEST(PlayerDataAccountFetchPortTest, StoreFailureCompletesAsUnavailable) {
     EXPECT_EQ(completion->status, AccountFetchStatus::Unavailable);
 }
 
-TEST(PlayerDataAccountFetchPortTest, RejectsMissingReaderAndZeroCapacity) {
+TEST(PlayerDataAccountFetchPortTest, RejectsMissingReaderZeroCapacityAndZeroWorkers) {
     const auto state = std::make_shared<FakePlayerDataReader::State>();
-    EXPECT_THROW(PlayerDataAccountFetchPort(nullptr, 1), std::invalid_argument);
+    EXPECT_THROW(
+        PlayerDataAccountFetchPort(nullptr, 1, 1), std::invalid_argument);
     EXPECT_THROW(
         PlayerDataAccountFetchPort(
-            std::make_unique<FakePlayerDataReader>(state), 0),
+            std::make_unique<FakePlayerDataReader>(state), 0, 1),
+        std::invalid_argument);
+    EXPECT_THROW(
+        PlayerDataAccountFetchPort(
+            std::make_unique<FakePlayerDataReader>(state), 1, 0),
         std::invalid_argument);
 }
 

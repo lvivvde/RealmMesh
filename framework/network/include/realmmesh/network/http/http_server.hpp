@@ -13,8 +13,11 @@
 #include <cstdint>
 #include <functional>
 #include <map>
+#include <optional>
 #include <string>
 #include <string_view>
+#include <unordered_map>
+#include <variant>
 
 namespace realm::network {
 
@@ -35,11 +38,26 @@ struct HttpServerConfig final {
 /// 完整请求到达后同步回调(在 loop 线程执行,不得阻塞)。
 using HttpHandler = std::function<Http1Response(const Http1Request&)>;
 
+/// 挂起响应的凭据(#98,ADR-0007 补记):进程内单调递增,不复用。
+using HttpResponseToken = std::uint64_t;
+/// handler 返回它表示挂起:慢工作(如 Argon2 验签)交给 loop 外的有界
+/// 工作者,结果回到属主线程后以 HttpServer::complete 补发。
+struct HttpDeferred final {};
+using HttpHandlerResult = std::variant<Http1Response, HttpDeferred>;
+/// 可挂起的 handler:同样在 loop 线程执行、不得阻塞;token 只在返回
+/// HttpDeferred 时有意义。
+using HttpDeferringHandler =
+    std::function<HttpHandlerResult(const Http1Request&, HttpResponseToken)>;
+
 /// 自研最小 HTTPS 服务边(ADR-0007):TcpListener + IEventLoop +
 /// TlsServerContext + 流模式 TlsConnection + 有界 HTTP/1.1 解析。
 /// 轮询模型:属主线程驱动 poll_once,与消息传输同一形状;单 loop,
 /// 洪峰分片 = 多 runtime 实例(规格 §5.3)。协议层错误(400/413/431/505)
 /// 由服务边直接回绝并关闭连接,不进 handler。
+///
+/// 挂起响应:handler 挂起期间该连接不再解析后续(流水线)请求,已收字节
+/// 留在缓冲里,补发后按序继续;挂起期间截止按 idle_timeout 自请求完整时
+/// 起算;对端半关闭(close_notify)不放弃该响应,补发写完后再关闭连接。
 class HttpServer final {
 public:
     /// port 传 0 时由内核分配,local_port() 取实际值。
@@ -48,6 +66,11 @@ public:
         std::uint16_t port,
         HttpServerConfig config,
         HttpHandler handler);
+    HttpServer(
+        std::string_view address,
+        std::uint16_t port,
+        HttpServerConfig config,
+        HttpDeferringHandler handler);
     ~HttpServer();
 
     HttpServer(const HttpServer&) = delete;
@@ -59,6 +82,10 @@ public:
     /// timeout 是无事件时的最长阻塞;有连接临近截止时取更短者。
     void poll_once(std::chrono::milliseconds timeout);
 
+    /// 补发挂起的响应;须在属主线程、poll_once 之外调用。连接已关闭
+    /// (截止、连接出错、背压)或 token 未知时返回 false,响应丢弃。
+    bool complete(HttpResponseToken token, Http1Response response);
+
 private:
     struct Connection {
         TlsConnection connection;
@@ -69,14 +96,28 @@ private:
         bool handshake_complete{false};
         bool close_after_flush{false};
         bool parse_in_progress{false};
+        /// 挂起中的响应;有值时暂停解析。
+        std::optional<HttpResponseToken> awaiting;
+        bool awaiting_keep_alive{true};
+        /// 对端已关闭写方向(close_notify):不再读,应答写完即关。
+        bool peer_closed{false};
+        /// 是否挂在 event loop 上;半关闭后等挂起响应时摘下。
+        bool registered{true};
         TlsIoState io_need{TlsIoState::WantRead};
     };
 
     void accept_connections();
     void service_connection(Connection& connection, const ReadyEvent& ready);
+    /// 两者返回 false 表示连接已关闭(connection 已析构)。
+    [[nodiscard]] bool parse_and_dispatch(Connection& connection);
     [[nodiscard]] bool dispatch_request(
         Connection& connection,
         Http1Request request);
+    [[nodiscard]] bool queue_response(
+        Connection& connection,
+        const Http1Response& response,
+        bool keep_alive);
+    void flush_and_settle(Connection& connection, bool writable);
     void reject_and_close(Connection& connection, Http1ParseStatus status);
     void close_connection(Connection& connection);
     void sweep_deadlines();
@@ -87,11 +128,13 @@ private:
         const;
 
     HttpServerConfig config_;
-    HttpHandler handler_;
+    HttpDeferringHandler handler_;
     TlsServerContext tls_context_;
     TcpListener listener_;
     std::unique_ptr<IEventLoop> event_loop_;
     std::map<EventLoopHandle, Connection> connections_;
+    HttpResponseToken next_token_{1};
+    std::unordered_map<HttpResponseToken, EventLoopHandle> awaiting_;
 };
 
 }  // namespace realm::network

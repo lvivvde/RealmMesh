@@ -33,13 +33,19 @@ void LoginVerifyService::start(observability::Logger* logger) {
     handler_ = std::make_unique<LoginVerifyHandler>(
         *store_, *codec_, [] { return std::chrono::system_clock::now(); },
         identity_token_issuer, identity_token_ttl, metrics_);
+    dispatcher_ = std::make_unique<LoginVerifyDispatcher>(
+        *handler_,
+        LoginVerifyDispatcher::Limits{
+            .workers = config_.verify_workers,
+            .capacity = config_.verify_capacity});
 
     network::HttpServerConfig http_config;
     http_config.tls_identity = config_.tls;
     server_ = std::make_unique<network::HttpServer>(
         config_.listen_address, config_.listen_port, http_config,
-        [this](const network::Http1Request& request) {
-            return handler_->handle(request.method, request.target, request.body);
+        [this](const network::Http1Request& request,
+               network::HttpResponseToken token) {
+            return dispatcher_->dispatch(request, token);
         });
     endpoints_ = {network::TransportEndpoint{
         .name = "https",
@@ -64,6 +70,7 @@ void LoginVerifyService::start(observability::Logger* logger) {
 
 void LoginVerifyService::stop() {
     server_.reset();
+    dispatcher_.reset();
     handler_.reset();
     codec_.reset();
     store_.reset();
@@ -73,6 +80,11 @@ void LoginVerifyService::stop() {
 void LoginVerifyService::tick() {
     if (server_ != nullptr) {
         server_->poll_once(std::chrono::milliseconds(2));
+        // 连接已关闭(超时/对端断开)时 complete 返回 false,结果直接丢弃。
+        for (auto& completion : dispatcher_->drain(config_.verify_capacity)) {
+            static_cast<void>(server_->complete(
+                completion.token, std::move(completion.response)));
+        }
     }
 }
 

@@ -21,6 +21,9 @@ return {
     downstream_address = "127.0.0.1",
     downstream_port = 7100,
     pipeline_fetch_capacity = 1000,
+    -- 并发玩家数据查询线程数与单次拉取截止(超时按 Unavailable 计一次失败)。
+    fetch_workers = 4,
+    fetch_timeout_ms = 3000,
     fetch_retry_base_ms = 2000,
     fetch_retry_max = 3,
     handoff_grace_ms = 5000,

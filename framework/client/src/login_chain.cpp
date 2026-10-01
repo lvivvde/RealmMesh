@@ -227,6 +227,7 @@ LoginChain::Action LoginChain::connect_gateway_and_handoff(
         set_stage(LoginStage::GatewayConnecting);
 
         bool restart_login = false;
+        std::chrono::seconds restart_after{0};
         std::chrono::milliseconds retry_delay = config_.gateway_retry_delay;
         auto connected =
             transport_.connect_gateway(config_.gateway_endpoints, deadline);
@@ -250,8 +251,14 @@ LoginChain::Action LoginChain::connect_gateway_and_handoff(
                     session_out = std::move(session);
                     return Action::Advanced;
                 }
+                if (handoff.status.recovery == PortRecovery::Fail) {
+                    failure_ = handoff.status.failure;
+                    failure_detail_ = handoff.status.detail;
+                    return Action::Failed;
+                }
                 if (handoff.status.recovery == PortRecovery::Restart) {
                     restart_login = true;
+                    restart_after = handoff.status.retry_after;
                 } else {
                     failure_ = handoff.status.failure;
                     failure_detail_ = handoff.status.detail;
@@ -263,8 +270,15 @@ LoginChain::Action LoginChain::connect_gateway_and_handoff(
                                      std::chrono::seconds{5}));
                     }
                 }
+            } else if (attached.recovery == PortRecovery::Fail) {
+                failure_ = attached.failure == ChainFailure::None
+                    ? ChainFailure::AttachRejected
+                    : attached.failure;
+                failure_detail_ = attached.detail;
+                return Action::Failed;
             } else if (attached.recovery == PortRecovery::Restart) {
                 restart_login = true;
+                restart_after = attached.retry_after;
             } else {
                 failure_ = attached.failure == ChainFailure::None
                     ? ChainFailure::AttachRejected
@@ -287,6 +301,12 @@ LoginChain::Action LoginChain::connect_gateway_and_handoff(
         if (restart_login) {
             failure_ = ChainFailure::TicketRejected;
             failure_detail_ = "Admission Grant 无效,重新验证身份";
+            if (restart_after > std::chrono::seconds::zero()) {
+                // 1008:玩家数据暂不可用,按服务端建议退避后再重头登录。
+                failure_detail_ = "玩家数据暂不可用,退避后重新验证身份";
+                wait_for(std::min(restart_after, std::chrono::seconds{5}),
+                         deadline);
+            }
             return Action::RestartLogin;
         }
         if (!within_admission_grant_window(Clock::now())) {
@@ -368,6 +388,16 @@ LoginResult LoginChain::run(LoginRun request) {
         set_stage(LoginStage::Verifying);
         const auto verified = transport_.verify(
             request.account(), request.credential(), deadline);
+        if (!verified.status.ok &&
+            verified.status.recovery == PortRecovery::Retry &&
+            verified.status.retry_after > std::chrono::seconds::zero() &&
+            Clock::now() + verified.status.retry_after < deadline) {
+            // 1005 健全服繁忙:按建议退避后重验,其余 verify 失败照旧终止。
+            wait_for(std::min(verified.status.retry_after,
+                              std::chrono::seconds{5}),
+                     deadline);
+            continue;
+        }
         if (!verified.status.ok) {
             failure_ = verified.status.failure;
             failure_detail_ = verified.status.detail;

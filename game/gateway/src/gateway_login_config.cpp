@@ -35,9 +35,12 @@ void validate_key_ring(const std::vector<AdmissionGrantKeySource>& ring) {
 }  // namespace
 
 void GatewayLoginConfig::validate() const {
-    if (conn_capacity == 0 || fetch_capacity == 0) {
+    if (conn_capacity == 0 || fetch_capacity == 0 || fetch_workers == 0) {
         throw std::invalid_argument(
-            "gateway login capacities must be positive");
+            "gateway login capacities and fetch workers must be positive");
+    }
+    if (fetch_timeout <= std::chrono::milliseconds::zero()) {
+        throw std::invalid_argument("gateway fetch timeout must be positive");
     }
     if (fetch_retry_base <= std::chrono::milliseconds::zero() ||
         fetch_retry_max == 0 || fetch_retry_max > 10) {

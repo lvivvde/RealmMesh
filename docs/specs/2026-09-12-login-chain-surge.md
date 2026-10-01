@@ -80,7 +80,7 @@ flowchart LR
 | 5 | `GET /.well-known/jwks.json` | 健全服 | — | JWKS |
 | 6 | `/healthz`、`/metrics` | 两服务 | — | 健康 / Prometheus |
 
-错误模型：`{code, message, retry_after_seconds?}`；HTTP `401`/`403`/`429`（必带 retry_after）/`202`/`200`。code 分段沿用 edge.proto 的段号约定：`1xxx` 凭据段（`1001` 凭据无效、`1002` 封禁、`1003` 白名单外、`1004` 玩家数据源暂不可用（HTTP `503`，ADR-0010 后新增））、`2xxx` 排队段（`2001` 号牌无效/过期）；排队中非错误态用 `200+status=queued`。**这套 code 与 `Envelope.message_id` 是两个独立编号空间**，数值相同不代表同一含义（`edge.proto` 的 `1001`/`1002` 是已退役的消息编号）。网关边另有一套 `EdgeError.code`：`1001` 身份凭据无效、`1004` 满额拒绝 attach、`2001` 号牌无效、`2002` 未认证、`3002` 入场票据无效**（已被 ADR-0009 取代：网关不再接受号牌，`1001` 覆盖 Admission Grant 的全部校验失败，新增 `1005` 准入处理中、`1006` 准入存储不可用与限流 `429`）**。**边缘 block 行为不保证我方错误体**（如 Cloudflare 默认 403 HTML）。封禁/白名单 v1 显式细分，上线前评估切模糊拒绝（配置开关，TODO）。
+错误模型：`{code, message, retry_after_seconds?}`；HTTP `401`/`403`/`429`（必带 retry_after）/`202`/`200`。code 分段沿用 edge.proto 的段号约定：`1xxx` 凭据段（`1001` 凭据无效、`1002` 封禁、`1003` 白名单外、`1004` 玩家数据源暂不可用（HTTP `503`，ADR-0010 后新增）、`1005` 验签工作者满额（HTTP `503` + `Retry-After`，#98 后新增））、`2xxx` 排队段（`2001` 号牌无效/过期）；排队中非错误态用 `200+status=queued`。**这套 code 与 `Envelope.message_id` 是两个独立编号空间**，数值相同不代表同一含义（`edge.proto` 的 `1001`/`1002` 是已退役的消息编号）。网关边另有一套 `EdgeError.code`：`1001` 身份凭据无效、`1004` 满额拒绝 attach、`2001` 号牌无效、`2002` 未认证、`3002` 入场票据无效**（已被 ADR-0009 取代：网关不再接受号牌，`1001` 覆盖 Admission Grant 的全部校验失败，新增 `1005` 准入处理中、`1006` 准入存储不可用与限流 `429`）**。**边缘 block 行为不保证我方错误体**（如 Cloudflare 默认 403 HTML）。封禁/白名单 v1 显式细分，上线前评估切模糊拒绝（配置开关，TODO）。
 
 ### 5.2 etcd 额度结构
 

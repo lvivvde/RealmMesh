@@ -4,6 +4,7 @@
 #include "realmmesh/network/transport/transport_config.hpp"
 #include "realmmesh/scripting/lua_runtime.hpp"
 
+#include <cstddef>
 #include <filesystem>
 #include <string>
 
@@ -23,6 +24,10 @@ struct LoginVerifyConfig {
     /// uri 非空时使用 MongoDB 权威数据源(ADR-0011),accounts_file 不再参与
     /// 认证；Lua 账号表只经 player_data.bootstrap_accounts_file 导入空库。
     common::PlayerDataConfig player_data;
+    /// 验签工作者(#98):Argon2 + 账号源查询在这些线程上跑,不占 poll 线程;
+    /// verify_capacity 是排队 + 运行中 + 未取走结果的上限,满额回 503。
+    std::size_t verify_workers{4};
+    std::size_t verify_capacity{64};
 };
 
 class LoginVerifyConfigLoader final {

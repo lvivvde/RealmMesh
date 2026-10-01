@@ -5,6 +5,7 @@
 #include "realmmesh/network/transport/transport_config.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <cstdint>
 #include <string>
 #include <utility>
@@ -86,6 +87,16 @@ struct EdgeErrorRecovery final {
         // ADR-0009:签名/schema/绑定/部署/时效/已消费一律收敛为凭据无效,
         // 客户端只此一条终止路径——重头走 Login Verifier。
         result.recovery = PortRecovery::Restart;
+        break;
+    case common::edge_error_not_eligible:
+        // 账号本身无准入资格(封禁/不在白名单/无选定角色),重试也不会变。
+        result.recovery = PortRecovery::Fail;
+        break;
+    case common::edge_error_player_data_unavailable:
+        // 网关已消费 Admission Grant,原地重入只会拿到 1001。
+        result.recovery = PortRecovery::Restart;
+        result.retry_after = std::chrono::seconds{
+            std::min<std::uint32_t>(error.retry_after_seconds(), 5U)};
         break;
     case common::edge_error_admission_in_progress:
     case common::edge_error_admission_unavailable:
@@ -294,6 +305,17 @@ PortValue<VerifyResult> WireLoginTransport::verify(
     }
     const auto token =
         net_client::extract_json_string_field(response->body, "identity_token");
+    if (response->status == 503) {
+        // 1005 健全服繁忙:带 retry_after_seconds,链路退避后重验。
+        const auto retry_after = net_client::extract_json_int_field(
+            response->body, "retry_after_seconds");
+        result.status = PortStatus::error(
+            ChainFailure::VerifyRejected, "健全服繁忙: http_status=503", false,
+            PortFailureCategory::Protocol, PortRecovery::Retry,
+            std::chrono::seconds{std::clamp<std::int64_t>(
+                retry_after.value_or(1), 1, 5)});
+        return result;
+    }
     if (response->status != 200 || !token.has_value()) {
         result.status = PortStatus::error(
             ChainFailure::VerifyRejected,

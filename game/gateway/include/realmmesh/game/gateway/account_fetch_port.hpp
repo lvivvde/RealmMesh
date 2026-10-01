@@ -89,14 +89,16 @@ private:
     std::unordered_map<std::uint64_t, Pending> pending_;
 };
 
-/// 权威玩家数据(生产为 MongoPlayerDataStore)的有界异步适配器。查询只在
-/// 工作线程执行；submit 不做网络 I/O，容量耗尽与存储查询失败分别映射为
-/// Full 和 Unavailable completion。
+/// 权威玩家数据(生产为 MongoPlayerDataStore)的有界异步适配器。查询在
+/// workers 个工作线程上并发执行；submit 不做网络 I/O，容量(排队 + 运行中 +
+/// 未取走)耗尽与存储查询失败分别映射为 Full 和 Unavailable completion。
+/// 单次查询的超时由 Pipeline 按 fetch_timeout 判定并 cancel。
 class PlayerDataAccountFetchPort final : public AccountFetchPort {
 public:
     PlayerDataAccountFetchPort(
         std::unique_ptr<const common::PlayerDataReader> reader,
-        std::size_t capacity);
+        std::size_t capacity,
+        std::size_t workers);
     ~PlayerDataAccountFetchPort();
 
     PlayerDataAccountFetchPort(const PlayerDataAccountFetchPort&) = delete;

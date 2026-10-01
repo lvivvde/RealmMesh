@@ -808,7 +808,7 @@ TEST_F(
 
 TEST_F(
     GatewayLoginPipelineTest,
-    ExhaustedFetchReleasesFetchCapacityAndClosesWithoutExtraRetry) {
+    ExhaustedFetchReleasesFetchCapacityAndDeclinesAsPlayerDataUnavailable) {
     auto pipeline_config = config(1, 1);
     pipeline_config.fetch_retry_max = 1;
     create(std::move(pipeline_config));
@@ -825,9 +825,89 @@ TEST_F(
         {fetch_.submitted_requests()[1].attempt_id, false, 1ms});
 
     const auto result = advance(103ms, 103ms);
-    EXPECT_EQ(command_count(PrimaryTransportCommandKind::Close), 1U);
+    // 重试耗尽不再静默断开:客户端须能把数据源故障与封禁区分开(#98)。
+    EXPECT_EQ(command_count(PrimaryTransportCommandKind::Close), 0U);
+    ASSERT_EQ(command_count(PrimaryTransportCommandKind::Decline), 1U);
+    const auto declined = common::decode_edge_error(
+        last_command(PrimaryTransportCommandKind::Decline).payload);
+    ASSERT_TRUE(declined.has_value());
+    EXPECT_EQ(declined->code(), common::edge_error_player_data_unavailable);
+    EXPECT_GT(declined->retry_after_seconds(), 0U);
     EXPECT_EQ(result.local_budget.fetch_free, 1U);
     EXPECT_EQ(result.local_budget.conn_free, 0U);
+    EXPECT_NE(
+        metrics_.render().find("edge_fetch_retry_total 1\n"),
+        std::string::npos);
+}
+
+TEST_F(
+    GatewayLoginPipelineTest,
+    NotEligibleFetchDeclinesImmediatelyWithoutRetry) {
+    create(config(1, 1));
+    open(EdgeSessionId{1});
+    attach(EdgeSessionId{1}, jti_a);
+    static_cast<void>(advance());
+    static_cast<void>(advance(1ms, 1ms));
+    ASSERT_EQ(fetch_.submitted_requests().size(), 1U);
+    fetch_.push_completion({
+        .attempt_id = fetch_.submitted_requests()[0].attempt_id,
+        .ok = false,
+        .duration = 1ms,
+        .status = AccountFetchStatus::NotEligible,
+    });
+
+    auto result = advance(2ms, 2ms);
+    ASSERT_EQ(command_count(PrimaryTransportCommandKind::Decline), 1U);
+    const auto declined = common::decode_edge_error(
+        last_command(PrimaryTransportCommandKind::Decline).payload);
+    ASSERT_TRUE(declined.has_value());
+    EXPECT_EQ(declined->code(), common::edge_error_not_eligible);
+    EXPECT_EQ(result.local_budget.fetch_free, 1U);
+
+    // 封禁/白名单/无角色是确定性结果:退避时间过去也不再重拉。
+    result = advance(10s, 10s);
+    EXPECT_EQ(fetch_.submitted_requests().size(), 1U);
+    EXPECT_NE(
+        metrics_.render().find("edge_fetch_retry_total 0\n"),
+        std::string::npos);
+    EXPECT_NE(
+        metrics_.render().find(
+            "edge_fetch_result_total{result=\"not_eligible\"} 1\n"),
+        std::string::npos);
+}
+
+TEST_F(
+    GatewayLoginPipelineTest,
+    FetchTimeoutCancelsAttemptAndRetriesWithBackoff) {
+    auto pipeline_config = config(1, 1);
+    pipeline_config.fetch_timeout = 500ms;
+    pipeline_config.fetch_retry_base = 100ms;
+    create(std::move(pipeline_config));
+    open(EdgeSessionId{1});
+    attach(EdgeSessionId{1}, jti_a);
+    static_cast<void>(advance());
+    static_cast<void>(advance(1ms, 1ms));
+    ASSERT_EQ(fetch_.submitted_requests().size(), 1U);
+    const auto stuck = fetch_.submitted_requests()[0].attempt_id;
+
+    static_cast<void>(advance(500ms, 500ms));
+    EXPECT_FALSE(fetch_.was_cancelled(stuck));
+
+    static_cast<void>(advance(501ms, 501ms));
+    EXPECT_TRUE(fetch_.was_cancelled(stuck));
+    EXPECT_NE(
+        metrics_.render().find(
+            "edge_fetch_result_total{result=\"timeout\"} 1\n"),
+        std::string::npos);
+
+    // 迟到的完成不得复活已超时的尝试。
+    fetch_.push_completion({stuck, true, 600ms});
+    static_cast<void>(advance(502ms, 502ms));
+    EXPECT_EQ(command_count(PrimaryTransportCommandKind::SendHandoff), 0U);
+    EXPECT_EQ(fetch_.submitted_requests().size(), 1U);
+
+    static_cast<void>(advance(601ms, 601ms));
+    ASSERT_EQ(fetch_.submitted_requests().size(), 2U);
     EXPECT_NE(
         metrics_.render().find("edge_fetch_retry_total 1\n"),
         std::string::npos);

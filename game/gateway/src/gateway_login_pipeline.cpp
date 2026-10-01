@@ -52,6 +52,7 @@ struct PipelineSession {
     unsigned fetch_failures{0};
     std::chrono::steady_clock::time_point fetch_due{};
     std::optional<AccountFetchAttemptId> active_attempt;
+    std::chrono::steady_clock::time_point attempt_deadline{};
     std::optional<std::chrono::steady_clock::time_point> handoff_deadline;
     std::string source;
     std::uint32_t attach_attempts{0};
@@ -149,6 +150,7 @@ public:
         process_messages(events, frame);
         apply_handoff_expiry(frame.now);
         drain_fetch_completions(frame);
+        apply_fetch_timeouts(frame.now);
         drive_fetch_submissions(frame.now);
         flush_intents(frame);
         publish_metrics();
@@ -402,36 +404,90 @@ private:
                 continue;
             }
 
-            ++session.fetch_failures;
-            if (logger_ != nullptr) {
-                static_cast<void>(logger_->warn(
-                    "edge_fetch_failed",
-                    "edge account facts fetch failed",
-                    {observability::field(
-                         "session_id",
-                         session_id.value,
-                         observability::DataClass::Internal),
-                     observability::field(
-                         "result", std::string(fetch_result))}));
-            }
-            if (session.fetch_failures > config_.fetch_retry_max) {
-                release_fetch_reservation(session);
+            if (completion.status == AccountFetchStatus::NotEligible) {
+                // 封禁/不在白名单/无选定角色是确定性结果:立即以终态拒绝,
+                // 不重试,也不与数据源故障共用退避路径(#98)。
                 if (logger_ != nullptr) {
-                    static_cast<void>(logger_->warn(
-                        "edge_fetch_exhausted",
-                        "edge fetch exhausted; closing session",
+                    static_cast<void>(logger_->info(
+                        "edge_fetch_not_eligible",
+                        "account not eligible for admission; declining",
                         {observability::field(
                             "session_id",
                             session_id.value,
                             observability::DataClass::Internal)}));
                 }
-                schedule_close(session);
-            } else {
-                session.fetch_due = frame.now + retry_delay(
-                                                    config_.fetch_retry_base,
-                                                    session.fetch_failures);
+                schedule_decline(
+                    session,
+                    common::edge_error_not_eligible,
+                    "account not eligible",
+                    0);
+                continue;
             }
+            record_fetch_failure(session_id, session, frame.now, fetch_result);
         }
+    }
+
+    /// 单次拉取超过 fetch_timeout 即取消:运行中的查询无法打断,它继续占用
+    /// 端口的工作槽位(真实背压),但会话不再等它,按 Unavailable 计失败。
+    void apply_fetch_timeouts(std::chrono::steady_clock::time_point now) {
+        for (auto& [session_id, session] : sessions_) {
+            if (session.closing || !session.active_attempt.has_value() ||
+                session.attempt_deadline > now) {
+                continue;
+            }
+            account_fetch_->cancel(*session.active_attempt);
+            attempts_.erase(session.active_attempt->value);
+            session.active_attempt.reset();
+            if (metrics_ != nullptr) {
+                metrics_->counter_add(
+                    "edge_fetch_result_total", 1.0, {{"result", "timeout"}});
+            }
+            record_fetch_failure(session_id, session, now, "timeout");
+        }
+    }
+
+    void record_fetch_failure(
+        EdgeSessionId session_id,
+        PipelineSession& session,
+        std::chrono::steady_clock::time_point now,
+        std::string_view fetch_result) {
+        ++session.fetch_failures;
+        if (logger_ != nullptr) {
+            static_cast<void>(logger_->warn(
+                "edge_fetch_failed",
+                "edge account facts fetch failed",
+                {observability::field(
+                     "session_id",
+                     session_id.value,
+                     observability::DataClass::Internal),
+                 observability::field(
+                     "result", std::string(fetch_result))}));
+        }
+        if (session.fetch_failures <= config_.fetch_retry_max) {
+            session.fetch_due =
+                now + retry_delay(config_.fetch_retry_base, session.fetch_failures);
+            return;
+        }
+        if (logger_ != nullptr) {
+            static_cast<void>(logger_->warn(
+                "edge_fetch_exhausted",
+                "edge fetch exhausted; declining session",
+                {observability::field(
+                    "session_id",
+                    session_id.value,
+                    observability::DataClass::Internal)}));
+        }
+        // Admission Grant 已在 accept 时消费:客户端只能重走 Login Verifier,
+        // retry_after 提示它别立刻压回正在故障的数据源。
+        schedule_decline(
+            session,
+            common::edge_error_player_data_unavailable,
+            "player data unavailable",
+            0,
+            std::max(
+                std::chrono::seconds{1},
+                std::chrono::ceil<std::chrono::seconds>(
+                    config_.fetch_retry_base)));
     }
 
     void drive_fetch_submissions(std::chrono::steady_clock::time_point now) {
@@ -454,6 +510,7 @@ private:
                 return;
             }
             session.active_attempt = attempt_id;
+            session.attempt_deadline = now + config_.fetch_timeout;
             attempts_.emplace(attempt_id.value, session_id);
             if (session.fetch_failures > 0) ++fetch_retry_total_;
         }

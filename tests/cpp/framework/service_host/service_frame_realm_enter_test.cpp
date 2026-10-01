@@ -25,9 +25,12 @@
 #include <unistd.h>
 
 #include <array>
+#include <atomic>
 #include <chrono>
+#include <condition_variable>
 #include <cstddef>
 #include <memory>
+#include <mutex>
 #include <nlohmann/json.hpp>
 #include <optional>
 #include <span>
@@ -266,10 +269,26 @@ private:
 
 /// Realm 只经 PlayerDataReader 重新确认票据里的角色归属；内存替身足以
 /// 驱动兑换路径，MongoDB 读语义由 player_data_store_test 覆盖。
+/// hold() 让查询卡在工作线程里(带 5 s 兜底,避免同步实现把测试锁死),
+/// fail() 让查询抛 PlayerDataError。
 class SingleCharacterPlayerData final : public game::common::PlayerDataReader {
 public:
     explicit SingleCharacterPlayerData(game::common::CharacterRecord character)
         : character_(std::move(character)) {}
+
+    void hold() {
+        const std::scoped_lock lock(mutex_);
+        held_ = true;
+    }
+    void release() {
+        {
+            const std::scoped_lock lock(mutex_);
+            held_ = false;
+        }
+        released_.notify_all();
+    }
+    void fail() { unavailable_ = true; }
+    [[nodiscard]] int queries() const { return queries_.load(); }
 
     [[nodiscard]] std::optional<game::common::AccountLoginFacts> login_facts(
         std::uint64_t account_id) const override {
@@ -286,6 +305,15 @@ public:
         std::uint64_t account_id,
         std::uint32_t realm_id,
         std::uint64_t character_id) const override {
+        ++queries_;
+        {
+            std::unique_lock lock(mutex_);
+            released_.wait_for(
+                lock, std::chrono::seconds{5}, [this] { return !held_; });
+        }
+        if (unavailable_) {
+            throw game::common::PlayerDataError("player data unavailable");
+        }
         if (account_id != character_.account_id ||
             realm_id != character_.realm_id ||
             character_id != character_.character_id) {
@@ -296,6 +324,11 @@ public:
 
 private:
     game::common::CharacterRecord character_;
+    mutable std::mutex mutex_;
+    mutable std::condition_variable released_;
+    bool held_{false};
+    std::atomic<bool> unavailable_{false};
+    mutable std::atomic<int> queries_{0};
 };
 
 class ServiceFrameRealmEnterTest : public ::testing::Test {
@@ -409,6 +442,17 @@ protected:
             }
         }
         return std::nullopt;
+    }
+
+    /// 推帧直到 reader 至少收到 count 次查询。
+    bool drive_until_queries(int count, std::chrono::milliseconds budget) {
+        const auto deadline = std::chrono::steady_clock::now() + budget;
+        while (std::chrono::steady_clock::now() < deadline) {
+            frame_->tick(*logger_, *runtime_, nullptr, &*reporter_);
+            if (player_data_->queries() >= count) return true;
+            std::this_thread::sleep_for(std::chrono::milliseconds{2});
+        }
+        return false;
     }
 
     /// 读取 realm 额度 key 的已发布 JSON;无 fetch_free 键即
@@ -678,6 +722,95 @@ TEST_F(ServiceFrameRealmEnterTest, ExpiredTicketDeclines) {
     auto client = connect();
     client_ = client.get();
     submit_enter_realm(*client, ticket, 7);
+
+    const auto response = receive_while_driving(std::chrono::seconds{2});
+    ASSERT_TRUE(response.has_value());
+    const auto error = game::common::decode_edge_error(*response);
+    ASSERT_TRUE(error.has_value());
+    EXPECT_EQ(
+        error->code(), game::common::edge_error_invalid_enter_realm_ticket);
+    EXPECT_TRUE(client->saw_close(std::chrono::seconds{2}));
+}
+
+/// Realm 必须持有权威数据源:缺失即构造失败,不存在跳过角色复核的路径。
+TEST_F(ServiceFrameRealmEnterTest, RealmFrameRequiresPlayerDataReader) {
+    EXPECT_THROW(
+        ServiceFrame("realm", "127.0.0.1", 8443, 64, 4, nullptr, nullptr),
+        std::invalid_argument);
+}
+
+/// 角色复核在工作线程执行:查询卡住时帧循环照常处理其他会话。
+TEST_F(ServiceFrameRealmEnterTest, SlowCharacterLookupDoesNotStallFrame) {
+    player_data_->hold();
+    const auto ticket = enter_ticket(42);
+    auto entering = connect();
+    submit_enter_realm(*entering, ticket, 7);
+    ASSERT_TRUE(drive_until_queries(1, std::chrono::seconds{2}));
+
+    auto other = connect();
+    client_ = other.get();
+    game::common::HeartbeatRequest heartbeat;
+    const network::LengthFieldCodec codec(1024);
+    other->send(codec.encode(game::common::encode(heartbeat, 12)));
+    const auto started = std::chrono::steady_clock::now();
+    const auto refused = receive_while_driving(std::chrono::seconds{2});
+    ASSERT_TRUE(refused.has_value());
+    EXPECT_LT(
+        std::chrono::steady_clock::now() - started, std::chrono::seconds{1});
+    EXPECT_TRUE(game::common::decode_edge_error(*refused).has_value());
+
+    player_data_->release();
+    client_ = entering.get();
+    const auto accepted = receive_while_driving(std::chrono::seconds{2});
+    ASSERT_TRUE(accepted.has_value());
+    EXPECT_TRUE(
+        game::common::decode_enter_realm_accepted(*accepted).has_value());
+    EXPECT_EQ(game::common::edge_request_id(*accepted), 7U);
+}
+
+/// 复核额度满:先回 429 + Retry-After 拒绝,不烧票据;额度释放后同一张
+/// 票据仍可兑换。
+TEST_F(ServiceFrameRealmEnterTest, FullCharacterCheckCapacityThrottlesWithoutBurningTicket) {
+    frame_.reset();
+    frame_.emplace(
+        "realm", "127.0.0.1", 8443, 64, 4, nullptr, &*player_data_,
+        RealmCharacterCheckLimits{.workers = 1, .capacity = 1});
+    player_data_->hold();
+    auto first = connect();
+    submit_enter_realm(*first, enter_ticket(42), 7);
+    ASSERT_TRUE(drive_until_queries(1, std::chrono::seconds{2}));
+
+    const auto second_ticket = enter_ticket(42);
+    auto second = connect();
+    client_ = second.get();
+    submit_enter_realm(*second, second_ticket, 8);
+    const auto throttled = receive_while_driving(std::chrono::seconds{2});
+    ASSERT_TRUE(throttled.has_value());
+    const auto error = game::common::decode_edge_error(*throttled);
+    ASSERT_TRUE(error.has_value());
+    EXPECT_EQ(error->code(), game::common::edge_error_throttled);
+    EXPECT_GE(error->retry_after_seconds(), 1U);
+    EXPECT_TRUE(second->saw_close(std::chrono::seconds{2}));
+
+    player_data_->release();
+    client_ = first.get();
+    ASSERT_TRUE(receive_while_driving(std::chrono::seconds{2}).has_value());
+
+    auto retry = connect();
+    client_ = retry.get();
+    submit_enter_realm(*retry, second_ticket, 9);
+    const auto accepted = receive_while_driving(std::chrono::seconds{2});
+    ASSERT_TRUE(accepted.has_value());
+    EXPECT_TRUE(
+        game::common::decode_enter_realm_accepted(*accepted).has_value());
+}
+
+/// 数据源故障不等于放行:复核抛错 → 3002 并终结。
+TEST_F(ServiceFrameRealmEnterTest, CharacterLookupFailureDeclines) {
+    player_data_->fail();
+    auto client = connect();
+    client_ = client.get();
+    submit_enter_realm(*client, enter_ticket(42), 7);
 
     const auto response = receive_while_driving(std::chrono::seconds{2});
     ASSERT_TRUE(response.has_value());

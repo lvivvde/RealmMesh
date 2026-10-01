@@ -242,6 +242,13 @@ GatewayConfig GatewayConfigLoader::parse(const sol::table& root) {
         optional_integer(root, "downstream_port", config.downstream_port);
     config.login.fetch_capacity = optional_integer(
         root, "pipeline_fetch_capacity", config.login.fetch_capacity);
+    config.login.fetch_workers = optional_integer(
+        root, "fetch_workers", config.login.fetch_workers);
+    config.login.fetch_timeout = std::chrono::milliseconds{
+        optional_integer<std::int64_t>(
+            root,
+            "fetch_timeout_ms",
+            config.login.fetch_timeout.count())};
     config.login.fetch_retry_base = std::chrono::milliseconds{
         optional_integer<std::int64_t>(
             root,
