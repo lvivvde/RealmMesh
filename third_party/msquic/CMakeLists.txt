@@ -3,7 +3,7 @@
 # - macOS 自动检测 Homebrew libmsquic,找不到就只走 TLS/TCP,不让配置失败;
 # - 其他平台只走 TLS/TCP。
 # Linux 安装脚本固定 2.6.1,Homebrew 只提供当前 2.6.x,故只对齐到次版本。
-set(MSQUIC_EXPECTED_MINOR_VERSION "2.6")
+set(MSQUIC_EXPECTED_SERIES "2.6")
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
     set(MSQUIC_HOMEBREW_PREFIXES
@@ -120,15 +120,19 @@ file(REAL_PATH "${MSQUIC_LIBRARY}" MSQUIC_LIBRARY_REAL_PATH)
 get_filename_component(MSQUIC_LIBRARY_FILE_NAME "${MSQUIC_LIBRARY_REAL_PATH}" NAME)
 if(MSQUIC_LIBRARY_FILE_NAME MATCHES "([0-9]+)\\.([0-9]+)\\.([0-9]+)")
     set(MSQUIC_VERSION "${CMAKE_MATCH_1}.${CMAKE_MATCH_2}.${CMAKE_MATCH_3}")
-    if(NOT "${CMAKE_MATCH_1}.${CMAKE_MATCH_2}" VERSION_EQUAL MSQUIC_EXPECTED_MINOR_VERSION)
+    if(NOT "${CMAKE_MATCH_1}.${CMAKE_MATCH_2}" VERSION_EQUAL MSQUIC_EXPECTED_SERIES)
         message(WARNING
             "MsQuic ${MSQUIC_VERSION} found at ${MSQUIC_LIBRARY_REAL_PATH}; "
-            "the project is aligned on ${MSQUIC_EXPECTED_MINOR_VERSION}.x. "
+            "the project is aligned on ${MSQUIC_EXPECTED_SERIES}.x. "
             "QUIC behaviour may differ from CI."
         )
     endif()
 else()
     set(MSQUIC_VERSION "unknown version")
+    message(WARNING
+        "Cannot read the MsQuic version from ${MSQUIC_LIBRARY_REAL_PATH}; "
+        "the project is aligned on ${MSQUIC_EXPECTED_SERIES}.x."
+    )
 endif()
 message(STATUS "MsQuic: ${MSQUIC_VERSION} (${MSQUIC_LIBRARY_REAL_PATH})")
 

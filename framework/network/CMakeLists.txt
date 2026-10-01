@@ -42,7 +42,7 @@ else()
     target_compile_definitions(realm_network PRIVATE
         REALM_NETWORK_QUIC_AVAILABLE=0
     )
-    message(STATUS "realm_network: QUIC transport disabled (no MsQuic, ADR-0011)")
+    message(STATUS "realm_network: QUIC transport disabled (no MsQuic, TLS/TCP only; ADR-0002, ADR-0011)")
 endif()
 
 # Platform Event Loop backend (ADR-0001): exactly one backend implementation is
