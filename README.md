@@ -69,6 +69,7 @@ flowchart LR
 | 退役旧 Login 链路（#50） | 已实现 |
 | 身份 Token 回放守卫收敛（#63）、客户端真实兑换口（#64） | 已实现 |
 | 权威玩家数据源：MongoDB 副本集取代 SQLite（#99） | 已实现 |
+| 共享临时开发库：TLS/认证、SSH 隧道与仓库外私有配置 | 已实现，见[连接说明](docs/operations/shared-mongodb.md) |
 
 旧 `Login → Realm 选角 → Gateway 入场` 链路已整体退役：`login` 服务身份、7000 端口与
 旧入场消息编号都已删除，线名 `login` 永不复用（见[架构文档](docs/architecture.md)）。
@@ -240,13 +241,17 @@ MsQuic 开发安装脚本固定使用 Microsoft 官方 `libmsquic 2.5.10` 包和
 服务发现需要本地 etcd：`./scripts/install-etcd.sh` 安装固定版本 3.6.14，
 `./scripts/run-etcd-dev.sh` 以前台单节点启动。
 
-玩家数据需要本地 MongoDB（[ADR-0011](docs/adr/0011-mongodb-authoritative-player-data.md)）。
-macOS 用 Homebrew 安装：`brew tap mongodb/brew && brew trust mongodb/brew && brew install mongodb-community mongosh`；
-Linux 用 `./scripts/install-mongodb.sh` 安装固定版本到 `.tools/`。
-`./scripts/run-mongodb-dev.sh` 以前台单节点副本集 `rs0` 在 `127.0.0.1:27017` 启动它，
-数据放在 `.runtime/mongodb`，首次启动自动初始化副本集。它不使用 Homebrew 服务
-（`brew services`）的配置与数据目录，所以无需改 `mongod.conf`；但两者都默认占用
-27017，同时只能运行一个。
+玩家数据存放在 MongoDB 副本集（[ADR-0011](docs/adr/0011-mongodb-authoritative-player-data.md)）。
+手动开发联调（macOS 与 Linux 都一样）直连远程共享开发库，开发机不需要安装或运行
+MongoDB 服务：`./scripts/configure-shared-mongodb.sh vps` 取一次私有连接材料，之后用
+`./scripts/with-shared-mongodb.sh <命令>` 启动服务，详见[共享库说明](docs/operations/shared-mongodb.md)。
+
+自动化集成测试不连共享库，而是由夹具在本机拉起临时 `mongod`，所以跑全量测试的机器
+需要 MongoDB 二进制：macOS 用 `brew tap mongodb/brew && brew trust mongodb/brew && brew install mongodb-community mongosh`；
+Linux（CI 自动执行）用 `./scripts/install-mongodb.sh` 下载固定版本到 `.tools/`。
+离线时可用 `./scripts/run-mongodb-dev.sh` 在 `127.0.0.1:27017` 前台启动本机单节点 `rs0`
+（数据在 `.runtime/mongodb`，不碰 Homebrew 服务的配置与数据目录；两者都占 27017，
+同时只能运行一个），此时不经包装命令，配置回落到默认本机 URI。
 
 ## 开发证书与密钥
 

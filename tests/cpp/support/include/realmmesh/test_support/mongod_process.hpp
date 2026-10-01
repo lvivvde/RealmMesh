@@ -270,7 +270,8 @@ private:
 
 /// 把拷贝出的配置树里 common/player_data.lua 改指 mongod 上的 database:
 /// 拷贝真实 configs/ 并拉起 realm/gateway 的用例用它，免得连到开发机的
-/// 27017。找不到要替换的默认值即抛错，配置改名时不会静默连错库。
+/// 27017。同时删掉 uri_environment,免得 shell 里的私有 URI 把用例导向共享
+/// 开发库。找不到要替换的默认值即抛错，配置改名时不会静默连错库。
 inline void point_player_data_at(
     const std::filesystem::path& config_root,
     const MongodProcess& mongod,
@@ -295,6 +296,15 @@ inline void point_player_data_at(
         R"(uri = "mongodb://127.0.0.1:27017/?replicaSet=rs0")",
         "uri = \"" + mongod.uri() + "\"");
     replace(R"(database = "realmmesh")", "database = \"" + database + "\"");
+    if (const auto start = contents.find("uri_environment");
+        start != std::string::npos) {
+        const auto line_start = contents.rfind('\n', start);
+        const auto line_end = contents.find('\n', start);
+        contents.erase(
+            line_start == std::string::npos ? 0 : line_start + 1,
+            line_end == std::string::npos ? std::string::npos
+                                          : line_end - line_start);
+    }
     std::ofstream output(file, std::ios::trunc);
     output << contents;
     if (!output) {

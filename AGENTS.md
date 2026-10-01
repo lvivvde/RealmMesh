@@ -13,6 +13,10 @@ C++20 distributed game server framework (CMake, Lua config, protobuf wire). Proj
 
 macOS is the dev baseline and builds TLS/TCP only; QUIC compiles and runs only on Linux (ADR-0002). A green macOS run leaves QUIC paths unverified: CI's `linux` job is their gate.
 
+## Player data
+
+Manual dev runs on macOS and Linux use the remote shared MongoDB (TLS + auth over an SSH tunnel): read `docs/operations/shared-mongodb.md` before starting services against it, debugging DB connections, or setting up a new machine, and launch through `scripts/with-shared-mongodb.sh`. Its address, credentials and CA live outside the repo; never print or commit them. Automated tests never touch it: fixtures start an isolated local `mongod`.
+
 ## Testing
 
 Read `tests/README.md` before adding a test. Every target carries a ctest label, and any target that binds ports or spawns `realm_mesh` needs `LABELS integration`.

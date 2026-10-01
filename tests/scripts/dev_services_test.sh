@@ -319,14 +319,21 @@ grep -q "etcd_endpoint = \"${realmmesh_etcd_endpoint}\"" \
     printf 'failed to point the queue store at the test etcd\n' >&2
     exit 1
 }
-# 三个服务共享的 Player Data 也换成用例自己的 mongod。
+# 三个服务共享的 Player Data 也换成用例自己的 mongod。去掉 uri_environment
+# 并清掉私有 URI:即使在加载了共享开发库配置的 shell 里跑，也不会写到共享库。
+unset REALMMESH_MONGODB_URI
 rewrite_config "${realmmesh_test_root}/configs/common/player_data.lua" \
-    -e "s|mongodb://127.0.0.1:27017/|mongodb://${realmmesh_mongod_member}/|"
+    -e "s|mongodb://127.0.0.1:27017/|mongodb://${realmmesh_mongod_member}/|" \
+    -e '/uri_environment[[:space:]]*=/d'
 grep -q "uri = \"mongodb://${realmmesh_mongod_member}/?replicaSet=rs0\"" \
     "${realmmesh_test_root}/configs/common/player_data.lua" || {
     printf 'failed to point player data at the test mongod\n' >&2
     exit 1
 }
+if grep -q 'uri_environment' "${realmmesh_test_root}/configs/common/player_data.lua"; then
+    printf 'failed to detach player data from the private URI override\n' >&2
+    exit 1
+fi
 
 export REALMMESH_TLS_CERTIFICATE_FILE="${realmmesh_tls_certificate}"
 export REALMMESH_TLS_PRIVATE_KEY_FILE="${realmmesh_tls_private_key}"

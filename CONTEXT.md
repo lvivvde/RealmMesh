@@ -88,6 +88,9 @@ _Avoid_: 用户表(账号集不含注册/计费语义)、account service(它是�
 账号准入事实、角色归属与当前所选角色的权威持久来源；当前实现是 MongoDB 副本集，Login Verifier、Gateway 与 Realm 通过窄读接口观察同一批 majority 已提交事实；登录链的读取直达数据库，不经缓存。
 _Avoid_: AccountStore(它只是认证视图)、storage service(当前没有新服务身份)、cache(MongoDB 是事实来源而非缓存；Redis 不承载准入事实)
 
+手动跨机器开发可使用经 TLS、账号认证与 SSH 隧道保护的共享临时副本集；它仍是该
+开发环境的权威来源，但数据允许清空重建。连接材料保存在仓库外；自动化测试各自隔离。
+
 **Selected Character**:
 账号当前被 Gateway 带入 EnterRealm 票据的角色；Realm 仍须从 Player Data Store 重新确认该角色的账号与 Realm 归属。
 _Avoid_: character list(当前只实现单个选择结果)、player id(账号与角色是不同标识)

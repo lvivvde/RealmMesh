@@ -1,6 +1,7 @@
 #include "realmmesh/game/common/player_data_config.hpp"
 
 #include <cstdint>
+#include <cstdlib>
 #include <limits>
 #include <optional>
 #include <stdexcept>
@@ -66,6 +67,21 @@ PlayerDataConfig parse_player_data_config(const sol::table& root) {
     }
 
     config.uri = optional_string(table, "uri");
+    const auto uri_environment = optional_string(table, "uri_environment");
+    if (!uri_environment.empty()) {
+        if (const char* value = std::getenv(uri_environment.c_str())) {
+            if (*value == '\0') {
+                throw std::invalid_argument(
+                    "player_data URI environment variable is empty: " +
+                    uri_environment);
+            }
+            config.uri = value;
+        } else if (config.uri.empty()) {
+            throw std::invalid_argument(
+                "player_data URI environment variable is not set: " +
+                uri_environment);
+        }
+    }
     config.database = optional_string(table, "database");
     if (!config.uri.empty() && config.database.empty()) {
         throw std::invalid_argument(

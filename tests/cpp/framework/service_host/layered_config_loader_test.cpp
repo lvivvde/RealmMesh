@@ -5,13 +5,37 @@
 
 #include <chrono>
 #include <cstdint>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <optional>
 #include <stdexcept>
 #include <string>
 
 namespace realm::service_host {
 namespace {
+
+class ScopedPlayerDataUri final {
+public:
+    explicit ScopedPlayerDataUri(const char* value) {
+        if (const char* previous = std::getenv(name)) previous_ = previous;
+        if (value) {
+            EXPECT_EQ(::setenv(name, value, 1), 0);
+        } else {
+            EXPECT_EQ(::unsetenv(name), 0);
+        }
+    }
+    ~ScopedPlayerDataUri() {
+        if (previous_) {
+            static_cast<void>(::setenv(name, previous_->c_str(), 1));
+        } else {
+            static_cast<void>(::unsetenv(name));
+        }
+    }
+    static constexpr const char* name = "REALMMESH_TEST_MONGODB_URI";
+private:
+    std::optional<std::string> previous_;
+};
 
 class LayeredConfigTest : public ::testing::Test {
 protected:
@@ -114,6 +138,47 @@ TEST_F(LayeredConfigTest, RequiresDatabaseWhenUriIsSet) {
     EXPECT_THROW(
         static_cast<void>(LayeredConfigLoader::load(root_, "realm")),
         std::invalid_argument);
+}
+
+TEST_F(LayeredConfigTest, PrivatePlayerDataUriOverridesDefaultWithoutLuaOsAccess) {
+    const ScopedPlayerDataUri environment(
+        "mongodb://test_user:test_secret@127.0.0.1:27018/?directConnection=true");
+    write(root_ / "common" / "player_data.lua",
+          "return { player_data = { uri = 'mongodb://127.0.0.1:27017/', "
+          "uri_environment = 'REALMMESH_TEST_MONGODB_URI', database = 'realmmesh' } }");
+    write(root_ / "services" / "realm.lua", "return {}");
+    EXPECT_EQ(LayeredConfigLoader::load(root_, "realm").player_data.uri,
+              std::getenv(ScopedPlayerDataUri::name));
+}
+
+TEST_F(LayeredConfigTest, UnsetPlayerDataUriEnvironmentPreservesLocalDefault) {
+    const ScopedPlayerDataUri environment(nullptr);
+    write(root_ / "common" / "player_data.lua",
+          "return { player_data = { uri = 'mongodb://127.0.0.1:27017/', "
+          "uri_environment = 'REALMMESH_TEST_MONGODB_URI', database = 'realmmesh' } }");
+    write(root_ / "services" / "realm.lua", "return {}");
+    EXPECT_EQ(LayeredConfigLoader::load(root_, "realm").player_data.uri,
+              "mongodb://127.0.0.1:27017/");
+}
+
+TEST_F(LayeredConfigTest, MissingPrivatePlayerDataUriFailsWithoutDefault) {
+    const ScopedPlayerDataUri environment(nullptr);
+    write(root_ / "common" / "player_data.lua",
+          "return { player_data = { uri_environment = 'REALMMESH_TEST_MONGODB_URI', "
+          "database = 'realmmesh' } }");
+    write(root_ / "services" / "realm.lua", "return {}");
+    EXPECT_THROW(static_cast<void>(LayeredConfigLoader::load(root_, "realm")),
+                 std::invalid_argument);
+}
+
+TEST_F(LayeredConfigTest, EmptyPrivatePlayerDataUriFailsInsteadOfConnectingLocally) {
+    const ScopedPlayerDataUri environment("");
+    write(root_ / "common" / "player_data.lua",
+          "return { player_data = { uri = 'mongodb://127.0.0.1:27017/', "
+          "uri_environment = 'REALMMESH_TEST_MONGODB_URI', database = 'realmmesh' } }");
+    write(root_ / "services" / "realm.lua", "return {}");
+    EXPECT_THROW(static_cast<void>(LayeredConfigLoader::load(root_, "realm")),
+                 std::invalid_argument);
 }
 
 TEST_F(LayeredConfigTest, RejectsRetiredSqlitePlayerDataKeys) {

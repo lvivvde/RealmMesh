@@ -1,8 +1,11 @@
 return {
     player_data = {
-        -- 三个服务共享同一个权威 MongoDB 副本集与库(ADR-0011)。开发拓扑
-        -- 只监听本机且不开认证；跨机器暴露前须交付 TLS 与认证。
+        -- 三个服务共享同一个权威 MongoDB 副本集与库(ADR-0011)。默认值是
+        -- 本机隔离库(run-mongodb-dev.sh,无认证);共享开发库经 TLS、认证与
+        -- SSH 隧道接入，连接串只在仓库外私有配置里(docs/operations/shared-mongodb.md)。
         uri = "mongodb://127.0.0.1:27017/?replicaSet=rs0",
+        -- 私有连接串由本机配置注入；未设置时沿用本机隔离开发库。
+        uri_environment = "REALMMESH_MONGODB_URI",
         database = "realmmesh",
         -- 找不到可写 primary、或单次读写超过这两个上限，即按数据源不可用失败。
         server_selection_timeout_ms = 2000,

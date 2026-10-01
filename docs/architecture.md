@@ -108,6 +108,12 @@ MongoDB 副本集（开发与 CI 为单节点 `rs0`），取代 ADR-0010 的 SQL
 `player_data` 中的超时上限，即按数据源不可用失败。开发拓扑无认证、明文且只监听本机，
 跨机器暴露前须交付 TLS 与认证。
 
+手动跨机器开发另提供共享临时库：服务器仅监听回环地址，启用 TLS 与数据库认证，
+开发机经 SSH 隧道连接单节点 `rs0`。`player_data.uri_environment` 在 C++ 解析边界
+读取私有环境变量，覆盖默认本机 URI；凭据与 CA 保存在仓库外的用户配置目录，
+`with-shared-mongodb.sh` 加载它们并按需建隧道。自动化测试保持独立临时库。
+共享开发数据允许清空重建，不配置定时备份；操作见[共享库说明](operations/shared-mongodb.md)。
+
 宿主在 listener 启动前完成配置校验、签名材料加载、两个生产 adapter 与管线构造。
 管线依赖停止时,该帧先发布零连接/零拉取的不可用额度,再停止 Gateway runtime 并撤销
 就绪状态;没有 feature flag、兼容选择器或第二条登录执行路径。

@@ -19,5 +19,5 @@ status: accepted
 - 账号与角色编号在库中以 int64 存放，与领域内 uint64 按位一一对应（`std::bit_cast`），不收窄取值范围，Lua 派生出的大编号照常可用。
 - `configs/common/accounts.lua` 仍只在库内尚未导入时导入一次：三个服务竞争同一个元数据文档，先插入者在事务内导入，后到者看到标记即跳过。
 - 驱动为 mongo-c-driver 与 mongo-cxx-driver，以固定版本源码包 + SHA256 静态构建。服务器用本机原生二进制，不使用 Docker：macOS 开发机与 CI 用 Homebrew 的 `mongodb-community` 与 `mongosh`；Linux 用 `scripts/install-mongodb.sh` 安装固定版本 + 校验和到 `.tools/`。脚本与测试夹具先查 PATH，再退回 `.tools/`，所以两个平台的服务器小版本可以不同；代码只依赖副本集、事务与 majority 读写这些稳定语义。集成测试每个用例自启临时 `mongod`，数据目录在临时目录，不动 Homebrew 服务自己的数据目录。
-- 开发拓扑无认证、明文连接。任何跨机器暴露之前必须先交付 TLS 与认证；驱动已以 OpenSSL 构建，届时只改 `player_data.uri`。
+- 手动开发联调连远程共享开发库：单节点 `rs0`，只监听服务器回环地址，强制 TLS 与 SCRAM 认证，开发机经 SSH 隧道接入；连接串经 `player_data.uri_environment` 指定的环境变量注入，凭据与 CA 只存在仓库外的私有配置中。开发机因此不必安装或运行 MongoDB 服务；只有跑自动化集成测试的机器需要 `mongod` 二进制，测试永远不连共享库。本机默认 URI（无认证、明文、只监听本机）保留给离线开发。
 - Redis 推迟到阶段 4，作为玩法热状态（高频、可容忍 write-behind 窗口）的写入面，再异步落 MongoDB；它不承载准入事实，也不进入登录链读路径。排行榜、注册与角色列表/创建/选择不在本决定范围内。
