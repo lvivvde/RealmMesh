@@ -1279,11 +1279,44 @@ TEST(LoadgenIntegrationTest, M2ReducedChainCompletesWithLowFetchFailure) {
     }
 }
 
-/// M3 冒烟:1 万取号(Tickets 相位,500 并发)+ 并发 progress 轮询
-/// (2000 机器人 Poll 相位),合并成功率 ≥ 99.9%。账号表 1 万条;号
-/// 值跨两次跑连续,快释放下号牌即时可兑换。#89 后每次成功取号都要跨
-/// 线性一致的耐久提交边界;这里仍保留 1 万规模与 99.9% 成功率，写入
-/// 吞吐及 1700/s 差距由 QueueStoreEtcdIntegrationTest 单独测量报告。
+/// M3 冒烟规模按平台分档。Linux 是生产基线，也是完整规模的门槛:1 万
+/// 取号 + 2000 轮询。macOS 缩到 1/2(#104):GitHub Actions 的 macOS
+/// runner 承载不了瞬时上万 TLS 建连，用例曾间歇以 ssl_connect /
+/// connect_poll_timeout 失败(完成 9719、9797),失败全在建连阶段，与
+/// 登录链业务无关。缩档只缩规模，成功率仍是 ≥ 99.9%,不放宽比例;
+/// 轮询并发与机器人同比减半，波数(≈ 16)与放行等待不变。取号并发
+/// 32 已远低于建连瓶颈，两档相同。
+struct M3SmokeScale final {
+    std::uint64_t queue_number_robots;
+    std::uint64_t poll_robots;
+    std::uint64_t poll_concurrency;
+};
+constexpr M3SmokeScale kM3SmokeLinuxScale{10000, 2000, 125};
+#if defined(__APPLE__)
+constexpr std::uint64_t kM3SmokeDivisor = 2;
+#else
+constexpr std::uint64_t kM3SmokeDivisor = 1;
+#endif
+constexpr M3SmokeScale kM3SmokeScale{
+    kM3SmokeLinuxScale.queue_number_robots / kM3SmokeDivisor,
+    kM3SmokeLinuxScale.poll_robots / kM3SmokeDivisor,
+    // 向上取整:125 → 63,保持波数不多于 Linux 档。
+    (kM3SmokeLinuxScale.poll_concurrency + kM3SmokeDivisor - 1) /
+        kM3SmokeDivisor};
+
+/// ≥ 99.9% 成功率的最少完成数(向下取整丢弃的 0.1%)。
+constexpr std::uint64_t at_least_99_9_percent(std::uint64_t robots) {
+    return robots - robots / 1000;
+}
+static_assert(at_least_99_9_percent(10000) == 9990);
+static_assert(at_least_99_9_percent(5000) == 4995);
+
+/// M3 冒烟:1 万取号(Tickets 相位,32 并发)+ 并发 progress 轮询
+/// (2000 机器人 Poll 相位),合并成功率 ≥ 99.9%;macOS 按 kM3SmokeScale
+/// 缩档。账号表与取号机器人等量;号值跨两次跑连续，快释放下号牌即时
+/// 可兑换。#89 后每次成功取号都要跨线性一致的耐久提交边界;这里仍保留
+/// Linux 1 万规模与 99.9% 成功率，写入吞吐及 1700/s 差距由
+/// QueueStoreEtcdIntegrationTest 单独测量报告。
 TEST(LoadgenIntegrationTest, M3SmokeTenThousandTicketsAndConcurrentPolls) {
     const ScopedLoadgenEnvironment environment;
     const std::filesystem::path source = REALMMESH_SOURCE_DIR "/configs";
@@ -1296,7 +1329,7 @@ TEST(LoadgenIntegrationTest, M3SmokeTenThousandTicketsAndConcurrentPolls) {
     use_loadgen_free_ports(
         scratch.path(), login_verify_port, queue_port, 0, 0, etcd.endpoint(),
         false, true, false);
-    write_robot_accounts(scratch.path(), 10000);
+    write_robot_accounts(scratch.path(), kM3SmokeScale.queue_number_robots);
 
     service_host::MeshHost mesh(
         scratch.path(),
@@ -1310,19 +1343,22 @@ TEST(LoadgenIntegrationTest, M3SmokeTenThousandTicketsAndConcurrentPolls) {
     // 记 skipped 单列(此前会被记成拨号超时,掩盖真实吞吐)。
     LoadgenConfig tickets_run;
     tickets_run.target = LoadgenLoginTarget::Tickets;
-    tickets_run.robots = 10000;
+    tickets_run.robots = kM3SmokeScale.queue_number_robots;
     tickets_run.concurrency = 32;
     tickets_run.duration_seconds = 75;
     tickets_run.endpoints = loadgen_endpoints(login_verify_port, queue_port, 0);
     const auto tickets_report = run_loadgen(tickets_run);
-    if (tickets_report.completed < 9990) {
+    const auto tickets_min_completed =
+        at_least_99_9_percent(kM3SmokeScale.queue_number_robots);
+    if (tickets_report.completed < tickets_min_completed) {
         std::cout << tickets_report.render();
     }
 
-    EXPECT_GE(tickets_report.completed, 9990);  // ≥ 99.9%。
+    EXPECT_GE(tickets_report.completed, tickets_min_completed);
     const auto queue_metrics = parse_metrics_text(
         mesh.service("queue").prometheus_metrics());
-    EXPECT_GE(queue_metrics.total("tickets_issued_total"), 9990);
+    EXPECT_GE(queue_metrics.total("tickets_issued_total"),
+              tickets_min_completed);
 
     // 并发 progress 轮询:放行走默认步长,帧间隔收紧到 1s(helper 的
     // fast_release_frames)。轮询机器人取号后要等下一个放行帧才
@@ -1331,8 +1367,8 @@ TEST(LoadgenIntegrationTest, M3SmokeTenThousandTicketsAndConcurrentPolls) {
     // 成片报 connection_error(实测恰好截断 500 个)。
     LoadgenConfig poll_run;
     poll_run.target = LoadgenLoginTarget::Poll;
-    poll_run.robots = 2000;
-    poll_run.concurrency = 125;
+    poll_run.robots = kM3SmokeScale.poll_robots;
+    poll_run.concurrency = kM3SmokeScale.poll_concurrency;
     poll_run.duration_seconds = 30;
     poll_run.poll_interval = std::chrono::milliseconds{50};
     poll_run.endpoints = loadgen_endpoints(login_verify_port, queue_port, 0);
@@ -1344,12 +1380,14 @@ TEST(LoadgenIntegrationTest, M3SmokeTenThousandTicketsAndConcurrentPolls) {
               << " poll_completed=" << poll_report.completed
               << " poll_skipped=" << poll_report.skipped
               << " poll_attempts=" << poll_report.poll.attempts << '\n';
-    if (poll_report.completed < 1998) {
+    const auto poll_min_completed =
+        at_least_99_9_percent(kM3SmokeScale.poll_robots);
+    if (poll_report.completed < poll_min_completed) {
         std::cout << poll_report.render();
     }
 
-    EXPECT_GE(poll_report.completed, 1998);  // ≥ 99.9%。
-    EXPECT_GE(poll_report.poll.attempts, 2000);
+    EXPECT_GE(poll_report.completed, poll_min_completed);
+    EXPECT_GE(poll_report.poll.attempts, kM3SmokeScale.poll_robots);
     EXPECT_EQ(poll_report.attach.attempts, 0);
     EXPECT_EQ(poll_report.handoff.attempts, 0);
 }

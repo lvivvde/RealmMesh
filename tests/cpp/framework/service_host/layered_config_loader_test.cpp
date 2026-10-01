@@ -206,7 +206,8 @@ TEST_F(LayeredConfigTest, RejectsUnknownCredentialHashCost) {
 }
 
 TEST_F(LayeredConfigTest, MissingServiceFileThrows) {
-    EXPECT_THROW(LayeredConfigLoader::load(root_, "ghost"), std::runtime_error);
+    EXPECT_THROW(static_cast<void>(LayeredConfigLoader::load(root_, "ghost")),
+                 std::runtime_error);
 }
 
 }  // namespace
