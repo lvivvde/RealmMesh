@@ -101,8 +101,9 @@ TEST(TransportCapabilitiesTest, AlwaysServesSecureTlsTcp) {
     EXPECT_TRUE(platform_transport_capabilities().tls_tcp);
 }
 
-// ADR-0002: platforms without MsQuic (macOS, Windows) serve the TLS/TCP
-// fallback and silently drop QUIC entries instead of failing to start.
+// ADR-0002/0012: builds without MsQuic (Windows, macOS without libmsquic)
+// serve the TLS/TCP fallback and silently drop QUIC entries instead of
+// failing to start.
 TEST(TransportFactoryTest, ServesOnlyTlsFallbackWithoutQuicCapability) {
     const auto identity = TransportConfig::TlsServerIdentity{
         .certificate_chain_file = REALMMESH_TEST_TLS_CERTIFICATE,

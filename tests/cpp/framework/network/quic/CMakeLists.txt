@@ -1,4 +1,5 @@
-# QUIC is Linux-only (ADR-0002); its tests exist only where MsQuic was found.
+# QUIC tests exist only where MsQuic was found: always on Linux, and on macOS
+# when Homebrew libmsquic is installed (ADR-0012).
 if(REALM_MESH_MSQUIC_FOUND)
     realm_add_gtest(quic_transport_test
         SOURCES quic_transport_test.cpp

@@ -13,8 +13,10 @@ concurrency:
 jobs:
   # Two explicit jobs rather than a matrix: only the dependency steps differ
   # (Homebrew's keg-only OpenSSL here, apt plus the pinned libmsquic package on
-  # Linux), while configure/build/test are identical. macOS serves TLS/TCP
-  # only, so the QUIC paths are covered by the linux job alone (ADR-0002).
+  # Linux), while configure/build/test are identical. This job installs no
+  # libmsquic, so it builds TLS/TCP only and the QUIC paths are covered by the
+  # linux job alone; developer Macs with Homebrew libmsquic build QUIC locally
+  # (ADR-0012).
   macos:
     name: macOS (clang, kqueue backend)
     runs-on: macos-latest

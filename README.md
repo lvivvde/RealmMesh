@@ -199,10 +199,11 @@ Watch 该前缀，按 `min(Σ网关 fetch_free/conn_free, Σ业务服 conn_free,
 
 ## 构建
 
-三平台支持等级见 [ADR-0002](docs/adr/0002-cross-platform-support-policy.md)：Linux
-是生产与行为基准（QUIC 只在此构建与测试），macOS 是开发基准（编译、起拓扑、
-`ctest` 全绿；`TransportFactory` 按平台能力禁用 QUIC，只走 TLS/TCP），Windows 当前
-只交付后端开关（`iocp` 可配置但显式未实现，不进 CI）。同一构建只编入一个平台后端，
+三平台支持等级见 [ADR-0002](docs/adr/0002-cross-platform-support-policy.md) 与
+[ADR-0012](docs/adr/0012-macos-local-quic.md)：Linux 是生产与行为基准（缺失 MsQuic
+即配置失败，CI 的 QUIC 回归在此），macOS 是开发基准（编译、起拓扑、`ctest` 全绿；
+装了 Homebrew `libmsquic` 即在本地编入并测试 QUIC，未装则 `TransportFactory` 按平台
+能力禁用 QUIC，只走 TLS/TCP），Windows 当前只交付后端开关（`iocp` 可配置但显式未实现，不进 CI）。同一构建只编入一个平台后端，
 后端在配置期选定（[ADR-0001](docs/adr/0001-compile-time-platform-backends.md)）。
 
 共同要求：CMake 3.20+、C++20 编译器与 OpenSSL 3 开发包。第三方依赖（Lua、sol2、
@@ -217,10 +218,10 @@ sudo apt install libssl-dev libnuma1
 ./scripts/build.sh
 ```
 
-macOS（开发基准，仅 TLS/TCP）：
+macOS（开发基准；装 `libmsquic` 即本地启用 QUIC，不装则只走 TLS/TCP）：
 
 ```bash
-brew install openssl@3
+brew install openssl@3 libmsquic
 export OPENSSL_ROOT_DIR="$(brew --prefix openssl@3)"
 export PATH="$(brew --prefix openssl@3)/bin:$PATH"   # 测试证书生成要用 openssl(1)
 ./scripts/build.sh
@@ -236,8 +237,10 @@ export PATH="$(brew --prefix openssl@3)/bin:$PATH"   # 测试证书生成要用 
 `ctest --preset dev`（配置 + 构建 + 全量测试），并在首次构建时把
 `compile_commands.json` 链接到仓库根。
 
-MsQuic 开发安装脚本固定使用 Microsoft 官方 `libmsquic 2.6.1` 包和对应头文件，
-下载内容均校验 SHA-256。也可自行安装 MsQuic，并通过 `MSQUIC_ROOT` 指向其前缀。
+Linux 的 MsQuic 开发安装脚本固定使用 Microsoft 官方 `libmsquic 2.6.1` 包和对应头文件，
+下载内容均校验 SHA-256；macOS 用 Homebrew 当前的 `libmsquic` 2.6.x。CMake 输出会打印
+找到的 MsQuic 版本，次版本偏离 2.6 时告警。也可自行安装 MsQuic，并通过 `MSQUIC_ROOT`
+指向其前缀。
 服务发现需要本地 etcd：`./scripts/install-etcd.sh` 安装固定版本 3.6.14，
 `./scripts/run-etcd-dev.sh` 以前台单节点启动。
 
@@ -388,7 +391,7 @@ ctest --preset dev -L lua     # 只筛 Lua 用例
 分别由 `realm_add_gtest` / `realm_add_lua_test` 注册；`configs/*.lua` 的真实加载路径
 在 C++ 侧由 `configs_load_smoke_test` 覆盖，不在 Lua 里测。
 
-集成测试覆盖真实 TLS 1.3/ALPN 往返、真实 MsQuic 往返（仅 Linux）、无 ALPN 不创建
+集成测试覆盖真实 TLS 1.3/ALPN 往返、真实 MsQuic 往返（Linux，以及装了 `libmsquic` 的 macOS）、无 ALPN 不创建
 业务连接、QUIC 竞速与安全降级分类、IPv6 双栈、端点序列化、Edge Session 三阶段管线
 与凭据校验链（身份 Token 校验、Admission Grant 身份绑定与集群单次消费、EnterRealm
 票据单次兑换），
@@ -404,7 +407,7 @@ ctest --preset dev -L lua     # 只筛 Lua 用例
 既有五相位指标和报告汇总，不保留独立登录状态机，也不进入服务拓扑。测试证书和私钥
 只生成在 `build/` 中。push / PR 时 GitHub
 Actions 在 macOS 与 Linux 双平台跑全量 `ctest --preset dev`
-（`.github/workflows/ci.yml`），QUIC 路径仅在 Linux 覆盖。
+（`.github/workflows/ci.yml`），CI 的 QUIC 路径仅在 Linux 覆盖。
 
 ## License
 

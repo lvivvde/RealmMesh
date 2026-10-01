@@ -264,9 +264,12 @@ TEST(QuicTransportTest, ExchangesAFramedMessageOverOneVerifiedStream) {
         &configuration)));
     QUIC_CREDENTIAL_CONFIG credential{};
     credential.Type = QUIC_CREDENTIAL_TYPE_NONE;
+    // CaCertificateFile 只进 OpenSSL 内置校验;MsQuic 仅在 Linux 上默认走内置
+    // 校验,macOS 默认交给系统 SecTrust,不认测试自签 CA,故显式指定。
     credential.Flags = static_cast<QUIC_CREDENTIAL_FLAGS>(
         QUIC_CREDENTIAL_FLAG_CLIENT |
-        QUIC_CREDENTIAL_FLAG_SET_CA_CERTIFICATE_FILE);
+        QUIC_CREDENTIAL_FLAG_SET_CA_CERTIFICATE_FILE |
+        QUIC_CREDENTIAL_FLAG_USE_TLS_BUILTIN_CERTIFICATE_VALIDATION);
     credential.CaCertificateFile = REALMMESH_TEST_TLS_CERTIFICATE;
     ASSERT_FALSE(QUIC_FAILED(
         api->ConfigurationLoadCredential(configuration, &credential)));

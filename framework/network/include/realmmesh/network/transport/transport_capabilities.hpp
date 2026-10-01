@@ -5,7 +5,7 @@ namespace realm::network {
 // Which Transport protocol families this build can actually serve. The
 // default mirrors the CMake-selected platform capabilities; the parameter on
 // TransportFactory::create_enabled lets tests exercise the reduced set that
-// platforms without MsQuic run with (ADR-0002).
+// builds without MsQuic run with (ADR-0002, ADR-0012).
 struct TransportCapabilities {
     bool quic{false};
     bool tls_tcp{true};
