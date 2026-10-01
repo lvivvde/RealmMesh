@@ -1,4 +1,5 @@
 #include "realmmesh/game/gateway/gateway_config_loader.hpp"
+#include "realmmesh/game/common/player_data_config.hpp"
 
 #include "realmmesh/network/transport/transport_config.hpp"
 #include "realmmesh/scripting/lua_runtime.hpp"
@@ -254,6 +255,8 @@ GatewayConfig GatewayConfigLoader::parse(const sol::table& root) {
             root,
             "handoff_grace_ms",
             config.login.handoff_grace.count())};
+
+    config.player_data = common::parse_player_data_config(root);
 
     const sol::object source_value =
         root.raw_get<sol::object>("ingress_source");

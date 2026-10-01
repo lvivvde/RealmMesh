@@ -12,6 +12,7 @@ flowchart LR
     Quic[QUIC + TLS 1.3]
     TlsTcp[TLS 1.3 / TCP fallback]
     Etcd[etcd v3 Lease / Watch]
+    PlayerData[(SQLite Player Data)]
 
     Client -->|HTTPS 账号校验| LoginVerify --> Client
     Client -->|HTTPS 取号/轮询| Queue --> Client
@@ -22,6 +23,9 @@ flowchart LR
     Queue <--> Etcd
     Realm <--> Etcd
     Gateway <--> Etcd
+    LoginVerify --> PlayerData
+    Gateway --> PlayerData
+    Realm --> PlayerData
 ```
 
 LoginVerify 是登录链路第一站(无状态 HTTPS JSON 服务,#41):校验账号后签发身份
@@ -30,8 +34,9 @@ Queue 在返回 `202` 前，用一笔 etcd 事务同时提交 `identity_jti → 
 递增后的队列快照；响应不确定时先回读同一权威存储。同一未过期身份重试恢复原号，
 存储不可用则返回可重试错误而不承认号码。映射随身份过期租约回收，轮询仍不建立
 逐客户端会话状态。
-客户端带身份 Token 与 Admission Grant attach 到 Gateway,Gateway 拉取完成后下发
-Realm 直连票据与候选端点;Realm 单次兑换票据即完成入场。候选端点含主机名、数字端口、
+客户端带身份 Token 与 Admission Grant attach 到 Gateway,Gateway 从权威玩家数据源重新
+检查账号准入状态并取得所选角色后，下发含角色编号的 Realm 直连票据与候选端点；Realm
+单次兑换票据并再次核对角色归属后完成入场。候选端点含主机名、数字端口、
 协议与优先级,不依赖客户端隐式约定。排队号牌只用于位次查询与找回,网关不接受它。
 
 ## 目标业务拓扑（规划中）
@@ -89,7 +94,14 @@ Gateway 的业务帧不再编排 attach、拉取、重试与 Handoff 的分步 h
 当前 Realm 端点并调用一次 `GatewayLoginPipeline::advance`;该管线是
 `pending → fetching → handed-off` 阶段、Admission Grant 验证与按 `identity_jti` 的
 集群单次消费、连接/拉取额度、账号拉取结算、直连票据、收尾与指标的唯一权威。`GatewayRuntimePrimaryTransport` 把真实
-runtime 事件/命令接入管线,`DelayedAccountFetchPort` 提供非阻塞账号拉取边界。
+runtime 事件/命令接入管线；生产装配使用有界异步 `SqliteAccountFetchPort`，查询在工作
+线程完成，提交满载时背压，失败按管线策略重试并按低基数结果上报。延迟实现只用于
+未配置数据源的隔离测试。
+
+单主机阶段的权威玩家数据源由 [ADR-0010](adr/0010-sqlite-authoritative-player-data.md)
+定为 SQLite。任一服务打开空库时都在同一事务内一次性导入 `configs/common/accounts.lua`，之后账号
+口令（Argon2 哈希）、封禁/白名单与角色选择都只以数据库为准；WAL 与 schema migration
+保证三个进程读取同一批已提交事实并在重启后恢复。
 
 宿主在 listener 启动前完成配置校验、签名材料加载、两个生产 adapter 与管线构造。
 管线依赖停止时,该帧先发布零连接/零拉取的不可用额度,再停止 Gateway runtime 并撤销
@@ -151,7 +163,7 @@ MsQuic 自有调度不会直接调用业务逻辑。回调只完成长度帧组�
   (pending/established)、生产 adapter、运行时队列与 I/O 线程。
 - `game/login_verify`：登录健全服(账号认定、身份 Token 签发、JWKS)。
 - `game/queue`：排队调度服(号牌签发、放行阀门、etcd 原子发号映射/快照与额度存取)。
-- `game/common`：Envelope 编解码、业务票据与账号数据源抽象（AccountStore）。
+- `game/common`：Envelope 编解码、业务票据，以及账号/角色权威数据边界与 SQLite 实现。
 - `framework/cluster`：多协议端点注册与发现。
 - `framework/client`：客户端登录链路（七态状态机、分档轮询、两段竞速）与其 HTTPS/网关/业务服生产传输绑定。外部通过经验证的 `LoginRun` 选择 Verify、Tickets、Poll、Gateway、GatewaySoak 或 Full 停止点；Gateway/Realm 连接由 move-only RAII Session 独占，只有 Full 成功会把已入场 Realm Session 转移给调用方。
 - `tools/loadgen`：负载调度、报告与 Login Chain 的配置/指标适配层。所有目标都转换为同一个 `LoginRun` 并执行 `framework/client::LoginChain`；`gateway_soak` 负责保持 Gateway Session 水位，`full` 继续兑换 Realm Session，报告单列 Realm 拨号与入场的成功、失败和延迟。macOS 本机验收再通过同一 Full 路径发送生产 1105/1106 心跳并显式关闭会话。Linux CI 由 `scripts/run-linux-login-acceptance.sh` 汇总真实 QUIC、TLS/TCP 降级、四进程恢复与 M1–M4 缩减负载证据并上传报告；报告明确区分 CI 回归基线与专用机器上的 10 万/百万容量目标。CLI 的旧拼法 `all` 只在解析边界映射为 `GatewaySoak`，代码库中没有第二套登录状态机或新旧路径开关。

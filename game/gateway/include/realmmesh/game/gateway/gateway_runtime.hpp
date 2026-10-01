@@ -2,6 +2,7 @@
 
 #include "realmmesh/cluster/service_discovery_config.hpp"
 #include "realmmesh/concurrency/bounded_queue.hpp"
+#include "realmmesh/game/common/player_data_store.hpp"
 #include "realmmesh/game/gateway/edge_session_table.hpp"
 #include "realmmesh/game/gateway/gateway_ingress.hpp"
 #include "realmmesh/game/gateway/gateway_login_config.hpp"
@@ -12,6 +13,7 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <filesystem>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -59,6 +61,7 @@ struct GatewayConfig {
     std::uint16_t downstream_port{0};
     GatewayLoginConfig login;
     GatewaySourceConfig ingress_source;
+    common::PlayerDataConfig player_data;
 };
 
 enum class GatewayEventKind : std::uint8_t {

@@ -81,8 +81,16 @@ _Avoid_: 登录服(登录由验票与排队两段承担)、鉴权服(鉴权在�
 _Avoid_: 裸用 token(须指明是身份 Token 还是排队号牌)、login ticket(旧机制名)、credential(那是登录请求里的口令字段)
 
 **AccountStore**:
-登录健全服背后的账号有效性数据源抽象:只回答「口令是否命中」,命中返回账号事实(id、封禁、白名单);v1 用 Lua 配置装载内存表,DB/Redis 真源以新实现替换,调用方零改动。
+登录健全服背后的账号有效性数据源抽象:只回答「口令是否命中」,命中返回账号事实(id、封禁、白名单);生产实现由 SQLite 权威玩家数据源提供，Lua 账号表只作空库首次导入。
 _Avoid_: 用户表(账号集不含注册/计费语义)、account service(它是数据源,不是服务)
+
+**Player Data Store**:
+账号准入事实、角色归属与当前所选角色的权威持久来源；当前单主机实现是 SQLite，Login Verifier、Gateway 与 Realm 通过窄读接口观察同一批已提交事实。
+_Avoid_: AccountStore(它只是认证视图)、storage service(当前没有新服务身份)、cache(SQLite 是事实来源而非缓存)
+
+**Selected Character**:
+账号当前被 Gateway 带入 EnterRealm 票据的角色；Realm 仍须从 Player Data Store 重新确认该角色的账号与 Realm 归属。
+_Avoid_: character list(当前只实现单个选择结果)、player id(账号与角色是不同标识)
 
 **Queue Scheduler**:
 发号、查号并按准入额度分批放行玩家进网关集群的服务;权威状态包括每次登录尝试已确认的 Queue Number、下一号码与已放行水位,同一未过期尝试必须可找回原号码。

@@ -3,6 +3,7 @@
 #include "realmmesh/game/common/account_store.hpp"
 #include "realmmesh/game/common/identity_token.hpp"
 #include "realmmesh/game/common/json.hpp"
+#include "realmmesh/game/common/player_data_store.hpp"
 #include "realmmesh/observability/metrics_registry.hpp"
 #include "realmmesh/test_support/temporary_directory.hpp"
 
@@ -79,6 +80,46 @@ return {
 
 // player 的 FNV-1a 派生 id(与 account_store_test 钉死的同一摘要值)。
 constexpr std::uint64_t kPlayerDerivedId = 5008278420455340480ULL;
+
+class FailingAccountStore final : public common::AccountStore {
+public:
+    [[nodiscard]] std::optional<common::AccountRecord> authenticate(
+        std::string_view,
+        std::string_view) const override {
+        throw common::PlayerDataError("database unavailable");
+    }
+};
+
+TEST(LoginVerifyDataFailureTest, ReturnsServiceUnavailableWithoutCredentialLeak) {
+    FailingAccountStore store;
+    common::IdentityTokenCodec codec(
+        common::parse_identity_seed_hex(
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
+        "login-verify-test-1");
+    LoginVerifyHandler handler(
+        store,
+        codec,
+        [] {
+            return std::chrono::system_clock::time_point{
+                std::chrono::seconds{1'700'000'000}};
+        });
+
+    const auto response = handler.handle(
+        "POST",
+        "/v1/login/verify",
+        R"({"account":"player","credential":"dev"})");
+
+    EXPECT_EQ(response.status, 503);
+    const auto payload = JsonCodec::decode(response.body);
+    ASSERT_TRUE(payload.has_value());
+    EXPECT_EQ(
+        std::get<std::int64_t>(payload->at("code")),
+        error_data_unavailable);
+    EXPECT_EQ(
+        std::get<std::string>(payload->at("message")),
+        "account data unavailable");
+}
 
 TEST_F(LoginVerifyHandlerTest, IssuesTokenForValidAccount) {
     const auto response = verify(R"({"account":"pinned","credential":"dev"})");

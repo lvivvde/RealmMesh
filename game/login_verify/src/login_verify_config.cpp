@@ -1,5 +1,7 @@
 #include "realmmesh/game/login_verify/login_verify_config.hpp"
 
+#include "realmmesh/game/common/player_data_config.hpp"
+
 #include <cstdlib>
 #include <stdexcept>
 #include <string>
@@ -77,6 +79,7 @@ LoginVerifyConfig LoginVerifyConfigLoader::parse(const sol::table& root) {
     config.kid = optional_string(table, "kid", config.kid);
     config.accounts_file = optional_string(
         table, "accounts_file", config.accounts_file.string());
+    config.player_data = common::parse_player_data_config(root);
     config.tls = network::TransportConfig::TlsServerIdentity{
         .certificate_chain_file = path_from_config_or_environment(
             table,

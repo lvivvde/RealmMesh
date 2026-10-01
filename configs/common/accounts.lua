@@ -4,6 +4,8 @@ return {
     accounts = {
         { account = "player",   credential = "dev", whitelisted = true },
         { account = "pinned",   credential = "dev", whitelisted = true, account_id = 4242 },
+        -- 跨进程链路夹具使用的稳定账号；真实身份票据固定绑定 42。
+        { account = "chain-test", credential = "dev", whitelisted = true, account_id = 42 },
         { account = "banned",   credential = "dev", whitelisted = true, banned = true },
         { account = "outsider", credential = "dev" },
     },

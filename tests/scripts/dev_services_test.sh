@@ -223,6 +223,8 @@ realmmesh_realm_budget_range_body="$(etcd_range_body \
     /realmmesh/budgets/service/realm/realm-dev-01/budget)"
 realmmesh_queue_registration_range_body="$(etcd_range_body \
     /realmmesh/services/queue/queue-dev-01)"
+realmmesh_login_verify_registration_range_body="$(etcd_range_body \
+    /realmmesh/services/login_verify/login-verify-dev-01)"
 
 # BSD sed 的 -i 需要一个后缀参数,多段 -e 会被当成文件名("sed: -e: No such
 # file or directory")。用重定向 + mv 重写配置,在 GNU/BSD sed 上行为一致。
@@ -472,14 +474,16 @@ print_acceptance_runtime() {
     if command -v shasum >/dev/null 2>&1; then
         (cd "${realmmesh_test_root}" && shasum -a 256 \
             configs/main.config configs/common/discovery.lua \
-            configs/common/accounts.lua configs/services/login_verify.lua \
+            configs/common/accounts.lua configs/common/player_data.lua \
+            configs/services/login_verify.lua \
             configs/services/queue.lua configs/services/gateway.lua \
             configs/services/realm.lua) |
             sed 's/^/acceptance_runtime_config /'
     else
         (cd "${realmmesh_test_root}" && sha256sum \
             configs/main.config configs/common/discovery.lua \
-            configs/common/accounts.lua configs/services/login_verify.lua \
+            configs/common/accounts.lua configs/common/player_data.lua \
+            configs/services/login_verify.lua \
             configs/services/queue.lua configs/services/gateway.lua \
             configs/services/realm.lua) |
             sed 's/^/acceptance_runtime_config /'
@@ -620,6 +624,17 @@ case "${realmmesh_case}" in
         [[ "${realmmesh_recovery_elapsed}" -le 10 ]]
         printf 'acceptance_fault realm_budget_restore elapsed_s=%s threshold_s=10 result=PASS\n' \
             "${realmmesh_recovery_elapsed}"
+
+        # Gateway、Realm 已各自冷启动过；再重启 Login Verifier，证明同一
+        # 账号在三个进程都重新打开 SQLite Player Data 后仍走通全链路。
+        crash_standalone_service login_verify
+        wait_for_etcd_key_state \
+            "${realmmesh_login_verify_registration_range_body}" absent
+        start_standalone_service login_verify
+        wait_for_standalone_ready login_verify
+        run_full_login
+        [[ -s "${realmmesh_test_root}/configs/data/player-data.sqlite" ]]
+        printf 'acceptance_data player_data_restart source=sqlite database=configs/data/player-data.sqlite restarted=gateway,realm,login_verify result=PASS\n'
 
         realmmesh_released_before="$(queue_released_number)"
         [[ "${realmmesh_released_before}" =~ ^[0-9]+$ ]]

@@ -5,6 +5,7 @@
 #include "realmmesh/common/v1/envelope.pb.h"
 #include "realmmesh/game/common/compact_jws.hpp"
 #include "realmmesh/game/common/edge_protocol.hpp"
+#include "realmmesh/game/common/player_data_store.hpp"
 #include "realmmesh/game/common/session_ticket.hpp"
 #include "realmmesh/game/gateway/gateway_runtime.hpp"
 #include "realmmesh/network/codec/length_field_codec.hpp"
@@ -275,6 +276,21 @@ protected:
             logger_config,
             observability::ServiceIdentity{.service_name = "realm"});
 
+        player_data_.emplace(log_directory_->path() / "player-data.sqlite");
+        player_data_->provision_account({
+            .account_id = 42,
+            .account_name = "realm-test-account",
+            .credential = "realm-test-credential",
+            .whitelisted = true,
+        });
+        player_data_->provision_character({
+            .character_id = 7001,
+            .account_id = 42,
+            .realm_id = 1,
+            .name = "realm-test-character",
+        });
+        player_data_->select_character(42, 7001);
+
         cluster::ServiceInstance instance{
             .type = cluster::ServiceType::Realm,
             .instance_id = instance_id_,
@@ -305,7 +321,8 @@ protected:
                 .io_poll_interval = std::chrono::milliseconds{1}});
         runtime_->start();
 
-        frame_.emplace("realm", "127.0.0.1", 8443, 64, 4);
+        frame_.emplace(
+            "realm", "127.0.0.1", 8443, 64, 4, nullptr, &*player_data_);
 
         tickets_.emplace(
             game::common::parse_ticket_key_hex(
@@ -332,12 +349,13 @@ protected:
         std::uint32_t realm_id = 1,
         std::chrono::seconds ttl = std::chrono::seconds{60},
         std::chrono::system_clock::time_point issued_at =
-            std::chrono::system_clock::now()) {
+            std::chrono::system_clock::now(),
+        std::uint64_t character_id = 7001) {
         return tickets_->issue(
             game::common::TicketPurpose::EnterRealm,
             account_id,
             realm_id,
-            0,
+            character_id,
             ttl,
             issued_at);
     }
@@ -409,6 +427,7 @@ protected:
     std::optional<cluster::InstanceBudgetReporter> reporter_;
     std::optional<game::gateway::GatewayRuntime> runtime_;
     std::optional<game::common::SessionTickets> tickets_;
+    std::optional<game::common::SqlitePlayerDataStore> player_data_;
     RealmTestClient* client_{nullptr};
     std::optional<ServiceFrame> frame_;
 };
@@ -585,6 +604,28 @@ TEST_F(ServiceFrameRealmEnterTest, WrongPurposeTicketDeclines) {
 /// realm 声明不符(≠1)→ 3002:redeem 侧的 realm 不变量。
 TEST_F(ServiceFrameRealmEnterTest, ForeignRealmClaimDeclines) {
     const auto ticket = enter_ticket(42, 2);
+    auto client = connect();
+    client_ = client.get();
+    submit_enter_realm(*client, ticket, 7);
+
+    const auto response = receive_while_driving(std::chrono::seconds{2});
+    ASSERT_TRUE(response.has_value());
+    const auto error = game::common::decode_edge_error(*response);
+    ASSERT_TRUE(error.has_value());
+    EXPECT_EQ(
+        error->code(), game::common::edge_error_invalid_enter_realm_ticket);
+    EXPECT_TRUE(client->saw_close(std::chrono::seconds{2}));
+}
+
+/// 票据中的角色必须在权威数据源中仍属于该账号与 Realm；伪造或已迁移的
+/// 角色不得仅凭有效签名进入。
+TEST_F(ServiceFrameRealmEnterTest, ForeignCharacterClaimDeclines) {
+    const auto ticket = enter_ticket(
+        42,
+        1,
+        std::chrono::seconds{60},
+        std::chrono::system_clock::now(),
+        9999);
     auto client = connect();
     client_ = client.get();
     submit_enter_realm(*client, ticket, 7);

@@ -1,6 +1,7 @@
 #include "realmmesh/game/login_verify/login_verify_handler.hpp"
 
 #include "realmmesh/game/common/json.hpp"
+#include "realmmesh/game/common/player_data_store.hpp"
 #include "realmmesh/observability/metrics_registry.hpp"
 
 #include <sodium.h>
@@ -119,10 +120,18 @@ network::Http1Response LoginVerifyHandler::handle(
             count_reject(metrics_, "invalid");
             return error_response(400, error_invalid_request, "malformed request");
         }
-        const std::optional<common::AccountRecord> record =
-            store_->authenticate(
+        std::optional<common::AccountRecord> record;
+        try {
+            record = store_->authenticate(
                 std::get<std::string>(account->second),
                 std::get<std::string>(credential->second));
+        } catch (const common::PlayerDataError&) {
+            if (metrics_ != nullptr) {
+                metrics_->counter_add("verify_backend_error_total");
+            }
+            return error_response(
+                503, error_data_unavailable, "account data unavailable");
+        }
         if (!record.has_value()) {
             count_reject(metrics_, "invalid");
             return error_response(401, error_invalid_credentials, "invalid credentials");

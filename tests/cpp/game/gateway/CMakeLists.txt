@@ -35,6 +35,7 @@ realm_add_gtest(gateway_primary_transport_test
 realm_add_gtest(account_fetch_port_test
     SOURCES account_fetch_port_test.cpp
     LIBS realm_gateway_service
+    INCLUDE_DIRS ${PROJECT_SOURCE_DIR}/tests/cpp/support/include
 )
 
 realm_add_gtest(admission_consumption_store_test

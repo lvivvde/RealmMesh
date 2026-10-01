@@ -695,8 +695,15 @@ TEST_F(
     static_cast<void>(advance());
     static_cast<void>(advance(1ms, 1ms));
     ASSERT_EQ(fetch_.submitted_requests().size(), 1U);
-    fetch_.push_completion(
-        {fetch_.submitted_requests()[0].attempt_id, true, 20ms});
+    fetch_.push_completion({
+        .attempt_id = fetch_.submitted_requests()[0].attempt_id,
+        .ok = true,
+        .duration = 20ms,
+        .status = AccountFetchStatus::Succeeded,
+        .character_id = 7001,
+        .realm_id = 1,
+        .character_revision = 4,
+    });
 
     static_cast<void>(advance(2ms, 2ms, RealmEndpoint{"first.dynamic", 7200}));
     EXPECT_EQ(command_count(PrimaryTransportCommandKind::SendHandoff), 0U);
@@ -726,6 +733,12 @@ TEST_F(
         system_origin + 30s);
     ASSERT_TRUE(claims.has_value());
     EXPECT_EQ(claims->expires_at, system_origin + 90s);
+    EXPECT_EQ(claims->realm_id, 1U);
+    EXPECT_EQ(claims->character_id, 7001U);
+    EXPECT_NE(
+        metrics_.render().find(
+            "edge_fetch_result_total{result=\"succeeded\"} 1\n"),
+        std::string::npos);
     EXPECT_NE(
         metrics_.render().find("edge_sessions{stage=\"handed_off\"} 1\n"),
         std::string::npos);

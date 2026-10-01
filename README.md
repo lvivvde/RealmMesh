@@ -147,7 +147,7 @@ JSON over HTTP/1.1，keep-alive 必开：
 | `/healthz` | 两个服务 | — | 健康检查 |
 
 错误模型为 `{code, message, retry_after_seconds?}`（HTTP 状态与 `code` 并存），段号约定
-沿用 `edge.proto`：`1xxx` 凭据段（`1001` 凭据无效、`1002` 封禁、`1003` 白名单外）、
+沿用 `edge.proto`：`1xxx` 凭据段（`1001` 凭据无效、`1002` 封禁、`1003` 白名单外、`1004` 玩家数据源暂不可用，HTTP `503`）、
 `2xxx` 排队段（`2001` 号牌无效/过期、`2002` 发号存储暂不可用）。网关边另有一套 `EdgeError.code`：`1001` 凭据无效、
 `1004` 满额拒绝 attach、`1005` 准入处理中（可重试）、`1006` 准入存储不可用（可重试）、
 `2002` 未认证、`3002` 入场票据无效，以及限流时的 `429`（带 `retry_after_seconds`）。
@@ -343,8 +343,9 @@ UDP 与 TCP 端口空间）。
 }
 ```
 
-健全服的账号有效性数据源是 `AccountStore`，v1 由 `configs/common/accounts.lua`
-装载内存表（含有效/封禁/白名单外样例）；DB/Redis 真源以新实现替换，调用方零改动。
+健全服的账号有效性数据源是 `AccountStore`；生产配置由共享 SQLite 玩家数据源实现，
+`configs/common/accounts.lua` 只在空库首次启动时导入。Gateway 通过有界异步读取复核
+账号与所选角色，Realm 入场时再次核对角色归属；已提交数据在进程重启后保留。
 排队服的放行步长（`release_step`）与批次间隔（`release_interval_seconds`）、网关的
 拉取并发预算（`pipeline_fetch_capacity`）与重试参数都在各自服务配置中。
 

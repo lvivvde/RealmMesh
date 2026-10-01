@@ -74,6 +74,42 @@ TEST_F(LayeredConfigTest, CliOverridesInstanceIdentity) {
         std::string::npos);
 }
 
+TEST_F(LayeredConfigTest, ResolvesSharedPlayerDataDatabaseFromConfigRoot) {
+    write(
+        root_ / "common" / "player_data.lua",
+        "return { player_data = { database_file = \"data/players.sqlite\", "
+        "bootstrap_accounts_file = \"common/accounts.lua\", "
+        "credential_hash_cost = \"minimum\", busy_timeout_ms = 750 } }");
+    write(root_ / "services" / "realm.lua", "return {}");
+
+    const auto config = LayeredConfigLoader::load(root_, "realm");
+
+    EXPECT_EQ(
+        config.player_data.database_file,
+        root_ / "data" / "players.sqlite");
+    EXPECT_EQ(
+        config.player_data.options.busy_timeout,
+        std::chrono::milliseconds{750});
+    EXPECT_EQ(
+        config.player_data.options.bootstrap_accounts_file,
+        root_ / "common" / "accounts.lua");
+    EXPECT_EQ(
+        config.player_data.options.credential_hash_cost,
+        game::common::CredentialHashCost::Minimum);
+}
+
+TEST_F(LayeredConfigTest, RejectsUnknownCredentialHashCost) {
+    write(
+        root_ / "common" / "player_data.lua",
+        "return { player_data = { database_file = \"data/players.sqlite\", "
+        "credential_hash_cost = \"cheap\" } }");
+    write(root_ / "services" / "realm.lua", "return {}");
+
+    EXPECT_THROW(
+        static_cast<void>(LayeredConfigLoader::load(root_, "realm")),
+        std::invalid_argument);
+}
+
 TEST_F(LayeredConfigTest, MissingServiceFileThrows) {
     EXPECT_THROW(LayeredConfigLoader::load(root_, "ghost"), std::runtime_error);
 }

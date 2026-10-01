@@ -29,6 +29,10 @@ class GatewayAdmission;
 class AdmissionConsumptionStore;
 }  // namespace realm::game::gateway
 
+namespace realm::game::common {
+class PlayerDataReader;
+}  // namespace realm::game::common
+
 namespace realm::game::login_verify {
 class LoginVerifyService;
 }  // namespace realm::game::login_verify
@@ -113,6 +117,7 @@ private:
         gateway_login_pipeline_;
     std::unique_ptr<game::login_verify::LoginVerifyService> login_verify_;
     std::unique_ptr<game::queue::QueueService> queue_;
+    std::unique_ptr<game::common::PlayerDataReader> player_data_;
     std::unique_ptr<ServiceFrame> frame_;
     std::unique_ptr<cluster::EtcdServiceRegistry> registry_;
     std::unique_ptr<cluster::ServicePublisher> publisher_;

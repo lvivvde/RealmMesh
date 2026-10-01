@@ -26,6 +26,7 @@ inline constexpr int error_invalid_request{1000};
 inline constexpr int error_invalid_credentials{1001};
 inline constexpr int error_account_banned{1002};
 inline constexpr int error_not_whitelisted{1003};
+inline constexpr int error_data_unavailable{1004};
 
 /// 请求处理缝:路由、AccountStore 认定与身份 Token 签发的纯逻辑面,
 /// 不含 socket——HttpServer 的协议级回绝(400/413/431/505)不经过这里。

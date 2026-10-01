@@ -1,13 +1,30 @@
 #include "realmmesh/game/gateway/account_fetch_port.hpp"
 
+#include "realmmesh/game/common/player_data_store.hpp"
+#include "realmmesh/test_support/temporary_directory.hpp"
+
 #include <gtest/gtest.h>
 
 #include <chrono>
+#include <optional>
+#include <thread>
 
 namespace realm::game::gateway {
 namespace {
 
 using namespace std::chrono_literals;
+
+[[nodiscard]] std::optional<AccountFetchCompletion> wait_for_completion(
+    AccountFetchPort& port) {
+    const auto deadline = std::chrono::steady_clock::now() + 2s;
+    while (std::chrono::steady_clock::now() < deadline) {
+        auto completions =
+            port.drain_completions(std::chrono::steady_clock::now(), 1);
+        if (!completions.empty()) return std::move(completions.front());
+        std::this_thread::sleep_for(1ms);
+    }
+    return std::nullopt;
+}
 
 TEST(DelayedAccountFetchPortTest, CompletesWithoutBlockingTheSubmitter) {
     DelayedAccountFetchPort port(100ms, 2);
@@ -88,6 +105,79 @@ TEST(ScriptedAccountFetchPortTest, StopIsTerminalForTheAdapterInstance) {
         port.submit(request, std::chrono::steady_clock::time_point{}),
         AccountFetchSubmitResult::Stopped);
     EXPECT_TRUE(port.submitted_requests().empty());
+}
+
+TEST(SqliteAccountFetchPortTest, LoadsSelectedCharacterWithoutBlockingSubmit) {
+    test_support::TemporaryDirectory directory{"sqlite-fetch-port-test-"};
+    const auto database = directory.path() / "player-data.sqlite";
+    {
+        common::SqlitePlayerDataStore store(database);
+        store.provision_account(common::AccountProvisioning{
+            .account_id = 42,
+            .account_name = "player",
+            .credential = "secret",
+            .whitelisted = true,
+        });
+        store.provision_character(common::CharacterRecord{
+            .character_id = 7001,
+            .account_id = 42,
+            .realm_id = 1,
+            .name = "Ranger",
+            .revision = 4,
+        });
+        store.select_character(42, 7001);
+    }
+
+    SqliteAccountFetchPort port(
+        database, 1, common::SqlitePlayerDataOptions{.busy_timeout = 250ms});
+    const auto now = std::chrono::steady_clock::now();
+    EXPECT_EQ(
+        port.submit({AccountFetchAttemptId{1}, EdgeSessionId{1}, 42}, now),
+        AccountFetchSubmitResult::Submitted);
+    EXPECT_EQ(
+        port.submit({AccountFetchAttemptId{2}, EdgeSessionId{2}, 42}, now),
+        AccountFetchSubmitResult::Full);
+
+    const auto completion = wait_for_completion(port);
+    ASSERT_TRUE(completion.has_value());
+    EXPECT_TRUE(completion->ok);
+    EXPECT_EQ(completion->status, AccountFetchStatus::Succeeded);
+    EXPECT_EQ(completion->character_id, 7001U);
+    EXPECT_EQ(completion->realm_id, 1U);
+    EXPECT_EQ(completion->character_revision, 4U);
+}
+
+TEST(SqliteAccountFetchPortTest, RechecksAccountAccessOnEveryAttempt) {
+    test_support::TemporaryDirectory directory{"sqlite-fetch-port-test-"};
+    const auto database = directory.path() / "player-data.sqlite";
+    common::SqlitePlayerDataStore writer(database);
+    writer.provision_account(common::AccountProvisioning{
+        .account_id = 42,
+        .account_name = "player",
+        .credential = "secret",
+        .whitelisted = true,
+    });
+    writer.provision_character(common::CharacterRecord{
+        .character_id = 7001,
+        .account_id = 42,
+        .realm_id = 1,
+        .name = "Ranger",
+    });
+    writer.select_character(42, 7001);
+
+    SqliteAccountFetchPort port(
+        database, 2, common::SqlitePlayerDataOptions{.busy_timeout = 250ms});
+    writer.set_account_access(42, true, true);
+    ASSERT_EQ(
+        port.submit(
+            {AccountFetchAttemptId{1}, EdgeSessionId{1}, 42},
+            std::chrono::steady_clock::now()),
+        AccountFetchSubmitResult::Submitted);
+
+    const auto completion = wait_for_completion(port);
+    ASSERT_TRUE(completion.has_value());
+    EXPECT_FALSE(completion->ok);
+    EXPECT_EQ(completion->status, AccountFetchStatus::NotEligible);
 }
 
 }  // namespace

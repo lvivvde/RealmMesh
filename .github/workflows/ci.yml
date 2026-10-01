@@ -74,7 +74,8 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            libssl-dev libxdp1 libnl-3-200 libnl-route-3-200 libnuma1
+            libssl-dev libsqlite3-dev libxdp1 libnl-3-200 \
+            libnl-route-3-200 libnuma1
           ./scripts/install-msquic-dev.sh
 
       # 同 macOS:跨进程集成用例要拉起真实 etcd,缺失即失败(不跳过)。

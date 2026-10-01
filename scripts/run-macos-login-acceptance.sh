@@ -63,6 +63,7 @@ started_at="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
         cd "${project_root}"
         shasum -a 256 \
             configs/main.config \
+            configs/common/player_data.lua \
             configs/services/login_verify.lua \
             configs/services/queue.lua \
             configs/services/gateway.lua \

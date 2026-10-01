@@ -14,6 +14,7 @@
 #include "realmmesh/game/common/admission_grant.hpp"
 #include "realmmesh/game/common/compact_jws.hpp"
 #include "realmmesh/game/common/identity_token.hpp"
+#include "realmmesh/game/common/player_data_store.hpp"
 #include "realmmesh/game/login_verify/login_verify_service.hpp"
 #include "realmmesh/game/queue/queue_service.hpp"
 #include "realmmesh/observability/logger.hpp"
@@ -130,6 +131,7 @@ ServiceHost::ServiceHost(
     const auto frame_downstream_port = config.downstream_port;
     const auto max_events_per_frame = config.max_events_per_frame;
     const auto conn_capacity = config.login.conn_capacity;
+    const auto player_data = config.player_data;
     auto gateway_login_config = config.login;
 
     budget_policy_.conn_capacity = conn_capacity;
@@ -174,10 +176,18 @@ ServiceHost::ServiceHost(
         gateway_primary_transport_ =
             std::make_unique<game::gateway::GatewayRuntimePrimaryTransport>(
                 *runtime_);
-        account_fetch_ =
-            std::make_unique<game::gateway::DelayedAccountFetchPort>(
-                std::chrono::milliseconds{100},
-                gateway_login_config.fetch_capacity);
+        if (player_data.database_file.empty()) {
+            account_fetch_ =
+                std::make_unique<game::gateway::DelayedAccountFetchPort>(
+                    std::chrono::milliseconds{100},
+                    gateway_login_config.fetch_capacity);
+        } else {
+            account_fetch_ =
+                std::make_unique<game::gateway::SqliteAccountFetchPort>(
+                    player_data.database_file,
+                    gateway_login_config.fetch_capacity,
+                    player_data.options);
+        }
         gateway_login_pipeline_ =
             std::make_unique<game::gateway::GatewayLoginPipeline>(
                 game::gateway::GatewayLoginPipeline::create(
@@ -191,13 +201,18 @@ ServiceHost::ServiceHost(
                     logger_.get(),
                     &metrics_registry_));
     }
+    if (service_name_ == "realm" && !player_data.database_file.empty()) {
+        player_data_ = std::make_unique<game::common::SqlitePlayerDataStore>(
+            player_data.database_file, player_data.options);
+    }
     frame_ = std::make_unique<ServiceFrame>(
         service_name_,
         frame_downstream_address,
         frame_downstream_port,
         max_events_per_frame,
         conn_capacity,
-        gateway_login_pipeline_.get());
+        gateway_login_pipeline_.get(),
+        player_data_.get());
 }
 
 ServiceHost::~ServiceHost() { stop(); }

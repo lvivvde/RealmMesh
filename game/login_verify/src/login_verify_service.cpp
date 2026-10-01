@@ -2,6 +2,7 @@
 
 #include "realmmesh/game/common/account_store.hpp"
 #include "realmmesh/game/common/identity_token.hpp"
+#include "realmmesh/game/common/player_data_store.hpp"
 #include "realmmesh/network/http/http_server.hpp"
 #include "realmmesh/observability/logger.hpp"
 
@@ -20,8 +21,13 @@ void LoginVerifyService::start(observability::Logger* logger) {
     codec_ = std::make_unique<common::IdentityTokenCodec>(
         common::seed_from_environment("REALMMESH_IDENTITY_KEY_SEED"),
         config_.kid);
-    store_ = std::make_unique<common::ConfigAccountStore>(
-        common::ConfigAccountStore::load(config_.accounts_file));
+    if (!config_.player_data.database_file.empty()) {
+        store_ = std::make_unique<common::SqlitePlayerDataStore>(
+            config_.player_data.database_file, config_.player_data.options);
+    } else {
+        store_ = std::make_unique<common::ConfigAccountStore>(
+            common::ConfigAccountStore::load(config_.accounts_file));
+    }
     handler_ = std::make_unique<LoginVerifyHandler>(
         *store_, *codec_, [] { return std::chrono::system_clock::now(); },
         identity_token_issuer, identity_token_ttl, metrics_);

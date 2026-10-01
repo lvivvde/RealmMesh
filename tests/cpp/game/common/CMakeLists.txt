@@ -4,6 +4,15 @@ realm_add_gtest(account_store_test
     INCLUDE_DIRS ${PROJECT_SOURCE_DIR}/tests/cpp/support/include
 )
 
+# 测试直接读库校验口令哈希参数；导入目标按目录作用域，需在此再查找。
+find_package(SQLite3 REQUIRED)
+
+realm_add_gtest(player_data_store_test
+    SOURCES player_data_store_test.cpp
+    LIBS realm_game_common SQLite3::SQLite3
+    INCLUDE_DIRS ${PROJECT_SOURCE_DIR}/tests/cpp/support/include
+)
+
 realm_add_gtest(admission_grant_test
     SOURCES admission_grant_test.cpp
     LIBS realm_game_common

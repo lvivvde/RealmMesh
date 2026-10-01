@@ -126,6 +126,7 @@ started_at="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
         sha256sum \
             configs/main.config \
             configs/common/discovery.lua \
+            configs/common/player_data.lua \
             configs/services/login_verify.lua \
             configs/services/queue.lua \
             configs/services/gateway.lua \
@@ -294,7 +295,8 @@ fi
     echo "## Limitations"
     echo
     echo "- CI runs on one GitHub-hosted Ubuntu 24.04 machine; it does not prove cross-machine network or etcd TLS/authentication behavior."
-    echo "- The account source and Gateway fetch path remain controlled test data/stubs, so this report is not real-data capacity evidence."
+    echo "- Accounts and characters come from SQLite Player Data (ADR-0010) on the runner's local disk: Login Verifier authenticates, Gateway fetches and Realm rechecks against the same database. Loadgen capacity fixtures (thousands of robot accounts) use \`credential_hash_cost = \"minimum\"\`, so their Login Verify CPU cost is below a production Argon2 profile; single-account dev-services cases keep the default \`interactive\` cost."
+    echo "- Results are not comparable with pre-#92 reports, whose Gateway fetch path was the \`DelayedAccountFetchPort\` controlled stub."
     echo "- CDN cache hit rate and the full 100k/1m production sizes require a separately approved dedicated environment; M5 remains separate."
 } >>"${report_path}"
 

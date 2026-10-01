@@ -4,6 +4,8 @@
 
 #include "realmmesh/game/login_verify/login_verify_service.hpp"
 
+#include "realmmesh/game/common/player_data_store.hpp"
+
 #include "realmmesh/game/common/identity_token.hpp"
 #include "realmmesh/game/common/json.hpp"
 #include "realmmesh/test_support/temporary_directory.hpp"
@@ -186,22 +188,29 @@ protected:
     }
 
     void SetUp() override {
-        const auto accounts = directory_.path() / "accounts.lua";
-        std::ofstream stream(accounts, std::ios::binary);
-        stream << R"lua(
-return {
-    accounts = {
-        { account = "pinned", credential = "dev", whitelisted = true, account_id = 4242 },
-    },
-}
-)lua";
-        stream.close();
+        database_ = directory_.path() / "player-data.sqlite";
+        {
+            common::SqlitePlayerDataStore store(database_);
+            store.provision_account(common::AccountProvisioning{
+                .account_id = 4242,
+                .account_name = "pinned",
+                .credential = "dev",
+                .whitelisted = true,
+            });
+            store.provision_character(common::CharacterRecord{
+                .character_id = 9001,
+                .account_id = 4242,
+                .realm_id = 1,
+                .name = "Sentinel",
+            });
+            store.select_character(4242, 9001);
+        }
 
         LoginVerifyConfig config;
         config.listen_address = "127.0.0.1";
         config.listen_port = 0;
         config.kid = std::string{kKid};
-        config.accounts_file = accounts;
+        config.player_data.database_file = database_;
         config.tls = network::TransportConfig::TlsServerIdentity{
             .certificate_chain_file = REALMMESH_TEST_TLS_CERTIFICATE,
             .private_key_file = REALMMESH_TEST_TLS_PRIVATE_KEY,
@@ -235,6 +244,7 @@ return {
     static constexpr std::string_view kKid = "login-verify-test-1";
 
     test_support::TemporaryDirectory directory_{"login-verify-service-test-"};
+    std::filesystem::path database_;
     std::unique_ptr<LoginVerifyService> service_;
     std::jthread driver_;
     std::atomic_bool stopping_{false};
@@ -258,6 +268,20 @@ TEST_F(LoginVerifyServiceTest, VerifiesAccountOverTlsAndIssuesToken) {
         token, identity_token_issuer, std::chrono::system_clock::now());
     ASSERT_TRUE(claims.has_value());
     EXPECT_EQ(claims->account_id, 4242ULL);
+}
+
+TEST_F(LoginVerifyServiceTest, SeesCommittedAccountAccessUpdates) {
+    common::SqlitePlayerDataStore writer(database_);
+    writer.set_account_access(4242, true, true);
+
+    const auto exchanged = https_exchange(
+        port_,
+        post_request(
+            "/v1/login/verify",
+            R"({"account":"pinned","credential":"dev"})"));
+    ASSERT_TRUE(exchanged.has_value());
+    EXPECT_EQ(status_of(*exchanged), 403);
+    EXPECT_NE(body_of(*exchanged).find("account banned"), std::string::npos);
 }
 
 TEST_F(LoginVerifyServiceTest, WrongCredentialIsRejectedOverTls) {

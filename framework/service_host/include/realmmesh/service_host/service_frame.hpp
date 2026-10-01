@@ -23,6 +23,10 @@ struct GatewayEvent;
 class GatewayLoginPipeline;
 }  // namespace realm::game::gateway
 
+namespace realm::game::common {
+class PlayerDataReader;
+}  // namespace realm::game::common
+
 namespace realm::observability {
 class Logger;
 }  // namespace realm::observability
@@ -50,7 +54,8 @@ public:
         std::uint16_t downstream_port,
         std::size_t max_events_per_frame,
         std::uint64_t conn_capacity,
-        game::gateway::GatewayLoginPipeline* gateway_login_pipeline = nullptr);
+        game::gateway::GatewayLoginPipeline* gateway_login_pipeline = nullptr,
+        game::common::PlayerDataReader* player_data = nullptr);
     ~ServiceFrame();
 
     /// service_started(gateway 另发每 transport 的 listener_started)。
@@ -110,6 +115,10 @@ private:
     /// Gateway 登录的唯一业务缝；状态、命令重试、票据、预算和指标均
     /// 由该实例拥有。ServiceFrame 不拥有其生命周期。
     game::gateway::GatewayLoginPipeline* gateway_login_pipeline_{nullptr};
+
+    /// Realm 入场时重新核对票据角色仍属于账号与当前 Realm。为空只供
+    /// 非 Realm/遗留单元测试装配；生产 Realm 必须注入权威数据源。
+    game::common::PlayerDataReader* player_data_{nullptr};
 
     /// realm 连接额度簿记(#46):conn_capacity 为启用传输 max_sessions
     /// 之和(与 gateway 同源注入);realm 不做接入门禁(传输层已是硬

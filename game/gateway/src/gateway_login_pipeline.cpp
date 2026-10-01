@@ -46,6 +46,8 @@ struct PipelineSession {
     bool closing{false};
     bool fetch_reserved{false};
     std::uint64_t account_id{0};
+    std::uint64_t character_id{0};
+    std::uint32_t realm_id{1};
     std::optional<GatewayAdmissionReservation> admission_reservation;
     unsigned fetch_failures{0};
     std::chrono::steady_clock::time_point fetch_due{};
@@ -54,6 +56,14 @@ struct PipelineSession {
     std::string source;
     std::uint32_t attach_attempts{0};
 };
+
+[[nodiscard]] std::string_view fetch_status_label(
+    const AccountFetchCompletion& completion) {
+    if (completion.ok) return "succeeded";
+    return completion.status == AccountFetchStatus::NotEligible
+               ? "not_eligible"
+               : "unavailable";
+}
 
 [[nodiscard]] std::vector<std::byte> error_payload(
     int code,
@@ -361,7 +371,17 @@ private:
             session.active_attempt.reset();
             attempts_.erase(attempt);
             if (session.closing) continue;
+            const auto fetch_result = fetch_status_label(completion);
+            if (metrics_ != nullptr) {
+                metrics_->counter_add(
+                    "edge_fetch_result_total", 1.0,
+                    {{"result", fetch_result}});
+            }
             if (completion.ok) {
+                session.character_id = completion.character_id;
+                if (completion.realm_id != 0) {
+                    session.realm_id = completion.realm_id;
+                }
                 release_fetch_reservation(session);
                 session.intent = RuntimeIntent{IntentKind::Handoff, {}};
                 if (metrics_ != nullptr) {
@@ -383,6 +403,17 @@ private:
             }
 
             ++session.fetch_failures;
+            if (logger_ != nullptr) {
+                static_cast<void>(logger_->warn(
+                    "edge_fetch_failed",
+                    "edge account facts fetch failed",
+                    {observability::field(
+                         "session_id",
+                         session_id.value,
+                         observability::DataClass::Internal),
+                     observability::field(
+                         "result", std::string(fetch_result))}));
+            }
             if (session.fetch_failures > config_.fetch_retry_max) {
                 release_fetch_reservation(session);
                 if (logger_ != nullptr) {
@@ -494,7 +525,11 @@ private:
             result = primary_transport_->send_handoff(
                 session_id,
                 handoff_payload(
-                    session.account_id, *endpoint, frame.verification_now));
+                    session.account_id,
+                    session.realm_id,
+                    session.character_id,
+                    *endpoint,
+                    frame.verification_now));
             if (result == PrimaryTransportResult::Queued) {
                 session.stage = PublicStage::HandedOff;
                 session.handoff_deadline = frame.now + config_.handoff_grace;
@@ -584,13 +619,15 @@ private:
 
     [[nodiscard]] std::vector<std::byte> handoff_payload(
         std::uint64_t account_id,
+        std::uint32_t realm_id,
+        std::uint64_t character_id,
         const RealmEndpoint& endpoint,
         std::chrono::system_clock::time_point now) const {
         const auto ticket = tickets_.issue(
             common::TicketPurpose::EnterRealm,
             account_id,
-            1,
-            0,
+            realm_id,
+            character_id,
             enter_realm_ticket_ttl,
             now);
         common::EnterRealmGranted granted;

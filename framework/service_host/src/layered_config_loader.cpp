@@ -1,5 +1,6 @@
 #include "realmmesh/service_host/layered_config_loader.hpp"
 
+#include "realmmesh/game/common/player_data_config.hpp"
 #include "realmmesh/scripting/lua_runtime.hpp"
 
 #include <algorithm>
@@ -175,7 +176,9 @@ game::gateway::GatewayConfig LayeredConfigLoader::load(
     call_merger<sol::table>(
         layers.runtime, "ensure_table", layers.root, "transports");
 
-    return game::gateway::GatewayConfigLoader::parse(layers.root);
+    auto config = game::gateway::GatewayConfigLoader::parse(layers.root);
+    game::common::resolve_player_data_paths(config.player_data, config_root);
+    return config;
 }
 
 LayeredConfigLoader::LoginVerifyServiceConfig
@@ -199,6 +202,10 @@ LayeredConfigLoader::load_login_verify(
         config.login_verify.accounts_file =
             config_root / config.login_verify.accounts_file;
     }
+    game::common::resolve_player_data_paths(
+        config.login_verify.player_data, config_root);
+    game::common::resolve_player_data_paths(
+        config.host.player_data, config_root);
     return config;
 }
 
@@ -216,6 +223,8 @@ LayeredConfigLoader::load_queue(
     call_merger<sol::table>(
         layers.runtime, "ensure_table", layers.root, "transports");
     config.host = game::gateway::GatewayConfigLoader::parse(layers.root);
+    game::common::resolve_player_data_paths(
+        config.host.player_data, config_root);
     config.queue = game::queue::QueueConfigLoader::parse(layers.root);
     return config;
 }

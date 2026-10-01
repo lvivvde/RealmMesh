@@ -1,5 +1,6 @@
 #pragma once
 
+#include "realmmesh/game/common/player_data_store.hpp"
 #include "realmmesh/game/gateway/edge_session_table.hpp"
 
 #include <chrono>
@@ -7,6 +8,8 @@
 #include <cstddef>
 #include <cstdint>
 #include <deque>
+#include <filesystem>
+#include <memory>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -28,7 +31,17 @@ struct AccountFetchCompletion {
     AccountFetchAttemptId attempt_id;
     bool ok{false};
     std::chrono::milliseconds duration{0};
+    enum class Status : std::uint8_t {
+        Succeeded,
+        NotEligible,
+        Unavailable,
+    } status{Status::Unavailable};
+    std::uint64_t character_id{0};
+    std::uint32_t realm_id{0};
+    std::uint64_t character_revision{0};
 };
+
+using AccountFetchStatus = AccountFetchCompletion::Status;
 
 enum class AccountFetchSubmitResult : std::uint8_t {
     Submitted,
@@ -74,6 +87,33 @@ private:
     std::size_t capacity_;
     bool stopped_{false};
     std::unordered_map<std::uint64_t, Pending> pending_;
+};
+
+/// SQLite 玩家数据的有界异步适配器。查询只在工作线程执行；submit 不做
+/// 文件 I/O，容量耗尽与存储查询失败分别映射为 Full 和失败 completion。
+class SqliteAccountFetchPort final : public AccountFetchPort {
+public:
+    SqliteAccountFetchPort(
+        std::filesystem::path database_file,
+        std::size_t capacity,
+        common::SqlitePlayerDataOptions options = {});
+    ~SqliteAccountFetchPort();
+
+    SqliteAccountFetchPort(const SqliteAccountFetchPort&) = delete;
+    SqliteAccountFetchPort& operator=(const SqliteAccountFetchPort&) = delete;
+
+    [[nodiscard]] AccountFetchSubmitResult submit(
+        AccountFetchRequest request,
+        std::chrono::steady_clock::time_point now) override;
+    [[nodiscard]] std::vector<AccountFetchCompletion> drain_completions(
+        std::chrono::steady_clock::time_point now,
+        std::size_t max_completions) override;
+    void cancel(AccountFetchAttemptId attempt_id) override;
+    void stop() noexcept;
+
+private:
+    class Impl;
+    std::unique_ptr<Impl> impl_;
 };
 
 class ScriptedAccountFetchPort final : public AccountFetchPort {

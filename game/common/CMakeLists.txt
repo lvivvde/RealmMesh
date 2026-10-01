@@ -7,9 +7,13 @@ add_library(realm_game_common
     src/edge_protocol.cpp
     src/identity_token.cpp
     src/json.cpp
+    src/player_data_config.cpp
+    src/player_data_store.cpp
     src/queue_number_v2.cpp
     src/session_ticket.cpp
 )
+
+find_package(SQLite3 REQUIRED)
 
 add_library(RealmMesh::GameCommon ALIAS realm_game_common)
 
@@ -24,7 +28,10 @@ target_link_libraries(realm_game_common PUBLIC
     Sodium::Sodium
 )
 # Lua 装载只存在于 ConfigAccountStore 实现(.cpp),不进公共头:私有依赖。
-target_link_libraries(realm_game_common PRIVATE RealmMesh::Scripting)
+target_link_libraries(realm_game_common PRIVATE
+    RealmMesh::Scripting
+    SQLite3::SQLite3
+)
 target_compile_features(realm_game_common PUBLIC cxx_std_20)
 set_target_properties(realm_game_common PROPERTIES CXX_EXTENSIONS OFF)
 

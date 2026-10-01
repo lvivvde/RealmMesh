@@ -3,6 +3,7 @@
 #include "realmmesh/cluster/budget_publisher.hpp"
 #include "realmmesh/cluster/service_resolver.hpp"
 #include "realmmesh/game/common/edge_protocol.hpp"
+#include "realmmesh/game/common/player_data_store.hpp"
 #include "realmmesh/game/gateway/gateway_login_pipeline.hpp"
 #include "realmmesh/game/gateway/gateway_runtime.hpp"
 #include "realmmesh/observability/logger.hpp"
@@ -53,12 +54,14 @@ ServiceFrame::ServiceFrame(
     std::uint16_t downstream_port,
     std::size_t max_events_per_frame,
     std::uint64_t conn_capacity,
-    game::gateway::GatewayLoginPipeline* gateway_login_pipeline)
+    game::gateway::GatewayLoginPipeline* gateway_login_pipeline,
+    game::common::PlayerDataReader* player_data)
     : service_name_(service_name),
       max_events_per_frame_(max_events_per_frame),
       identity_(parse_service_identity(service_name)),
       tickets_(service_ticket_key(identity_)),
       gateway_login_pipeline_(gateway_login_pipeline),
+      player_data_(player_data),
       conn_capacity_(conn_capacity) {
     if (identity_.has_value() && identity_ != cluster::ServiceType::Gateway &&
         (downstream_address.empty() || downstream_port == 0)) {
@@ -244,12 +247,34 @@ void ServiceFrame::handle_enter_realm(
     const auto redeemed = tickets_.redeem(
         game::common::protobuf_bytes(request.enter_realm_ticket()),
         game::common::TicketPurpose::EnterRealm);
-    // realm 固定 1 是当前单 Realm 拓扑的不变量;character_id 占位 0(#46
-    // 不校验,选角业务后续票落地)。回放保护在 redeem 处烧票:同票据二次提交
-    // 自然落 Replayed,与无效/过期同路拒绝。
+    // realm 固定 1 是当前单 Realm 拓扑的不变量。回放保护在 redeem 处
+    // 烧票；验签通过后仍须用权威数据源核对角色归属，不能仅信票据快照。
     const bool ticket_valid =
         redeemed.status == game::common::RedeemStatus::Accepted;
-    const bool entered = ticket_valid && redeemed.claims.realm_id == 1;
+    bool character_valid = player_data_ == nullptr;
+    if (ticket_valid && redeemed.claims.realm_id == 1 &&
+        player_data_ != nullptr) {
+        try {
+            character_valid = player_data_
+                                  ->character(
+                                      redeemed.claims.account_id,
+                                      redeemed.claims.realm_id,
+                                      redeemed.claims.character_id)
+                                  .has_value();
+        } catch (const game::common::PlayerDataError& error) {
+            static_cast<void>(logger.error(
+                "realm_player_data_unavailable",
+                "realm player data lookup failed",
+                {observability::field(
+                     "account_id",
+                     redeemed.claims.account_id,
+                     observability::DataClass::Pseudonymous),
+                 observability::field("error", error.what())}));
+            character_valid = false;
+        }
+    }
+    const bool entered = ticket_valid && redeemed.claims.realm_id == 1 &&
+                         character_valid;
     if (!entered) {
         game::common::EdgeError error;
         error.set_code(game::common::edge_error_invalid_enter_realm_ticket);
@@ -262,11 +287,11 @@ void ServiceFrame::handle_enter_realm(
             static_cast<void>(runtime.try_decline(event.session_id, response));
         }
         if (ticket_valid) {
-            // 票据验签通过、只是 realm 声明不符:唯一能归因到账号的拒绝
-            // 分支(无效/重放的 redeem 不返回 claims,只留 redeem_status)。
+            // 票据验签通过、但 Realm 或角色归属不符；此时才可安全记录
+            // 账号标识（无效/重放时 redeem 不返回可信 claims）。
             static_cast<void>(logger.warn(
-                "realm_enter_realm_mismatch",
-                "enter realm ticket is for another realm",
+                "realm_enter_claim_mismatch",
+                "enter realm claims do not match player data",
                 {observability::field(
                      "session_id",
                      event.session_id.value,
@@ -275,7 +300,11 @@ void ServiceFrame::handle_enter_realm(
                      "account_id",
                      redeemed.claims.account_id,
                      observability::DataClass::Pseudonymous),
-                 observability::field("realm_id", redeemed.claims.realm_id)}));
+                 observability::field("realm_id", redeemed.claims.realm_id),
+                 observability::field(
+                     "character_id",
+                     redeemed.claims.character_id,
+                     observability::DataClass::Pseudonymous)}));
         } else {
             static_cast<void>(logger.warn(
                 "realm_enter_rejected",
