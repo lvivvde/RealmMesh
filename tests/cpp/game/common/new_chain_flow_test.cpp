@@ -7,6 +7,7 @@
 #include "realmmesh/network/tcp/tcp_listener.hpp"
 #include "realmmesh/test_support/etcd_process.hpp"
 #include "realmmesh/test_support/legacy_queue_number.hpp"
+#include "realmmesh/test_support/mongod_process.hpp"
 
 #include <gtest/gtest.h>
 #include <openssl/ssl.h>
@@ -598,12 +599,17 @@ TEST(NewChainFlowTest, AttachesToGatewayAndEntersRealm) {
         }
     }
     // 网关的准入消费存储是线性一致存储,attach 路径真实依赖它:自起进程时
-    // 连一个真 etcd 一起拉起并改写配置(外部服务组模式由脚本负责 etcd)。
+    // 连一个真 etcd 一起拉起并改写配置;Player Data 同理改指共享 mongod
+    // (外部服务组模式由脚本负责 etcd 与 MongoDB)。
     std::unique_ptr<test_support::EtcdProcess> etcd;
     if (!external_service_group) {
         etcd = std::make_unique<test_support::EtcdProcess>();
         etcd->wait_ready();
         point_services_at_etcd(config_root, etcd->endpoint());
+        test_support::point_player_data_at(
+            config_root,
+            test_support::MongodProcess::shared(),
+            test_support::MongodProcess::fresh_database());
     }
     // 用例与脚本共享的一组材料:身份/号牌/Grant 三把种子,加上网关验证侧
     // 需要的公钥与消费摘要键。公钥常量必须与种子推导结果一致,否则用例与
@@ -746,6 +752,10 @@ TEST(NewChainFlowTest, RestartKeepsCommittedAdmissionConsumed) {
     test_support::EtcdProcess etcd;
     etcd.wait_ready();
     point_services_at_etcd(scratch.path(), etcd.endpoint());
+    test_support::point_player_data_at(
+        scratch.path(),
+        test_support::MongodProcess::shared(),
+        test_support::MongodProcess::fresh_database());
 
     set_environment("REALMMESH_IDENTITY_KEY_SEED", identity_seed_hex);
     set_environment("REALMMESH_QUEUE_NUMBER_KEY_SEED", queue_number_seed_hex);

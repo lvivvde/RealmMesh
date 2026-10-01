@@ -39,6 +39,14 @@ jobs:
       - name: Install etcd
         run: ./scripts/install-etcd.sh
 
+      # Player Data 的权威来源是 MongoDB 副本集(ADR-0011):存储层与跨进程
+      # 集成用例各自拉起单节点 rs0。macOS 与开发机一致，用 Homebrew 安装;
+      # 夹具与脚本从 PATH 找 mongod/mongosh,缺失即失败而不是跳过。
+      - name: Install MongoDB
+        run: |
+          brew tap mongodb/brew
+          brew install mongodb-community mongosh
+
       - name: Show toolchain
         run: |
           cmake --version
@@ -74,13 +82,18 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            libssl-dev libsqlite3-dev libxdp1 libnl-3-200 \
+            libssl-dev libxdp1 libnl-3-200 \
             libnl-route-3-200 libnuma1
           ./scripts/install-msquic-dev.sh
 
       # 同 macOS:跨进程集成用例要拉起真实 etcd,缺失即失败(不跳过)。
       - name: Install etcd
         run: ./scripts/install-etcd.sh
+
+      # 同 macOS:Player Data 用例要拉起真实 MongoDB 副本集。Linux 装固定
+      # 版本 + 校验和到 .tools/,夹具与脚本在 PATH 之后退回那里查找。
+      - name: Install MongoDB
+        run: ./scripts/install-mongodb.sh
 
       - name: Show toolchain
         run: |

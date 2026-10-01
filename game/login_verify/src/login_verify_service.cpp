@@ -21,9 +21,11 @@ void LoginVerifyService::start(observability::Logger* logger) {
     codec_ = std::make_unique<common::IdentityTokenCodec>(
         common::seed_from_environment("REALMMESH_IDENTITY_KEY_SEED"),
         config_.kid);
-    if (!config_.player_data.database_file.empty()) {
-        store_ = std::make_unique<common::SqlitePlayerDataStore>(
-            config_.player_data.database_file, config_.player_data.options);
+    if (!config_.player_data.uri.empty()) {
+        store_ = std::make_unique<common::MongoPlayerDataStore>(
+            config_.player_data.uri,
+            config_.player_data.database,
+            config_.player_data.options);
     } else {
         store_ = std::make_unique<common::ConfigAccountStore>(
             common::ConfigAccountStore::load(config_.accounts_file));

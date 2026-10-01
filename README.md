@@ -68,6 +68,7 @@ flowchart LR
 | 客户端状态机与自适应轮询（#49） | 已实现 |
 | 退役旧 Login 链路（#50） | 已实现 |
 | 身份 Token 回放守卫收敛（#63）、客户端真实兑换口（#64） | 已实现 |
+| 权威玩家数据源：MongoDB 副本集取代 SQLite（#99） | 已实现 |
 
 旧 `Login → Realm 选角 → Gateway 入场` 链路已整体退役：`login` 服务身份、7000 端口与
 旧入场消息编号都已删除，线名 `login` 永不复用（见[架构文档](docs/architecture.md)）。
@@ -224,6 +225,12 @@ export PATH="$(brew --prefix openssl@3)/bin:$PATH"   # 测试证书生成要用 
 ./scripts/build.sh
 ```
 
+`OPENSSL_ROOT_DIR` 必须在首次配置前导出：缺了它，CMake 会从共享前缀
+`/opt/homebrew/include` 找到 OpenSSL，而 Homebrew 的 `mongodb-community` 会
+顺带装上 abseil，其头文件就会盖过工程固定版本，导致 protobuf 链接失败。
+已用错误前缀配置过的构建目录，需带
+`-DOPENSSL_ROOT_DIR="$(brew --prefix openssl@3)" -UOPENSSL_INCLUDE_DIR` 重新配置。
+
 `scripts/build.sh` 依次执行 `cmake --preset dev`、`cmake --build --preset dev` 和
 `ctest --preset dev`（配置 + 构建 + 全量测试），并在首次构建时把
 `compile_commands.json` 链接到仓库根。
@@ -232,6 +239,14 @@ MsQuic 开发安装脚本固定使用 Microsoft 官方 `libmsquic 2.5.10` 包和
 下载内容均校验 SHA-256。也可自行安装 MsQuic，并通过 `MSQUIC_ROOT` 指向其前缀。
 服务发现需要本地 etcd：`./scripts/install-etcd.sh` 安装固定版本 3.6.14，
 `./scripts/run-etcd-dev.sh` 以前台单节点启动。
+
+玩家数据需要本地 MongoDB（[ADR-0011](docs/adr/0011-mongodb-authoritative-player-data.md)）。
+macOS 用 Homebrew 安装：`brew tap mongodb/brew && brew install mongodb-community mongosh`；
+Linux 用 `./scripts/install-mongodb.sh` 安装固定版本到 `.tools/`。
+`./scripts/run-mongodb-dev.sh` 以前台单节点副本集 `rs0` 在 `127.0.0.1:27017` 启动它，
+数据放在 `.runtime/mongodb`，首次启动自动初始化副本集。它不使用 Homebrew 服务
+（`brew services`）的配置与数据目录，所以无需改 `mongod.conf`；但两者都默认占用
+27017，同时只能运行一个。
 
 ## 开发证书与密钥
 
@@ -343,7 +358,7 @@ UDP 与 TCP 端口空间）。
 }
 ```
 
-健全服的账号有效性数据源是 `AccountStore`；生产配置由共享 SQLite 玩家数据源实现，
+健全服的账号有效性数据源是 `AccountStore`；生产配置由共享 MongoDB 玩家数据源实现（`configs/common/player_data.lua`），
 `configs/common/accounts.lua` 只在空库首次启动时导入。Gateway 通过有界异步读取复核
 账号与所选角色，Realm 入场时再次核对角色归属；已提交数据在进程重启后保留。
 排队服的放行步长（`release_step`）与批次间隔（`release_interval_seconds`）、网关的

@@ -74,22 +74,28 @@ TEST_F(LayeredConfigTest, CliOverridesInstanceIdentity) {
         std::string::npos);
 }
 
-TEST_F(LayeredConfigTest, ResolvesSharedPlayerDataDatabaseFromConfigRoot) {
+TEST_F(LayeredConfigTest, ParsesSharedPlayerDataDeployment) {
     write(
         root_ / "common" / "player_data.lua",
-        "return { player_data = { database_file = \"data/players.sqlite\", "
+        "return { player_data = { "
+        "uri = \"mongodb://127.0.0.1:27017/?replicaSet=rs0\", "
+        "database = \"realmmesh\", server_selection_timeout_ms = 750, "
+        "socket_timeout_ms = 1500, "
         "bootstrap_accounts_file = \"common/accounts.lua\", "
-        "credential_hash_cost = \"minimum\", busy_timeout_ms = 750 } }");
+        "credential_hash_cost = \"minimum\" } }");
     write(root_ / "services" / "realm.lua", "return {}");
 
     const auto config = LayeredConfigLoader::load(root_, "realm");
 
     EXPECT_EQ(
-        config.player_data.database_file,
-        root_ / "data" / "players.sqlite");
+        config.player_data.uri, "mongodb://127.0.0.1:27017/?replicaSet=rs0");
+    EXPECT_EQ(config.player_data.database, "realmmesh");
     EXPECT_EQ(
-        config.player_data.options.busy_timeout,
+        config.player_data.options.server_selection_timeout,
         std::chrono::milliseconds{750});
+    EXPECT_EQ(
+        config.player_data.options.socket_timeout,
+        std::chrono::milliseconds{1500});
     EXPECT_EQ(
         config.player_data.options.bootstrap_accounts_file,
         root_ / "common" / "accounts.lua");
@@ -98,11 +104,35 @@ TEST_F(LayeredConfigTest, ResolvesSharedPlayerDataDatabaseFromConfigRoot) {
         game::common::CredentialHashCost::Minimum);
 }
 
+TEST_F(LayeredConfigTest, RequiresDatabaseWhenUriIsSet) {
+    write(
+        root_ / "common" / "player_data.lua",
+        "return { player_data = { "
+        "uri = \"mongodb://127.0.0.1:27017/?replicaSet=rs0\" } }");
+    write(root_ / "services" / "realm.lua", "return {}");
+
+    EXPECT_THROW(
+        static_cast<void>(LayeredConfigLoader::load(root_, "realm")),
+        std::invalid_argument);
+}
+
+TEST_F(LayeredConfigTest, RejectsRetiredSqlitePlayerDataKeys) {
+    // ADR-0010 的本地文件键在 ADR-0011 后失效；静默忽略会让旧配置误以为
+    // 仍指向本地库。
+    write(
+        root_ / "common" / "player_data.lua",
+        "return { player_data = { database_file = \"data/players.sqlite\" } }");
+    write(root_ / "services" / "realm.lua", "return {}");
+
+    EXPECT_THROW(
+        static_cast<void>(LayeredConfigLoader::load(root_, "realm")),
+        std::invalid_argument);
+}
+
 TEST_F(LayeredConfigTest, RejectsUnknownCredentialHashCost) {
     write(
         root_ / "common" / "player_data.lua",
-        "return { player_data = { database_file = \"data/players.sqlite\", "
-        "credential_hash_cost = \"cheap\" } }");
+        "return { player_data = { credential_hash_cost = \"cheap\" } }");
     write(root_ / "services" / "realm.lua", "return {}");
 
     EXPECT_THROW(

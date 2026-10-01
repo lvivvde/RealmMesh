@@ -66,6 +66,11 @@ cleanup() {
         kill -TERM "${realmmesh_etcd_pid}" 2>/dev/null || true
         wait "${realmmesh_etcd_pid}" 2>/dev/null || true
     fi
+    # 用例自带的 mongod 同理：账号与角色事实只属于这一轮。
+    if [[ -n "${realmmesh_mongod_pid:-}" ]]; then
+        kill -TERM "${realmmesh_mongod_pid}" 2>/dev/null || true
+        wait "${realmmesh_mongod_pid}" 2>/dev/null || true
+    fi
     local realmmesh_pid_file
     for realmmesh_pid_file in "${realmmesh_test_root}"/.runtime/pids/*.pid; do
         [[ -f "${realmmesh_pid_file}" ]] || continue
@@ -125,7 +130,7 @@ import socket
 
 chosen = []
 sockets = []
-while len(chosen) < 10:
+while len(chosen) < 11:
     port = random.randint(20000, 30000)
     if port in chosen:
         continue
@@ -151,6 +156,7 @@ realmmesh_login_verify_port="${realmmesh_ports[6]}"
 realmmesh_queue_port="${realmmesh_ports[7]}"
 realmmesh_login_verify_metrics_port="${realmmesh_ports[8]}"
 realmmesh_queue_metrics_port="${realmmesh_ports[9]}"
+realmmesh_mongod_port="${realmmesh_ports[10]}"
 realmmesh_etcd_endpoint="http://127.0.0.1:${realmmesh_etcd_client_port}"
 
 # 网关的准入消费存储是线性一致存储(ADR-0009):服务组必须有**真** etcd,
@@ -175,6 +181,30 @@ mkdir -p "${realmmesh_etcd_data_dir}"
     --initial-cluster "realmmesh-dev-services-test=http://127.0.0.1:${realmmesh_etcd_peer_port}" \
     --log-level error > "${realmmesh_scratch}/etcd.log" 2>&1 &
 realmmesh_etcd_pid=$!
+
+# Player Data 的权威来源是 MongoDB 副本集(ADR-0011):同样每条用例自带一个
+# 单节点 rs0,与 etcd 并行启动以省掉一段等待。二进制查找顺序见
+# scripts/lib/mongodb-tools.sh(macOS 即 Homebrew 安装的 mongod/mongosh)。
+realmmesh_mongodb_root="${realmmesh_source_root}"
+# shellcheck source=../../scripts/lib/mongodb-tools.sh
+source "${realmmesh_source_root}/scripts/lib/mongodb-tools.sh"
+if ! realmmesh_mongod_bin="$(realmmesh_mongod_binary)" ||
+    ! realmmesh_mongosh_bin="$(realmmesh_mongosh_binary)"; then
+    realmmesh_mongodb_install_hint >&2
+    exit 2
+fi
+realmmesh_mongod_data_dir="${realmmesh_scratch}/mongod-data"
+mkdir -p "${realmmesh_mongod_data_dir}"
+"${realmmesh_mongod_bin}" \
+    --replSet rs0 \
+    --bind_ip 127.0.0.1 \
+    --port "${realmmesh_mongod_port}" \
+    --dbpath "${realmmesh_mongod_data_dir}" \
+    --logpath "${realmmesh_scratch}/mongod.log" \
+    --nounixsocket \
+    --wiredTigerCacheSizeGB 0.25 > /dev/null 2>&1 &
+realmmesh_mongod_pid=$!
+realmmesh_mongod_member="127.0.0.1:${realmmesh_mongod_port}"
 # 客户端端口可连 ≠ etcd 已能服务:选举窗口内它会直接关闭连接(实测
 # "Failed to read connection"),而网关的就绪探测正好会踩进去。用一次真实
 # 写入当就绪判据,而不是靠 sleep 猜——写入的 key 与用例无关,只证明
@@ -207,6 +237,19 @@ if [[ "${realmmesh_etcd_ready}" -ne 1 ]]; then
         "${realmmesh_scratch}/etcd.log" >&2
     exit 1
 fi
+if ! "${realmmesh_source_root}/scripts/mongodb-init-replset.sh" \
+    "${realmmesh_mongosh_bin}" "${realmmesh_mongod_member}"; then
+    printf 'mongod did not become the rs0 primary; see %s\n' \
+        "${realmmesh_scratch}/mongod.log" >&2
+    exit 1
+fi
+
+# 回读用例 mongod 里的 Player Data,用 print(...) 输出需要比对的值。
+player_data_eval() {
+    "${realmmesh_mongosh_bin}" --quiet --norc \
+        "mongodb://${realmmesh_mongod_member}/realmmesh?replicaSet=rs0" \
+        --eval "$1"
+}
 
 etcd_range_body() {
     python3 - "$1" <<'PY'
@@ -274,6 +317,14 @@ grep -q "endpoint = \"${realmmesh_etcd_endpoint}\"" \
 grep -q "etcd_endpoint = \"${realmmesh_etcd_endpoint}\"" \
     "${realmmesh_test_root}/configs/services/queue.lua" || {
     printf 'failed to point the queue store at the test etcd\n' >&2
+    exit 1
+}
+# 三个服务共享的 Player Data 也换成用例自己的 mongod。
+rewrite_config "${realmmesh_test_root}/configs/common/player_data.lua" \
+    -e "s|mongodb://127.0.0.1:27017/|mongodb://${realmmesh_mongod_member}/|"
+grep -q "uri = \"mongodb://${realmmesh_mongod_member}/?replicaSet=rs0\"" \
+    "${realmmesh_test_root}/configs/common/player_data.lua" || {
+    printf 'failed to point player data at the test mongod\n' >&2
     exit 1
 }
 
@@ -465,12 +516,13 @@ expect_full_login_failure() {
 }
 
 print_acceptance_runtime() {
-    printf 'acceptance_runtime login_verify=127.0.0.1:%s queue=127.0.0.1:%s gateway=127.0.0.1:%s realm=127.0.0.1:%s etcd=%s\n' \
+    printf 'acceptance_runtime login_verify=127.0.0.1:%s queue=127.0.0.1:%s gateway=127.0.0.1:%s realm=127.0.0.1:%s etcd=%s mongodb=%s\n' \
         "${realmmesh_login_verify_port}" \
         "${realmmesh_queue_port}" \
         "${realmmesh_gateway_port}" \
         "${realmmesh_realm_port}" \
-        "${realmmesh_etcd_endpoint}"
+        "${realmmesh_etcd_endpoint}" \
+        "${realmmesh_mongod_member}"
     if command -v shasum >/dev/null 2>&1; then
         (cd "${realmmesh_test_root}" && shasum -a 256 \
             configs/main.config configs/common/discovery.lua \
@@ -626,15 +678,16 @@ case "${realmmesh_case}" in
             "${realmmesh_recovery_elapsed}"
 
         # Gateway、Realm 已各自冷启动过；再重启 Login Verifier，证明同一
-        # 账号在三个进程都重新打开 SQLite Player Data 后仍走通全链路。
+        # 账号在三个进程都重新连上 MongoDB Player Data 后仍走通全链路。
         crash_standalone_service login_verify
         wait_for_etcd_key_state \
             "${realmmesh_login_verify_registration_range_body}" absent
         start_standalone_service login_verify
         wait_for_standalone_ready login_verify
         run_full_login
-        [[ -s "${realmmesh_test_root}/configs/data/player-data.sqlite" ]]
-        printf 'acceptance_data player_data_restart source=sqlite database=configs/data/player-data.sqlite restarted=gateway,realm,login_verify result=PASS\n'
+        [[ "$(player_data_eval \
+            'print(db.accounts.countDocuments({account_name: "robot-0"}))')" == 1 ]]
+        printf 'acceptance_data player_data_restart source=mongodb database=realmmesh restarted=gateway,realm,login_verify result=PASS\n'
 
         realmmesh_released_before="$(queue_released_number)"
         [[ "${realmmesh_released_before}" =~ ^[0-9]+$ ]]

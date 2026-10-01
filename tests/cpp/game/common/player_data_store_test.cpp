@@ -1,20 +1,27 @@
 #include "realmmesh/game/common/player_data_store.hpp"
 
+#include "realmmesh/test_support/mongod_process.hpp"
 #include "realmmesh/test_support/temporary_directory.hpp"
 
 #include <gtest/gtest.h>
-#include <sqlite3.h>
 
+#include <chrono>
 #include <fstream>
+#include <optional>
 #include <string>
+#include <thread>
+#include <vector>
 
 namespace realm::game::common {
 namespace {
 
+using namespace std::chrono_literals;
+
 class PlayerDataStoreTest : public ::testing::Test {
 protected:
-    [[nodiscard]] std::filesystem::path database_path() const {
-        return directory_.path() / "player-data.sqlite";
+    [[nodiscard]] MongoPlayerDataStore open_store(
+        MongoPlayerDataOptions options = {}) const {
+        return MongoPlayerDataStore(mongod_.uri(), database_, std::move(options));
     }
 
     [[nodiscard]] std::filesystem::path write_accounts(
@@ -27,41 +34,20 @@ protected:
 
     [[nodiscard]] std::string stored_credential_hash(
         std::string_view account) const {
-        sqlite3* database = nullptr;
-        EXPECT_EQ(
-            sqlite3_open_v2(
-                database_path().string().c_str(),
-                &database,
-                SQLITE_OPEN_READONLY,
-                nullptr),
-            SQLITE_OK);
-        sqlite3_stmt* query = nullptr;
-        EXPECT_EQ(
-            sqlite3_prepare_v2(
-                database,
-                "SELECT credential_hash FROM accounts WHERE account_name = ?1",
-                -1,
-                &query,
-                nullptr),
-            SQLITE_OK);
-        sqlite3_bind_text(
-            query, 1, account.data(), static_cast<int>(account.size()),
-            SQLITE_TRANSIENT);
-        std::string hash;
-        if (sqlite3_step(query) == SQLITE_ROW) {
-            hash = reinterpret_cast<const char*>(sqlite3_column_text(query, 0));
-        }
-        sqlite3_finalize(query);
-        sqlite3_close(database);
-        return hash;
+        return mongod_.eval(
+            database_,
+            "print(db.accounts.findOne({account_name: '" +
+                std::string(account) + "'}).credential_hash)");
     }
 
+    test_support::MongodProcess& mongod_{test_support::MongodProcess::shared()};
+    std::string database_{test_support::MongodProcess::fresh_database()};
     test_support::TemporaryDirectory directory_{"player-data-store-test-"};
 };
 
-TEST_F(PlayerDataStoreTest, PersistsAccountAndSelectedCharacterAcrossRestart) {
+TEST_F(PlayerDataStoreTest, PersistsAccountAndSelectedCharacterAcrossReconnect) {
     {
-        SqlitePlayerDataStore store(database_path());
+        auto store = open_store();
         store.provision_account(AccountProvisioning{
             .account_id = 42,
             .account_name = "player",
@@ -78,7 +64,7 @@ TEST_F(PlayerDataStoreTest, PersistsAccountAndSelectedCharacterAcrossRestart) {
         store.select_character(42, 7001);
     }
 
-    SqlitePlayerDataStore reopened(database_path());
+    auto reopened = open_store();
     const auto account = reopened.authenticate("player", "secret");
     ASSERT_TRUE(account.has_value());
     EXPECT_EQ(account->account_id, 42U);
@@ -100,8 +86,8 @@ TEST_F(PlayerDataStoreTest, PersistsAccountAndSelectedCharacterAcrossRestart) {
     EXPECT_FALSE(reopened.character(42, 2, 7001).has_value());
 }
 
-TEST_F(PlayerDataStoreTest, CommittedAccessUpdatesAreVisibleAcrossConnections) {
-    SqlitePlayerDataStore writer(database_path());
+TEST_F(PlayerDataStoreTest, CommittedAccessUpdatesAreVisibleToOtherStores) {
+    auto writer = open_store();
     writer.provision_account(AccountProvisioning{
         .account_id = 42,
         .account_name = "player",
@@ -116,7 +102,7 @@ TEST_F(PlayerDataStoreTest, CommittedAccessUpdatesAreVisibleAcrossConnections) {
     });
     writer.select_character(42, 7001);
 
-    SqlitePlayerDataStore reader(database_path());
+    auto reader = open_store();
     ASSERT_TRUE(reader.login_facts(42).has_value());
 
     writer.set_account_access(42, true, true);
@@ -135,7 +121,7 @@ TEST_F(PlayerDataStoreTest, CommittedAccessUpdatesAreVisibleAcrossConnections) {
 TEST_F(PlayerDataStoreTest, PreservesFullUnsignedDomainIds) {
     constexpr std::uint64_t account_id = 0xF000'0000'0000'0001ULL;
     constexpr std::uint64_t character_id = 0xE000'0000'0000'0002ULL;
-    SqlitePlayerDataStore store(database_path());
+    auto store = open_store();
     store.provision_account(AccountProvisioning{
         .account_id = account_id,
         .account_name = "wide-id",
@@ -160,7 +146,7 @@ TEST_F(PlayerDataStoreTest, PreservesFullUnsignedDomainIds) {
 }
 
 TEST_F(PlayerDataStoreTest, RejectsSelectingCharacterOwnedByAnotherAccount) {
-    SqlitePlayerDataStore store(database_path());
+    auto store = open_store();
     store.provision_account(AccountProvisioning{
         .account_id = 42,
         .account_name = "player",
@@ -198,7 +184,7 @@ return {
 )lua";
     }
 
-    SqlitePlayerDataStore store(database_path());
+    auto store = open_store();
     EXPECT_TRUE(store.bootstrap_from_lua(accounts));
     ASSERT_TRUE(store.authenticate("player", "secret").has_value());
     const auto facts = store.login_facts(42);
@@ -235,11 +221,10 @@ return {
 }
 )lua");
 
-    // Gateway/Realm 可能先于 Login Verifier 打开空库；任何一方打开都应
+    // Gateway/Realm 可能先于 Login Verifier 连上空库；任何一方打开都应
     // 原子完成同一次导入，而不是读到一个永远没有账号的库。
-    const SqlitePlayerDataStore reader(
-        database_path(),
-        SqlitePlayerDataOptions{.bootstrap_accounts_file = accounts});
+    const auto reader = open_store(
+        MongoPlayerDataOptions{.bootstrap_accounts_file = accounts});
     const auto facts = reader.login_facts(42);
     ASSERT_TRUE(facts.has_value());
     EXPECT_EQ(facts->character_id, 42U);
@@ -252,15 +237,14 @@ return {
     },
 }
 )lua");
-    const SqlitePlayerDataStore later(
-        database_path(),
-        SqlitePlayerDataOptions{.bootstrap_accounts_file = replacement});
+    const auto later = open_store(
+        MongoPlayerDataOptions{.bootstrap_accounts_file = replacement});
     EXPECT_TRUE(later.authenticate("player", "secret").has_value());
     EXPECT_FALSE(later.login_facts(99).has_value());
 }
 
 TEST_F(PlayerDataStoreTest, PopulatedDatabaseSkipsBootstrapWithoutReadingTheFile) {
-    SqlitePlayerDataStore store(database_path());
+    auto store = open_store();
     store.provision_account(AccountProvisioning{
         .account_id = 42,
         .account_name = "player",
@@ -271,17 +255,14 @@ TEST_F(PlayerDataStoreTest, PopulatedDatabaseSkipsBootstrapWithoutReadingTheFile
     // 每个服务启动都会走导入入口；库非空时不应再读取并逐个哈希 Lua 账号。
     const auto unreadable = write_accounts("this is not lua");
     EXPECT_FALSE(store.bootstrap_from_lua(unreadable));
-    EXPECT_NO_THROW(static_cast<void>(SqlitePlayerDataStore(
-        database_path(),
-        SqlitePlayerDataOptions{.bootstrap_accounts_file = unreadable})));
+    EXPECT_NO_THROW(static_cast<void>(open_store(
+        MongoPlayerDataOptions{.bootstrap_accounts_file = unreadable})));
 }
 
 TEST_F(PlayerDataStoreTest, CredentialHashCostIsRecordedInTheStoredHash) {
     {
-        SqlitePlayerDataStore store(
-            database_path(),
-            SqlitePlayerDataOptions{
-                .credential_hash_cost = CredentialHashCost::Minimum});
+        auto store = open_store(MongoPlayerDataOptions{
+            .credential_hash_cost = CredentialHashCost::Minimum});
         store.provision_account(AccountProvisioning{
             .account_id = 42,
             .account_name = "robot",
@@ -290,7 +271,7 @@ TEST_F(PlayerDataStoreTest, CredentialHashCostIsRecordedInTheStoredHash) {
         });
     }
     {
-        SqlitePlayerDataStore store(database_path());
+        auto store = open_store();
         store.provision_account(AccountProvisioning{
             .account_id = 43,
             .account_name = "player",
@@ -306,6 +287,171 @@ TEST_F(PlayerDataStoreTest, CredentialHashCostIsRecordedInTheStoredHash) {
               std::string::npos);
     EXPECT_NE(stored_credential_hash("player").find("m=65536,t=2,"),
               std::string::npos);
+}
+
+TEST_F(PlayerDataStoreTest, RejectsReassigningCharacterOwnership) {
+    auto store = open_store();
+    for (const std::uint64_t account : {42U, 43U}) {
+        store.provision_account(AccountProvisioning{
+            .account_id = account,
+            .account_name = "player-" + std::to_string(account),
+            .credential = "secret",
+            .whitelisted = true,
+        });
+    }
+    store.provision_character(CharacterRecord{
+        .character_id = 7001,
+        .account_id = 42,
+        .realm_id = 1,
+        .name = "Ranger",
+    });
+
+    EXPECT_THROW(
+        store.provision_character(CharacterRecord{
+            .character_id = 7001,
+            .account_id = 43,
+            .realm_id = 1,
+            .name = "Thief",
+        }),
+        PlayerDataError);
+    EXPECT_THROW(
+        store.provision_character(CharacterRecord{
+            .character_id = 7001,
+            .account_id = 42,
+            .realm_id = 2,
+            .name = "Ranger",
+        }),
+        PlayerDataError);
+    // 同一归属下重新开通只更新名字与版本。
+    store.provision_character(CharacterRecord{
+        .character_id = 7001,
+        .account_id = 42,
+        .realm_id = 1,
+        .name = "Renamed",
+        .revision = 4,
+    });
+    const auto character = store.character(42, 1, 7001);
+    ASSERT_TRUE(character.has_value());
+    EXPECT_EQ(character->name, "Renamed");
+    EXPECT_EQ(character->revision, 4U);
+}
+
+TEST_F(PlayerDataStoreTest, RejectsAccountNameTakenByAnotherId) {
+    auto store = open_store();
+    store.provision_account(AccountProvisioning{
+        .account_id = 42,
+        .account_name = "player",
+        .credential = "secret",
+    });
+    EXPECT_THROW(
+        store.provision_account(AccountProvisioning{
+            .account_id = 43,
+            .account_name = "player",
+            .credential = "secret",
+        }),
+        PlayerDataError);
+}
+
+TEST_F(PlayerDataStoreTest, ReprovisioningAccountKeepsSelectedCharacter) {
+    auto store = open_store();
+    const AccountProvisioning account{
+        .account_id = 42,
+        .account_name = "player",
+        .credential = "secret",
+        .whitelisted = true,
+    };
+    store.provision_account(account);
+    store.provision_character(CharacterRecord{
+        .character_id = 7001,
+        .account_id = 42,
+        .realm_id = 1,
+        .name = "Ranger",
+    });
+    store.select_character(42, 7001);
+
+    auto rotated = account;
+    rotated.credential = "rotated";
+    store.provision_account(rotated);
+    EXPECT_FALSE(store.authenticate("player", "secret").has_value());
+    EXPECT_TRUE(store.authenticate("player", "rotated").has_value());
+    const auto facts = store.login_facts(42);
+    ASSERT_TRUE(facts.has_value());
+    EXPECT_EQ(facts->character_id, 7001U);
+}
+
+TEST_F(PlayerDataStoreTest, ConcurrentFirstStartsImportTheBootstrapOnce) {
+    const auto accounts = write_accounts(R"lua(
+return {
+    accounts = {
+        { account = "player", credential = "secret", account_id = 42,
+          whitelisted = true },
+        { account = "other", credential = "secret", account_id = 43,
+          whitelisted = true },
+    },
+}
+)lua");
+    // 三个服务共用同一配置并发启动：只有一方完成导入，其余看到已导入的
+    // 库而正常启动。
+    std::vector<std::optional<MongoPlayerDataStore>> stores(3);
+    std::vector<std::exception_ptr> errors(stores.size());
+    {
+        std::vector<std::jthread> starters;
+        for (std::size_t index = 0; index < stores.size(); ++index) {
+            starters.emplace_back([&, index] {
+                try {
+                    stores[index].emplace(
+                        mongod_.uri(),
+                        database_,
+                        MongoPlayerDataOptions{
+                            .bootstrap_accounts_file = accounts,
+                            .credential_hash_cost =
+                                CredentialHashCost::Minimum});
+                } catch (...) {
+                    errors[index] = std::current_exception();
+                }
+            });
+        }
+    }
+    for (const auto& error : errors) {
+        if (error) std::rethrow_exception(error);
+    }
+    EXPECT_EQ(mongod_.eval(database_, "print(db.accounts.countDocuments())"),
+              "2");
+    EXPECT_EQ(
+        mongod_.eval(database_, "print(db.characters.countDocuments())"), "2");
+    EXPECT_TRUE(stores.front()->authenticate("other", "secret").has_value());
+}
+
+TEST_F(PlayerDataStoreTest, RefusesSchemaNewerThanThisBinary) {
+    static_cast<void>(open_store());
+    static_cast<void>(mongod_.eval(
+        database_,
+        "db.store_metadata.updateOne({_id: 'schema'}, "
+        "{$set: {version: NumberLong(2)}})"));
+    EXPECT_THROW(static_cast<void>(open_store()), PlayerDataError);
+}
+
+TEST_F(PlayerDataStoreTest, UnreachableDeploymentFailsWithinServerSelectionTimeout) {
+    const auto port = test_support::unused_loopback_ports(1).at(0);
+    const auto started = std::chrono::steady_clock::now();
+    EXPECT_THROW(
+        static_cast<void>(MongoPlayerDataStore(
+            "mongodb://127.0.0.1:" + std::to_string(port) + "/?replicaSet=rs0",
+            database_,
+            MongoPlayerDataOptions{.server_selection_timeout = 200ms})),
+        PlayerDataError);
+    EXPECT_LT(std::chrono::steady_clock::now() - started, 5s);
+}
+
+TEST_F(PlayerDataStoreTest, RejectsTimeoutsEmbeddedInTheUri) {
+    // 超时只能来自 player_data 配置，URI 自带同名参数直接拒绝。
+    EXPECT_THROW(
+        static_cast<void>(MongoPlayerDataStore(
+            mongod_.uri() + "&socketTimeoutMS=10", database_)),
+        PlayerDataError);
+    EXPECT_THROW(
+        static_cast<void>(MongoPlayerDataStore(mongod_.uri(), "")),
+        PlayerDataError);
 }
 
 }  // namespace

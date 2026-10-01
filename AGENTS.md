@@ -18,7 +18,7 @@ macOS is the dev baseline and builds TLS/TCP only; QUIC compiles and runs only o
 Read `tests/README.md` before adding a test. Every target carries a ctest label, and any target that binds ports or spawns `realm_mesh` needs `LABELS integration`.
 
 - Fast loop: `ctest --preset dev -L unit` (no processes, no etcd).
-- Full run: `./scripts/build.sh` (configure + build + all tests). Integration tests start a real etcd, installed once by `./scripts/install-etcd.sh`.
+- Full run: `./scripts/build.sh` (configure + build + all tests). Integration tests start a real etcd, installed once by `./scripts/install-etcd.sh`, and a real single-node MongoDB replica set (Homebrew `mongodb-community` + `mongosh` on macOS, `./scripts/install-mongodb.sh` on Linux).
 
 ## Docs travel with code
 

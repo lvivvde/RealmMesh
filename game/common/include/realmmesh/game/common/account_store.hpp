@@ -19,8 +19,8 @@ struct AccountRecord {
 
 /// 账号有效性数据源抽象(登录链路规格 §3):只回答「口令是否命中」。
 /// 未知账号与口令错误一律返回空——账号存在性不外泄,统一按凭据无效处理。
-/// TODO:DB 真源、Redis 起服预热以新实现接入,调用方零改动;
-/// 模糊拒绝开关属消费方策略(见 AccountRecord 注释),同样不改本接口。
+/// 生产实现是 MongoPlayerDataStore(ADR-0011);模糊拒绝开关属消费方策略
+/// (见 AccountRecord 注释),不改本接口。
 class AccountStore {
 public:
     virtual ~AccountStore() = default;

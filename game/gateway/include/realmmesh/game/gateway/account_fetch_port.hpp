@@ -89,18 +89,19 @@ private:
     std::unordered_map<std::uint64_t, Pending> pending_;
 };
 
-/// SQLite 玩家数据的有界异步适配器。查询只在工作线程执行；submit 不做
-/// 文件 I/O，容量耗尽与存储查询失败分别映射为 Full 和失败 completion。
-class SqliteAccountFetchPort final : public AccountFetchPort {
+/// 权威玩家数据(生产为 MongoPlayerDataStore)的有界异步适配器。查询只在
+/// 工作线程执行；submit 不做网络 I/O，容量耗尽与存储查询失败分别映射为
+/// Full 和 Unavailable completion。
+class PlayerDataAccountFetchPort final : public AccountFetchPort {
 public:
-    SqliteAccountFetchPort(
-        std::filesystem::path database_file,
-        std::size_t capacity,
-        common::SqlitePlayerDataOptions options = {});
-    ~SqliteAccountFetchPort();
+    PlayerDataAccountFetchPort(
+        std::unique_ptr<const common::PlayerDataReader> reader,
+        std::size_t capacity);
+    ~PlayerDataAccountFetchPort();
 
-    SqliteAccountFetchPort(const SqliteAccountFetchPort&) = delete;
-    SqliteAccountFetchPort& operator=(const SqliteAccountFetchPort&) = delete;
+    PlayerDataAccountFetchPort(const PlayerDataAccountFetchPort&) = delete;
+    PlayerDataAccountFetchPort& operator=(const PlayerDataAccountFetchPort&) =
+        delete;
 
     [[nodiscard]] AccountFetchSubmitResult submit(
         AccountFetchRequest request,
