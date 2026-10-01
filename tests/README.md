@@ -24,7 +24,7 @@
 | 手动快速子集 | `ctest --preset dev -L unit`(或 `-L lua` 只筛 Lua 用例) |
 | 一键全量(构建 + 全部测试) | `./scripts/build.sh` |
 | 仅全量测试 | `ctest --preset dev` |
-| macOS 登录链验收 | `./scripts/run-macos-login-acceptance.sh`（TLS/TCP，成功链默认重复 3 次，并在 `build/dev/acceptance/` 生成报告和原始日志） |
+| macOS 登录链验收 | `./scripts/run-macos-login-acceptance.sh`（TLS/TCP：本仓客户端没有 QUIC 拨号器，报告另记 Gateway 的 QUIC 监听是否编入；成功链默认重复 3 次，并在 `build/dev/acceptance/` 生成报告和原始日志） |
 | Linux M1–M4 登录链验收 | `./scripts/run-linux-login-acceptance.sh`（Linux QUIC + TLS/TCP，默认重复关键组 3 次，并在 `build/dev/acceptance/` 生成报告和原始日志） |
 | 全量兜底 | push / PR 时 GitHub Actions 在 macOS + Linux 双平台跑 `ctest --preset dev`(`.github/workflows/ci.yml`) |
 
@@ -32,6 +32,7 @@
 
 - **etcd 二进制**:跨进程集成用例(`new_chain_flow_test`、`loadgen_integration_test`、`DevServicesScriptTest.*`)会各自拉起一个**真实单节点 etcd** —— 网关的准入消费存储是线性一致存储,attach 路径真实依赖它(ADR-0009),用假 CAS 替身去证明外部系统契约无法归因缺陷。先跑 `./scripts/install-etcd.sh`(安装到 `.tools/etcd-v3.6.14/`,可用 `REALMMESH_ETCD_BINARY` 覆盖路径);二进制缺失即用例失败并提示安装命令,不静默跳过。用例自带的 etcd 用空闲端口 + 临时数据目录,自起自停,因此**不需要**开发机上长期运行 `./scripts/run-etcd-dev.sh`,也不与它抢 2379。
 - 快速子集 `ctest -L unit` 不拉起任何进程,无此前置条件。
+- **MsQuic**:Linux 必装(`./scripts/install-msquic-dev.sh`),缺失即配置失败。macOS 可选:`brew install libmsquic` 后重新配置即注册 `quic_transport_test`,不装则只走 TLS/TCP、不注册 QUIC 用例(ADR-0011)。CI 的 `macos` job 不装 MsQuic,QUIC 回归以 `linux` job 为准。
 
 ## 基座
 

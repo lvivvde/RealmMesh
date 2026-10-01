@@ -48,7 +48,7 @@ started_at="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
     echo "- Started: ${started_at}"
     echo "- Platform: ${platform}"
     echo "- Revision: \`${revision}\` (${tree_state} working tree)"
-    echo "- Transport: TLS/TCP fallback (QUIC is outside this profile)"
+    echo "- Transport: TLS/TCP (repository clients carry no QUIC dialer)"
     echo "- Success-chain repetitions: ${repeat_count}"
     echo "- Raw log: \`macos-login-chain.log\`"
     echo
@@ -91,6 +91,13 @@ run_logged() {
 cd "${project_root}"
 run_logged "Configure" "${cmake_bin}" --preset dev
 run_logged "Build" "${cmake_bin}" --build --preset dev
+
+# 装了 libmsquic 的 Mac 会编入 QUIC(ADR-0011),Gateway 随之多起一个 QUIC
+# 监听;客户端仍只拨 TLS/TCP,报告记下监听状态以便对照。
+gateway_quic_listener="not compiled in"
+if grep -q 'realm_network: QUIC transport enabled' "${log_path}"; then
+    gateway_quic_listener="compiled in (unused by the chain)"
+fi
 
 success_regex='^(WireLoginTransportIntegrationTest\.DrivesLoginChainOverRealTls|LoadgenIntegrationTest\.FullTargetRedeemsRealmSession)$'
 external_success_regex='^DevServicesScriptTest\.FourProcessFullRepeats$'
@@ -161,10 +168,15 @@ runtime_config="$(grep -E 'acceptance_runtime( |_)' "${log_path}" || true)"
         overall_status=1
     fi
     echo
+    echo "## Transport"
+    echo
+    echo "- Client dial: TLS/TCP (QUIC candidates are rejected as unsupported)"
+    echo "- Gateway QUIC listener: ${gateway_quic_listener}"
+    echo
     echo "## Scope"
     echo
     echo "This profile starts the real Login Verifier, Queue, Gateway, Realm and a"
-    echo "temporary real etcd. It exercises real HTTPS/TLS/TCP wire paths. Linux QUIC,"
+    echo "temporary real etcd. It exercises real HTTPS/TLS/TCP wire paths. QUIC wire paths,"
     echo "production capacity sizing and production account data remain out of scope."
 } >>"${report_path}"
 
