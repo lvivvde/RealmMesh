@@ -16,7 +16,7 @@ namespace realm::game::common {
 /// 抛 std::invalid_argument。
 [[nodiscard]] PlayerDataConfig parse_player_data_config(const sol::table& root);
 
-/// 相对路径（数据库与 bootstrap 文件）按 config_root 解析。
+/// bootstrap 文件的相对路径按 config_root 解析。
 void resolve_player_data_paths(
     PlayerDataConfig& config, const std::filesystem::path& config_root);
 

@@ -68,6 +68,8 @@ flowchart LR
 | 客户端状态机与自适应轮询（#49） | 已实现 |
 | 退役旧 Login 链路（#50） | 已实现 |
 | 身份 Token 回放守卫收敛（#63）、客户端真实兑换口（#64） | 已实现 |
+| 权威玩家数据源：MongoDB 副本集取代 SQLite（#99） | 已实现 |
+| 共享临时开发库：TLS/认证、SSH 隧道与仓库外私有配置 | 已实现，见[连接说明](docs/operations/shared-mongodb.md) |
 
 旧 `Login → Realm 选角 → Gateway 入场` 链路已整体退役：`login` 服务身份、7000 端口与
 旧入场消息编号都已删除，线名 `login` 永不复用（见[架构文档](docs/architecture.md)）。
@@ -225,6 +227,12 @@ export PATH="$(brew --prefix openssl@3)/bin:$PATH"   # 测试证书生成要用 
 ./scripts/build.sh
 ```
 
+`OPENSSL_ROOT_DIR` 必须在首次配置前导出：缺了它，CMake 会从共享前缀
+`/opt/homebrew/include` 找到 OpenSSL，而 Homebrew 的 `mongodb-community` 会
+顺带装上 abseil，其头文件就会盖过工程固定版本，导致 protobuf 链接失败。
+已用错误前缀配置过的构建目录，需带
+`-DOPENSSL_ROOT_DIR="$(brew --prefix openssl@3)" -UOPENSSL_INCLUDE_DIR` 重新配置。
+
 `scripts/build.sh` 依次执行 `cmake --preset dev`、`cmake --build --preset dev` 和
 `ctest --preset dev`（配置 + 构建 + 全量测试），并在首次构建时把
 `compile_commands.json` 链接到仓库根。
@@ -235,6 +243,18 @@ Linux 的 MsQuic 开发安装脚本固定使用 Microsoft 官方 `libmsquic 2.6.
 指向其前缀。
 服务发现需要本地 etcd：`./scripts/install-etcd.sh` 安装固定版本 3.6.14，
 `./scripts/run-etcd-dev.sh` 以前台单节点启动。
+
+玩家数据存放在 MongoDB 副本集（[ADR-0011](docs/adr/0011-mongodb-authoritative-player-data.md)）。
+手动开发联调（macOS 与 Linux 都一样）直连远程共享开发库，开发机不需要安装或运行
+MongoDB 服务：`./scripts/configure-shared-mongodb.sh vps` 取一次私有连接材料，之后用
+`./scripts/with-shared-mongodb.sh <命令>` 启动服务，详见[共享库说明](docs/operations/shared-mongodb.md)。
+
+自动化集成测试不连共享库，而是由夹具在本机拉起临时 `mongod`，所以跑全量测试的机器
+需要 MongoDB 二进制：macOS 用 `brew tap mongodb/brew && brew trust mongodb/brew && brew install mongodb-community mongosh`；
+Linux（CI 自动执行）用 `./scripts/install-mongodb.sh` 下载固定版本到 `.tools/`。
+离线时可用 `./scripts/run-mongodb-dev.sh` 在 `127.0.0.1:27017` 前台启动本机单节点 `rs0`
+（数据在 `.runtime/mongodb`，不碰 Homebrew 服务的配置与数据目录；两者都占 27017，
+同时只能运行一个），此时不经包装命令，配置回落到默认本机 URI。
 
 ## 开发证书与密钥
 
@@ -346,7 +366,7 @@ UDP 与 TCP 端口空间）。
 }
 ```
 
-健全服的账号有效性数据源是 `AccountStore`；生产配置由共享 SQLite 玩家数据源实现，
+健全服的账号有效性数据源是 `AccountStore`；生产配置由共享 MongoDB 玩家数据源实现（`configs/common/player_data.lua`），
 `configs/common/accounts.lua` 只在空库首次启动时导入。Gateway 通过有界异步读取复核
 账号与所选角色，Realm 入场时再次核对角色归属；已提交数据在进程重启后保留。
 排队服的放行步长（`release_step`）与批次间隔（`release_interval_seconds`）、网关的

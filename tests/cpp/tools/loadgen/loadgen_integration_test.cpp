@@ -10,6 +10,7 @@
 #include "realmmesh/game/common/compact_jws.hpp"
 #include "realmmesh/game/common/queue_number_v2.hpp"
 #include "realmmesh/test_support/etcd_process.hpp"
+#include "realmmesh/test_support/mongod_process.hpp"
 #include "realmmesh/test_support/temporary_directory.hpp"
 
 #include <gtest/gtest.h>
@@ -331,17 +332,20 @@ private:
 
 /// 生成压测账号表:count 个白名单机器人账号(credential 与 loadgen
 /// 默认一致;account_id 缺省按账号名派生)。账号经 player_data 空库导入
-/// 进入 SQLite;机器人口令以最低 Argon2 成本哈希,否则万级账号导入与
-/// 单线程验票会把用例时长变成口令哈希的耗时而非登录链路本身。
+/// 进入用例独占的 MongoDB 库(ADR-0011);机器人口令以最低 Argon2 成本
+/// 哈希,否则万级账号导入与单线程验票会把用例时长变成口令哈希的耗时
+/// 而非登录链路本身。
 void write_robot_accounts(
     const std::filesystem::path& root, std::size_t count) {
+    const auto& mongod = test_support::MongodProcess::shared();
     ASSERT_TRUE(write_file(
         root / "common" / "player_data.lua",
         "return {\n    player_data = {\n"
-        "        database_file = \"data/player-data.sqlite\",\n"
+        "        uri = \"" + mongod.uri() + "\",\n"
+        "        database = \"" + test_support::MongodProcess::fresh_database() +
+            "\",\n"
         "        bootstrap_accounts_file = \"common/accounts.lua\",\n"
-        "        credential_hash_cost = \"minimum\",\n"
-        "        busy_timeout_ms = 500,\n    },\n}\n"));
+        "        credential_hash_cost = \"minimum\",\n    },\n}\n"));
     std::string contents;
     contents.reserve(96 * count + 128);
     contents += "-- 压测账号集(loadgen 集成测试生成):白名单机器人账号。\n";

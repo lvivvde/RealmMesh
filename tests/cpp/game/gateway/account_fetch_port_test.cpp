@@ -1,12 +1,16 @@
 #include "realmmesh/game/gateway/account_fetch_port.hpp"
 
 #include "realmmesh/game/common/player_data_store.hpp"
-#include "realmmesh/test_support/temporary_directory.hpp"
 
 #include <gtest/gtest.h>
 
+#include <atomic>
 #include <chrono>
+#include <condition_variable>
+#include <memory>
+#include <mutex>
 #include <optional>
+#include <stdexcept>
 #include <thread>
 
 namespace realm::game::gateway {
@@ -107,36 +111,67 @@ TEST(ScriptedAccountFetchPortTest, StopIsTerminalForTheAdapterInstance) {
     EXPECT_TRUE(port.submitted_requests().empty());
 }
 
-TEST(SqliteAccountFetchPortTest, LoadsSelectedCharacterWithoutBlockingSubmit) {
-    test_support::TemporaryDirectory directory{"sqlite-fetch-port-test-"};
-    const auto database = directory.path() / "player-data.sqlite";
-    {
-        common::SqlitePlayerDataStore store(database);
-        store.provision_account(common::AccountProvisioning{
-            .account_id = 42,
-            .account_name = "player",
-            .credential = "secret",
-            .whitelisted = true,
-        });
-        store.provision_character(common::CharacterRecord{
+/// 内存 PlayerDataReader:端口的契约(工作线程查询、每次重新确认准入、
+/// 存储故障映射为 Unavailable)与具体数据库无关；真实 MongoDB 的读写语义
+/// 由 player_data_store_test 覆盖。
+class FakePlayerDataReader final : public common::PlayerDataReader {
+public:
+    struct State final {
+        std::mutex mutex;
+        std::condition_variable released_condition;
+        bool released{true};
+        bool eligible{true};
+        bool unavailable{false};
+        std::atomic<int> queries{0};
+    };
+
+    explicit FakePlayerDataReader(std::shared_ptr<State> state)
+        : state_(std::move(state)) {}
+
+    [[nodiscard]] std::optional<common::AccountLoginFacts> login_facts(
+        std::uint64_t account_id) const override {
+        ++state_->queries;
+        std::unique_lock lock(state_->mutex);
+        state_->released_condition.wait(lock, [this] { return state_->released; });
+        if (state_->unavailable) {
+            throw common::PlayerDataError("player data unavailable");
+        }
+        if (!state_->eligible) return std::nullopt;
+        return common::AccountLoginFacts{
+            .account_id = account_id,
             .character_id = 7001,
-            .account_id = 42,
             .realm_id = 1,
-            .name = "Ranger",
-            .revision = 4,
-        });
-        store.select_character(42, 7001);
+            .character_revision = 4,
+        };
     }
 
-    SqliteAccountFetchPort port(
-        database, 1, common::SqlitePlayerDataOptions{.busy_timeout = 250ms});
+    [[nodiscard]] std::optional<common::CharacterRecord> character(
+        std::uint64_t, std::uint32_t, std::uint64_t) const override {
+        return std::nullopt;
+    }
+
+private:
+    std::shared_ptr<State> state_;
+};
+
+TEST(PlayerDataAccountFetchPortTest, LoadsSelectedCharacterWithoutBlockingSubmit) {
+    const auto state = std::make_shared<FakePlayerDataReader::State>();
+    state->released = false;
+    PlayerDataAccountFetchPort port(
+        std::make_unique<FakePlayerDataReader>(state), 1);
     const auto now = std::chrono::steady_clock::now();
+    // 查询被挡在工作线程里，submit 仍立即返回。
     EXPECT_EQ(
         port.submit({AccountFetchAttemptId{1}, EdgeSessionId{1}, 42}, now),
         AccountFetchSubmitResult::Submitted);
     EXPECT_EQ(
         port.submit({AccountFetchAttemptId{2}, EdgeSessionId{2}, 42}, now),
         AccountFetchSubmitResult::Full);
+    {
+        const std::scoped_lock lock(state->mutex);
+        state->released = true;
+    }
+    state->released_condition.notify_all();
 
     const auto completion = wait_for_completion(port);
     ASSERT_TRUE(completion.has_value());
@@ -147,27 +182,40 @@ TEST(SqliteAccountFetchPortTest, LoadsSelectedCharacterWithoutBlockingSubmit) {
     EXPECT_EQ(completion->character_revision, 4U);
 }
 
-TEST(SqliteAccountFetchPortTest, RechecksAccountAccessOnEveryAttempt) {
-    test_support::TemporaryDirectory directory{"sqlite-fetch-port-test-"};
-    const auto database = directory.path() / "player-data.sqlite";
-    common::SqlitePlayerDataStore writer(database);
-    writer.provision_account(common::AccountProvisioning{
-        .account_id = 42,
-        .account_name = "player",
-        .credential = "secret",
-        .whitelisted = true,
-    });
-    writer.provision_character(common::CharacterRecord{
-        .character_id = 7001,
-        .account_id = 42,
-        .realm_id = 1,
-        .name = "Ranger",
-    });
-    writer.select_character(42, 7001);
+TEST(PlayerDataAccountFetchPortTest, RechecksAccountAccessOnEveryAttempt) {
+    const auto state = std::make_shared<FakePlayerDataReader::State>();
+    PlayerDataAccountFetchPort port(
+        std::make_unique<FakePlayerDataReader>(state), 2);
+    ASSERT_EQ(
+        port.submit(
+            {AccountFetchAttemptId{1}, EdgeSessionId{1}, 42},
+            std::chrono::steady_clock::now()),
+        AccountFetchSubmitResult::Submitted);
+    const auto first = wait_for_completion(port);
+    ASSERT_TRUE(first.has_value());
+    EXPECT_EQ(first->status, AccountFetchStatus::Succeeded);
 
-    SqliteAccountFetchPort port(
-        database, 2, common::SqlitePlayerDataOptions{.busy_timeout = 250ms});
-    writer.set_account_access(42, true, true);
+    {
+        const std::scoped_lock lock(state->mutex);
+        state->eligible = false;
+    }
+    ASSERT_EQ(
+        port.submit(
+            {AccountFetchAttemptId{2}, EdgeSessionId{1}, 42},
+            std::chrono::steady_clock::now()),
+        AccountFetchSubmitResult::Submitted);
+    const auto second = wait_for_completion(port);
+    ASSERT_TRUE(second.has_value());
+    EXPECT_FALSE(second->ok);
+    EXPECT_EQ(second->status, AccountFetchStatus::NotEligible);
+    EXPECT_EQ(state->queries.load(), 2);
+}
+
+TEST(PlayerDataAccountFetchPortTest, StoreFailureCompletesAsUnavailable) {
+    const auto state = std::make_shared<FakePlayerDataReader::State>();
+    state->unavailable = true;
+    PlayerDataAccountFetchPort port(
+        std::make_unique<FakePlayerDataReader>(state), 1);
     ASSERT_EQ(
         port.submit(
             {AccountFetchAttemptId{1}, EdgeSessionId{1}, 42},
@@ -177,7 +225,16 @@ TEST(SqliteAccountFetchPortTest, RechecksAccountAccessOnEveryAttempt) {
     const auto completion = wait_for_completion(port);
     ASSERT_TRUE(completion.has_value());
     EXPECT_FALSE(completion->ok);
-    EXPECT_EQ(completion->status, AccountFetchStatus::NotEligible);
+    EXPECT_EQ(completion->status, AccountFetchStatus::Unavailable);
+}
+
+TEST(PlayerDataAccountFetchPortTest, RejectsMissingReaderAndZeroCapacity) {
+    const auto state = std::make_shared<FakePlayerDataReader::State>();
+    EXPECT_THROW(PlayerDataAccountFetchPort(nullptr, 1), std::invalid_argument);
+    EXPECT_THROW(
+        PlayerDataAccountFetchPort(
+            std::make_unique<FakePlayerDataReader>(state), 0),
+        std::invalid_argument);
 }
 
 }  // namespace

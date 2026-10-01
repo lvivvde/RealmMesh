@@ -56,19 +56,21 @@ void DelayedAccountFetchPort::cancel(AccountFetchAttemptId attempt_id) {
     static_cast<void>(pending_.erase(attempt_id.value));
 }
 
-class SqliteAccountFetchPort::Impl final {
+class PlayerDataAccountFetchPort::Impl final {
 public:
     Impl(
-        std::filesystem::path database_file,
-        std::size_t capacity,
-        common::SqlitePlayerDataOptions options)
-        : store_(std::move(database_file), std::move(options)),
-          capacity_(capacity),
-          worker_([this](std::stop_token token) { run(token); }) {
+        std::unique_ptr<const common::PlayerDataReader> reader,
+        std::size_t capacity)
+        : reader_(std::move(reader)), capacity_(capacity) {
+        if (reader_ == nullptr) {
+            throw std::invalid_argument("account fetch reader must not be null");
+        }
         if (capacity_ == 0) {
             throw std::invalid_argument(
-                "sqlite account fetch capacity must be positive");
+                "account fetch capacity must be positive");
         }
+        // 参数校验通过后才启动工作线程，避免构造失败时线程已在运行。
+        worker_ = std::jthread([this](std::stop_token token) { run(token); });
     }
 
     ~Impl() { stop(); }
@@ -148,7 +150,7 @@ private:
             AccountFetchCompletion completion;
             completion.attempt_id = request.attempt_id;
             try {
-                const auto facts = store_.login_facts(request.account_id);
+                const auto facts = reader_->login_facts(request.account_id);
                 completion.ok = facts.has_value();
                 completion.status = facts.has_value()
                                         ? AccountFetchStatus::Succeeded
@@ -178,7 +180,7 @@ private:
         }
     }
 
-    common::SqlitePlayerDataStore store_;
+    std::unique_ptr<const common::PlayerDataReader> reader_;
     std::size_t capacity_{0};
     std::mutex mutex_;
     std::condition_variable_any condition_;
@@ -190,30 +192,28 @@ private:
     std::jthread worker_;
 };
 
-SqliteAccountFetchPort::SqliteAccountFetchPort(
-    std::filesystem::path database_file,
-    std::size_t capacity,
-    common::SqlitePlayerDataOptions options)
-    : impl_(std::make_unique<Impl>(
-          std::move(database_file), capacity, std::move(options))) {}
+PlayerDataAccountFetchPort::PlayerDataAccountFetchPort(
+    std::unique_ptr<const common::PlayerDataReader> reader,
+    std::size_t capacity)
+    : impl_(std::make_unique<Impl>(std::move(reader), capacity)) {}
 
-SqliteAccountFetchPort::~SqliteAccountFetchPort() = default;
+PlayerDataAccountFetchPort::~PlayerDataAccountFetchPort() = default;
 
-AccountFetchSubmitResult SqliteAccountFetchPort::submit(
+AccountFetchSubmitResult PlayerDataAccountFetchPort::submit(
     AccountFetchRequest request, std::chrono::steady_clock::time_point) {
     return impl_->submit(std::move(request));
 }
 
-std::vector<AccountFetchCompletion> SqliteAccountFetchPort::drain_completions(
+std::vector<AccountFetchCompletion> PlayerDataAccountFetchPort::drain_completions(
     std::chrono::steady_clock::time_point, std::size_t max_completions) {
     return impl_->drain(max_completions);
 }
 
-void SqliteAccountFetchPort::cancel(AccountFetchAttemptId attempt_id) {
+void PlayerDataAccountFetchPort::cancel(AccountFetchAttemptId attempt_id) {
     impl_->cancel(attempt_id);
 }
 
-void SqliteAccountFetchPort::stop() noexcept { impl_->stop(); }
+void PlayerDataAccountFetchPort::stop() noexcept { impl_->stop(); }
 
 void ScriptedAccountFetchPort::script_submit_results(
     std::deque<AccountFetchSubmitResult> results) {

@@ -1,7 +1,7 @@
 # 单主机阶段以 SQLite 作为权威玩家数据源
 
 ---
-status: accepted
+status: superseded by ADR-0011
 ---
 
 当前 M1–M4 拓扑在一台主机上运行 Login Verifier、Gateway 与 Realm，但三者分别依赖 Lua 样例账号、固定延迟拉取桩和票据内未经复核的角色编号，无法证明同一账号事实贯穿登录链，也无法在进程重启后恢复角色数据。选择一个由三者通过窄接口共享的 SQLite 文件作为本阶段的权威玩家数据源；`configs/common/accounts.lua` 只在空库首次启动时原子导入，导入完成后不再参与认证。
