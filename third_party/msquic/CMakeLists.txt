@@ -1,5 +1,5 @@
 # MsQuic discovery is Linux-only: the package layout, runtime dependencies
-# (libxdp/libnl/libnuma) and linker flags are all Linux-specific, and the
+# (libnuma) and linker flags are all Linux-specific, and the
 # macOS/Windows port deliberately serves TLS/TCP only (ADR-0002).
 if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
     set(REALM_MESH_MSQUIC_FOUND FALSE PARENT_SCOPE)
@@ -47,15 +47,12 @@ if(NOT MSQUIC_INCLUDE_DIR OR NOT MSQUIC_LIBRARY)
 endif()
 
 add_library(MsQuic::MsQuic SHARED IMPORTED GLOBAL)
-find_library(MSQUIC_XDP_LIBRARY NAMES xdp libxdp.so.1)
-find_library(MSQUIC_NL3_LIBRARY NAMES nl-3 libnl-3.so.200)
-find_library(MSQUIC_NL_ROUTE_LIBRARY NAMES nl-route-3 libnl-route-3.so.200)
+# libmsquic 2.6 链接 libcrypto 与 libnuma;libcrypto 经 OpenSSL 已在链接行上。
 find_library(MSQUIC_NUMA_LIBRARY NAMES numa libnuma.so.1)
-if(NOT MSQUIC_XDP_LIBRARY OR NOT MSQUIC_NL3_LIBRARY OR
-   NOT MSQUIC_NL_ROUTE_LIBRARY OR NOT MSQUIC_NUMA_LIBRARY)
+if(NOT MSQUIC_NUMA_LIBRARY)
     message(FATAL_ERROR
-        "MsQuic runtime dependencies were not found (libxdp, libnl-3, "
-        "libnl-route-3, libnuma). Install the dependencies of libmsquic."
+        "MsQuic runtime dependency libnuma was not found. "
+        "Install the dependencies of libmsquic."
     )
 endif()
 # 运行期定位:MsQuic 常装在非系统前缀(.tools/msquic 或自定义 MSQUIC_ROOT),
@@ -75,7 +72,7 @@ set_target_properties(MsQuic::MsQuic PROPERTIES
     IMPORTED_LOCATION "${MSQUIC_LIBRARY}"
     INTERFACE_INCLUDE_DIRECTORIES "${MSQUIC_INCLUDE_DIR}"
     INTERFACE_LINK_LIBRARIES
-        "${MSQUIC_XDP_LIBRARY};${MSQUIC_NL_ROUTE_LIBRARY};${MSQUIC_NL3_LIBRARY};${MSQUIC_NUMA_LIBRARY}"
+        "${MSQUIC_NUMA_LIBRARY}"
     INTERFACE_LINK_OPTIONS "${MSQUIC_INTERFACE_LINK_OPTIONS}"
 )
 

@@ -210,7 +210,7 @@ libsodium、nlohmann/json、cpp-httplib、protobuf、spdlog）随源码树一并
 Ubuntu 24.04（生产基准，含 QUIC）：
 
 ```bash
-sudo apt install libssl-dev libxdp1 libnl-3-200 libnl-route-3-200 libnuma1
+sudo apt install libssl-dev libnuma1
 ./scripts/install-msquic-dev.sh
 ./scripts/build.sh
 ```
@@ -228,7 +228,7 @@ export PATH="$(brew --prefix openssl@3)/bin:$PATH"   # 测试证书生成要用 
 `ctest --preset dev`（配置 + 构建 + 全量测试），并在首次构建时把
 `compile_commands.json` 链接到仓库根。
 
-MsQuic 开发安装脚本固定使用 Microsoft 官方 `libmsquic 2.5.10` 包和对应头文件，
+MsQuic 开发安装脚本固定使用 Microsoft 官方 `libmsquic 2.6.1` 包和对应头文件，
 下载内容均校验 SHA-256。也可自行安装 MsQuic，并通过 `MSQUIC_ROOT` 指向其前缀。
 服务发现需要本地 etcd：`./scripts/install-etcd.sh` 安装固定版本 3.6.14，
 `./scripts/run-etcd-dev.sh` 以前台单节点启动。
