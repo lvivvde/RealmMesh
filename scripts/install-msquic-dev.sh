@@ -16,9 +16,9 @@ if [[ "$(uname -s)" != "Linux" || "$(uname -m)" != "x86_64" ]]; then
     exit 1
 fi
 
-package_url="https://packages.microsoft.com/ubuntu/24.04/prod/pool/main/libm/libmsquic/libmsquic_2.5.10_amd64.deb"
-package_sha256="3b98ced3af4a681d567c8710692fc43d208c427e227684f2224f1f6d5ef23089"
-header_base="https://raw.githubusercontent.com/microsoft/msquic/v2.5.10/src/inc"
+package_url="https://packages.microsoft.com/ubuntu/24.04/prod/pool/main/libm/libmsquic/libmsquic_2.6.1_amd64.deb"
+package_sha256="ff99192ca34d6c5b18fc4b45a94988c3f66c78fbb3bfb7076c3f403eabf531e5"
+header_base="https://raw.githubusercontent.com/microsoft/msquic/v2.6.1/src/inc"
 
 curl --fail --location --retry 3 --output "${temporary_root}/libmsquic.deb" "${package_url}"
 echo "${package_sha256}  ${temporary_root}/libmsquic.deb" | sha256sum --check --status
@@ -31,10 +31,10 @@ curl --fail --location --retry 3 --output "${install_root}/usr/include/msquic.h"
 curl --fail --location --retry 3 --output "${install_root}/usr/include/msquic_posix.h" "${header_base}/msquic_posix.h"
 curl --fail --location --retry 3 --output "${install_root}/usr/include/quic_sal_stub.h" "${header_base}/quic_sal_stub.h"
 
-echo "c9abfdd02c45910649dd335d6bd82718e4ddd2fdb35fe550567c78f032551e0c  ${install_root}/usr/include/msquic.h" | sha256sum --check --status
-echo "b285fa66b9c9bdc886c30ef92910da472692b25f5c6192416fb40f08f64e22ec  ${install_root}/usr/include/msquic_posix.h" | sha256sum --check --status
-echo "9b13328d9aec8807a754b2bc391b31b5d09b1c5f6cec064012051683ed169055  ${install_root}/usr/include/quic_sal_stub.h" | sha256sum --check --status
+echo "3ebde22085df627140fd6208c638a9a3cd7dd3da9bd270f64f022b1c46b1bc4f  ${install_root}/usr/include/msquic.h" | sha256sum --check --status
+echo "a0e11c5eb1a4bbd5e18e4f7a381dd024064df2ee76ed555b49c0b8a66c15f526  ${install_root}/usr/include/msquic_posix.h" | sha256sum --check --status
+echo "8849135a95fee2a49373e168c12a89380de46e23c2136e6b0597394d09a9614c  ${install_root}/usr/include/quic_sal_stub.h" | sha256sum --check --status
 
-echo "MsQuic 2.5.10 installed under ${install_root}."
+echo "MsQuic 2.6.1 installed under ${install_root}."
 echo "Install its runtime dependencies and OpenSSL headers if needed:"
-echo "  sudo apt install libssl-dev libxdp1 libnl-3-200 libnl-route-3-200 libnuma1"
+echo "  sudo apt install libssl-dev libnuma1"

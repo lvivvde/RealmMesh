@@ -71,21 +71,19 @@ jobs:
   linux:
     name: Linux (gcc, epoll backend, QUIC)
     # Pinned to 24.04 on purpose: scripts/install-msquic-dev.sh verifies the
-    # SHA-256 of the official libmsquic 2.5.10 package built for 24.04.
+    # SHA-256 of the official libmsquic 2.6.1 package built for 24.04.
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     steps:
       - name: Check out
         uses: actions/checkout@v5
 
-      # libxdp/libnl/libnuma are libmsquic's runtime dependencies; the project
-      # looks them up by soname, so the runtime packages are sufficient.
+      # libnuma is libmsquic's only runtime dependency beyond OpenSSL; the
+      # project looks it up by soname, so the runtime package is sufficient.
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y \
-            libssl-dev libxdp1 libnl-3-200 \
-            libnl-route-3-200 libnuma1
+          sudo apt-get install -y libssl-dev libnuma1
           ./scripts/install-msquic-dev.sh
 
       # 同 macOS:跨进程集成用例要拉起真实 etcd,缺失即失败(不跳过)。
