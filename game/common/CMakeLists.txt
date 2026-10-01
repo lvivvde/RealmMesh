@@ -14,6 +14,12 @@ add_library(realm_game_common
 )
 
 find_package(SQLite3 REQUIRED)
+# CMake 4.3 起 FindSQLite3 才提供 SQLite3::SQLite3,更早版本(含 Ubuntu 24.04
+# CI 的 3.31)只有 SQLite::SQLite3;补一个全局别名,让测试目录也能用同一名字。
+if(NOT TARGET SQLite3::SQLite3)
+    add_library(SQLite3::SQLite3 INTERFACE IMPORTED GLOBAL)
+    target_link_libraries(SQLite3::SQLite3 INTERFACE SQLite::SQLite3)
+endif()
 
 add_library(RealmMesh::GameCommon ALIAS realm_game_common)
 
