@@ -59,7 +59,7 @@ _Avoid_: Login Chain(客户端概念)、Gateway(部署身份不等于管线)、�
 _Avoid_: Client Session(旧名)、Pending Connection(旧名,pending 是阶段,不是另一种实体)、player(玩家是业务概念)、connection、handle、established(旧终态名:网关没有业务长连,终态是 handed-off)
 
 **Fetching**:
-Edge Session 的中间阶段:准入暂扣——凭据已验讫,正在限额拉取玩家账号数据,或拉取已完成但 Handoff 尚未被 Primary Transport 接纳;fetch 额度在拉取完成时即可归还,阶段只在 Handoff 被接纳后迁出。每次拉取由有界工作者并发执行并受单次截止(`fetch_timeout_ms`)约束;账号不具备准入资格(封禁/不在白名单/无选定角色)即以 1007 终止,玩家数据暂不可用重试耗尽以 1008 收尾。每次进出该阶段都是一次原子状态迁移。
+Edge Session 的中间阶段:准入暂扣——凭据已验讫,正在限额拉取玩家账号数据,或拉取已完成但 Handoff 尚未被 Primary Transport 接纳;fetch 额度在拉取完成时即可归还,阶段只在 Handoff 被接纳后迁出。每次拉取由有界工作者并发执行并受单次截止(`fetch_timeout_ms`)约束;账号不具备准入资格(封禁/不在白名单)即以 1007 终止,玩家数据暂不可用重试耗尽以 1008 收尾。每次进出该阶段都是一次原子状态迁移。
 _Avoid_: loading、provisioning、暂扣(是阶段名,不是动作)
 
 **Handoff**:
@@ -85,15 +85,15 @@ _Avoid_: 裸用 token(须指明是身份 Token 还是排队号牌)、login ticke
 _Avoid_: 用户表(账号集不含注册/计费语义)、account service(它是数据源,不是服务)
 
 **Player Data Store**:
-账号准入事实、角色归属与当前所选角色的权威持久来源；当前实现是 MongoDB 副本集，Login Verifier、Gateway 与 Realm 通过窄读接口观察同一批 majority 已提交事实；登录链的读取直达数据库，不经缓存。
+账号准入事实、角色归属、上次所选角色与角色游戏状态的权威持久来源；当前实现是 MongoDB 副本集，Login Verifier、Gateway 与 Realm 通过窄接口观察同一批 majority 已提交事实(角色创建、选角与游戏状态只由 Realm 写入)；登录链的读取直达数据库，不经缓存。
 _Avoid_: AccountStore(它只是认证视图)、storage service(当前没有新服务身份)、cache(MongoDB 是事实来源而非缓存；Redis 不承载准入事实)
 
 手动跨机器开发可使用经 TLS、账号认证与 SSH 隧道保护的共享临时副本集；它仍是该
 开发环境的权威来源，但数据允许清空重建。连接材料保存在仓库外；自动化测试各自隔离。
 
 **Selected Character**:
-账号当前被 Gateway 带入 EnterRealm 票据的角色；Realm 仍须从 Player Data Store 重新确认该角色的账号与 Realm 归属。
-_Avoid_: character list(当前只实现单个选择结果)、player id(账号与角色是不同标识)
+账号在某个 Realm 上次选中的角色；只作客户端选角的默认提示，不是入场前提，也不进入 EnterRealm 票据。
+_Avoid_: 当前角色(当前角色由 Realm Session 内的选角决定)、player id(账号与角色是不同标识)
 
 **Queue Scheduler**:
 发号、查号并按准入额度分批放行玩家进网关集群的服务;权威状态包括每次登录尝试已确认的 Queue Number、下一号码与已放行水位,同一未过期尝试必须可找回原号码。
@@ -116,6 +116,28 @@ _Avoid_: rate limiter(限流专指网关本地拉取的执行概念)、gate、va
 网关实例广播的剩余接纳能力(连接余量与拉取并发余量);准入控制器放批的依据。
 _Avoid_: capacity(容量是规格层面的总量概念)、load(负载是原始观测,额度是上报值)
 
+### Realm
+
+**Account**:
+账号：持有登录凭据与准入事实(封禁、白名单)的玩家身份;在每个 Realm 可拥有多个角色,角色之外的游戏状态不挂在账号上。
+_Avoid_: player(玩家是操作客户端的人)、user
+
+**Character**:
+角色：归属于一个账号与一个 Realm 的游戏身份,归属一经创建不可转移,名字在同一 Realm 内唯一;游戏动作的结果持久在角色上。
+_Avoid_: player、avatar、role
+
+**Realm Session**:
+Realm 内一条已兑换 EnterRealm 票据的直连会话,以账号为主体:先处于选角,选中角色后进入游戏;同一账号在一个 Realm 同一时刻至多一条,新会话入场即顶替旧会话。
+_Avoid_: Edge Session(网关侧概念)、connection、player session
+
+**Character Selection**(选角):
+Realm Session 入场后的初始阶段:列出、创建并选中本账号在该 Realm 的角色;选中后会话才接受游戏动作。
+_Avoid_: login(登录链已在入场时结束)、character screen(那是客户端界面)
+
+**Training**(训练):
+本阶段唯一的游戏动作:为当前角色增加固定经验,到达等级上限即被拒绝;每次训练由客户端递增的动作序号标识,确认回包即代表结果已持久。
+_Avoid_: action(泛指,须指明是训练)、tick、XP grind
+
 ### Messaging
 
 **Envelope**:
@@ -123,7 +145,7 @@ _Avoid_: capacity(容量是规格层面的总量概念)、load(负载是原始�
 _Avoid_: packet、frame(frame 指传输层的长度帧概念)
 
 **Session Ticket**:
-libsodium 签发的一次性准入凭据(`TicketPurpose`),在兑换点单次消费(重放防护)。唯一的活用途是 **EnterRealm**:网关在拉取完成后签发,客户端携带,Realm 兑换后直连入场(即直连凭证)。入场前置凭据为身份 Token + Admission Grant;网关入口的绑定凭据由集群单次消费。用途数值 1、2 已随旧链退役,永不复用。
+libsodium 签发的一次性准入凭据(`TicketPurpose`),在兑换点单次消费(重放防护)。唯一的活用途是 **EnterRealm**:网关在拉取完成后签发,只绑定账号与 Realm(角色在入场后的选角中决定),客户端携带,Realm 兑换后直连入场(即直连凭证)。入场前置凭据为身份 Token + Admission Grant;网关入口的绑定凭据由集群单次消费。用途数值 1、2 已随旧链退役,永不复用。
 _Avoid_: token、credential、cookie
 
 ### Client
