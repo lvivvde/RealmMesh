@@ -22,6 +22,7 @@ Manual dev runs on macOS and Linux use the remote shared MongoDB (TLS + auth ove
 Read `tests/README.md` before adding a test. Every target carries a ctest label, and any target that binds ports or spawns `realm_mesh` needs `LABELS integration`.
 
 - Fast loop: `ctest --preset dev -L unit` (no processes, no etcd).
+- CI's macOS runner is several times slower than a dev Mac: size load (connection counts, iterations, payloads) down under `__APPLE__` and keep full size on Linux, as the M3 smoke does (#104). A macOS CI `Timeout` can also be a crashed test whose orphaned child processes hold ctest's output pipe open; read the log before shrinking data.
 - Full run: `./scripts/build.sh` (configure + build + all tests). Integration tests start a real etcd, installed once by `./scripts/install-etcd.sh`, and a real single-node MongoDB replica set (Homebrew `mongodb-community` + `mongosh` on macOS, `./scripts/install-mongodb.sh` on Linux).
 
 ## Docs travel with code
