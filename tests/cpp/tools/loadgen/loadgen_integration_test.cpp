@@ -20,6 +20,7 @@
 
 #include <arpa/inet.h>
 #include <execinfo.h>
+#include <netinet/in.h>
 #include <poll.h>
 #include <sys/fcntl.h>
 #include <sys/resource.h>
@@ -649,9 +650,31 @@ private:
     return found == snapshot.series.end() ? 0 : found->second;
 }
 
+/// 对端端口是 port 的已连接 TCP socket(IPv4/IPv6)。
+[[nodiscard]] bool connected_to_port(int descriptor, std::uint16_t port) {
+    sockaddr_storage peer{};
+    socklen_t length = sizeof(peer);
+    if (::getpeername(
+            descriptor, reinterpret_cast<sockaddr*>(&peer), &length) != 0) {
+        return false;
+    }
+    if (peer.ss_family == AF_INET) {
+        return ntohs(reinterpret_cast<const sockaddr_in&>(peer).sin_port) ==
+               port;
+    }
+    if (peer.ss_family == AF_INET6) {
+        return ntohs(reinterpret_cast<const sockaddr_in6&>(peer).sin6_port) ==
+               port;
+    }
+    return false;
+}
+
 /// 进程当前打开的 fd 数(0..rlim_cur 逐个 F_GETFD):fd 不泄漏断言的
-/// 探针。基线口径两次一致即可,不求绝对完备。
-[[nodiscard]] std::uint64_t count_open_fds() {
+/// 探针。基线口径两次一致即可,不求绝对完备。连到 excluded_peer_port
+/// 的 socket 不计:MongoDB 连接池按并发需求懒增长并常驻,上限由
+/// maxPoolSize 封顶,不随会话数增长;CPU 紧张时预热撑不满池,主跑补
+/// 上的那条连接会被误判为泄漏(#117)。
+[[nodiscard]] std::uint64_t count_open_fds(std::uint16_t excluded_peer_port) {
     rlimit limits{};
     rlim_t ceiling = 1024;
     if (::getrlimit(RLIMIT_NOFILE, &limits) == 0) {
@@ -662,7 +685,8 @@ private:
     std::uint64_t count = 0;
     for (int descriptor = 0; descriptor < static_cast<int>(ceiling);
          ++descriptor) {
-        if (::fcntl(descriptor, F_GETFD) != -1) {
+        if (::fcntl(descriptor, F_GETFD) != -1 &&
+            !connected_to_port(descriptor, excluded_peer_port)) {
             ++count;
         }
     }
@@ -849,8 +873,7 @@ TEST(LoadgenIntegrationTest, L1GatewaySoakHoldsWaterLevelWithoutFdLeak) {
         loadgen_endpoints(login_verify_port, queue_port, gateway_port);
 
     // 预热:吸收一次性开销(OpenSSL/Lua/日志句柄),fd 基线从这之后取。
-    // 并发须盖过验签/拉取工作者数(各 4,#98):MongoDB 连接池按并发
-    // 需求增长并常驻,预热不把池撑满,主跑的合法增长会被误判为泄漏。
+    // MongoDB 连接池的增长不计入 fd 探针(见 count_open_fds)。
     constexpr std::uint64_t warmup_robots = 16;
     LoadgenConfig warmup;
     warmup.target = LoadgenLoginTarget::Gateway;
@@ -875,7 +898,8 @@ TEST(LoadgenIntegrationTest, L1GatewaySoakHoldsWaterLevelWithoutFdLeak) {
         std::this_thread::sleep_for(std::chrono::milliseconds{100});
     }
 
-    const auto fd_before = count_open_fds();
+    const auto mongod_port = test_support::MongodProcess::shared().port();
+    const auto fd_before = count_open_fds(mongod_port);
 
     // 基线跑:取 attach p99 + 服务侧 fetch 均值,作无漂移对照。
     // 对照口径必须与主跑**同并发**:准入现在是一次真实存储往返(etcd
@@ -1012,14 +1036,14 @@ TEST(LoadgenIntegrationTest, L1GatewaySoakHoldsWaterLevelWithoutFdLeak) {
     // 不会随等待消失。
     bool fds_settled = false;
     for (int attempt = 0; attempt < 20; ++attempt) {
-        if (count_open_fds() <= fd_before) {
+        if (count_open_fds(mongod_port) <= fd_before) {
             fds_settled = true;
             break;
         }
         std::this_thread::sleep_for(std::chrono::milliseconds{100});
     }
     EXPECT_TRUE(fds_settled);
-    const auto fd_after = count_open_fds();
+    const auto fd_after = count_open_fds(mongod_port);
     std::cout << "acceptance_m1 gateway_soak completed=" << report.completed
               << " attach_failures=" << report.attach.failures
               << " handoff_failures=" << report.handoff.failures

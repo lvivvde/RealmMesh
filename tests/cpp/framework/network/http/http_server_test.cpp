@@ -497,10 +497,12 @@ TEST(HttpServerTest, DeferredResponseSurvivesClientHalfClose) {
     EXPECT_EQ(response.find("HTTP/1.1 200 "), 0U);
     EXPECT_NE(response.rfind("late"), std::string::npos);
     client.expect_closed();
-    EXPECT_TRUE(completed.load());
 
     stop = true;
     server_thread.join();
+    // complete() 返回前就已回写并关连接,客户端可能先于 completed 的写入看到
+    // 关闭;join 之后再读。
+    EXPECT_TRUE(completed.load());
 }
 
 /// 同步 handler 与挂起 handler 共存:立即返回 Http1Response 的分支照旧回写。
