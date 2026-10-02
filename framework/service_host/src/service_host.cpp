@@ -17,6 +17,8 @@
 #include "realmmesh/game/common/player_data_store.hpp"
 #include "realmmesh/game/login_verify/login_verify_service.hpp"
 #include "realmmesh/game/queue/queue_service.hpp"
+#include "realmmesh/game/realm/realm_sessions.hpp"
+#include "realmmesh/game/realm/training_rule.hpp"
 #include "realmmesh/observability/logger.hpp"
 #include "realmmesh/service_host/service_frame.hpp"
 
@@ -90,6 +92,7 @@ ServiceHost::ServiceHost(
     // GatewayConfig 的解析面,业务体换成各自的 Service(无 ServiceFrame)。
     std::unique_ptr<game::login_verify::LoginVerifyService> login_verify;
     std::unique_ptr<game::queue::QueueService> queue;
+    std::optional<game::realm::RealmConfig> realm_config;
     game::gateway::GatewayConfig config;
     if (service_name_ == "login_verify") {
         auto login_verify_config = LayeredConfigLoader::load_login_verify(
@@ -103,6 +106,11 @@ ServiceHost::ServiceHost(
         queue = std::make_unique<game::queue::QueueService>(
             std::move(queue_config.queue), &metrics_registry_);
         config = std::move(queue_config.host);
+    } else if (service_name_ == "realm") {
+        auto loaded =
+            LayeredConfigLoader::load_realm(config_root, service_name, overrides);
+        realm_config = std::move(loaded.realm);
+        config = std::move(loaded.host);
     } else {
         config =
             LayeredConfigLoader::load(config_root, service_name, overrides);
@@ -204,13 +212,24 @@ ServiceHost::ServiceHost(
                     logger_.get(),
                     &metrics_registry_));
     }
-    if (service_name_ == "realm") {
-        // Realm 入场必须向权威数据源复核角色归属,没有「跳过复核」的装配。
+    if (realm_config.has_value()) {
+        // 选角与训练读写权威角色数据,没有「无存储」的 Realm 装配。训练
+        // 规则加载失败即启动失败(#93)。
         if (player_data.uri.empty()) {
             throw std::invalid_argument("realm requires player_data.uri");
         }
-        player_data_ = std::make_unique<game::common::MongoPlayerDataStore>(
+        training_rule_ = std::make_unique<game::realm::TrainingRule>(
+            realm_config->training_rule_file);
+        realm_characters_ = std::make_unique<game::common::MongoPlayerDataStore>(
             player_data.uri, player_data.database, player_data.options);
+        realm_outbox_ =
+            std::make_unique<game::realm::GatewayRuntimeRealmOutbox>(*runtime_);
+        realm_sessions_ = std::make_unique<game::realm::RealmSessions>(
+            *realm_characters_,
+            *training_rule_,
+            *realm_outbox_,
+            *realm_config,
+            logger_.get());
     }
     frame_ = std::make_unique<ServiceFrame>(
         service_name_,
@@ -219,7 +238,7 @@ ServiceHost::ServiceHost(
         max_events_per_frame,
         conn_capacity,
         gateway_login_pipeline_.get(),
-        player_data_.get());
+        realm_sessions_.get());
 }
 
 ServiceHost::~ServiceHost() { stop(); }

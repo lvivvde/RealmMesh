@@ -115,6 +115,13 @@ protected:
                "\"REALMMESH_TLS_PRIVATE_KEY_FILE\" } }";
     }
 
+    /// Realm 必需的 realm 段(#93):训练规则取源码树里的真实规则文件,
+    /// 尾随逗号,拼在其他字段前。
+    static std::string realm_section_lua() {
+        return "realm = { training_rule_file = \"" REALMMESH_SOURCE_DIR
+               "/configs/services/realm/training.lua\" }, ";
+    }
+
     static void write(
         const std::filesystem::path& path, std::string_view text) {
         std::ofstream output(path);
@@ -207,7 +214,8 @@ TEST_F(ServiceHostTest, RequiredRegistrationFailureThrows) {
     write(
         root_ / "services" / "realm.lua",
         "return { " + transport_lua() +
-            ", downstream_address = \"127.0.0.1\", downstream_port = 8000, "
+            ", downstream_address = \"127.0.0.1\", downstream_port = 8000, " +
+            realm_section_lua() +
             "player_data = { uri = \"" + mongod.uri() + "\", database = \"" +
             test_support::MongodProcess::fresh_database() + "\" }, "
             "service_discovery = { enabled = true, required = true, "
@@ -227,13 +235,14 @@ TEST_F(ServiceHostTest, RequiredRegistrationFailureThrows) {
         log.find("\"event_name\":\"service_started\""), std::string::npos);
 }
 
-/// Realm 没有不复核角色归属的装配:缺 player_data.uri 即构造失败。
+/// Realm 的角色与训练都落在玩家数据上:缺 player_data.uri 即构造失败。
 TEST_F(ServiceHostTest, RealmWithoutPlayerDataThrows) {
     const ScopedTlsEnvironment tls_environment;
     write(
         root_ / "services" / "realm.lua",
         "return { " + transport_lua() +
-            ", downstream_address = \"127.0.0.1\", downstream_port = 8000 }");
+            ", downstream_address = \"127.0.0.1\", downstream_port = 8000, " +
+            realm_section_lua() + "}");
     EXPECT_THROW(ServiceHost(root_, "realm"), std::invalid_argument);
 }
 

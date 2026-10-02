@@ -10,6 +10,14 @@ return {
         zone = "development",
         advertise_address = "127.0.0.1",
     },
+    realm = {
+        -- 训练规则(#93):启动时加载,失败即启动失败;不热更。
+        training_rule_file = "services/realm/training.lua",
+        data_workers = 4,
+        data_capacity = 256,
+        max_pending_per_session = 16,
+        retry_after_seconds = 1,
+    },
     tick_rate = 20,
     max_events_per_frame = 4096,
     downstream_address = "127.0.0.1",

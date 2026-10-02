@@ -2,14 +2,17 @@ set(realm_protocol_generated_dir "${CMAKE_CURRENT_BINARY_DIR}/generated")
 set(realm_protocol_sources
     realmmesh/common/v1/envelope.proto
     realmmesh/edge/v1/edge.proto
+    realmmesh/realm/v1/realm.proto
 )
 set(realm_protocol_generated_sources
     "${realm_protocol_generated_dir}/realmmesh/common/v1/envelope.pb.cc"
     "${realm_protocol_generated_dir}/realmmesh/edge/v1/edge.pb.cc"
+    "${realm_protocol_generated_dir}/realmmesh/realm/v1/realm.pb.cc"
 )
 set(realm_protocol_generated_headers
     "${realm_protocol_generated_dir}/realmmesh/common/v1/envelope.pb.h"
     "${realm_protocol_generated_dir}/realmmesh/edge/v1/edge.pb.h"
+    "${realm_protocol_generated_dir}/realmmesh/realm/v1/realm.pb.h"
 )
 
 add_custom_command(

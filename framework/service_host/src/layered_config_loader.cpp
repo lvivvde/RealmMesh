@@ -229,4 +229,25 @@ LayeredConfigLoader::load_queue(
     return config;
 }
 
+LayeredConfigLoader::RealmServiceConfig LayeredConfigLoader::load_realm(
+    const std::filesystem::path& config_root,
+    std::string_view service_name,
+    const CliOverrides& overrides) {
+    MergedLayers layers;
+    merged_layers(layers, config_root, service_name, overrides);
+
+    RealmServiceConfig config;
+    call_merger<sol::table>(
+        layers.runtime, "ensure_table", layers.root, "transports");
+    config.host = game::gateway::GatewayConfigLoader::parse(layers.root);
+    game::common::resolve_player_data_paths(
+        config.host.player_data, config_root);
+    config.realm = game::realm::RealmConfigLoader::parse(layers.root);
+    if (config.realm.training_rule_file.is_relative()) {
+        config.realm.training_rule_file =
+            config_root / config.realm.training_rule_file;
+    }
+    return config;
+}
+
 }  // namespace realm::service_host

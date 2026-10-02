@@ -38,8 +38,9 @@ Queue 在返回 `202` 前，用一笔 etcd 事务同时提交 `identity_jti → 
 存储不可用则返回可重试错误而不承认号码。映射随身份过期租约回收，轮询仍不建立
 逐客户端会话状态。
 客户端带身份 Token 与 Admission Grant attach 到 Gateway,Gateway 从权威玩家数据源重新
-检查账号准入状态并取得所选角色后，下发含角色编号的 Realm 直连票据与候选端点；Realm
-单次兑换票据并再次核对角色归属后完成入场。候选端点含主机名、数字端口、
+检查账号准入状态后，下发只绑定账号与 Realm 的直连票据与候选端点；Realm 单次兑换票据
+后完成入场，进入选角阶段，角色的列出、创建与选择都在 Realm Session 里完成（#93）。
+候选端点含主机名、数字端口、
 协议与优先级,不依赖客户端隐式约定。排队号牌只用于位次查询与找回,网关不接受它。
 
 ## 目标业务拓扑（规划中）
@@ -92,11 +93,18 @@ primary transport 与阶段(pending/established)。QUIC 和 TLS/TCP 是初次连
 `EnterRealmGranted.enter_realm_ticket` 只在 Realm 一处单次消费(重放防护):兑换
 成功响应与入场(进入已认证会话态)由同一个 I/O 命令完成,重放或无效票据按鉴权
 失败处理并断开。
-兑换后的角色归属复核(`PlayerDataReader::character`)在有界工作者上执行,不阻塞
-Realm 帧;结果回到帧线程后才发送 `EnterRealmAccepted`,复核期间会话关闭则撤销该次
-复核。复核在途数达上限时,先于兑换回 `429`(票据不被消耗,客户端可原票重试)。Realm
-必须配置 `player_data.uri`,`ServiceFrame` 缺少读取端即拒绝构造,不存在跳过复核的
-入场路径(#98)。
+兑换只校验票据,不读玩家数据:兑换成功即回 `EnterRealmAccepted`,会话交给
+`game::realm::RealmSessions`(#93)。Realm Session 单向经历选角 → 游戏中两个阶段:
+选角阶段只受理角色列表、创建与选择,选定后进入游戏中,只受理训练;阶段不符回
+`3003`,会话保留。在线表按账号唯一,同账号新会话入场时,旧会话收到
+`RealmSessionDisplaced`(1409)后关闭,其在途写仍会落库、回包丢弃。
+角色数据访问(`RealmCharacterStore`)在有界工作者上执行,不阻塞 Realm 帧,同一会话的
+请求按到达顺序逐个处理;工作者在途数或单会话未决数达上限回 `429` 加
+`retry_after_seconds`,数据源故障或训练规则运行时出错回 `3010`,会话都保留。训练规则是 Lua 脚本
+(`realm.training_rule_file`,默认 `configs/services/realm/training.lua`),启动时加载并
+以经验 0 试调,失败即启动失败、不热更;训练按会话递增序号幂等写入(`seq == last + 1` 写,
+`seq == last` 回放上次结果,其余回 `3009`)。Realm 必须配置 `player_data.uri`,
+缺少角色存储即拒绝构造。消息与错误码见[协议](protocol.md#realm-session-业务)。
 
 Gateway 的业务帧不再编排 attach、拉取、重试与 Handoff 的分步 helper。每帧只取得
 当前 Realm 端点并调用一次 `GatewayLoginPipeline::advance`;该管线是
@@ -104,7 +112,7 @@ Gateway 的业务帧不再编排 attach、拉取、重试与 Handoff 的分步 h
 集群单次消费、连接/拉取额度、账号拉取结算、直连票据、收尾与指标的唯一权威。`GatewayRuntimePrimaryTransport` 把真实
 runtime 事件/命令接入管线；生产装配使用有界异步 `PlayerDataAccountFetchPort`，查询在
 `fetch_workers` 个工作线程上并发完成，提交满载时背压；单次拉取超过 `fetch_timeout_ms`
-即按失败结算（迟到结果丢弃）。账号不具备准入资格（封禁、白名单外、无选定角色）直接以
+即按失败结算（迟到结果丢弃）。账号不具备准入资格（封禁、白名单外）直接以
 终态 `1007` 拒绝、不重试；数据源不可用按管线策略重试，耗尽后以 `1008` 加
 `retry_after_seconds` 拒绝，Admission Grant 已消费，客户端退避后重走 Login Verifier
 （#98）。结果按低基数上报。延迟实现只用于
@@ -112,11 +120,15 @@ runtime 事件/命令接入管线；生产装配使用有界异步 `PlayerDataAc
 
 权威玩家数据源由 [ADR-0011](adr/0011-mongodb-authoritative-player-data.md) 定为
 MongoDB 副本集（开发与 CI 为单节点 `rs0`），取代 ADR-0010 的 SQLite。`MongoPlayerDataStore`
-同时实现 `AccountStore` 与 `PlayerDataReader`：准入事实以 `writeConcern: majority, j: true`
-同步写入，读取使用 `readConcern: majority`，登录链三处读取（认证、Gateway 复核、Realm
-入场复核）都直达数据库、不经缓存。任一服务首次连到尚未导入的库时，在事务内一次性导入
+同时实现 `AccountStore`、`PlayerDataReader` 与 Realm 的 `RealmCharacterStore`：准入事实
+与角色写入以 `writeConcern: majority, j: true` 同步写入，读取使用 `readConcern: majority`，
+登录链两处读取（认证、Gateway 复核）与 Realm 的角色读写都直达数据库、不经缓存。角色名
+在同一 Realm 内由唯一索引保证不重复，每账号角色数上限在事务内判定，训练序号以
+`last_training_seq == seq - 1` 为条件原子推进。选择角色先核对归属、再单写账号的「上次所选」，
+不开事务——这偏离 ADR-0011「选择角色在事务内完成」的表述：角色既不删除也不改派，
+归属一经确认，随后的单文档写没有竞态窗口。任一服务首次连到尚未导入的库时，在事务内一次性导入
 `configs/common/accounts.lua`，多个服务同时启动也只有一个导入成功；之后账号口令（Argon2
-哈希）、封禁/白名单与角色选择都只以数据库为准。找不到可写 primary 或单次读写超过
+哈希）、封禁/白名单、角色与上次所选角色都只以数据库为准。找不到可写 primary 或单次读写超过
 `player_data` 中的超时上限，即按数据源不可用失败。开发拓扑无认证、明文且只监听本机，
 跨机器暴露前须交付 TLS 与认证。
 
@@ -186,6 +198,8 @@ MsQuic 自有调度不会直接调用业务逻辑。回调只完成长度帧组�
   (pending/established)、生产 adapter、运行时队列与 I/O 线程。
 - `game/login_verify`：登录健全服(账号认定、身份 Token 签发、JWKS)。
 - `game/queue`：排队调度服(号牌签发、放行阀门、etcd 原子发号映射/快照与额度存取)。
+- `game/realm`：Realm Session 表(选角/游戏中阶段、同账号新会话顶替旧会话)、角色名规则、`realm` 配置节与
+  Lua 训练规则。
 - `game/common`：Envelope 编解码、业务票据，以及账号/角色权威数据边界与 MongoDB 实现。
 - `framework/cluster`：多协议端点注册与发现。
 - `framework/client`：客户端登录链路（七态状态机、分档轮询、两段竞速）与其 HTTPS/网关/业务服生产传输绑定。外部通过经验证的 `LoginRun` 选择 Verify、Tickets、Poll、Gateway、GatewaySoak 或 Full 停止点；Gateway/Realm 连接由 move-only RAII Session 独占，只有 Full 成功会把已入场 Realm Session 转移给调用方。
@@ -216,8 +230,8 @@ MsQuic 自有调度不会直接调用业务逻辑。回调只完成长度帧组�
 
 `gateway` 与 `realm` 没有独立的传输 runtime:两者在 `framework/service_host` 中共用
 `game::gateway::GatewayRuntime`。Gateway 的登录职责由单一 Gateway Login Pipeline
-承载,`ServiceFrame` 只保留身份分发、Realm 入场/端点解析和宿主接线;Realm 继续走其
-独立的入场兑换分支。
+承载,`ServiceFrame` 只保留身份分发、Realm 入场/端点解析和宿主接线;Realm 的入场
+兑换仍在 `ServiceFrame`,兑换后的业务消息转交 `game/realm` 的 `RealmSessions`。
 `login_verify` 与 `queue` 是第二种服务形态:独立业务库,走 HTTPS 请求循环,
 不经 `ServiceFrame`/EdgeSession 管线。
 

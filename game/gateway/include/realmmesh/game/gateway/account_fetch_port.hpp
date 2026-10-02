@@ -36,9 +36,6 @@ struct AccountFetchCompletion {
         NotEligible,
         Unavailable,
     } status{Status::Unavailable};
-    std::uint64_t character_id{0};
-    std::uint32_t realm_id{0};
-    std::uint64_t character_revision{0};
 };
 
 using AccountFetchStatus = AccountFetchCompletion::Status;

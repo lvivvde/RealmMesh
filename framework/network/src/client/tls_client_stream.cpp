@@ -1,5 +1,8 @@
 #include "realmmesh/network/client/tls_client_stream.hpp"
 
+#include "../tcp/tcp_platform.hpp"
+
+#include <openssl/err.h>
 #include <openssl/ssl.h>
 
 #include <fcntl.h>
@@ -22,6 +25,11 @@ namespace realm::network::client {
 namespace {
 
 constexpr std::chrono::milliseconds kStopCheckSlice{50};
+
+// 客户端写向已关闭的服务端(如 Realm 重启后的心跳)同样会触发 SIGPIPE。
+// 只用客户端的二进制不一定链接服务端 TCP 后端,所以本 TU 自带一份进程级
+// 兜底;macOS 另在拨号的套接字上置 SO_NOSIGPIPE。语义见 tcp_platform.hpp。
+[[maybe_unused]] const detail::IgnoreSigpipeOnStartup ignore_sigpipe_on_startup{};
 
 [[nodiscard]] int remaining_ms(StreamDeadline deadline) {
     const auto remaining =
@@ -126,7 +134,11 @@ struct TlsClientStream::Impl final {
     void close_now() noexcept {
         closed = true;
         if (ssl != nullptr) {
+            ERR_clear_error();
             static_cast<void>(SSL_shutdown(ssl.get()));
+            // 对端已断时 SSL_shutdown 会失败;结果本就忽略,别把错误留给
+            // 本线程的下一次 SSL 调用(见 read_some)。
+            ERR_clear_error();
             ssl.reset();
         }
         if (descriptor >= 0) {
@@ -190,6 +202,12 @@ TlsClientStream::DialResult TlsClientStream::dial(
     // fd 从此刻起归 impl:失败路径直接返回,由析构按 SSL_shutdown →
     // close 的次序收尾(不得提前 close,否则析构会写向已释放的描述符)。
     impl->descriptor = descriptor;
+#if defined(SO_NOSIGPIPE)
+    const int no_sigpipe = 1;
+    static_cast<void>(::setsockopt(
+        descriptor, SOL_SOCKET, SO_NOSIGPIPE, &no_sigpipe,
+        sizeof(no_sigpipe)));
+#endif
     if (options.reset_close_on_release) {
         const struct linger reset_close{1, 0};
         static_cast<void>(::setsockopt(
@@ -262,6 +280,7 @@ TlsClientStream::DialResult TlsClientStream::dial(
             result.failure = TlsDialFailure::Cancelled;
             return result;
         }
+        ERR_clear_error();
         const int handshake = SSL_connect(impl->ssl.get());
         if (handshake == 1) {
             break;
@@ -300,6 +319,7 @@ bool TlsClientStream::write_all(std::span<const std::byte> data,
     std::size_t offset = 0;
     while (offset < data.size()) {
         std::size_t written = 0;
+        ERR_clear_error();
         if (SSL_write_ex(
                 impl_->ssl.get(),
                 data.data() + static_cast<std::ptrdiff_t>(offset),
@@ -323,6 +343,9 @@ std::optional<std::size_t> TlsClientStream::read_some(
     StreamDeadline deadline) {
     for (;;) {
         std::size_t received = 0;
+        // SSL_get_error 先看本线程的错误队列:别的连接留下的残留会把这里的
+        // WANT_READ 误判成致命(#93:被顶替会话关闭后新会话读失败)。
+        ERR_clear_error();
         const int result =
             SSL_read_ex(impl_->ssl.get(), out.data(), out.size(), &received);
         if (result == 1) {

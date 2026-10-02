@@ -27,6 +27,7 @@
 #include <mongocxx/write_concern.hpp>
 #include <sodium.h>
 
+#include <algorithm>
 #include <array>
 #include <bit>
 #include <cstdint>
@@ -50,7 +51,9 @@ constexpr std::string_view characters_collection = "characters";
 constexpr std::string_view metadata_collection = "store_metadata";
 constexpr std::string_view bootstrap_marker = "legacy_account_bootstrap";
 constexpr std::string_view schema_marker = "schema";
-constexpr std::int64_t schema_version = 1;
+/// 2:角色带 exp / last_training_seq,(realm_id, name) 唯一(#93)。
+constexpr std::int64_t schema_version = 2;
+constexpr std::size_t character_id_attempts = 8;
 constexpr int duplicate_key_code = 11000;
 
 /// 领域编号是 uint64,库内以 int64 按位存放：取值范围不收窄(ADR-0011)。
@@ -71,15 +74,23 @@ constexpr int duplicate_key_code = 11000;
     return std::bit_cast<std::uint64_t>(element.get_int64().value);
 }
 
-[[nodiscard]] std::uint32_t domain_realm_id(
+/// 经验、训练序号等非负计数;库内同样以 int64 存放。
+[[nodiscard]] std::int64_t database_counter(
+    std::uint64_t value, std::string_view field) {
+    if (value >
+        static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max())) {
+        throw PlayerDataError(std::string(field) + " is out of range");
+    }
+    return static_cast<std::int64_t>(value);
+}
+
+[[nodiscard]] std::uint64_t domain_counter(
     const bsoncxx::document::element& element) {
     if (!element || element.type() != bsoncxx::type::k_int64 ||
-        element.get_int64().value <= 0 ||
-        element.get_int64().value >
-            std::int64_t{std::numeric_limits<std::uint32_t>::max()}) {
-        throw PlayerDataError("database contains an invalid realm id");
+        element.get_int64().value < 0) {
+        throw PlayerDataError("database contains an invalid counter");
     }
-    return static_cast<std::uint32_t>(element.get_int64().value);
+    return static_cast<std::uint64_t>(element.get_int64().value);
 }
 
 [[nodiscard]] bool domain_flag(const bsoncxx::document::element& element) {
@@ -95,6 +106,26 @@ constexpr int duplicate_key_code = 11000;
         throw PlayerDataError("database contains an invalid string field");
     }
     return std::string(element.get_string().value);
+}
+
+[[nodiscard]] RealmCharacter realm_character_from(
+    const bsoncxx::document::view& view) {
+    return RealmCharacter{
+        .character_id = domain_id(view["_id"]),
+        .name = domain_string(view["name"]),
+        .exp = domain_counter(view["exp"]),
+        .last_training_seq = domain_counter(view["last_training_seq"]),
+    };
+}
+
+/// 随机非零 63 位角色编号:最高位恒 0,库内 int64 存放后仍为正数。
+[[nodiscard]] std::uint64_t random_character_id() {
+    std::uint64_t value = 0;
+    while (value == 0) {
+        randombytes_buf(&value, sizeof(value));
+        value &= 0x7FFF'FFFF'FFFF'FFFFULL;
+    }
+    return value;
 }
 
 [[nodiscard]] bsoncxx::types::b_string text(std::string_view value) {
@@ -334,9 +365,8 @@ public:
         return translate_driver_errors(
             [&]() -> std::optional<AccountLoginFacts> {
                 auto client = pool_->acquire();
-                mongocxx::options::find selected_only;
-                selected_only.projection(
-                    make_document(kvp("selected_character_id", 1)));
+                mongocxx::options::find id_only;
+                id_only.projection(make_document(kvp("_id", 1)));
                 const auto account =
                     collection(*client, accounts_collection)
                         .find_one(
@@ -344,56 +374,244 @@ public:
                                 kvp("_id", id),
                                 kvp("banned", false),
                                 kvp("whitelisted", true)),
-                            selected_only);
+                            id_only);
                 if (!account.has_value()) return std::nullopt;
-                const auto selected =
-                    account->view()["selected_character_id"];
-                if (!selected || selected.type() == bsoncxx::type::k_null) {
-                    return std::nullopt;
-                }
-                // 两次读取不在同一快照内也安全：角色归属一经写入不可改派，
-                // 账号文档已先确认未封禁且在白名单内。
-                const auto character_id = domain_id(selected);
-                const auto character =
-                    collection(*client, characters_collection)
-                        .find_one(make_document(
-                            kvp("_id", database_id(character_id, "character_id")),
-                            kvp("account_id", id)));
-                if (!character.has_value()) return std::nullopt;
-                const auto view = character->view();
-                return AccountLoginFacts{
-                    .account_id = account_id,
-                    .character_id = character_id,
-                    .realm_id = domain_realm_id(view["realm_id"]),
-                    .character_revision = domain_id(view["revision"]),
-                };
+                return AccountLoginFacts{.account_id = account_id};
             });
     }
 
-    [[nodiscard]] std::optional<CharacterRecord> character(
+    [[nodiscard]] CharacterRoster list_characters(
+        std::uint64_t account_id, std::uint32_t realm_id) const {
+        const auto account = database_id(account_id, "account_id");
+        const auto realm = database_realm_id(realm_id);
+        return translate_driver_errors([&] {
+            auto client = pool_->acquire();
+            CharacterRoster roster;
+            // roster_seq 是账号内的创建序;导入/开通的角色没有它,排在前面。
+            mongocxx::options::find ordered;
+            ordered.sort(make_document(kvp("roster_seq", 1), kvp("_id", 1)));
+            auto cursor = collection(*client, characters_collection)
+                              .find(
+                                  make_document(
+                                      kvp("account_id", account),
+                                      kvp("realm_id", realm)),
+                                  ordered);
+            for (const auto& document : cursor) {
+                roster.characters.push_back(realm_character_from(document));
+            }
+
+            mongocxx::options::find selected_only;
+            selected_only.projection(
+                make_document(kvp("selected_character_id", 1)));
+            const auto stored = collection(*client, accounts_collection)
+                                    .find_one(
+                                        make_document(kvp("_id", account)),
+                                        selected_only);
+            if (!stored.has_value()) return roster;
+            const auto selected = stored->view()["selected_character_id"];
+            if (!selected || selected.type() == bsoncxx::type::k_null) {
+                return roster;
+            }
+            const auto selected_id = domain_id(selected);
+            if (std::ranges::any_of(
+                    roster.characters, [&](const RealmCharacter& character) {
+                        return character.character_id == selected_id;
+                    })) {
+                roster.last_selected_character_id = selected_id;
+            }
+            return roster;
+        });
+    }
+
+    [[nodiscard]] CreateCharacterResult create_character(
+        std::uint64_t account_id,
+        std::uint32_t realm_id,
+        std::string_view name,
+        std::size_t max_characters) {
+        const auto account = database_id(account_id, "account_id");
+        const auto realm = database_realm_id(realm_id);
+        if (name.empty() || max_characters == 0) {
+            throw PlayerDataError("character name and limit must be non-empty");
+        }
+        const auto limit = static_cast<std::int64_t>(max_characters);
+        for (std::size_t attempt = 0; attempt < character_id_attempts;
+             ++attempt) {
+            const auto character_id = random_character_id();
+            const auto outcome = translate_driver_errors(
+                [&]() -> std::optional<CreateCharacterResult> {
+                    auto client = pool_->acquire();
+                    auto session = client->start_session();
+                    std::optional<CreateCharacterResult> result;
+                    bool missing_account = false;
+                    try {
+                        session.with_transaction(
+                            [&](mongocxx::client_session* transaction) {
+                                result.reset();
+                                missing_account = false;
+                                // 先写账号文档:同账号的并发创建在此写冲突,
+                                // 事务重试后看到对方已提交的角色再计数。
+                                mongocxx::options::find_one_and_update after;
+                                after.return_document(
+                                    mongocxx::options::return_document::k_after);
+                                after.projection(
+                                    make_document(kvp("roster_seq", 1)));
+                                const auto stored =
+                                    collection(*client, accounts_collection)
+                                        .find_one_and_update(
+                                            *transaction,
+                                            make_document(kvp("_id", account)),
+                                            make_document(kvp(
+                                                "$inc",
+                                                make_document(kvp(
+                                                    "roster_seq",
+                                                    std::int64_t{1})))),
+                                            after);
+                                if (!stored.has_value()) {
+                                    missing_account = true;
+                                    return;
+                                }
+                                const auto roster_seq =
+                                    stored->view()["roster_seq"].get_int64();
+                                const auto count =
+                                    collection(*client, characters_collection)
+                                        .count_documents(
+                                            *transaction,
+                                            make_document(
+                                                kvp("account_id", account),
+                                                kvp("realm_id", realm)));
+                                if (count >= limit) {
+                                    result = CreateCharacterResult{
+                                        .outcome =
+                                            CreateCharacterOutcome::LimitReached};
+                                    return;
+                                }
+                                static_cast<void>(
+                                    collection(*client, characters_collection)
+                                        .insert_one(
+                                            *transaction,
+                                            make_document(
+                                                kvp("_id",
+                                                    database_id(
+                                                        character_id,
+                                                        "character_id")),
+                                                kvp("account_id", account),
+                                                kvp("realm_id", realm),
+                                                kvp("name", text(name)),
+                                                kvp("exp", std::int64_t{0}),
+                                                kvp("last_training_seq",
+                                                    std::int64_t{0}),
+                                                kvp("revision", std::int64_t{1}),
+                                                kvp("roster_seq", roster_seq))));
+                                result = CreateCharacterResult{
+                                    .outcome = CreateCharacterOutcome::Created,
+                                    .character = RealmCharacter{
+                                        .character_id = character_id,
+                                        .name = std::string(name),
+                                    }};
+                            },
+                            transaction_options());
+                    } catch (const mongocxx::operation_exception& error) {
+                        if (!is_duplicate_key(error)) throw;
+                        // 撞名(唯一索引)或撞号(_id):库中已有同名即撞名,
+                        // 否则换一个编号重试。
+                        if (collection(*client, characters_collection)
+                                .find_one(make_document(
+                                    kvp("realm_id", realm),
+                                    kvp("name", text(name))))
+                                .has_value()) {
+                            return CreateCharacterResult{
+                                .outcome = CreateCharacterOutcome::NameTaken};
+                        }
+                        return std::nullopt;
+                    }
+                    if (missing_account) {
+                        throw PlayerDataError("account does not exist");
+                    }
+                    return result;
+                });
+            if (outcome.has_value()) return *outcome;
+        }
+        throw PlayerDataError("failed to allocate a unique character id");
+    }
+
+    [[nodiscard]] std::optional<RealmCharacter> choose_character(
+        std::uint64_t account_id,
+        std::uint32_t realm_id,
+        std::uint64_t character_id) {
+        const auto account = database_id(account_id, "account_id");
+        const auto character = realm_character(account_id, realm_id, character_id);
+        if (!character.has_value()) return std::nullopt;
+        // 角色既不删除也不改派:归属一经确认,随后写账号没有竞态窗口。
+        translate_driver_errors([&] {
+            auto client = pool_->acquire();
+            const auto result =
+                collection(*client, accounts_collection)
+                    .update_one(
+                        make_document(kvp("_id", account)),
+                        make_document(kvp(
+                            "$set",
+                            make_document(kvp(
+                                "selected_character_id",
+                                database_id(character_id, "character_id"))))));
+            if (!result.has_value() || result->matched_count() != 1) {
+                throw PlayerDataError("account does not exist");
+            }
+        });
+        return character;
+    }
+
+    [[nodiscard]] std::optional<RealmCharacter> realm_character(
         std::uint64_t account_id,
         std::uint32_t realm_id,
         std::uint64_t character_id) const {
+        const auto filter = owned_character_filter(
+            account_id, realm_id, character_id);
+        return translate_driver_errors([&]() -> std::optional<RealmCharacter> {
+            auto client = pool_->acquire();
+            const auto stored = collection(*client, characters_collection)
+                                    .find_one(filter.view());
+            if (!stored.has_value()) return std::nullopt;
+            return realm_character_from(stored->view());
+        });
+    }
+
+    [[nodiscard]] std::optional<TrainingWriteResult> record_training(
+        const TrainingWrite& write) {
+        if (write.seq == 0) {
+            throw PlayerDataError("training seq must be positive");
+        }
         const auto filter = make_document(
-            kvp("_id", database_id(character_id, "character_id")),
-            kvp("account_id", database_id(account_id, "account_id")),
-            kvp("realm_id", std::int64_t{realm_id}));
-        return translate_driver_errors(
-            [&]() -> std::optional<CharacterRecord> {
+            kvp("_id", database_id(write.character_id, "character_id")),
+            kvp("account_id", database_id(write.account_id, "account_id")),
+            kvp("realm_id", database_realm_id(write.realm_id)),
+            kvp("last_training_seq",
+                database_counter(write.seq - 1, "last_training_seq")));
+        const auto update = make_document(
+            kvp("$set",
+                make_document(
+                    kvp("exp", database_counter(write.exp, "exp")),
+                    kvp("last_training_seq",
+                        database_counter(write.seq, "last_training_seq")))),
+            kvp("$inc", make_document(kvp("revision", std::int64_t{1}))));
+        const auto committed = translate_driver_errors(
+            [&]() -> std::optional<RealmCharacter> {
                 auto client = pool_->acquire();
+                mongocxx::options::find_one_and_update after;
+                after.return_document(
+                    mongocxx::options::return_document::k_after);
                 const auto stored =
                     collection(*client, characters_collection)
-                        .find_one(filter.view());
+                        .find_one_and_update(filter.view(), update.view(), after);
                 if (!stored.has_value()) return std::nullopt;
-                const auto view = stored->view();
-                return CharacterRecord{
-                    .character_id = domain_id(view["_id"]),
-                    .account_id = domain_id(view["account_id"]),
-                    .realm_id = domain_realm_id(view["realm_id"]),
-                    .name = domain_string(view["name"]),
-                    .revision = domain_id(view["revision"]),
-                };
+                return realm_character_from(stored->view());
             });
+        if (committed.has_value()) {
+            return TrainingWriteResult{.committed = true, .character = *committed};
+        }
+        const auto current = realm_character(
+            write.account_id, write.realm_id, write.character_id);
+        if (!current.has_value()) return std::nullopt;
+        return TrainingWriteResult{.committed = false, .character = *current};
     }
 
     void provision_account(const AccountProvisioning& account) {
@@ -483,11 +701,16 @@ public:
                                 kvp("account_id", account_id),
                                 kvp("realm_id",
                                     std::int64_t{character.realm_id})),
-                            make_document(kvp(
-                                "$set",
-                                make_document(
-                                    kvp("name", text(character.name)),
-                                    kvp("revision", revision)))),
+                            make_document(
+                                kvp("$set",
+                                    make_document(
+                                        kvp("name", text(character.name)),
+                                        kvp("revision", revision))),
+                                kvp("$setOnInsert",
+                                    make_document(
+                                        kvp("exp", std::int64_t{0}),
+                                        kvp("last_training_seq",
+                                            std::int64_t{0})))),
                             upsert));
             } catch (const mongocxx::operation_exception& error) {
                 if (is_duplicate_key(error)) {
@@ -562,6 +785,8 @@ public:
                 kvp("account_id", id),
                 kvp("realm_id", std::int64_t{1}),
                 kvp("name", text(entry.account.account_name)),
+                kvp("exp", std::int64_t{0}),
+                kvp("last_training_seq", std::int64_t{0}),
                 kvp("revision", std::int64_t{1})));
         }
 
@@ -610,6 +835,21 @@ public:
     }
 
 private:
+    [[nodiscard]] static std::int64_t database_realm_id(std::uint32_t realm_id) {
+        if (realm_id == 0) throw PlayerDataError("realm_id must be non-zero");
+        return std::int64_t{realm_id};
+    }
+
+    [[nodiscard]] static bsoncxx::document::value owned_character_filter(
+        std::uint64_t account_id,
+        std::uint32_t realm_id,
+        std::uint64_t character_id) {
+        return make_document(
+            kvp("_id", database_id(character_id, "character_id")),
+            kvp("account_id", database_id(account_id, "account_id")),
+            kvp("realm_id", database_realm_id(realm_id)));
+    }
+
     [[nodiscard]] mongocxx::collection collection(
         mongocxx::client& client, std::string_view name) const {
         auto database = client[database_name_];
@@ -657,6 +897,13 @@ private:
         static_cast<void>(collection(client, characters_collection)
                               .create_index(make_document(
                                   kvp("account_id", 1), kvp("realm_id", 1))));
+        // 角色名在 Realm 内按字节精确唯一(#93);库中已有重名时建索引失败,
+        // 服务拒绝启动,由运维先清理。
+        static_cast<void>(collection(client, characters_collection)
+                              .create_index(
+                                  make_document(
+                                      kvp("realm_id", 1), kvp("name", 1)),
+                                  unique));
 
         mongocxx::options::find_one_and_update upsert;
         upsert.upsert(true);
@@ -679,6 +926,30 @@ private:
             throw PlayerDataError(
                 "player data schema is newer than this binary");
         }
+        if (version.get_int64().value < schema_version) migrate_to_v2(client);
+    }
+
+    /// schema 1 → 2:给已有角色补经验与训练序号。幂等,几个服务并发
+    /// 启动时各执行一遍也只补一次。
+    void migrate_to_v2(mongocxx::client& client) const {
+        auto characters = collection(client, characters_collection);
+        for (const std::string_view field : {"exp", "last_training_seq"}) {
+            static_cast<void>(characters.update_many(
+                make_document(
+                    kvp(std::string(field), make_document(kvp("$exists", false)))),
+                make_document(kvp(
+                    "$set", make_document(kvp(std::string(field), std::int64_t{0}))))));
+        }
+        static_cast<void>(
+            collection(client, metadata_collection)
+                .update_one(
+                    make_document(
+                        kvp("_id", text(schema_marker)),
+                        kvp("version",
+                            make_document(kvp("$lt", schema_version)))),
+                    make_document(kvp(
+                        "$set",
+                        make_document(kvp("version", schema_version))))));
     }
 
     [[nodiscard]] bool bootstrap_pending(
@@ -724,11 +995,36 @@ std::optional<AccountLoginFacts> MongoPlayerDataStore::login_facts(
     return impl_->login_facts(account_id);
 }
 
-std::optional<CharacterRecord> MongoPlayerDataStore::character(
+CharacterRoster MongoPlayerDataStore::list_characters(
+    std::uint64_t account_id, std::uint32_t realm_id) const {
+    return impl_->list_characters(account_id, realm_id);
+}
+
+CreateCharacterResult MongoPlayerDataStore::create_character(
+    std::uint64_t account_id,
+    std::uint32_t realm_id,
+    std::string_view name,
+    std::size_t max_characters) {
+    return impl_->create_character(account_id, realm_id, name, max_characters);
+}
+
+std::optional<RealmCharacter> MongoPlayerDataStore::choose_character(
+    std::uint64_t account_id,
+    std::uint32_t realm_id,
+    std::uint64_t character_id) {
+    return impl_->choose_character(account_id, realm_id, character_id);
+}
+
+std::optional<RealmCharacter> MongoPlayerDataStore::realm_character(
     std::uint64_t account_id,
     std::uint32_t realm_id,
     std::uint64_t character_id) const {
-    return impl_->character(account_id, realm_id, character_id);
+    return impl_->realm_character(account_id, realm_id, character_id);
+}
+
+std::optional<TrainingWriteResult> MongoPlayerDataStore::record_training(
+    const TrainingWrite& write) {
+    return impl_->record_training(write);
 }
 
 void MongoPlayerDataStore::provision_account(

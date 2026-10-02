@@ -30,8 +30,14 @@ class AdmissionConsumptionStore;
 }  // namespace realm::game::gateway
 
 namespace realm::game::common {
-class PlayerDataReader;
+class MongoPlayerDataStore;
 }  // namespace realm::game::common
+
+namespace realm::game::realm {
+class RealmOutbox;
+class RealmSessions;
+class TrainingRule;
+}  // namespace realm::game::realm
 
 namespace realm::game::login_verify {
 class LoginVerifyService;
@@ -99,8 +105,8 @@ private:
     bool stopped_{false};
     // 声明序即析构序:budget_reporter → resolver → publisher → registry
     // (budget_reporter 与 publisher 持 registry 引用),
-    // 再到 frame → Gateway Login Pipeline → adapters → runtime →
-    // metrics → logger。
+    // 再到 frame → Realm Session 表 → 其出站缝/训练规则/角色存储 →
+    // Gateway Login Pipeline → adapters → runtime → metrics → logger。
     /// 领域指标注册表(#47):首个对象成员(析构最后),业务帧与
     /// HTTPS 服务经指针写入,/metrics 抓取时渲染。
     observability::MetricsRegistry metrics_registry_;
@@ -117,7 +123,12 @@ private:
         gateway_login_pipeline_;
     std::unique_ptr<game::login_verify::LoginVerifyService> login_verify_;
     std::unique_ptr<game::queue::QueueService> queue_;
-    std::unique_ptr<game::common::PlayerDataReader> player_data_;
+    /// 仅 Realm:角色存储、训练规则、出站缝与 Session 表。Session 表最后
+    /// 声明、最先析构,先回收数据访问工作线程,再释放它引用的三者。
+    std::unique_ptr<game::common::MongoPlayerDataStore> realm_characters_;
+    std::unique_ptr<game::realm::TrainingRule> training_rule_;
+    std::unique_ptr<game::realm::RealmOutbox> realm_outbox_;
+    std::unique_ptr<game::realm::RealmSessions> realm_sessions_;
     std::unique_ptr<ServiceFrame> frame_;
     std::unique_ptr<cluster::EtcdServiceRegistry> registry_;
     std::unique_ptr<cluster::ServicePublisher> publisher_;

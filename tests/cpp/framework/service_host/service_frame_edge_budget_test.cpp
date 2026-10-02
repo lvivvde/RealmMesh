@@ -969,7 +969,6 @@ TEST_F(ServiceFrameEdgeBudgetTest, GrantIssuedThenGraceCloses) {
     ASSERT_EQ(redeemed.status, game::common::RedeemStatus::Accepted);
     EXPECT_EQ(redeemed.claims.account_id, 42U);
     EXPECT_EQ(redeemed.claims.realm_id, 1U);
-    EXPECT_EQ(redeemed.claims.character_id, 0U);
 
     // 签发后拉取槽即还、conn 保持占用:{3,2}。
     ASSERT_TRUE(observed_budget().has_value());

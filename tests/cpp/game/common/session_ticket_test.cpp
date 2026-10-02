@@ -27,14 +27,13 @@ TEST(SessionTicketTest, ValidatesPurposeExpiryTamperingAndReplay) {
     using namespace std::chrono_literals;
     const auto now = std::chrono::system_clock::time_point(1'000s);
     SessionTicketCodec codec(test_key());
-    auto ticket = codec.issue(TicketPurpose::EnterRealm, 7, 3, 99, 30s, now);
+    auto ticket = codec.issue(TicketPurpose::EnterRealm, 7, 3, 30s, now);
 
     const auto claims =
         codec.validate(ticket, TicketPurpose::EnterRealm, now + 1s);
     ASSERT_TRUE(claims.has_value());
     EXPECT_EQ(claims->account_id, 7U);
     EXPECT_EQ(claims->realm_id, 3U);
-    EXPECT_EQ(claims->character_id, 99U);
     EXPECT_FALSE(
         codec.validate(ticket, retired_purpose(1), now).has_value());
     EXPECT_FALSE(
@@ -59,9 +58,9 @@ TEST(SessionTicketTest, V2CarriesASignedCorrelationIdAndStillAcceptsV1) {
     correlation_id.front() = std::byte{0x12};
     correlation_id.back() = std::byte{0x34};
 
-    const auto v1 = codec.issue(TicketPurpose::EnterRealm, 7, 3, 0, 30s, now);
+    const auto v1 = codec.issue(TicketPurpose::EnterRealm, 7, 3, 30s, now);
     auto v2 = codec.issue(
-        TicketPurpose::EnterRealm, 7, 3, 0, correlation_id, 30s, now);
+        TicketPurpose::EnterRealm, 7, 3, correlation_id, 30s, now);
 
     const auto v1_claims =
         codec.validate(v1, TicketPurpose::EnterRealm, now + 1s);
@@ -74,6 +73,13 @@ TEST(SessionTicketTest, V2CarriesASignedCorrelationIdAndStillAcceptsV1) {
     EXPECT_EQ(*v2_claims->correlation_id, correlation_id);
     EXPECT_EQ(v1.front(), std::byte{1});
     EXPECT_EQ(v2.front(), std::byte{2});
+    // ADR-0013:明文只绑定账号与 Realm——版本、用途、ticket_id、
+    // [correlation_id]、account(8)、realm(4)、expiry(8),再加 32 字节 HMAC。
+    EXPECT_EQ(v1.size(), 1U + 1U + session_ticket_id_size + 8U + 4U + 8U + 32U);
+    EXPECT_EQ(
+        v2.size(),
+        1U + 1U + session_ticket_id_size + correlation_id_size + 8U + 4U +
+            8U + 32U);
 
     v2[2 + session_ticket_id_size] ^= std::byte{1};
     EXPECT_FALSE(
@@ -85,7 +91,7 @@ TEST(SessionTicketTest, RedeemsATicketExactlyOnce) {
     const auto now = std::chrono::system_clock::time_point(3'000s);
     SessionTickets tickets(test_key());
     const auto ticket =
-        tickets.issue(TicketPurpose::EnterRealm, 7, 3, 0, 30s, now);
+        tickets.issue(TicketPurpose::EnterRealm, 7, 3, 30s, now);
 
     const auto first =
         tickets.redeem(ticket, TicketPurpose::EnterRealm, now + 1s);
@@ -106,7 +112,7 @@ TEST(SessionTicketTest, PurposeMismatchDoesNotBurnTheTicket) {
     const auto now = std::chrono::system_clock::time_point(4'000s);
     SessionTickets tickets(test_key());
     const auto ticket =
-        tickets.issue(TicketPurpose::EnterRealm, 7, 3, 0, 30s, now);
+        tickets.issue(TicketPurpose::EnterRealm, 7, 3, 30s, now);
 
     const auto retired =
         tickets.redeem(ticket, retired_purpose(1), now + 1s);
@@ -123,7 +129,7 @@ TEST(SessionTicketTest, RetiredPurposeTicketsAreNotRedeemable) {
     SessionTickets tickets(test_key());
     for (const std::uint8_t retired : {1U, 2U}) {
         const auto ticket =
-            tickets.issue(retired_purpose(retired), 7, 3, 0, 30s, now);
+            tickets.issue(retired_purpose(retired), 7, 3, 30s, now);
         const auto redeemed =
             tickets.redeem(ticket, TicketPurpose::EnterRealm, now + 1s);
         EXPECT_EQ(redeemed.status, RedeemStatus::InvalidTicket)
@@ -141,7 +147,7 @@ TEST(SessionTicketTest, ExpiredTicketsAreInvalidNotReplayed) {
     const auto now = std::chrono::system_clock::time_point(5'000s);
     SessionTickets tickets(test_key());
     const auto ticket =
-        tickets.issue(TicketPurpose::EnterRealm, 7, 3, 9, 30s, now);
+        tickets.issue(TicketPurpose::EnterRealm, 7, 3, 30s, now);
 
     const auto expired = tickets.redeem(
         ticket, TicketPurpose::EnterRealm, now + 30s + jws_clock_leeway + 1s);
@@ -156,13 +162,13 @@ TEST(SessionTicketTest, AcceptsTicketsWithinClockLeeway) {
     SessionTickets tickets(test_key());
 
     const auto just_expired = tickets.redeem(
-        tickets.issue(TicketPurpose::EnterRealm, 7, 1, 0, 60s, now),
+        tickets.issue(TicketPurpose::EnterRealm, 7, 1, 60s, now),
         TicketPurpose::EnterRealm,
         now + 60s + 1s);
     EXPECT_EQ(just_expired.status, RedeemStatus::Accepted);
 
     const auto at_leeway_edge = tickets.redeem(
-        tickets.issue(TicketPurpose::EnterRealm, 7, 1, 0, 60s, now),
+        tickets.issue(TicketPurpose::EnterRealm, 7, 1, 60s, now),
         TicketPurpose::EnterRealm,
         now + 60s + jws_clock_leeway);
     EXPECT_EQ(at_leeway_edge.status, RedeemStatus::Accepted);
@@ -175,7 +181,7 @@ TEST(SessionTicketTest, LeewayDoesNotOpenAReplayWindow) {
     const auto now = std::chrono::system_clock::time_point(9'000s);
     SessionTickets tickets(test_key());
     const auto ticket =
-        tickets.issue(TicketPurpose::EnterRealm, 7, 1, 0, 60s, now);
+        tickets.issue(TicketPurpose::EnterRealm, 7, 1, 60s, now);
 
     const auto first =
         tickets.redeem(ticket, TicketPurpose::EnterRealm, now + 1s);
@@ -191,10 +197,10 @@ TEST(SessionTicketsTest, EnterRealmPurposeRoundTripsAndRejectsWrongPurpose) {
     const auto now = std::chrono::system_clock::time_point(6'000s);
     SessionTickets tickets(test_key());
     const auto ticket =
-        tickets.issue(TicketPurpose::EnterRealm, 42, 1, 0, 60s, now);
+        tickets.issue(TicketPurpose::EnterRealm, 42, 1, 60s, now);
 
     const auto stale = tickets.redeem(
-        tickets.issue(TicketPurpose::EnterRealm, 43, 1, 0, 60s, now),
+        tickets.issue(TicketPurpose::EnterRealm, 43, 1, 60s, now),
         TicketPurpose::EnterRealm,
         now + 60s + jws_clock_leeway + 1s);
     EXPECT_EQ(stale.status, RedeemStatus::InvalidTicket);
@@ -209,7 +215,6 @@ TEST(SessionTicketsTest, EnterRealmPurposeRoundTripsAndRejectsWrongPurpose) {
     EXPECT_EQ(right.claims.purpose, TicketPurpose::EnterRealm);
     EXPECT_EQ(right.claims.account_id, 42U);
     EXPECT_EQ(right.claims.realm_id, 1U);
-    EXPECT_EQ(right.claims.character_id, 0U);
 
     const auto replayed =
         tickets.redeem(ticket, TicketPurpose::EnterRealm, now + 2s);

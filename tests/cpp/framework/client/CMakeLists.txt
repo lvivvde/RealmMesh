@@ -27,6 +27,7 @@ realm_add_gtest(wire_login_transport_integration_test
         realm_service_host
         RealmMesh::GameCommon
     DEFINITIONS
+        REALMMESH_TEST_SOURCE_DIR="${PROJECT_SOURCE_DIR}"
         REALMMESH_TEST_TLS_CERTIFICATE="${REALMMESH_TEST_TLS_CERTIFICATE}"
         REALMMESH_TEST_TLS_PRIVATE_KEY="${REALMMESH_TEST_TLS_PRIVATE_KEY}"
     DEPENDS realmmesh_test_tls_identity

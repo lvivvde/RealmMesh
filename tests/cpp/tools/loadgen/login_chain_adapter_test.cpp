@@ -20,6 +20,23 @@ public:
         return !closed_;
     }
     void close() noexcept override { closed_ = true; }
+    // 压测止于入场受理,不跑 Realm 业务。
+    [[nodiscard]] client::RealmReply<client::RealmRoster> list_characters(
+        client::TimePoint) override {
+        return {};
+    }
+    [[nodiscard]] client::RealmReply<client::RealmCharacterView>
+    create_character(std::string_view, client::TimePoint) override {
+        return {};
+    }
+    [[nodiscard]] client::RealmReply<client::RealmSelection> select_character(
+        std::uint64_t, client::TimePoint) override {
+        return {};
+    }
+    [[nodiscard]] client::RealmReply<client::RealmTraining> train(
+        std::uint64_t, client::TimePoint) override {
+        return {};
+    }
 
 private:
     bool closed_{false};

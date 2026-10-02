@@ -117,11 +117,6 @@ private:
             completion.status = facts.has_value()
                                     ? AccountFetchStatus::Succeeded
                                     : AccountFetchStatus::NotEligible;
-            if (facts.has_value()) {
-                completion.character_id = facts->character_id;
-                completion.realm_id = facts->realm_id;
-                completion.character_revision = facts->character_revision;
-            }
         } catch (...) {
             completion.ok = false;
             completion.status = AccountFetchStatus::Unavailable;
