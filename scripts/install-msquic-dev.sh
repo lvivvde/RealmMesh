@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# 用途：为 Linux x86_64 开发环境下载并校验固定版本的 MsQuic 库与头文件。
+# 用途：为 Linux x86_64/ARM64 开发环境下载并校验固定版本的 MsQuic 库与头文件。
 # 用法：./scripts/install-msquic-dev.sh
 # 输出：.tools/msquic/；系统运行依赖仍需按脚本末尾提示安装。
 
@@ -11,13 +11,27 @@ install_root="${project_root}/.tools/msquic"
 temporary_root="$(mktemp -d)"
 trap 'rm -rf -- "${temporary_root}"' EXIT
 
-if [[ "$(uname -s)" != "Linux" || "$(uname -m)" != "x86_64" ]]; then
-    echo "This development installer currently supports Linux x86_64 only." >&2
+if [[ "$(uname -s)" != "Linux" ]]; then
+    echo "This development installer supports Linux only." >&2
     exit 1
 fi
 
-package_url="https://packages.microsoft.com/ubuntu/24.04/prod/pool/main/libm/libmsquic/libmsquic_2.6.1_amd64.deb"
-package_sha256="ff99192ca34d6c5b18fc4b45a94988c3f66c78fbb3bfb7076c3f403eabf531e5"
+case "$(uname -m)" in
+    x86_64 | amd64)
+        package_arch="amd64"
+        package_sha256="ff99192ca34d6c5b18fc4b45a94988c3f66c78fbb3bfb7076c3f403eabf531e5"
+        ;;
+    aarch64 | arm64)
+        package_arch="arm64"
+        package_sha256="cb2d4d71901cc8bc6b9e1ab35b50b5c381ca70552b6ae800fae22b5b9ac9524e"
+        ;;
+    *)
+        echo "This development installer supports Linux x86_64 and ARM64 only." >&2
+        exit 1
+        ;;
+esac
+
+package_url="https://packages.microsoft.com/ubuntu/24.04/prod/pool/main/libm/libmsquic/libmsquic_2.6.1_${package_arch}.deb"
 header_base="https://raw.githubusercontent.com/microsoft/msquic/v2.6.1/src/inc"
 
 curl --fail --location --retry 3 --output "${temporary_root}/libmsquic.deb" "${package_url}"
