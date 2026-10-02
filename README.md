@@ -71,6 +71,7 @@ flowchart LR
 | 权威玩家数据源：MongoDB 副本集取代 SQLite（#99） | 已实现 |
 | 登录链玩家数据加固：验签与 Realm 角色复核移出事件线程、Realm 必须配置数据源、`1007`/`1008` 分流、网关拉取超时与并发（#98） | 已实现 |
 | 共享临时开发库：TLS/认证、SSH 隧道与仓库外私有配置 | 已实现，见[连接说明](docs/operations/shared-mongodb.md) |
+| Linux ARM64 开发环境：依赖安装、QUIC 与原生构建 | 已验证构建及四进程登录链；首次集成测试 142/143 通过，fd 断言有一次偶发失败，见[验证记录](docs/operations/linux-arm64-development.md) |
 
 旧 `Login → Realm 选角 → Gateway 入场` 链路已整体退役：`login` 服务身份、7000 端口与
 旧入场消息编号都已删除，线名 `login` 永不复用（见[架构文档](docs/architecture.md)）。
@@ -216,6 +217,8 @@ Ubuntu 24.04（生产基准，含 QUIC）：
 ```bash
 sudo apt install libssl-dev libnuma1
 ./scripts/install-msquic-dev.sh
+./scripts/install-etcd.sh
+./scripts/install-mongodb.sh  # 自动化集成测试需要；手动联调使用共享库
 ./scripts/build.sh
 ```
 
@@ -242,6 +245,13 @@ Linux 的 MsQuic 开发安装脚本固定使用 Microsoft 官方 `libmsquic 2.6.
 下载内容均校验 SHA-256；macOS 用 Homebrew 当前的 `libmsquic` 2.6.x。CMake 输出会打印
 找到的 MsQuic 版本，次版本偏离 2.6 时告警。也可自行安装 MsQuic，并通过 `MSQUIC_ROOT`
 指向其前缀。
+Linux 安装脚本支持 x86_64 与 ARM64（aarch64），按宿主架构选择 MsQuic、etcd、
+MongoDB 与 mongosh 的固定版本及校验和；MsQuic 和 MongoDB 使用 Ubuntu 24.04
+上游构建。CMake 在 Linux ARM64 上也下载并校验官方 protoc 35.0，避免进入
+Protobuf 编译器源码的 bootstrap 构建路径。ARM64 开发环境也必须编入 QUIC，配置输出应包含
+`realm_network: QUIC transport enabled`。Linux CI 仍以 Ubuntu 24.04 x86_64 为门槛；
+其他发行版版本与 ARM64 的兼容性须由本机实际构建和测试确认。
+Ubuntu 26.04 ARM64 的本机步骤与测试边界见[Linux ARM64 开发环境](docs/operations/linux-arm64-development.md)。
 服务发现需要本地 etcd：`./scripts/install-etcd.sh` 安装固定版本 3.6.14，
 `./scripts/run-etcd-dev.sh` 以前台单节点启动。
 

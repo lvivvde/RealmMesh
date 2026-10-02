@@ -2,7 +2,7 @@
 
 # 用途：下载并校验固定版本的 etcd，将其安装到项目本地 .tools/ 目录。
 # 用法：./scripts/install-etcd.sh
-# 支持 Linux(amd64)与 macOS(arm64/amd64)。版本、下载地址与校验和都固定在
+# 支持 Linux 与 macOS(arm64/amd64)。版本、下载地址与校验和都固定在
 # 下方，与上游 releases 页的 SHA256SUMS 一致。
 
 set -euo pipefail
@@ -29,12 +29,16 @@ case "${host_arch}" in
         ;;
 esac
 
-# 上游只发布 linux-amd64 的 tar.gz,其他平台是 zip,校验和因此逐平台固定。
+# Linux 使用 tar.gz,macOS 使用 zip,校验和逐平台固定。
 platform="${etcd_os}-${etcd_arch}"
 case "${platform}" in
     linux-amd64)
         archive_name="etcd-v${etcd_version}-linux-amd64.tar.gz"
         expected_sha256="ffe840ff9295808e88cce2794a18a5ac87f12a5203c8314d0bf6aa119b41bac5"
+        ;;
+    linux-arm64)
+        archive_name="etcd-v${etcd_version}-linux-arm64.tar.gz"
+        expected_sha256="fa1b80565ee6fc2df1ae6f57a508b221f3ecc7d591c317c581cd8281b0842b3e"
         ;;
     darwin-arm64)
         archive_name="etcd-v${etcd_version}-darwin-arm64.zip"

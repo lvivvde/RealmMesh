@@ -27,6 +27,12 @@ if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux" AND
         "https://github.com/protocolbuffers/protobuf/releases/download/v35.0/protoc-35.0-linux-x86_64.zip")
     set(realmmesh_protoc_sha256
         a45cda0989c17dd950db55f6fbe1e5814c50fda08e87aa422980ac1f89dddbbc)
+elseif(CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux" AND
+       CMAKE_HOST_SYSTEM_PROCESSOR MATCHES "^(arm64|aarch64)$")
+    set(realmmesh_protoc_url
+        "https://github.com/protocolbuffers/protobuf/releases/download/v35.0/protoc-35.0-linux-aarch_64.zip")
+    set(realmmesh_protoc_sha256
+        36b518ac14d90351cc6598228ed2bbe5afe4e357b1af470b07e0ec1609875de2)
 elseif(CMAKE_HOST_SYSTEM_NAME STREQUAL "Darwin" AND
        CMAKE_HOST_SYSTEM_PROCESSOR MATCHES "^(arm64|aarch64)$")
     set(realmmesh_protoc_url

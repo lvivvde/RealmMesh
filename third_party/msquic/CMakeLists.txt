@@ -50,6 +50,10 @@ elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
             "${MSQUIC_ROOT}/lib64"
             "${MSQUIC_ROOT}/usr/lib"
             "${MSQUIC_ROOT}/usr/lib/x86_64-linux-gnu"
+            "${MSQUIC_ROOT}/usr/lib/${CMAKE_LIBRARY_ARCHITECTURE}"
+            "${MSQUIC_ROOT}/lib/${CMAKE_LIBRARY_ARCHITECTURE}"
+            "${PROJECT_SOURCE_DIR}/.tools/msquic/usr/lib"
+            "${PROJECT_SOURCE_DIR}/.tools/msquic/usr/lib/${CMAKE_LIBRARY_ARCHITECTURE}"
             "${PROJECT_SOURCE_DIR}/.tools/msquic/usr/lib/x86_64-linux-gnu"
     )
     if(NOT MSQUIC_LIBRARY)
@@ -57,9 +61,13 @@ elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
             "${MSQUIC_ROOT}/lib/libmsquic.so.2"
             "${MSQUIC_ROOT}/lib64/libmsquic.so.2"
             "${MSQUIC_ROOT}/lib/x86_64-linux-gnu/libmsquic.so.2"
+            "${MSQUIC_ROOT}/lib/${CMAKE_LIBRARY_ARCHITECTURE}/libmsquic.so.2"
+            "${PROJECT_SOURCE_DIR}/.tools/msquic/usr/lib/libmsquic.so.2"
+            "${PROJECT_SOURCE_DIR}/.tools/msquic/usr/lib/${CMAKE_LIBRARY_ARCHITECTURE}/libmsquic.so.2"
             "${PROJECT_SOURCE_DIR}/.tools/msquic/usr/lib/x86_64-linux-gnu/libmsquic.so.2"
             "${MSQUIC_ROOT}/usr/lib/libmsquic.so.2"
             "${MSQUIC_ROOT}/usr/lib/x86_64-linux-gnu/libmsquic.so.2"
+            "${MSQUIC_ROOT}/usr/lib/${CMAKE_LIBRARY_ARCHITECTURE}/libmsquic.so.2"
         )
             if(EXISTS "${MSQUIC_LIBRARY_CANDIDATE}")
                 set(MSQUIC_LIBRARY "${MSQUIC_LIBRARY_CANDIDATE}")

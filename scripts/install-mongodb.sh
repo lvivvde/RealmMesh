@@ -3,7 +3,7 @@
 # 用途：在 Linux 上下载并校验固定版本的 MongoDB 服务器(mongod)与 mongosh,
 # 安装到项目本地 .tools/ 目录(ADR-0011),供 CI 与 Linux 开发机使用。
 # 用法：./scripts/install-mongodb.sh
-# 仅支持 Linux x86_64(Ubuntu 24.04 构建)。macOS 直接用 Homebrew:
+# 支持 Linux x86_64/ARM64(Ubuntu 24.04 构建)。macOS 直接用 Homebrew:
 #   brew tap mongodb/brew && brew trust mongodb/brew && brew install mongodb-community mongosh
 # 脚本与测试夹具都先查 PATH,再退回这里装到 .tools/ 的版本。版本、下载地址与
 # 校验和都固定在下方:mongod 取自 fastdl.mongodb.org,mongosh 取自 GitHub releases
@@ -33,6 +33,13 @@ case "${host_os}-${arch}" in
         mongodb_sha256="b411be17c31ef249767ed91974d876e007c91afd5f45e1534057d247eada9f0d"
         mongosh_archive="mongosh-${mongosh_version}-linux-x64.tgz"
         mongosh_sha256="aa42cb826b7b8e655c5481293f5365ddaf1a23e43af07520326e5bbc957838ad"
+        ;;
+    Linux-arm64)
+        mongodb_archive="mongodb-linux-aarch64-ubuntu2404-${mongodb_version}.tgz"
+        mongodb_url="https://fastdl.mongodb.org/linux/${mongodb_archive}"
+        mongodb_sha256="8cca3993520a7f189790264ee57fb5d55a91094fb4be5f06bbbaf67c974d273f"
+        mongosh_archive="mongosh-${mongosh_version}-linux-arm64.tgz"
+        mongosh_sha256="99f8d38d41c510e7d4c685b71022ea1db113245968d5d933b5333fb3835e64ae"
         ;;
     *)
         printf 'install-mongodb: no pinned MongoDB build for %s-%s\n' \
