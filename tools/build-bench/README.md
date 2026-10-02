@@ -1,0 +1,82 @@
+# build-bench：构建测量工具
+
+构建优化各阶段（R0、P1–P6）共用的测量工具。路线、目标、采样与资源门槛见[实施顺序与验收约定](https://github.com/lvivvde/RealmMesh/blob/aeaaff7b94de8fd88f70b7f7a5d08d47ffed7a6b/docs/research/build-implementation-acceptance.md)与 [#115 决议](https://github.com/lvivvde/RealmMesh/issues/115#issuecomment-5954537886)；旧 build-optimization-rollout.md 只作历史。结果追加到 [build-optimization-results.md](../../docs/research/build-optimization-results.md)。它只用于测量，不进 CMake 构建，也不属于日常入口。
+
+| 文件 | 作用 |
+| --- | --- |
+| `launcher.cpp` | 作为 `CMAKE_<LANG>_{COMPILER,LINKER}_LAUNCHER` 包住每次真实编译/链接；设置 `REALMMESH_BUILD_BENCH_EVENTS` 时写一条事件 JSON：argv、cwd、墙钟、退出码、user/sys 时间、`maxrss_kib`（macOS 字节已换算为 KiB） |
+| `measure.py` | 按场景驱动 `cmake`/`ctest`，整体计时并分步记录，统计实际编译/链接名单与次数，每秒采样内存；`summarize` 按场景汇总 |
+| `test_measure.py` | `measure.py` 纯函数的单元测试 |
+
+需要 Python 3.9+、C++17 编译器与 `curl`，不依赖第三方包。
+
+## 场景
+
+`--scenario` 可重复，`all` 按下表顺序全跑。短场景（`unit-entry`、`cpp-entry`、`probes`）先跑 1 次预热（阶段名带 `-warmup`，`summarize` 不计入），再跑 `--samples` 次（默认 5）；长场景（`cold-entry`、`hot-full`）跑 `--long-samples` 次（默认 3）。一个阶段里的多条命令整体计时，`steps` 另记每步墙钟；总耗时不由各步中位数相加。
+
+| 场景 | 阶段名 | 步骤 | 内容 |
+| --- | --- | --- | --- |
+| `fetch` | `fetch-configure`、`fetch-sodium` | configure；download | 首次获取，独立报告：删除构建目录，FetchContent 全新获取并配置，把 `_deps/*-src` 复制到 `--deps-dir`（默认 `<out>/deps-src`）；再用 `curl` 下载 libsodium 包到 `<deps-dir>/sodium-download/` 并核对 `third_party/sodium/CMakeLists.txt` 的 SHA256 |
+| `cold-entry` | `cold-entry-N` | prepare、configure、build、test | 完整冷入口：删除构建目录，把已核对的 libsodium 包放进 ExternalProject 下载目录（hash 相符即跳过下载），以 `FETCHCONTENT_SOURCE_DIR_<NAME>` 复用依赖源码配置，全量构建，完整 CTest。build 步即已备齐源码的全量构建 |
+| `repro` | `repro-configure-N`、`repro-build-N` | configure；build | 冷入口后同目录连续配置 + 构建，至少 3 轮；行内记录构建树生成版本头（`*version*.h/.hpp`）hash 或 mtime 有变化的名单，首次重新配置单独可见 |
+| `hot-full` | `hot-full-N` | configure、build、test | 热完整验证：标准配置 + 稳定无操作 ALL 构建 + 完整 CTest |
+| `unit-entry` | `unit-entry-N` | configure、build、test | 默认 Unit、无改动：标准配置 + ALL 构建 + `ctest -L unit` |
+| `cpp-entry` | `cpp-entry-N`、`cpp-entry-restore` | configure、build、test | 默认 Unit、代表 `.cpp` 真实改动：`lua_runtime.cpp` 写入 token 变体后同 `unit-entry`；最后恢复并配置 + 构建 |
+| `probes` | `probe-<探针>-N`、`probe-<探针>-comment-N`、`probe-<探针>-restore` | build | 每个探针先 token 变体（主指标），再注释变体 `--comment-samples` 次（默认 3，历史对照），最后恢复原始字节再构建；`--probe` 可限定 |
+
+CTest 始终串行（测试并行 1）。
+
+探针：`lua-cpp`（`lua_runtime.cpp`）、`lua-hpp`（`lua_runtime.hpp`，Lua 重头内部变化）、`gateway-hpp`（`gateway_runtime.hpp`）、`player-data-hpp`（`player_data_store.hpp`）、`proto`（`envelope.proto`）。变体都追加在文件末尾、由原始字节派生，第 N 次与其他次内容不同：
+
+- token 变体改变预处理结果、不改行为：C++ 追加 `inline constexpr int realmmesh_build_bench_<探针>_variant = N;`（外部链接，不触发未使用告警），proto 追加 `message BuildBenchVariantN {}`。
+- 注释变体追加 `// build-bench <探针> content-change sample N`，预处理后不变，只用于和旧数据对照。
+
+每行记录 `variant`：文件、种类、序号、原始与变体 sha256。每次改写前等到下一个整秒：macOS `/usr/bin/make`（GNU Make 3.81）按整秒比较 mtime，与上次产物同秒的改动会漏编。
+
+## 用法
+
+被测源码用独立副本：探针会临时改写其中文件，冷入口会删除其构建目录。
+
+```bash
+out=/path/to/bench   # 源码副本、结果都放这里，不放仓库内；Linux 用磁盘目录，不用 tmpfs
+mkdir -p "$out/source"
+git archive HEAD | tar x -C "$out/source"
+ln -s "$PWD/.tools" "$out/source/.tools"   # etcd、Linux MsQuic/MongoDB 等本机工具，需在计时前装好
+c++ -std=c++17 -O2 tools/build-bench/launcher.cpp -o "$out/launcher"
+python3 tools/build-bench/measure.py run --source "$out/source" --out "$out/result" \
+    --launcher "$out/launcher" --scenario all --commit "$(git rev-parse HEAD)" --label "R0 Mac"
+python3 tools/build-bench/measure.py summarize --out "$out/result"
+```
+
+常用参数：
+
+- `--cmake-arg=-D...`：每次配置都附加的平台适配参数，例如 macOS 在 P1 前需要 `-DOPENSSL_INCLUDE_DIR=/opt/homebrew/opt/openssl@3/include`。
+- `--env NAME=VALUE`：测量进程的附加环境，例如 Lima 把 `TMPDIR` 指到磁盘目录。
+- `--jobs N`：传给 `cmake --build --parallel`；缺省串行（R0 条件）。
+- `--preset`、`--build-dir`：改预设与构建目录后用。
+- `--cache-mode`：只做记录，如 `ccache-AUTO-hot`。
+
+工具会清除 `CMAKE_BUILD_PARALLEL_LEVEL`、`CTEST_PARALLEL_LEVEL`、`MAKEFLAGS` 与外部 launcher 变量，并去掉带 MongoDB URI/口令的变量；测试只用夹具自起的隔离 etcd/MongoDB。
+
+## 输出
+
+`--out` 目录中：
+
+- `stages.json`：每个阶段一行，包含 `steps`（每步命令、墙钟、退出码）、总墙钟、退出码、是否预热、起止负载均值、编译/链接次数与时间合计、其中依赖编译次数（源码位于 `_deps` 或源码根之外）、最大单次编译/链接 RSS、实际编译源码与链接产物名单、内存摘要、探针变体 hash、CTest 结果与失败用例。libsodium 的 configure/make 不经 launcher，不计入编译次数，只在日志与时间线里可见。
+- `<阶段>.log`、`<阶段>.timeline.jsonl`、`<阶段>-events/`、`<阶段>.memory.jsonl`：原始日志、关键行时间线、逐调用事件与逐秒内存样本。
+- `environment.json`：每次 `run` 追加一条：提交、平台、CPU/内存、Linux cgroup 限额、jobs、缓存模式、样本数、QUIC 是否编入、工具版本、`measure.py`/`launcher.cpp`/launcher 的 sha256、libsodium 来源与校验和、关键 CMake 缓存项与适配参数。
+- `summary.json` / `summary.md`：`summarize` 生成的分组统计，含原始样本、中位数、最小–最大值、噪声带 max(极差÷中位数, 5%) 与分步统计。
+
+同一 `--out` 内阶段名不可重复；重测换新目录或加 `--name-prefix`。
+
+内存摘要的口径：
+
+- 进程树 RSS：每秒用 `ps` 合计 `measure.py` 及全部后代进程的 RSS 取峰值；脱离进程树的守护进程与两次采样之间的短进程不在内。launcher 的 RSS 是单进程峰值，不能乘 jobs 推断整体峰值。
+- macOS：可用内存 = `vm_stat` 中 free + inactive + speculative + purgeable 页（近似值），压力等级取 `kern.memorystatus_vm_pressure_level`（1 正常、2 警告、4 严重），swap 取 `vm.swapusage`。
+- Linux：可用内存取 `/proc/meminfo` 的 MemAvailable 与本进程 cgroup v2 祖先链中最紧 `memory.max` 余量的较小者；swap 取 `/proc/meminfo`，OOM 取 `/proc/vmstat` 的 `oom_kill` 增量。VM 本身的限额即 `MemTotal`。
+
+## 自测
+
+```bash
+python3 -m unittest discover tools/build-bench
+```
