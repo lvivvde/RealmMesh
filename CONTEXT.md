@@ -59,7 +59,7 @@ _Avoid_: Login Chain(客户端概念)、Gateway(部署身份不等于管线)、�
 _Avoid_: Client Session(旧名)、Pending Connection(旧名,pending 是阶段,不是另一种实体)、player(玩家是业务概念)、connection、handle、established(旧终态名:网关没有业务长连,终态是 handed-off)
 
 **Fetching**:
-Edge Session 的中间阶段:准入暂扣——凭据已验讫,正在限额拉取玩家账号数据,或拉取已完成但 Handoff 尚未被 Primary Transport 接纳;fetch 额度在拉取完成时即可归还,阶段只在 Handoff 被接纳后迁出。每次进出该阶段都是一次原子状态迁移。
+Edge Session 的中间阶段:准入暂扣——凭据已验讫,正在限额拉取玩家账号数据,或拉取已完成但 Handoff 尚未被 Primary Transport 接纳;fetch 额度在拉取完成时即可归还,阶段只在 Handoff 被接纳后迁出。每次拉取由有界工作者并发执行并受单次截止(`fetch_timeout_ms`)约束;账号不具备准入资格(封禁/不在白名单/无选定角色)即以 1007 终止,玩家数据暂不可用重试耗尽以 1008 收尾。每次进出该阶段都是一次原子状态迁移。
 _Avoid_: loading、provisioning、暂扣(是阶段名,不是动作)
 
 **Handoff**:
@@ -129,7 +129,7 @@ _Avoid_: token、credential、cookie
 ### Client
 
 **Login Chain**:
-客户端从凭据到入场的七态驱动器:`verifying → queued → admitted → gateway_connecting → handoff_received → realm_connecting → in_game`;失败按规则回退(verify 失败回 idle、号牌过期自动重取、网关失败在放行宽限内重入、Realm 直连失败在 EnterRealm 票据窗口内重试),不自作主张重排队。
+客户端从凭据到入场的七态驱动器:`verifying → queued → admitted → gateway_connecting → handoff_received → realm_connecting → in_game`;失败按规则回退(verify 失败回 idle 但健全服繁忙 1005 退避后重验、号牌过期自动重取、网关失败在放行宽限内重入、1007 账号不具备准入资格即终止回 idle、1008 玩家数据暂不可用按服务端建议退避后从 verifying 重来、Realm 直连失败在 EnterRealm 票据窗口内重试),不自作主张重排队。
 _Avoid_: 登录流程(流程指纸上步骤,链路是能跑出状态的实体)、session(那是服务端概念)
 
 **Login Stage**:

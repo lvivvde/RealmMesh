@@ -188,7 +188,8 @@ ServiceHost::ServiceHost(
                         player_data.uri,
                         player_data.database,
                         player_data.options),
-                    gateway_login_config.fetch_capacity);
+                    gateway_login_config.fetch_capacity,
+                    gateway_login_config.fetch_workers);
         }
         gateway_login_pipeline_ =
             std::make_unique<game::gateway::GatewayLoginPipeline>(
@@ -203,7 +204,11 @@ ServiceHost::ServiceHost(
                     logger_.get(),
                     &metrics_registry_));
     }
-    if (service_name_ == "realm" && !player_data.uri.empty()) {
+    if (service_name_ == "realm") {
+        // Realm 入场必须向权威数据源复核角色归属,没有「跳过复核」的装配。
+        if (player_data.uri.empty()) {
+            throw std::invalid_argument("realm requires player_data.uri");
+        }
         player_data_ = std::make_unique<game::common::MongoPlayerDataStore>(
             player_data.uri, player_data.database, player_data.options);
     }

@@ -16,6 +16,7 @@
 
 #include "realmmesh/client/wire_login_transport.hpp"
 #include "realmmesh/game/common/edge_protocol.hpp"
+#include "realmmesh/game/common/player_data_store.hpp"
 #include "realmmesh/game/common/session_ticket.hpp"
 #include "realmmesh/game/gateway/gateway_runtime.hpp"
 #include "realmmesh/network/http/http_server.hpp"
@@ -235,6 +236,9 @@ public:
 
     /// 前 N 次 attach 回 1999 + 1001(凭据无效,ADR-0009 的终态)。
     std::atomic<int> reject_attach_remaining{0};
+    /// 前 N 次 attach 先受理,再在拉取相位以 decline_code 拒绝(1007/1008)。
+    std::atomic<int> decline_after_accept_remaining{0};
+    std::atomic<std::uint32_t> decline_code{0};
     std::atomic<int> attach_calls{0};
     std::atomic<int> handoff_sent{0};
     /// 签发票据归属的 realm(负向用例注入别的 realm 以触发 Realm 侧拒绝)。
@@ -287,6 +291,16 @@ private:
         accepted.set_account_id(42);
         send(session_id, common::encode(accepted));
 
+        if (decline_after_accept_remaining.load() > 0) {
+            decline_after_accept_remaining.fetch_sub(1);
+            common::EdgeError error;
+            error.set_code(decline_code.load());
+            error.set_message("declined while fetching");
+            error.set_retry_after_seconds(1);
+            send(session_id, common::encode(error));
+            return;
+        }
+
         common::EnterRealmGranted granted;
         const std::string ticket =
             mint_enter_realm_ticket(ticket_realm_id.load());
@@ -323,6 +337,29 @@ private:
     std::string last_enter_realm_ticket_;
 };
 
+/// Realm 复核角色归属的内存数据源:网关桩签发的票据恒为账号 42、
+/// 角色 0,只认这一个归属(Realm 必须注入数据源,见 ServiceFrame)。
+class StubPlayerData final : public common::PlayerDataReader {
+public:
+    [[nodiscard]] std::optional<common::AccountLoginFacts> login_facts(
+        std::uint64_t) const override {
+        return std::nullopt;
+    }
+
+    [[nodiscard]] std::optional<common::CharacterRecord> character(
+        std::uint64_t account_id,
+        std::uint32_t realm_id,
+        std::uint64_t character_id) const override {
+        if (account_id != 42 || character_id != 0) return std::nullopt;
+        return common::CharacterRecord{
+            .character_id = character_id,
+            .account_id = account_id,
+            .realm_id = realm_id,
+            .name = "stub-character",
+        };
+    }
+};
+
 /// Realm 段的服务端:真实 realm 服务帧(#46 的 1304/1305 处理器)+ 与网关桩
 /// 共享的票据键,监听真实 TLS。ALPN 与网关段一致 —— Realm 段就是 edge 段,
 /// 所以这里不配 `.alpn`,取传输层默认值。
@@ -349,7 +386,8 @@ public:
                 .outbound_capacity = 64,
                 .io_poll_interval = milliseconds{1}});
         runtime_->start();
-        frame_.emplace("realm", "127.0.0.1", 8443, 64, 4);
+        frame_.emplace(
+            "realm", "127.0.0.1", 8443, 64, 4, nullptr, &player_data_);
     }
 
     ~RealmServiceFixture() {
@@ -391,6 +429,7 @@ private:
     std::optional<test_support::TemporaryDirectory> log_directory_;
     std::optional<observability::Logger> logger_;
     std::optional<game::gateway::GatewayRuntime> runtime_;
+    StubPlayerData player_data_;
     std::optional<service_host::ServiceFrame> frame_;
 };
 
@@ -595,6 +634,79 @@ TEST(WireLoginTransportIntegrationTest, AttachRejectionRestartsLogin) {
     EXPECT_EQ(success->number, 100U);
     // 第二次 attach 交付的真实票据同样被 Realm 段受理。
     EXPECT_FALSE(edge.last_enter_realm_ticket().empty());
+}
+
+/// 拉取相位的 1007(账号无准入资格)是终止型拒绝:整条链失败回 idle,
+/// 不重入网关、不重头验证。
+TEST(WireLoginTransportIntegrationTest, NotEligibleDeclineFailsChainWithoutRetry) {
+    const std::array<network::TransportConfig, 1> configs{gateway_config()};
+    auto transports = network::TransportFactory::create_enabled(configs);
+    ASSERT_EQ(transports.size(), 1U);
+    const auto gateway_port = transports.front()->local_endpoint().port;
+
+    HttpStub http;
+    http.unauthorized_remaining.store(0);
+    http.queued_remaining.store(0);
+    RealmServiceFixture realm;
+    EdgeStub edge(*transports.front(), realm.port());
+    edge.decline_code.store(common::edge_error_not_eligible);
+    edge.decline_after_accept_remaining.store(1);
+    const PollDriver driver(&http, &edge, &realm);
+
+    WireEndpoints endpoints;
+    endpoints.login_verify_port = http.port();
+    endpoints.queue_port = http.port();
+    endpoints.verify_peer = false;
+
+    WireEnterRealmRedeemer redeemer;
+    WireLoginTransport transport(endpoints, redeemer, fast_wire_options());
+
+    LoginChain chain(transport, fast_chain_config(gateway_port));
+    const auto result = chain.run(LoginRun::full(
+        "alice", "secret", Clock::now() + std::chrono::seconds{10}));
+
+    ASSERT_FALSE(result.succeeded());
+    ASSERT_NE(result.failure(), nullptr);
+    EXPECT_EQ(result.failure()->stage, LoginStage::Idle);
+    EXPECT_EQ(result.failure()->reason, ChainFailure::HandoffRejected);
+    EXPECT_EQ(edge.attach_calls.load(), 1);
+    EXPECT_EQ(http.count_of("/v1/login/verify"), 1);
+}
+
+/// 拉取相位的 1008(玩家数据暂不可用):Admission Grant 已被消费,客户端
+/// 退避后重头走 Login Verifier,第二轮照常完成。
+TEST(WireLoginTransportIntegrationTest, PlayerDataUnavailableDeclineRestartsLogin) {
+    const std::array<network::TransportConfig, 1> configs{gateway_config()};
+    auto transports = network::TransportFactory::create_enabled(configs);
+    ASSERT_EQ(transports.size(), 1U);
+    const auto gateway_port = transports.front()->local_endpoint().port;
+
+    HttpStub http;
+    http.unauthorized_remaining.store(0);
+    http.queued_remaining.store(0);
+    RealmServiceFixture realm;
+    EdgeStub edge(*transports.front(), realm.port());
+    edge.decline_code.store(common::edge_error_player_data_unavailable);
+    edge.decline_after_accept_remaining.store(1);
+    const PollDriver driver(&http, &edge, &realm);
+
+    WireEndpoints endpoints;
+    endpoints.login_verify_port = http.port();
+    endpoints.queue_port = http.port();
+    endpoints.verify_peer = false;
+
+    WireEnterRealmRedeemer redeemer;
+    WireLoginTransport transport(endpoints, redeemer, fast_wire_options());
+
+    LoginChain chain(transport, fast_chain_config(gateway_port));
+    const auto result = chain.run(LoginRun::full(
+        "alice", "secret", Clock::now() + std::chrono::seconds{10}));
+
+    ASSERT_TRUE(result.succeeded());
+    EXPECT_EQ(edge.attach_calls.load(), 2);
+    EXPECT_EQ(edge.handoff_sent.load(), 1);
+    EXPECT_EQ(http.count_of("/v1/login/verify"), 2);
+    EXPECT_EQ(http.count_of("/v1/queue/tickets"), 2);
 }
 
 /// 401 不一律等于号牌过期:只有错误码 2001 才触发自动重取(spec §5.1

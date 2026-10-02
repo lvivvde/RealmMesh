@@ -29,7 +29,10 @@ flowchart LR
 ```
 
 LoginVerify 是登录链路第一站(无状态 HTTPS JSON 服务,#41):校验账号后签发身份
-Token。Queue 负责取号与放行(#42),放行时另外签发与身份绑定的 Admission Grant。
+Token。验签(Argon2 + 账号源查询)不在 poll 线程执行:`LoginVerifyDispatcher` 把
+`POST /v1/login/verify` 交给有界工作者(`verify_workers`/`verify_capacity`),
+`HttpServer` 挂起该响应、工作者完成后由属主线程补发;满额即回 `503` + `Retry-After`
+(code `1005`,客户端退避后重验),`/healthz` 与 JWKS 仍在 loop 线程即时应答(#98,ADR-0007 补记)。Queue 负责取号与放行(#42),放行时另外签发与身份绑定的 Admission Grant。
 Queue 在返回 `202` 前，用一笔 etcd 事务同时提交 `identity_jti → Queue Number` 映射与
 递增后的队列快照；响应不确定时先回读同一权威存储。同一未过期身份重试恢复原号，
 存储不可用则返回可重试错误而不承认号码。映射随身份过期租约回收，轮询仍不建立
@@ -89,13 +92,22 @@ primary transport 与阶段(pending/established)。QUIC 和 TLS/TCP 是初次连
 `EnterRealmGranted.enter_realm_ticket` 只在 Realm 一处单次消费(重放防护):兑换
 成功响应与入场(进入已认证会话态)由同一个 I/O 命令完成,重放或无效票据按鉴权
 失败处理并断开。
+兑换后的角色归属复核(`PlayerDataReader::character`)在有界工作者上执行,不阻塞
+Realm 帧;结果回到帧线程后才发送 `EnterRealmAccepted`,复核期间会话关闭则撤销该次
+复核。复核在途数达上限时,先于兑换回 `429`(票据不被消耗,客户端可原票重试)。Realm
+必须配置 `player_data.uri`,`ServiceFrame` 缺少读取端即拒绝构造,不存在跳过复核的
+入场路径(#98)。
 
 Gateway 的业务帧不再编排 attach、拉取、重试与 Handoff 的分步 helper。每帧只取得
 当前 Realm 端点并调用一次 `GatewayLoginPipeline::advance`;该管线是
 `pending → fetching → handed-off` 阶段、Admission Grant 验证与按 `identity_jti` 的
 集群单次消费、连接/拉取额度、账号拉取结算、直连票据、收尾与指标的唯一权威。`GatewayRuntimePrimaryTransport` 把真实
-runtime 事件/命令接入管线；生产装配使用有界异步 `PlayerDataAccountFetchPort`，查询在工作
-线程完成，提交满载时背压，失败按管线策略重试并按低基数结果上报。延迟实现只用于
+runtime 事件/命令接入管线；生产装配使用有界异步 `PlayerDataAccountFetchPort`，查询在
+`fetch_workers` 个工作线程上并发完成，提交满载时背压；单次拉取超过 `fetch_timeout_ms`
+即按失败结算（迟到结果丢弃）。账号不具备准入资格（封禁、白名单外、无选定角色）直接以
+终态 `1007` 拒绝、不重试；数据源不可用按管线策略重试，耗尽后以 `1008` 加
+`retry_after_seconds` 拒绝，Admission Grant 已消费，客户端退避后重走 Login Verifier
+（#98）。结果按低基数上报。延迟实现只用于
 未配置数据源的隔离测试。
 
 权威玩家数据源由 [ADR-0011](adr/0011-mongodb-authoritative-player-data.md) 定为

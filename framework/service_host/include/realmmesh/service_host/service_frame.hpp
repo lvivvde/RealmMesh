@@ -7,6 +7,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -38,10 +39,18 @@ namespace realm::service_host {
 [[nodiscard]] std::optional<cluster::ServiceType> parse_service_identity(
     std::string_view service_name);
 
+/// Realm 入场角色复核的工作线程池规模。容量统计排队、运行中与已完成
+/// 未取走的复核;满额时新的 1304 回 429(带 retry_after_seconds),不消费票据。
+struct RealmCharacterCheckLimits final {
+    std::size_t workers{4};
+    std::size_t capacity{256};
+};
+
 /// 单服务业务帧:承载 Realm 与 Gateway 的边协议消息循环。构造时把服务名
 /// 解析为身份;无身份的服务名不处理业务消息(帧循环空转)。
 /// Realm 要求 REALMMESH_SESSION_TICKET_KEY 已设置(缺失时构造抛
-/// std::runtime_error)。Gateway 的完整登录管线由宿主在监听前构造，
+/// std::runtime_error),且必须注入 PlayerDataReader(缺失时构造抛
+/// std::invalid_argument);入场角色复核在有界工作线程上执行,不占帧线程。Gateway 的完整登录管线由宿主在监听前构造，
 /// ServiceFrame 每帧只提供时间、当前 Realm 端点并调用一次 advance()。
 class ServiceFrame final {
 public:
@@ -55,7 +64,8 @@ public:
         std::size_t max_events_per_frame,
         std::uint64_t conn_capacity,
         game::gateway::GatewayLoginPipeline* gateway_login_pipeline = nullptr,
-        game::common::PlayerDataReader* player_data = nullptr);
+        game::common::PlayerDataReader* player_data = nullptr,
+        RealmCharacterCheckLimits character_checks = {});
     ~ServiceFrame();
 
     /// service_started(gateway 另发每 transport 的 listener_started)。
@@ -87,14 +97,18 @@ private:
         observability::Logger& logger,
         game::gateway::GatewayRuntime& runtime,
         cluster::InstanceBudgetReporter* budget_reporter);
-    /// 直连入场兑换(#46):EnterRealm 票据单次消费,受理即迁入
-    /// established;任何失败回 3002 并终结(未建立会话 decline,
-    /// 已建立会话回包后 close)。
+    /// 直连入场兑换(#46):EnterRealm 票据单次消费,验签通过后把角色
+    /// 复核交给工作线程;复核额度满时回 429 且不烧票。票据或复核失败回
+    /// 3002 并终结(未建立会话 decline,已建立会话回包后 close)。
     void handle_enter_realm(
         observability::Logger& logger,
         game::gateway::GatewayRuntime& runtime,
         const game::gateway::GatewayEvent& event,
         const game::common::EnterRealm& request);
+    /// 取回已完成的角色复核并受理或拒绝对应会话。
+    void complete_character_checks(
+        observability::Logger& logger,
+        game::gateway::GatewayRuntime& runtime);
     void handle_gateway_events(
         observability::Logger& logger,
         game::gateway::GatewayRuntime& runtime,
@@ -116,9 +130,13 @@ private:
     /// 由该实例拥有。ServiceFrame 不拥有其生命周期。
     game::gateway::GatewayLoginPipeline* gateway_login_pipeline_{nullptr};
 
-    /// Realm 入场时重新核对票据角色仍属于账号与当前 Realm。为空只供
-    /// 非 Realm/遗留单元测试装配；生产 Realm 必须注入权威数据源。
+    /// Realm 入场时重新核对票据角色仍属于账号与当前 Realm;Realm 身份
+    /// 下非空(构造期校验),其余身份不使用。
     game::common::PlayerDataReader* player_data_{nullptr};
+    /// 仅 Realm 身份构造:角色复核工作线程池与待决复核簿记。析构先于
+    /// player_data_ 的属主(ServiceHost)回收工作线程。
+    struct CharacterChecks;
+    std::unique_ptr<CharacterChecks> character_checks_;
 
     /// realm 连接额度簿记(#46):conn_capacity 为启用传输 max_sessions
     /// 之和(与 gateway 同源注入);realm 不做接入门禁(传输层已是硬

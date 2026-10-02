@@ -80,8 +80,20 @@ Gateway 的两个传输可以并行进行安全握手，但只有竞速胜出的
 `EdgeAttachAccepted`（1302），随后以 `EnterRealmGranted`（1303）下发 EnterRealm 票据与
 `ServiceEndpoint` 候选列表。拒绝时返回 `EdgeError`：`1001` 凭据无效（含 Grant 的签名、
 绑定、deployment、时效与已消费），`1004` 网关满额拒绝 attach，`1005` 准入处理中，`1006` 准入
-存储不可用，`429` 限流（带 `retry_after_seconds`）。`1005`/`1006`/`429` 在 Grant 仍
-有效时可重试同一凭据链，`1001` 必须重新走登录链。
+存储不可用，`1007` 账号不具备准入资格（封禁、白名单外或无选定角色），`1008` 玩家数据暂
+不可用（网关拉取重试耗尽，带 `retry_after_seconds`），`429` 限流（带 `retry_after_seconds`）。
+`1005`/`1006`/`429` 在 Grant 仍有效时可重试同一凭据链；`1001` 必须重新走登录链；`1007`
+是终态，客户端结束登录链、不重试；`1008` 时 Grant 已消费，客户端按 `retry_after_seconds`
+（上限 5 秒）退避后从 Login Verifier 重新开始。
+
+Realm 处理 `EnterRealm`（1304）时，角色复核在途数已达上限则先于兑换回 `429`（带
+`retry_after_seconds`），票据未被消耗，客户端可原票重试；票据无效、角色不归属或复核时
+数据源不可用回 `3002` 并断开。
+
+Login Verifier 的 HTTPS 错误体为 `{code, message, retry_after_seconds?}`：`1000` 请求非法、
+`1001` 凭据无效、`1002` 封禁、`1003` 白名单外、`1004` 账号源暂不可用（`503`）、`1005`
+验签工作者满额（`503`，带 `Retry-After` 头与 `retry_after_seconds`）。客户端对 `1005`
+按 `retry_after_seconds`（上限 5 秒，不越过登录总窗口）退避后重验，其余验签失败终止回 idle。
 
 ## 初次降级规则
 

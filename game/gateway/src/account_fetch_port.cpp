@@ -2,13 +2,10 @@
 
 #include "realmmesh/game/common/player_data_store.hpp"
 
+#include "realmmesh/concurrency/bounded_work_pool.hpp"
+
 #include <algorithm>
-#include <condition_variable>
-#include <deque>
-#include <mutex>
 #include <stdexcept>
-#include <thread>
-#include <unordered_set>
 #include <utility>
 
 namespace realm::game::gateway {
@@ -60,142 +57,91 @@ class PlayerDataAccountFetchPort::Impl final {
 public:
     Impl(
         std::unique_ptr<const common::PlayerDataReader> reader,
-        std::size_t capacity)
-        : reader_(std::move(reader)), capacity_(capacity) {
-        if (reader_ == nullptr) {
-            throw std::invalid_argument("account fetch reader must not be null");
-        }
-        if (capacity_ == 0) {
-            throw std::invalid_argument(
-                "account fetch capacity must be positive");
-        }
-        // 参数校验通过后才启动工作线程，避免构造失败时线程已在运行。
-        worker_ = std::jthread([this](std::stop_token token) { run(token); });
-    }
-
-    ~Impl() { stop(); }
+        std::size_t capacity,
+        std::size_t workers)
+        : reader_(validated(std::move(reader))), pool_(workers, capacity) {}
 
     [[nodiscard]] AccountFetchSubmitResult submit(AccountFetchRequest request) {
-        const std::scoped_lock lock(mutex_);
-        if (stopped_) return AccountFetchSubmitResult::Stopped;
-        if (request.attempt_id.value == 0 ||
-            pending_ids_.contains(request.attempt_id.value) ||
-            pending_ids_.size() >= capacity_) {
+        if (request.attempt_id.value == 0) {
             return AccountFetchSubmitResult::Full;
         }
-        pending_ids_.insert(request.attempt_id.value);
-        requests_.push_back(std::move(request));
-        condition_.notify_one();
-        return AccountFetchSubmitResult::Submitted;
+        const auto submitted = pool_.try_submit(
+            request.attempt_id.value,
+            [this, request] { return fetch(request); });
+        switch (submitted) {
+        case concurrency::WorkSubmitResult::Submitted:
+            return AccountFetchSubmitResult::Submitted;
+        case concurrency::WorkSubmitResult::Full:
+            return AccountFetchSubmitResult::Full;
+        case concurrency::WorkSubmitResult::Stopped:
+            return AccountFetchSubmitResult::Stopped;
+        }
+        return AccountFetchSubmitResult::Stopped;
     }
 
     [[nodiscard]] std::vector<AccountFetchCompletion> drain(
         std::size_t max_completions) {
-        const std::scoped_lock lock(mutex_);
+        auto finished = pool_.drain(max_completions);
         std::vector<AccountFetchCompletion> drained;
-        drained.reserve(std::min(max_completions, completions_.size()));
-        while (!completions_.empty() && drained.size() < max_completions) {
-            auto completion = std::move(completions_.front());
-            completions_.pop_front();
-            pending_ids_.erase(completion.attempt_id.value);
-            if (cancelled_.erase(completion.attempt_id.value) == 0) {
-                drained.push_back(std::move(completion));
-            }
+        drained.reserve(finished.size());
+        for (auto& completion : finished) {
+            drained.push_back(std::move(completion.result));
         }
         return drained;
     }
 
     void cancel(AccountFetchAttemptId attempt_id) {
-        const std::scoped_lock lock(mutex_);
-        if (pending_ids_.contains(attempt_id.value)) {
-            cancelled_.insert(attempt_id.value);
-        }
-        condition_.notify_all();
+        pool_.cancel(attempt_id.value);
     }
 
-    void stop() noexcept {
-        {
-            const std::scoped_lock lock(mutex_);
-            if (stopped_) return;
-            stopped_ = true;
-            requests_.clear();
-            completions_.clear();
-            pending_ids_.clear();
-            cancelled_.clear();
-        }
-        worker_.request_stop();
-        condition_.notify_all();
-    }
+    void stop() noexcept { pool_.stop(); }
 
 private:
-    void run(std::stop_token token) noexcept {
-        while (!token.stop_requested()) {
-            AccountFetchRequest request;
-            {
-                std::unique_lock lock(mutex_);
-                condition_.wait(lock, token, [this] {
-                    return stopped_ || !requests_.empty();
-                });
-                if (stopped_ || token.stop_requested()) return;
-                request = std::move(requests_.front());
-                requests_.pop_front();
-                if (cancelled_.contains(request.attempt_id.value)) {
-                    pending_ids_.erase(request.attempt_id.value);
-                    cancelled_.erase(request.attempt_id.value);
-                    continue;
-                }
-            }
-
-            const auto started = std::chrono::steady_clock::now();
-            AccountFetchCompletion completion;
-            completion.attempt_id = request.attempt_id;
-            try {
-                const auto facts = reader_->login_facts(request.account_id);
-                completion.ok = facts.has_value();
-                completion.status = facts.has_value()
-                                        ? AccountFetchStatus::Succeeded
-                                        : AccountFetchStatus::NotEligible;
-                if (facts.has_value()) {
-                    completion.character_id = facts->character_id;
-                    completion.realm_id = facts->realm_id;
-                    completion.character_revision =
-                        facts->character_revision;
-                }
-            } catch (const common::PlayerDataError&) {
-                completion.ok = false;
-                completion.status = AccountFetchStatus::Unavailable;
-            }
-            completion.duration =
-                std::chrono::duration_cast<std::chrono::milliseconds>(
-                    std::chrono::steady_clock::now() - started);
-
-            const std::scoped_lock lock(mutex_);
-            if (stopped_) return;
-            if (cancelled_.contains(request.attempt_id.value)) {
-                pending_ids_.erase(request.attempt_id.value);
-                cancelled_.erase(request.attempt_id.value);
-                continue;
-            }
-            completions_.push_back(std::move(completion));
+    [[nodiscard]] static std::unique_ptr<const common::PlayerDataReader>
+    validated(std::unique_ptr<const common::PlayerDataReader> reader) {
+        if (reader == nullptr) {
+            throw std::invalid_argument("account fetch reader must not be null");
         }
+        return reader;
+    }
+
+    /// 只在工作线程执行;存储故障映射为 Unavailable,不外抛。
+    [[nodiscard]] AccountFetchCompletion fetch(
+        const AccountFetchRequest& request) const noexcept {
+        const auto started = std::chrono::steady_clock::now();
+        AccountFetchCompletion completion;
+        completion.attempt_id = request.attempt_id;
+        try {
+            const auto facts = reader_->login_facts(request.account_id);
+            completion.ok = facts.has_value();
+            completion.status = facts.has_value()
+                                    ? AccountFetchStatus::Succeeded
+                                    : AccountFetchStatus::NotEligible;
+            if (facts.has_value()) {
+                completion.character_id = facts->character_id;
+                completion.realm_id = facts->realm_id;
+                completion.character_revision = facts->character_revision;
+            }
+        } catch (...) {
+            completion.ok = false;
+            completion.status = AccountFetchStatus::Unavailable;
+        }
+        completion.duration =
+            std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now() - started);
+        return completion;
     }
 
     std::unique_ptr<const common::PlayerDataReader> reader_;
-    std::size_t capacity_{0};
-    std::mutex mutex_;
-    std::condition_variable_any condition_;
-    bool stopped_{false};
-    std::deque<AccountFetchRequest> requests_;
-    std::deque<AccountFetchCompletion> completions_;
-    std::unordered_set<std::uint64_t> pending_ids_;
-    std::unordered_set<std::uint64_t> cancelled_;
-    std::jthread worker_;
+    // 最后声明:析构先回收工作线程,再释放它们引用的 reader_。
+    concurrency::BoundedWorkPool<AccountFetchCompletion> pool_;
 };
 
 PlayerDataAccountFetchPort::PlayerDataAccountFetchPort(
     std::unique_ptr<const common::PlayerDataReader> reader,
-    std::size_t capacity)
-    : impl_(std::make_unique<Impl>(std::move(reader), capacity)) {}
+    std::size_t capacity,
+    std::size_t workers)
+    : impl_(std::make_unique<Impl>(std::move(reader), capacity, workers)) {}
 
 PlayerDataAccountFetchPort::~PlayerDataAccountFetchPort() = default;
 

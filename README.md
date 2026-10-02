@@ -69,6 +69,7 @@ flowchart LR
 | 退役旧 Login 链路（#50） | 已实现 |
 | 身份 Token 回放守卫收敛（#63）、客户端真实兑换口（#64） | 已实现 |
 | 权威玩家数据源：MongoDB 副本集取代 SQLite（#99） | 已实现 |
+| 登录链玩家数据加固：验签与 Realm 角色复核移出事件线程、Realm 必须配置数据源、`1007`/`1008` 分流、网关拉取超时与并发（#98） | 已实现 |
 | 共享临时开发库：TLS/认证、SSH 隧道与仓库外私有配置 | 已实现，见[连接说明](docs/operations/shared-mongodb.md) |
 
 旧 `Login → Realm 选角 → Gateway 入场` 链路已整体退役：`login` 服务身份、7000 端口与
@@ -370,7 +371,9 @@ UDP 与 TCP 端口空间）。
 `configs/common/accounts.lua` 只在空库首次启动时导入。Gateway 通过有界异步读取复核
 账号与所选角色，Realm 入场时再次核对角色归属；已提交数据在进程重启后保留。
 排队服的放行步长（`release_step`）与批次间隔（`release_interval_seconds`）、网关的
-拉取并发预算（`pipeline_fetch_capacity`）与重试参数都在各自服务配置中。
+拉取并发预算（`pipeline_fetch_capacity`）、拉取工作线程（`fetch_workers`）、单次拉取超时
+（`fetch_timeout_ms`）与重试参数、健全服的验签工作者（`verify_workers`）与在途上限
+（`verify_capacity`）都在各自服务配置中。
 
 ## 测试
 

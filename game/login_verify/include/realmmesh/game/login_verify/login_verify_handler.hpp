@@ -21,12 +21,14 @@ inline constexpr std::string_view identity_token_issuer =
 inline constexpr std::chrono::seconds identity_token_ttl{1800};
 
 /// 错误码分段沿用规格 §5.1:1000 通用请求非法(本票裁决的最小延伸),
-/// 1001 凭据无效、1002 封禁、1003 白名单外。
+/// 1001 凭据无效、1002 封禁、1003 白名单外、1004 账号源暂不可用(503)、
+/// 1005 验签工作者满额(503 + Retry-After,#98)。
 inline constexpr int error_invalid_request{1000};
 inline constexpr int error_invalid_credentials{1001};
 inline constexpr int error_account_banned{1002};
 inline constexpr int error_not_whitelisted{1003};
 inline constexpr int error_data_unavailable{1004};
+inline constexpr int error_verifier_busy{1005};
 
 /// 请求处理缝:路由、AccountStore 认定与身份 Token 签发的纯逻辑面,
 /// 不含 socket——HttpServer 的协议级回绝(400/413/431/505)不经过这里。
@@ -44,6 +46,12 @@ public:
         std::chrono::seconds ttl = identity_token_ttl,
         observability::MetricsRegistry* metrics = nullptr);
 
+    /// 是否为需要账号源认定的验签请求(POST /v1/login/verify,忽略 query):
+    /// 只有它会阻塞(Argon2 + 查询),由 LoginVerifyDispatcher 交给工作者。
+    [[nodiscard]] static bool is_verification(
+        std::string_view method, std::string_view target);
+
+    /// 可在多个线程并发调用。
     [[nodiscard]] network::Http1Response handle(
         std::string_view method,
         std::string_view target,

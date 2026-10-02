@@ -2,6 +2,7 @@
 
 #include "realmmesh/game/gateway/gateway_runtime.hpp"
 #include "realmmesh/network/tcp/tcp_listener.hpp"
+#include "realmmesh/test_support/mongod_process.hpp"
 
 #include <gtest/gtest.h>
 #include <httplib.h>
@@ -202,10 +203,13 @@ TEST_F(ServiceHostTest, UnknownServiceNameWithDiscoveryThrows) {
 /// 与 fixture 里写出的服务配置同形。
 TEST_F(ServiceHostTest, RequiredRegistrationFailureThrows) {
     const ScopedTlsEnvironment tls_environment;
+    const auto& mongod = test_support::MongodProcess::shared();
     write(
         root_ / "services" / "realm.lua",
         "return { " + transport_lua() +
             ", downstream_address = \"127.0.0.1\", downstream_port = 8000, "
+            "player_data = { uri = \"" + mongod.uri() + "\", database = \"" +
+            test_support::MongodProcess::fresh_database() + "\" }, "
             "service_discovery = { enabled = true, required = true, "
             "instance_id = \"realm-test-01\", endpoint = "
             "\"http://127.0.0.1:1\", request_timeout_ms = 200, "
@@ -221,6 +225,16 @@ TEST_F(ServiceHostTest, RequiredRegistrationFailureThrows) {
         log.find("\"event_name\":\"service_stopped\""), std::string::npos);
     EXPECT_EQ(
         log.find("\"event_name\":\"service_started\""), std::string::npos);
+}
+
+/// Realm 没有不复核角色归属的装配:缺 player_data.uri 即构造失败。
+TEST_F(ServiceHostTest, RealmWithoutPlayerDataThrows) {
+    const ScopedTlsEnvironment tls_environment;
+    write(
+        root_ / "services" / "realm.lua",
+        "return { " + transport_lua() +
+            ", downstream_address = \"127.0.0.1\", downstream_port = 8000 }");
+    EXPECT_THROW(ServiceHost(root_, "realm"), std::invalid_argument);
 }
 
 TEST_F(ServiceHostTest, EscapesGaugeLabelSpecialCharacters) {

@@ -2,6 +2,7 @@
 
 #include "realmmesh/game/common/player_data_config.hpp"
 
+#include <cstddef>
 #include <cstdlib>
 #include <stdexcept>
 #include <string>
@@ -37,6 +38,18 @@ namespace {
             " must be a port number");
     }
     return static_cast<std::uint16_t>(value.as<lua_Integer>());
+}
+
+[[nodiscard]] std::size_t optional_positive_count(
+    const sol::table& table, std::string_view field, std::size_t fallback) {
+    const sol::object value = table.raw_get<sol::object>(std::string(field));
+    if (value == sol::lua_nil) return fallback;
+    if (!value.is<lua_Integer>() || value.as<lua_Integer>() <= 0) {
+        throw std::invalid_argument(
+            "login_verify field " + std::string(field) +
+            " must be a positive integer");
+    }
+    return static_cast<std::size_t>(value.as<lua_Integer>());
 }
 
 /// TLS 路径:配置直填优先,否则按环境变量名解析(先例同 gateway 传输配置);
@@ -80,6 +93,10 @@ LoginVerifyConfig LoginVerifyConfigLoader::parse(const sol::table& root) {
     config.accounts_file = optional_string(
         table, "accounts_file", config.accounts_file.string());
     config.player_data = common::parse_player_data_config(root);
+    config.verify_workers =
+        optional_positive_count(table, "verify_workers", config.verify_workers);
+    config.verify_capacity = optional_positive_count(
+        table, "verify_capacity", config.verify_capacity);
     config.tls = network::TransportConfig::TlsServerIdentity{
         .certificate_chain_file = path_from_config_or_environment(
             table,

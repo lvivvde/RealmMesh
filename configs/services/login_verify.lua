@@ -22,5 +22,8 @@ return {
         certificate_chain_file_environment = "REALMMESH_TLS_CERTIFICATE_FILE",
         private_key_file_environment = "REALMMESH_TLS_PRIVATE_KEY_FILE",
         alpn = "http/1.1",
+        -- 验签工作者(Argon2 + 账号源查询)与在途上限;满额回 503 + Retry-After。
+        verify_workers = 4,
+        verify_capacity = 64,
     },
 }

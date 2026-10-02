@@ -95,6 +95,11 @@ LoginVerifyHandler::LoginVerifyHandler(
       ttl_(ttl),
       metrics_(metrics) {}
 
+bool LoginVerifyHandler::is_verification(
+    std::string_view method, std::string_view target) {
+    return method == "POST" && request_path(target) == "/v1/login/verify";
+}
+
 network::Http1Response LoginVerifyHandler::handle(
     std::string_view method, std::string_view target,
     std::string_view body) const {

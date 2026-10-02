@@ -359,6 +359,28 @@ TEST(LoginChainTest, VerifyRejectionReturnsToIdle) {
     EXPECT_EQ(transport.ticket_calls, 0);
 }
 
+/// 健全服繁忙(1005,503 + retry_after):按建议退避后重验,不回 idle(#98)。
+TEST(LoginChainTest, BusyVerifierIsRetriedAfterSuggestedDelay) {
+    ScriptedTransport transport;
+    PortValue<VerifyResult> busy;
+    busy.status = PortStatus::error(
+        ChainFailure::VerifyRejected, "健全服繁忙", false,
+        PortFailureCategory::Protocol, PortRecovery::Retry,
+        std::chrono::seconds{1});
+    transport.verify_results = {busy, verified("identity-1")};
+    transport.progress_results = {progress(0, 10.0), progress(100, 10.0)};
+    transport.me_results = {queued_at(100), admitted_with("grant-1")};
+
+    LoginChain chain(transport, fast_config());
+    const auto started = Clock::now();
+    const auto result =
+        run_full(chain, "alice", "secret", few_seconds_from_now());
+
+    EXPECT_TRUE(result.succeeded());
+    EXPECT_EQ(transport.verify_calls, 2);
+    EXPECT_GE(Clock::now() - started, std::chrono::seconds{1});
+}
+
 /// 取号是 verify 后的独立终止点:失败回 idle,不能偷偷进入轮询或网关。
 TEST(LoginChainTest, TicketRejectionReturnsToIdleBeforePolling) {
     ScriptedTransport transport;
@@ -446,6 +468,53 @@ TEST(LoginChainTest, HandoffRejectionRetriesGatewayWithinGrace) {
     EXPECT_EQ(transport.gateway_calls, 2);
     EXPECT_EQ(transport.handoff_calls, 2);
     EXPECT_EQ(transport.ticket_calls, 1);
+}
+
+/// 交付相位收到终止型拒绝(账号无准入资格,1007):不重入网关、不重头
+/// 验证,整条链失败回 idle。
+TEST(LoginChainTest, TerminalHandoffRejectionFailsChainWithoutRetry) {
+    ScriptedTransport transport;
+    transport.progress_results = {progress(100, 10.0)};
+    transport.me_results = {admitted_with("grant-1")};
+    PortValue<HandoffResult> declined;
+    declined.status = failure_of(ChainFailure::HandoffRejected, "无准入资格",
+                                 false, PortRecovery::Fail);
+    transport.handoff_results = {
+        declined,
+        handed_off("enter-realm-ticket-2", 9000),
+    };
+
+    LoginChain chain(transport, fast_config());
+    const auto result =
+        run_full(chain, "alice", "secret", few_seconds_from_now());
+
+    EXPECT_FALSE(result.succeeded());
+    const auto& failure = failure_of(result);
+    EXPECT_EQ(failure.stage, LoginStage::Idle);
+    EXPECT_EQ(failure.reason, ChainFailure::HandoffRejected);
+    EXPECT_EQ(transport.gateway_calls, 1);
+    EXPECT_EQ(transport.verify_calls, 1);
+}
+
+/// attach 被终止型拒绝同理:不重试。
+TEST(LoginChainTest, TerminalAttachRejectionFailsChainWithoutRetry) {
+    ScriptedTransport transport;
+    transport.progress_results = {progress(100, 10.0)};
+    transport.me_results = {admitted_with("grant-1")};
+    transport.attach_results = {
+        failure_of(ChainFailure::AttachRejected, "无准入资格", false,
+                   PortRecovery::Fail),
+        PortStatus::success(),
+    };
+
+    LoginChain chain(transport, fast_config());
+    const auto result =
+        run_full(chain, "alice", "secret", few_seconds_from_now());
+
+    EXPECT_FALSE(result.succeeded());
+    EXPECT_EQ(failure_of(result).reason, ChainFailure::AttachRejected);
+    EXPECT_EQ(transport.attach_calls, 1);
+    EXPECT_EQ(transport.verify_calls, 1);
 }
 
 /// 网关连不上:宽限内按重入节奏重试,成功后照常走完;不计失败于号牌。

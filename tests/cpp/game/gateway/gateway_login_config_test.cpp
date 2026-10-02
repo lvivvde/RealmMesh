@@ -19,9 +19,10 @@ using namespace std::chrono_literals;
 /// 解析一段 Lua 根表:走与生产同一入口 GatewayConfigLoader::parse,
 /// 不复制字段名。transports 与 logging 是 loader 的必填节,给最小合法值
 /// (TLS 路径在 parse 期只解析不打开文件);其余字段吃生产默认值。
-[[nodiscard]] GatewayConfig parse_lua(std::string_view admission_block) {
+[[nodiscard]] GatewayConfig parse_lua(
+    std::string_view admission_block, std::string_view root_fields = "") {
     const std::string source =
-        "return { transports = { { name = \"client_tls_tcp\", protocol = "
+        "return { " + std::string{root_fields} + " transports = { { name = \"client_tls_tcp\", protocol = "
         "\"tls_tcp\", enabled = true, max_sessions = 16, "
         "certificate_chain_file = \"/dev/null\", private_key_file = "
         "\"/dev/null\" } }, logging = { service_name = \"gateway\", file_path "
@@ -41,6 +42,8 @@ using namespace std::chrono_literals;
     GatewayLoginConfig config;
     config.conn_capacity = 20;
     config.fetch_capacity = 10;
+    config.fetch_workers = 4;
+    config.fetch_timeout = 3s;
     config.fetch_retry_base = 2s;
     config.fetch_retry_max = 3;
     config.handoff_grace = 5s;
@@ -69,6 +72,25 @@ TEST(GatewayLoginConfigTest, RejectsInvalidCapacityRetryAndEndpoint) {
     config.fetch_retry_max = 3;
     config.static_realm = RealmEndpoint{"", 7100};
     EXPECT_THROW(config.validate(), std::invalid_argument);
+}
+
+/// 单次拉取必须有超时、工作线程至少一个(#98):否则一次卡住的存储查询会
+/// 无限占住会话与拉取槽位。
+TEST(GatewayLoginConfigTest, RejectsZeroFetchWorkersOrTimeout) {
+    GatewayLoginConfig config = valid_config();
+    config.fetch_workers = 0;
+    EXPECT_THROW(config.validate(), std::invalid_argument);
+
+    config.fetch_workers = 4;
+    config.fetch_timeout = 0ms;
+    EXPECT_THROW(config.validate(), std::invalid_argument);
+}
+
+TEST(GatewayLoginConfigTest, LoaderParsesFetchWorkersAndTimeout) {
+    const auto config =
+        parse_lua("", "fetch_workers = 8, fetch_timeout_ms = 1500,");
+    EXPECT_EQ(config.login.fetch_workers, 8U);
+    EXPECT_EQ(config.login.fetch_timeout, 1500ms);
 }
 
 TEST(GatewayLoginConfigTest, RejectsIncompleteAdmissionConfiguration) {

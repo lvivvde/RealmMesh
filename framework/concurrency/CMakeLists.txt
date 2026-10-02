@@ -9,3 +9,6 @@ target_include_directories(realm_concurrency
 )
 
 target_compile_features(realm_concurrency INTERFACE cxx_std_20)
+
+find_package(Threads REQUIRED)
+target_link_libraries(realm_concurrency INTERFACE Threads::Threads)

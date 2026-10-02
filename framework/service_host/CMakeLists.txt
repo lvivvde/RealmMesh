@@ -24,6 +24,8 @@ target_link_libraries(realm_service_host PUBLIC
     realm_scripting
 )
 
+target_link_libraries(realm_service_host PRIVATE realm_concurrency)
+
 target_compile_features(realm_service_host PUBLIC cxx_std_20)
 set_target_properties(realm_service_host PROPERTIES CXX_EXTENSIONS OFF)
 

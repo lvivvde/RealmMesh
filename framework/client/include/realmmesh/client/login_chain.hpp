@@ -23,8 +23,9 @@ enum class PortFailureCategory { Protocol, Transport, Timeout };
 
 /// Recovery selected by a transport operation. Retry keeps the current
 /// credential chain; Restart discards Queue Number/Admission Grant and
-/// starts again at Login Verifier.
-enum class PortRecovery { Retry, Restart };
+/// starts again at Login Verifier; Fail ends the chain without retry (the
+/// account itself is not admissible, e.g. edge error 1007).
+enum class PortRecovery { Retry, Restart, Fail };
 
 struct PortStatus final {
     bool ok{false};
