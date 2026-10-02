@@ -1,0 +1,27 @@
+{
+  "date": "2026-10-02",
+  "purpose": "Unit Test 4 路并行决策补测；不是快速入口总耗时验收",
+  "baseline_commit": "8252967c20ba8e061ff7d278eb1ca8fac611d88a",
+  "baseline_dirty_patch_sha256": "19bfb4589d0f23d21b85a493427b100dfce75e594868bd0d23c0f7439867dbae",
+  "command": [
+    "ctest",
+    "--preset",
+    "dev",
+    "-L",
+    "unit",
+    "-j",
+    "4"
+  ],
+  "archive": "unit-parallel-probe.tar.gz",
+  "archive_sha256": "01a988989d0f8958546ba418ec23700b92b0853c0a0fbeebeb83b93410fc4dce",
+  "files": {
+    "linux/unit-j4-1.log": "0e5c46ff27686ef662e197af6ebdf93fb1589316ffee25bc3a7ed1f1a3105816",
+    "linux/unit-j4-2.log": "bf157cc4ba8569b207d50a4a45e1f9111f8b15c95114dc376c37ad9d68a7220c",
+    "linux/unit-j4-3.log": "23d2d8f4334c2c7e60d3b52a88a67278f5060c885c21195542dcefa4c0392fe8",
+    "linux/unit-j4.json": "cda74836761a1a58196f5b5797150d9a9b29ef9d69a9d1ecdbbd6864a28bde07",
+    "macos/unit-j4-1.log": "69556be68d83a704bc58801aa47dbb9684610fa1272d13d650d2307e71d780c2",
+    "macos/unit-j4-2.log": "33721b4b92333266f1f0a405f7a038a325053d43036a61859afe95ce1ac437d5",
+    "macos/unit-j4-3.log": "ab13f8e6ef067a1fc1cd0079f34b3817db337797a05e2058a1bd7305f1e482f0",
+    "macos/unit-j4.json": "58f8430df9c075c2a1b1a8288e03e71d67c97c1a9a53bddb71831f3dd48819a1"
+  }
+}
