@@ -13,6 +13,12 @@ C++20 distributed game server framework (CMake, Lua config, protobuf wire). Proj
 
 Linux is the production baseline and always builds QUIC; macOS is the dev baseline and builds QUIC only when Homebrew `libmsquic` is installed, otherwise TLS/TCP only (ADR-0002, ADR-0012). Check the configure line `realm_network: QUIC transport enabled` before trusting a macOS run on QUIC paths. CI's `macos` job never builds QUIC, so CI's `linux` job is their gate.
 
+### Linux SSH 开发环境
+
+- 本机 Lima 的 `ubuntu` 实例已配置 Git 环境，项目已完成构建；需要在 Linux 中开发或验证时，通过 `ssh lima-ubuntu` 进入。
+- Linux 仓库位置：`/home/edwin.guest/code/RealmMesh`；连接后执行 `cd /home/edwin.guest/code/RealmMesh`。
+- SSH 连接沿用本机 `~/.ssh/config` 与 Lima 生成的配置；认证材料及 Git 凭据保存在仓库外。此处只记录环境指引，密钥、令牌、口令及凭据内容不得写入或提交到仓库。
+
 ## Player data
 
 Manual dev runs on macOS and Linux use the remote shared MongoDB (TLS + auth over an SSH tunnel): read `docs/operations/shared-mongodb.md` before starting services against it, debugging DB connections, or setting up a new machine, and launch through `scripts/with-shared-mongodb.sh`. Its address, credentials and CA live outside the repo; never print or commit them. Automated tests never touch it: fixtures start an isolated local `mongod`.
