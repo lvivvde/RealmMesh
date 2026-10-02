@@ -1,7 +1,9 @@
+#include "realmmesh/network/client/tls_client_stream.hpp"
 #include "realmmesh/network/transport/transport_factory.hpp"
 #include "realmmesh/observability/logger.hpp"
 
 #include <gtest/gtest.h>
+#include <openssl/err.h>
 #include <openssl/ssl.h>
 #include <nlohmann/json.hpp>
 
@@ -12,6 +14,7 @@
 #include <array>
 #include <atomic>
 #include <chrono>
+#include <csignal>
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
@@ -424,6 +427,197 @@ TEST(TlsTcpTransportTest, WritingToAResetPeerFailsWithoutTerminatingProcess) {
     server.join();
     EXPECT_TRUE(write_failed.load());
     EXPECT_EQ(transport.session_count(), 0U);
+}
+
+
+/// 客户端侧的同一风险:服务端关掉会话后客户端继续写(Realm 重启后的心跳就是
+/// 这一刻)。macOS 上暂时恢复 SIGPIPE 的默认处置,确认保护来自客户端套接字
+/// 本身(SO_NOSIGPIPE),而不是本二进制恰好链接进来的服务端进程级兜底;
+/// 若防护缺失,测试二进制会被信号终止。
+TEST(TlsTcpTransportTest, ClientWritingToAClosedServerFailsWithoutTerminatingProcess) {
+    const std::vector<TransportConfig> configs{{
+        .name = "client_tls",
+        .protocol = TransportProtocol::TlsTcp,
+        .listen_address = "127.0.0.1",
+        .listen_port = 0,
+        .tls =
+            TransportConfig::TlsServerIdentity{
+                .certificate_chain_file = REALMMESH_TEST_TLS_CERTIFICATE,
+                .private_key_file = REALMMESH_TEST_TLS_PRIVATE_KEY,
+                .alpn = "realmmesh-edge/1",
+            },
+    }};
+    auto transports = TransportFactory::create_enabled(configs);
+    ASSERT_EQ(transports.size(), 1U);
+    auto& transport = *transports.front();
+
+    std::atomic<bool> server_closed{false};
+    std::jthread server([&] {
+        const auto deadline =
+            std::chrono::steady_clock::now() + std::chrono::seconds(5);
+        while (std::chrono::steady_clock::now() < deadline) {
+            for (auto& event :
+                 transport.poll_once(std::chrono::milliseconds(20))) {
+                if (event.kind == TransportEventKind::MessageReceived) {
+                    static_cast<void>(transport.close(event.session_id));
+                    server_closed = true;
+                    return;
+                }
+            }
+        }
+    });
+
+    const auto deadline =
+        std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    auto dialed = client::TlsClientStream::dial(
+        "127.0.0.1", transport.local_endpoint().port,
+        client::TlsClientOptions{.alpn = "realmmesh-edge/1",
+                                 .verify_peer = false},
+        deadline, std::stop_token{});
+    ASSERT_TRUE(dialed.stream != nullptr);
+    auto& stream = *dialed.stream;
+
+    const std::array<std::byte, 4> payload{
+        std::byte{0x01}, std::byte{0x02}, std::byte{0x03}, std::byte{0x04}};
+    ASSERT_TRUE(stream.write_all(frame_header(payload.size()), deadline));
+    ASSERT_TRUE(stream.write_all(payload, deadline));
+    server.join();
+    ASSERT_TRUE(server_closed.load());
+
+#if defined(__APPLE__)
+    struct DefaultSigpipe final {
+        void (*previous)(int) = std::signal(SIGPIPE, SIG_DFL);
+        ~DefaultSigpipe() { std::signal(SIGPIPE, previous); }
+    } default_sigpipe;
+#endif
+    bool write_failed = false;
+    while (!write_failed && std::chrono::steady_clock::now() < deadline) {
+        write_failed = !stream.write_all(payload, deadline);
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    EXPECT_TRUE(write_failed);
+}
+
+/// 同一线程上别的连接失败的 I/O(如写已被对端 RST 的套接字)会在 OpenSSL 线程
+/// 错误队列里留下条目;SSL_get_error 先看队列,不清就会把健康连接的
+/// WANT_READ 误判成致命错误。这里直接塞一条残留错误模拟那一刻。
+void leave_stale_openssl_error() { ERR_raise(ERR_LIB_SYS, ECONNRESET); }
+
+[[nodiscard]] std::vector<TransportConfig> edge_tls_configs() {
+    return {{
+        .name = "client_tls",
+        .protocol = TransportProtocol::TlsTcp,
+        .listen_address = "127.0.0.1",
+        .listen_port = 0,
+        .tls =
+            TransportConfig::TlsServerIdentity{
+                .certificate_chain_file = REALMMESH_TEST_TLS_CERTIFICATE,
+                .private_key_file = REALMMESH_TEST_TLS_PRIVATE_KEY,
+                .alpn = "realmmesh-edge/1",
+            },
+    }};
+}
+
+/// 客户端:顶替后旧会话的失败 I/O 不得让同线程上的新会话读失败(#93 中
+/// 被顶替会话关闭后,新会话的下一次请求被误报为 Disconnected)。
+TEST(TlsTcpTransportTest, ClientReadIgnoresOpenSslErrorsLeftByAnotherConnection) {
+    auto transports = TransportFactory::create_enabled(edge_tls_configs());
+    ASSERT_EQ(transports.size(), 1U);
+    auto& transport = *transports.front();
+
+    const std::array<std::byte, 4> payload{
+        std::byte{0x01}, std::byte{0x02}, std::byte{0x03}, std::byte{0x04}};
+    std::jthread server([&] {
+        const auto deadline =
+            std::chrono::steady_clock::now() + std::chrono::seconds(5);
+        while (std::chrono::steady_clock::now() < deadline) {
+            for (auto& event :
+                 transport.poll_once(std::chrono::milliseconds(20))) {
+                if (event.kind == TransportEventKind::MessageReceived) {
+                    // 晚一点回包,让客户端先读到 WANT_READ。
+                    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                    static_cast<void>(
+                        transport.send(event.session_id, event.payload));
+                    static_cast<void>(
+                        transport.poll_once(std::chrono::milliseconds(20)));
+                    return;
+                }
+            }
+        }
+    });
+
+    const auto deadline =
+        std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    auto dialed = client::TlsClientStream::dial(
+        "127.0.0.1", transport.local_endpoint().port,
+        client::TlsClientOptions{.alpn = "realmmesh-edge/1",
+                                 .verify_peer = false},
+        deadline, std::stop_token{});
+    ASSERT_TRUE(dialed.stream != nullptr);
+    auto& stream = *dialed.stream;
+    ASSERT_TRUE(stream.write_all(frame_header(payload.size()), deadline));
+    ASSERT_TRUE(stream.write_all(payload, deadline));
+
+    leave_stale_openssl_error();
+    std::array<std::byte, 8> echoed{};
+    std::size_t received = 0;
+    while (received < echoed.size()) {
+        const auto read = stream.read_some(
+            std::span{echoed}.subspan(received), deadline);
+        ASSERT_TRUE(read.has_value()) << "read failed after " << received;
+        ASSERT_GT(*read, 0U);
+        received += *read;
+    }
+    EXPECT_TRUE(std::equal(
+        payload.begin(), payload.end(), echoed.begin() + 4));
+}
+
+/// 服务端:一个事件循环线程服务所有连接,一个连接的失败不得让别的连接在
+/// 握手或收包时被误判关闭。
+TEST(TlsTcpTransportTest, ServerIgnoresOpenSslErrorsLeftByAnotherConnection) {
+    auto transports = TransportFactory::create_enabled(edge_tls_configs());
+    ASSERT_EQ(transports.size(), 1U);
+    auto& transport = *transports.front();
+
+    std::atomic<bool> opened{false};
+    std::atomic<bool> received{false};
+    std::atomic<bool> closed{false};
+    std::jthread server([&] {
+        const auto deadline =
+            std::chrono::steady_clock::now() + std::chrono::seconds(5);
+        while (!received && std::chrono::steady_clock::now() < deadline) {
+            leave_stale_openssl_error();
+            for (auto& event :
+                 transport.poll_once(std::chrono::milliseconds(20))) {
+                opened = opened ||
+                         event.kind == TransportEventKind::SessionOpened;
+                received = received ||
+                           event.kind == TransportEventKind::MessageReceived;
+                closed = closed ||
+                         event.kind == TransportEventKind::SessionClosed;
+            }
+        }
+    });
+
+    const auto deadline =
+        std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    auto dialed = client::TlsClientStream::dial(
+        "127.0.0.1", transport.local_endpoint().port,
+        client::TlsClientOptions{.alpn = "realmmesh-edge/1",
+                                 .verify_peer = false},
+        deadline, std::stop_token{});
+    ASSERT_TRUE(dialed.stream != nullptr);
+    // 握手本身会清队列;隔几轮 poll 再发,帧落在一轮已留有残留错误的 poll 里。
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    const std::array<std::byte, 4> payload{
+        std::byte{0x01}, std::byte{0x02}, std::byte{0x03}, std::byte{0x04}};
+    ASSERT_TRUE(dialed.stream->write_all(frame_header(payload.size()), deadline));
+    ASSERT_TRUE(dialed.stream->write_all(payload, deadline));
+    server.join();
+
+    EXPECT_TRUE(opened.load());
+    EXPECT_TRUE(received.load());
+    EXPECT_FALSE(closed.load());
 }
 
 }  // namespace

@@ -1,5 +1,6 @@
 #include "realmmesh/network/tls/tls_connection.hpp"
 
+#include <openssl/err.h>
 #include <openssl/ssl.h>
 
 #include <algorithm>
@@ -38,6 +39,7 @@ int TlsConnection::native_handle() const noexcept {
 }
 
 TlsIoState TlsConnection::accept_handshake() {
+    ERR_clear_error();
     const int result = SSL_accept(ssl_.get());
     if (result != 1) {
         return classify_result(ssl_.get(), result);
@@ -53,6 +55,7 @@ TlsReceiveBatch TlsConnection::receive_frames() {
     std::array<std::byte, 8192> receive_buffer{};
     while (true) {
         std::size_t received = 0;
+        ERR_clear_error();
         const int status = SSL_read_ex(
             ssl_.get(), receive_buffer.data(), receive_buffer.size(), &received);
         if (status == 1) {
@@ -76,6 +79,7 @@ TlsStreamBatch TlsConnection::receive_stream() {
     std::array<std::byte, 8192> receive_buffer{};
     while (true) {
         std::size_t received = 0;
+        ERR_clear_error();
         const int status = SSL_read_ex(
             ssl_.get(), receive_buffer.data(), receive_buffer.size(), &received);
         if (status == 1) {
@@ -121,6 +125,7 @@ TlsIoState TlsConnection::flush_output() {
     while (!output_.empty()) {
         const auto pending = output_.readable_data();
         std::size_t written = 0;
+        ERR_clear_error();
         const int result = SSL_write_ex(
             ssl_.get(), pending.data(), pending.size(), &written);
         if (result == 1) {
@@ -152,6 +157,9 @@ bool TlsConnection::decode_available(ReceiveBatch& batch) {
     }
 }
 
+// SSL_get_error 先看本线程的 OpenSSL 错误队列:队列里若残留别的连接失败时
+// 留下的条目,健康连接的 WANT_READ 也会被判成致命。故每个 SSL I/O 调用前
+// 都先 ERR_clear_error(),让这里只看到本次调用的结果。
 TlsIoState TlsConnection::classify_result(SSL* ssl, int result) {
     switch (SSL_get_error(ssl, result)) {
     case SSL_ERROR_WANT_READ:
