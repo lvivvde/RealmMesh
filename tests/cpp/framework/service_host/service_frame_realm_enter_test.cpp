@@ -7,7 +7,11 @@
 #include "realmmesh/game/common/edge_protocol.hpp"
 #include "realmmesh/game/common/player_data_store.hpp"
 #include "realmmesh/game/common/session_ticket.hpp"
+#include "realmmesh/game/common/realm_protocol.hpp"
 #include "realmmesh/game/gateway/gateway_runtime.hpp"
+#include "realmmesh/game/realm/realm_sessions.hpp"
+#include "realmmesh/game/realm/training_rule.hpp"
+#include "realmmesh/test_support/in_memory_character_store.hpp"
 #include "realmmesh/network/codec/length_field_codec.hpp"
 #include "realmmesh/observability/logger.hpp"
 #include "realmmesh/test_support/edge_raw_frame.hpp"
@@ -29,6 +33,7 @@
 #include <chrono>
 #include <condition_variable>
 #include <cstddef>
+#include <filesystem>
 #include <memory>
 #include <mutex>
 #include <nlohmann/json.hpp>
@@ -267,70 +272,6 @@ private:
     };
 }
 
-/// Realm 只经 PlayerDataReader 重新确认票据里的角色归属；内存替身足以
-/// 驱动兑换路径，MongoDB 读语义由 player_data_store_test 覆盖。
-/// hold() 让查询卡在工作线程里(带 5 s 兜底,避免同步实现把测试锁死),
-/// fail() 让查询抛 PlayerDataError。
-class SingleCharacterPlayerData final : public game::common::PlayerDataReader {
-public:
-    explicit SingleCharacterPlayerData(game::common::CharacterRecord character)
-        : character_(std::move(character)) {}
-
-    void hold() {
-        const std::scoped_lock lock(mutex_);
-        held_ = true;
-    }
-    void release() {
-        {
-            const std::scoped_lock lock(mutex_);
-            held_ = false;
-        }
-        released_.notify_all();
-    }
-    void fail() { unavailable_ = true; }
-    [[nodiscard]] int queries() const { return queries_.load(); }
-
-    [[nodiscard]] std::optional<game::common::AccountLoginFacts> login_facts(
-        std::uint64_t account_id) const override {
-        if (account_id != character_.account_id) return std::nullopt;
-        return game::common::AccountLoginFacts{
-            .account_id = account_id,
-            .character_id = character_.character_id,
-            .realm_id = character_.realm_id,
-            .character_revision = character_.revision,
-        };
-    }
-
-    [[nodiscard]] std::optional<game::common::CharacterRecord> character(
-        std::uint64_t account_id,
-        std::uint32_t realm_id,
-        std::uint64_t character_id) const override {
-        ++queries_;
-        {
-            std::unique_lock lock(mutex_);
-            released_.wait_for(
-                lock, std::chrono::seconds{5}, [this] { return !held_; });
-        }
-        if (unavailable_) {
-            throw game::common::PlayerDataError("player data unavailable");
-        }
-        if (account_id != character_.account_id ||
-            realm_id != character_.realm_id ||
-            character_id != character_.character_id) {
-            return std::nullopt;
-        }
-        return character_;
-    }
-
-private:
-    game::common::CharacterRecord character_;
-    mutable std::mutex mutex_;
-    mutable std::condition_variable released_;
-    bool held_{false};
-    std::atomic<bool> unavailable_{false};
-    mutable std::atomic<int> queries_{0};
-};
-
 class ServiceFrameRealmEnterTest : public ::testing::Test {
 protected:
     void SetUp() override {
@@ -342,13 +283,6 @@ protected:
         logger_.emplace(
             logger_config,
             observability::ServiceIdentity{.service_name = "realm"});
-
-        player_data_.emplace(game::common::CharacterRecord{
-            .character_id = 7001,
-            .account_id = 42,
-            .realm_id = 1,
-            .name = "realm-test-character",
-        });
 
         cluster::ServiceInstance instance{
             .type = cluster::ServiceType::Realm,
@@ -380,8 +314,13 @@ protected:
                 .io_poll_interval = std::chrono::milliseconds{1}});
         runtime_->start();
 
+        rule_.emplace(
+            std::filesystem::path(REALMMESH_TEST_SOURCE_DIR) / "configs" /
+            "services" / "realm" / "training.lua");
+        outbox_.emplace(*runtime_);
+        sessions_.emplace(store_, *rule_, *outbox_, game::realm::RealmConfig{});
         frame_.emplace(
-            "realm", "127.0.0.1", 8443, 64, 4, nullptr, &*player_data_);
+            "realm", "127.0.0.1", 8443, 64, 4, nullptr, &*sessions_);
 
         tickets_.emplace(
             game::common::parse_ticket_key_hex(
@@ -391,6 +330,7 @@ protected:
 
     void TearDown() override {
         frame_.reset();
+        sessions_.reset();
         runtime_->stop();
         reporter_.reset();
         environment_.reset();
@@ -408,13 +348,11 @@ protected:
         std::uint32_t realm_id = 1,
         std::chrono::seconds ttl = std::chrono::seconds{60},
         std::chrono::system_clock::time_point issued_at =
-            std::chrono::system_clock::now(),
-        std::uint64_t character_id = 7001) {
+            std::chrono::system_clock::now()) {
         return tickets_->issue(
             game::common::TicketPurpose::EnterRealm,
             account_id,
             realm_id,
-            character_id,
             ttl,
             issued_at);
     }
@@ -444,15 +382,29 @@ protected:
         return std::nullopt;
     }
 
-    /// 推帧直到 reader 至少收到 count 次查询。
-    bool drive_until_queries(int count, std::chrono::milliseconds budget) {
+    /// 在 client 上收帧并推帧(不改 client_)。
+    [[nodiscard]] std::optional<std::vector<std::byte>> receive_on(
+        RealmTestClient& client, std::chrono::milliseconds budget) {
         const auto deadline = std::chrono::steady_clock::now() + budget;
         while (std::chrono::steady_clock::now() < deadline) {
             frame_->tick(*logger_, *runtime_, nullptr, &*reporter_);
-            if (player_data_->queries() >= count) return true;
-            std::this_thread::sleep_for(std::chrono::milliseconds{2});
+            if (auto frame = client.receive(std::chrono::milliseconds{20})) {
+                return frame;
+            }
         }
-        return false;
+        return std::nullopt;
+    }
+
+    /// 连接、兑换并收下 1305。
+    [[nodiscard]] std::unique_ptr<RealmTestClient> enter(
+        std::uint64_t account_id) {
+        auto client = connect();
+        submit_enter_realm(*client, enter_ticket(account_id), 7);
+        const auto accepted = receive_on(*client, std::chrono::seconds{2});
+        EXPECT_TRUE(
+            accepted.has_value() &&
+            game::common::decode_enter_realm_accepted(*accepted).has_value());
+        return client;
     }
 
     /// 读取 realm 额度 key 的已发布 JSON;无 fetch_free 键即
@@ -497,12 +449,16 @@ protected:
     std::optional<cluster::InstanceBudgetReporter> reporter_;
     std::optional<game::gateway::GatewayRuntime> runtime_;
     std::optional<game::common::SessionTickets> tickets_;
-    std::optional<SingleCharacterPlayerData> player_data_;
+    test_support::InMemoryCharacterStore store_;
+    std::optional<game::realm::TrainingRule> rule_;
+    std::optional<game::realm::GatewayRuntimeRealmOutbox> outbox_;
+    std::optional<game::realm::RealmSessions> sessions_;
     RealmTestClient* client_{nullptr};
     std::optional<ServiceFrame> frame_;
 };
 
-/// 兑换成功(#46):1304 → 1305 受理并迁入 established,会话心跳可用。
+/// 兑换成功(#46):1304 → 1305 受理并迁入 established,会话心跳可用;
+/// 兑换不读数据库(ADR-0013)。
 TEST_F(ServiceFrameRealmEnterTest, EnterRealmRedeemsTicketAndAcceptsSession) {
     const auto ticket = enter_ticket(42);
     auto client = connect();
@@ -518,6 +474,8 @@ TEST_F(ServiceFrameRealmEnterTest, EnterRealmRedeemsTicketAndAcceptsSession) {
         game::common::EdgeMessageId::MESSAGE_ID_S2C_ENTER_REALM_ACCEPTED);
     EXPECT_EQ(game::common::edge_request_id(*granted), 7U);
     EXPECT_EQ(accepted->account_id(), 42U);
+    EXPECT_EQ(store_.calls(), 0);
+    EXPECT_EQ(sessions_->online(), 1U);
 
     // 已入场会话心跳可用:established + authenticated 语义生效。
     game::common::HeartbeatRequest heartbeat;
@@ -656,7 +614,6 @@ TEST_F(ServiceFrameRealmEnterTest, WrongPurposeTicketDeclines) {
         static_cast<game::common::TicketPurpose>(2),
         42,
         1,
-        7,
         std::chrono::seconds{60});
     auto client = connect();
     client_ = client.get();
@@ -674,28 +631,6 @@ TEST_F(ServiceFrameRealmEnterTest, WrongPurposeTicketDeclines) {
 /// realm 声明不符(≠1)→ 3002:redeem 侧的 realm 不变量。
 TEST_F(ServiceFrameRealmEnterTest, ForeignRealmClaimDeclines) {
     const auto ticket = enter_ticket(42, 2);
-    auto client = connect();
-    client_ = client.get();
-    submit_enter_realm(*client, ticket, 7);
-
-    const auto response = receive_while_driving(std::chrono::seconds{2});
-    ASSERT_TRUE(response.has_value());
-    const auto error = game::common::decode_edge_error(*response);
-    ASSERT_TRUE(error.has_value());
-    EXPECT_EQ(
-        error->code(), game::common::edge_error_invalid_enter_realm_ticket);
-    EXPECT_TRUE(client->saw_close(std::chrono::seconds{2}));
-}
-
-/// 票据中的角色必须在权威数据源中仍属于该账号与 Realm；伪造或已迁移的
-/// 角色不得仅凭有效签名进入。
-TEST_F(ServiceFrameRealmEnterTest, ForeignCharacterClaimDeclines) {
-    const auto ticket = enter_ticket(
-        42,
-        1,
-        std::chrono::seconds{60},
-        std::chrono::system_clock::now(),
-        9999);
     auto client = connect();
     client_ = client.get();
     submit_enter_realm(*client, ticket, 7);
@@ -732,93 +667,66 @@ TEST_F(ServiceFrameRealmEnterTest, ExpiredTicketDeclines) {
     EXPECT_TRUE(client->saw_close(std::chrono::seconds{2}));
 }
 
-/// Realm 必须持有权威数据源:缺失即构造失败,不存在跳过角色复核的路径。
-TEST_F(ServiceFrameRealmEnterTest, RealmFrameRequiresPlayerDataReader) {
+/// Realm 帧必须注入 RealmSessions:缺失即构造失败。
+TEST_F(ServiceFrameRealmEnterTest, RealmFrameRequiresRealmSessions) {
     EXPECT_THROW(
         ServiceFrame("realm", "127.0.0.1", 8443, 64, 4, nullptr, nullptr),
         std::invalid_argument);
 }
 
-/// 角色复核在工作线程执行:查询卡住时帧循环照常处理其他会话。
-TEST_F(ServiceFrameRealmEnterTest, SlowCharacterLookupDoesNotStallFrame) {
-    player_data_->hold();
-    const auto ticket = enter_ticket(42);
-    auto entering = connect();
-    submit_enter_realm(*entering, ticket, 7);
-    ASSERT_TRUE(drive_until_queries(1, std::chrono::seconds{2}));
-
-    auto other = connect();
-    client_ = other.get();
-    game::common::HeartbeatRequest heartbeat;
+/// 已入场会话的 Realm 消息交给 RealmSessions:新账号列表为空,选角阶段。
+TEST_F(ServiceFrameRealmEnterTest, EnteredSessionDispatchesRealmMessages) {
+    auto client = enter(42);
     const network::LengthFieldCodec codec(1024);
-    other->send(codec.encode(game::common::encode(heartbeat, 12)));
-    const auto started = std::chrono::steady_clock::now();
-    const auto refused = receive_while_driving(std::chrono::seconds{2});
+    client->send(codec.encode(
+        game::common::encode(game::common::ListCharacters{}, 21)));
+    const auto reply = receive_on(*client, std::chrono::seconds{2});
+    ASSERT_TRUE(reply.has_value());
+    const auto list = game::common::decode_character_list(*reply);
+    ASSERT_TRUE(list.has_value());
+    EXPECT_EQ(game::common::realm_request_id(*reply), 21U);
+    EXPECT_EQ(list->characters_size(), 0);
+    EXPECT_EQ(store_.calls(), 1);
+}
+
+/// 已入场会话发来不认识的消息(此处为服务端方向的 1402):回 2002,
+/// 会话保持,心跳仍应答。
+TEST_F(ServiceFrameRealmEnterTest, UnsupportedMessageKeepsEnteredSession) {
+    auto client = enter(42);
+    const network::LengthFieldCodec codec(1024);
+    client->send(codec.encode(
+        game::common::encode(game::common::CharacterList{}, 22)));
+    const auto refused = receive_on(*client, std::chrono::seconds{2});
     ASSERT_TRUE(refused.has_value());
-    EXPECT_LT(
-        std::chrono::steady_clock::now() - started, std::chrono::seconds{1});
-    EXPECT_TRUE(game::common::decode_edge_error(*refused).has_value());
+    const auto error = game::common::decode_edge_error(*refused);
+    ASSERT_TRUE(error.has_value());
+    EXPECT_EQ(error->code(), game::common::edge_error_not_authenticated);
 
-    player_data_->release();
-    client_ = entering.get();
-    const auto accepted = receive_while_driving(std::chrono::seconds{2});
-    ASSERT_TRUE(accepted.has_value());
-    EXPECT_TRUE(
-        game::common::decode_enter_realm_accepted(*accepted).has_value());
-    EXPECT_EQ(game::common::edge_request_id(*accepted), 7U);
+    client->send(codec.encode(
+        game::common::encode(game::common::HeartbeatRequest{}, 23)));
+    const auto beat = receive_on(*client, std::chrono::seconds{2});
+    ASSERT_TRUE(beat.has_value());
+    EXPECT_TRUE(game::common::decode_heartbeat_response(*beat).has_value());
 }
 
-/// 复核额度满:先回 429 + Retry-After 拒绝,不烧票据;额度释放后同一张
-/// 票据仍可兑换。
-TEST_F(ServiceFrameRealmEnterTest, FullCharacterCheckCapacityThrottlesWithoutBurningTicket) {
-    frame_.reset();
-    frame_.emplace(
-        "realm", "127.0.0.1", 8443, 64, 4, nullptr, &*player_data_,
-        RealmCharacterCheckLimits{.workers = 1, .capacity = 1});
-    player_data_->hold();
-    auto first = connect();
-    submit_enter_realm(*first, enter_ticket(42), 7);
-    ASSERT_TRUE(drive_until_queries(1, std::chrono::seconds{2}));
+/// 同账号新会话入场:旧会话收到 1409 后被关闭,新会话在选角阶段可用。
+TEST_F(ServiceFrameRealmEnterTest, SecondSessionDisplacesFirst) {
+    auto first = enter(42);
+    auto second = enter(42);
 
-    const auto second_ticket = enter_ticket(42);
-    auto second = connect();
-    client_ = second.get();
-    submit_enter_realm(*second, second_ticket, 8);
-    const auto throttled = receive_while_driving(std::chrono::seconds{2});
-    ASSERT_TRUE(throttled.has_value());
-    const auto error = game::common::decode_edge_error(*throttled);
-    ASSERT_TRUE(error.has_value());
-    EXPECT_EQ(error->code(), game::common::edge_error_throttled);
-    EXPECT_GE(error->retry_after_seconds(), 1U);
-    EXPECT_TRUE(second->saw_close(std::chrono::seconds{2}));
-
-    player_data_->release();
-    client_ = first.get();
-    ASSERT_TRUE(receive_while_driving(std::chrono::seconds{2}).has_value());
-
-    auto retry = connect();
-    client_ = retry.get();
-    submit_enter_realm(*retry, second_ticket, 9);
-    const auto accepted = receive_while_driving(std::chrono::seconds{2});
-    ASSERT_TRUE(accepted.has_value());
+    const auto displaced = receive_on(*first, std::chrono::seconds{2});
+    ASSERT_TRUE(displaced.has_value());
     EXPECT_TRUE(
-        game::common::decode_enter_realm_accepted(*accepted).has_value());
-}
+        game::common::decode_realm_session_displaced(*displaced).has_value());
+    EXPECT_TRUE(first->saw_close(std::chrono::seconds{2}));
 
-/// 数据源故障不等于放行:复核抛错 → 3002 并终结。
-TEST_F(ServiceFrameRealmEnterTest, CharacterLookupFailureDeclines) {
-    player_data_->fail();
-    auto client = connect();
-    client_ = client.get();
-    submit_enter_realm(*client, enter_ticket(42), 7);
-
-    const auto response = receive_while_driving(std::chrono::seconds{2});
-    ASSERT_TRUE(response.has_value());
-    const auto error = game::common::decode_edge_error(*response);
-    ASSERT_TRUE(error.has_value());
-    EXPECT_EQ(
-        error->code(), game::common::edge_error_invalid_enter_realm_ticket);
-    EXPECT_TRUE(client->saw_close(std::chrono::seconds{2}));
+    const network::LengthFieldCodec codec(1024);
+    second->send(codec.encode(
+        game::common::encode(game::common::ListCharacters{}, 24)));
+    const auto list = receive_on(*second, std::chrono::seconds{2});
+    ASSERT_TRUE(list.has_value());
+    EXPECT_TRUE(game::common::decode_character_list(*list).has_value());
+    EXPECT_EQ(sessions_->online(), 1U);
 }
 
 /// conn_free 额度上报(#46):首帧发布容量;入场扣减;断开归还。

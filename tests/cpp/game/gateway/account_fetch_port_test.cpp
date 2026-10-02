@@ -137,24 +137,14 @@ public:
             throw common::PlayerDataError("player data unavailable");
         }
         if (!state_->eligible) return std::nullopt;
-        return common::AccountLoginFacts{
-            .account_id = account_id,
-            .character_id = 7001,
-            .realm_id = 1,
-            .character_revision = 4,
-        };
-    }
-
-    [[nodiscard]] std::optional<common::CharacterRecord> character(
-        std::uint64_t, std::uint32_t, std::uint64_t) const override {
-        return std::nullopt;
+        return common::AccountLoginFacts{.account_id = account_id};
     }
 
 private:
     std::shared_ptr<State> state_;
 };
 
-TEST(PlayerDataAccountFetchPortTest, LoadsSelectedCharacterWithoutBlockingSubmit) {
+TEST(PlayerDataAccountFetchPortTest, LoadsEligibilityWithoutBlockingSubmit) {
     const auto state = std::make_shared<FakePlayerDataReader::State>();
     state->released = false;
     PlayerDataAccountFetchPort port(
@@ -177,9 +167,6 @@ TEST(PlayerDataAccountFetchPortTest, LoadsSelectedCharacterWithoutBlockingSubmit
     ASSERT_TRUE(completion.has_value());
     EXPECT_TRUE(completion->ok);
     EXPECT_EQ(completion->status, AccountFetchStatus::Succeeded);
-    EXPECT_EQ(completion->character_id, 7001U);
-    EXPECT_EQ(completion->realm_id, 1U);
-    EXPECT_EQ(completion->character_revision, 4U);
 }
 
 TEST(PlayerDataAccountFetchPortTest, SlowQueriesDoNotSerializeAcrossWorkers) {

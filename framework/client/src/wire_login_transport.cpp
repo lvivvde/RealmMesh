@@ -1,20 +1,25 @@
 #include "realmmesh/client/wire_login_transport.hpp"
 
 #include "realmmesh/game/common/edge_protocol.hpp"
+#include "realmmesh/game/common/realm_protocol.hpp"
 #include "realmmesh/network/client/json_field.hpp"
 #include "realmmesh/network/transport/transport_config.hpp"
 
 #include <algorithm>
 #include <chrono>
+#include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <utility>
+#include <vector>
 
 namespace realm::client {
 namespace {
 
 namespace common = ::realm::game::common;
 namespace edge_v1 = ::realmmesh::protocol::edge::v1;
+namespace realm_v1 = ::realmmesh::protocol::realm::v1;
 namespace net_client = ::realm::network::client;
 
 /// Queue Scheduler 的 HTTPS 错误模型与 Edge 错误码分属两个编号空间
@@ -89,7 +94,7 @@ struct EdgeErrorRecovery final {
         result.recovery = PortRecovery::Restart;
         break;
     case common::edge_error_not_eligible:
-        // 账号本身无准入资格(封禁/不在白名单/无选定角色),重试也不会变。
+        // 账号本身无准入资格(封禁/不在白名单),重试也不会变。
         result.recovery = PortRecovery::Fail;
         break;
     case common::edge_error_player_data_unavailable:
@@ -133,6 +138,33 @@ private:
     net_client::EdgeClientConnection edge_;
 };
 
+[[nodiscard]] RealmCharacterView to_character_view(
+    const common::CharacterSummary& summary) {
+    return RealmCharacterView{
+        .character_id = summary.character_id(),
+        .name = summary.name(),
+        .exp = summary.exp(),
+        .level = summary.level(),
+    };
+}
+
+/// 一次 Realm 业务往返的原始结局:Ok 时 payload 为期望的回包。
+struct RealmExchange final {
+    RealmCallStatus status{RealmCallStatus::Disconnected};
+    int error_code{0};
+    std::chrono::seconds retry_after{0};
+    std::vector<std::byte> payload;
+};
+
+template <typename T>
+[[nodiscard]] RealmReply<T> reply_from(const RealmExchange& exchange) {
+    RealmReply<T> reply;
+    reply.status = exchange.status;
+    reply.error_code = exchange.error_code;
+    reply.retry_after = exchange.retry_after;
+    return reply;
+}
+
 class WireRealmSession final : public RealmSession {
 public:
     WireRealmSession(
@@ -150,13 +182,12 @@ public:
         if (stream_ == nullptr) {
             return false;
         }
-        net_client::EdgeClientConnection edge(*stream_);
         common::HeartbeatRequest request;
         const auto request_id = next_request_id_++;
-        if (!edge.send_frame(common::encode(request, request_id), deadline)) {
+        if (!edge().send_frame(common::encode(request, request_id), deadline)) {
             return false;
         }
-        const auto payload = edge.receive_frame(deadline);
+        const auto payload = edge().receive_frame(deadline);
         if (!payload.has_value()) {
             return false;
         }
@@ -167,6 +198,7 @@ public:
     }
 
     void close() noexcept override {
+        edge_.reset();
         if (stream_ != nullptr) {
             stream_->shutdown();
             stream_.reset();
@@ -174,9 +206,160 @@ public:
         connection_.reset();
     }
 
+    [[nodiscard]] RealmReply<RealmRoster> list_characters(
+        TimePoint deadline) override {
+        const auto exchange = call(
+            [](std::uint64_t id) {
+                return common::encode(common::ListCharacters{}, id);
+            },
+            realm_v1::MESSAGE_ID_S2C_CHARACTER_LIST,
+            deadline);
+        auto reply = reply_from<RealmRoster>(exchange);
+        if (!reply.ok()) return reply;
+        const auto list = common::decode_character_list(exchange.payload);
+        if (!list.has_value()) return malformed<RealmRoster>();
+        for (const auto& summary : list->characters()) {
+            reply.value.characters.push_back(to_character_view(summary));
+        }
+        reply.value.last_selected_character_id =
+            list->last_selected_character_id();
+        return reply;
+    }
+
+    [[nodiscard]] RealmReply<RealmCharacterView> create_character(
+        std::string_view name, TimePoint deadline) override {
+        const auto exchange = call(
+            [name](std::uint64_t id) {
+                common::CreateCharacter request;
+                request.set_name(std::string{name});
+                return common::encode(request, id);
+            },
+            realm_v1::MESSAGE_ID_S2C_CHARACTER_CREATED,
+            deadline);
+        auto reply = reply_from<RealmCharacterView>(exchange);
+        if (!reply.ok()) return reply;
+        const auto created =
+            common::decode_character_created(exchange.payload);
+        if (!created.has_value()) return malformed<RealmCharacterView>();
+        reply.value = to_character_view(created->character());
+        return reply;
+    }
+
+    [[nodiscard]] RealmReply<RealmSelection> select_character(
+        std::uint64_t character_id, TimePoint deadline) override {
+        const auto exchange = call(
+            [character_id](std::uint64_t id) {
+                common::SelectCharacter request;
+                request.set_character_id(character_id);
+                return common::encode(request, id);
+            },
+            realm_v1::MESSAGE_ID_S2C_CHARACTER_SELECTED,
+            deadline);
+        auto reply = reply_from<RealmSelection>(exchange);
+        if (!reply.ok()) return reply;
+        const auto selected =
+            common::decode_character_selected(exchange.payload);
+        if (!selected.has_value()) return malformed<RealmSelection>();
+        reply.value.character = to_character_view(selected->character());
+        reply.value.training_seq = selected->training_seq();
+        return reply;
+    }
+
+    [[nodiscard]] RealmReply<RealmTraining> train(
+        std::uint64_t seq, TimePoint deadline) override {
+        const auto exchange = call(
+            [seq](std::uint64_t id) {
+                common::Train request;
+                request.set_seq(seq);
+                return common::encode(request, id);
+            },
+            realm_v1::MESSAGE_ID_S2C_TRAIN_RESULT,
+            deadline);
+        auto reply = reply_from<RealmTraining>(exchange);
+        if (!reply.ok()) return reply;
+        const auto result = common::decode_train_result(exchange.payload);
+        if (!result.has_value()) return malformed<RealmTraining>();
+        reply.value = RealmTraining{
+            .character_id = result->character_id(),
+            .exp = result->exp(),
+            .level = result->level(),
+            .seq = result->seq(),
+            .replayed = result->replayed(),
+        };
+        return reply;
+    }
+
 private:
+    /// 会话内常驻的帧收发器:跨调用保留未成帧字节(一次读可能带出多帧)。
+    net_client::EdgeClientConnection& edge() {
+        if (!edge_.has_value()) edge_.emplace(*stream_);
+        return *edge_;
+    }
+
+    template <typename T>
+    [[nodiscard]] static RealmReply<T> malformed() {
+        RealmReply<T> reply;
+        reply.status = RealmCallStatus::Malformed;
+        return reply;
+    }
+
+    /// 发一个请求并等到同 request_id 的期望回包或 EdgeError。其余帧
+    /// (超时后迟到的旧回包等)丢弃;1409 随时可能到达,收到即关闭本会话。
+    template <typename Encode>
+    [[nodiscard]] RealmExchange call(Encode encode,
+                                     realm_v1::MessageId expected,
+                                     TimePoint deadline) {
+        RealmExchange exchange;
+        if (stream_ == nullptr) return exchange;
+        const auto request_id = next_request_id_++;
+        if (!edge().send_frame(encode(request_id), deadline)) {
+            return exchange;
+        }
+        for (;;) {
+            auto payload = edge().receive_frame(deadline);
+            if (!payload.has_value()) {
+                return exchange;
+            }
+            if (const auto message_id = common::realm_message_id(*payload)) {
+                if (*message_id ==
+                    realm_v1::MESSAGE_ID_S2C_REALM_SESSION_DISPLACED) {
+                    close();
+                    exchange.status = RealmCallStatus::Displaced;
+                    return exchange;
+                }
+                if (*message_id == expected &&
+                    common::realm_request_id(*payload) == request_id) {
+                    exchange.status = RealmCallStatus::Ok;
+                    exchange.payload = std::move(*payload);
+                    return exchange;
+                }
+                continue;
+            }
+            const auto edge_id = common::edge_message_id(*payload);
+            if (!edge_id.has_value()) {
+                exchange.status = RealmCallStatus::Malformed;
+                return exchange;
+            }
+            if (*edge_id != edge_v1::MESSAGE_ID_S2C_ERROR ||
+                common::edge_request_id(*payload) != request_id) {
+                continue;
+            }
+            const auto error = common::decode_edge_error(*payload);
+            if (!error.has_value()) {
+                exchange.status = RealmCallStatus::Malformed;
+                return exchange;
+            }
+            exchange.status = RealmCallStatus::Rejected;
+            exchange.error_code = static_cast<int>(error->code());
+            exchange.retry_after =
+                std::chrono::seconds{error->retry_after_seconds()};
+            return exchange;
+        }
+    }
+
     std::shared_ptr<net_client::ISecureConnection> connection_;
     std::shared_ptr<net_client::ISecureByteStream> stream_;
+    std::optional<net_client::EdgeClientConnection> edge_;
     std::uint64_t next_request_id_{1};
 };
 

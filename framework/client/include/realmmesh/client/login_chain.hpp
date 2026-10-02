@@ -89,6 +89,55 @@ public:
     GatewaySession& operator=(const GatewaySession&) = delete;
 };
 
+/// Realm Session 业务调用的结局(#93)。Rejected 携带 EdgeError 码
+/// (3003-3010、429),会话仍可用;Displaced 表示同账号新会话入场、本会话
+/// 已被服务端关闭(1409);Disconnected 为连接断开或超时;Malformed 为
+/// 回包无法解码。后三者之后会话不可再用。
+enum class RealmCallStatus { Ok, Rejected, Displaced, Disconnected, Malformed };
+
+template <typename T>
+struct RealmReply final {
+    RealmCallStatus status{RealmCallStatus::Disconnected};
+    /// 仅 Rejected:EdgeError.code。
+    int error_code{0};
+    /// 仅 Rejected 且为 429:服务端建议的重试等待。
+    std::chrono::seconds retry_after{0};
+    T value{};
+
+    [[nodiscard]] bool ok() const noexcept {
+        return status == RealmCallStatus::Ok;
+    }
+};
+
+/// 角色列表里的一项(1402/1404/1406 的 CharacterSummary)。
+struct RealmCharacterView final {
+    std::uint64_t character_id{0};
+    std::string name;
+    std::uint64_t exp{0};
+    std::uint32_t level{0};
+};
+
+struct RealmRoster final {
+    std::vector<RealmCharacterView> characters;
+    /// 0 表示本 Realm 尚无上次选择。
+    std::uint64_t last_selected_character_id{0};
+};
+
+struct RealmSelection final {
+    RealmCharacterView character;
+    /// 已提交的最后训练序号;下一次训练用 training_seq + 1。
+    std::uint64_t training_seq{0};
+};
+
+struct RealmTraining final {
+    std::uint64_t character_id{0};
+    std::uint64_t exp{0};
+    std::uint32_t level{0};
+    std::uint64_t seq{0};
+    /// 重放上一次已提交的训练(seq == last)而非新写入。
+    bool replayed{false};
+};
+
 class RealmSession {
 public:
     RealmSession() = default;
@@ -96,10 +145,21 @@ public:
     RealmSession(const RealmSession&) = delete;
     RealmSession& operator=(const RealmSession&) = delete;
 
-    /// 已认证 Realm Session 的最小生命周期 Interface：心跳走生产
+    /// 已认证 Realm Session 的生命周期 Interface：心跳走生产
     /// 1105/1106 wire，close 幂等地执行有序关闭。
     [[nodiscard]] virtual bool heartbeat(TimePoint deadline) = 0;
     virtual void close() noexcept = 0;
+
+    /// Realm 业务(#93):选角阶段 list/create/select,游戏中阶段 train。
+    /// 阶段由服务端裁决,错位回 Rejected(3003)。一次只跑一个请求。
+    [[nodiscard]] virtual RealmReply<RealmRoster> list_characters(
+        TimePoint deadline) = 0;
+    [[nodiscard]] virtual RealmReply<RealmCharacterView> create_character(
+        std::string_view name, TimePoint deadline) = 0;
+    [[nodiscard]] virtual RealmReply<RealmSelection> select_character(
+        std::uint64_t character_id, TimePoint deadline) = 0;
+    [[nodiscard]] virtual RealmReply<RealmTraining> train(
+        std::uint64_t seq, TimePoint deadline) = 0;
 };
 
 /// 登录链路唯一远程依赖 Seam。Session 参数把协议操作绑定到准确连接，

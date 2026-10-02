@@ -39,6 +39,11 @@ realm_add_gtest(edge_attach_protocol_test
     LIBS realm_game_common
 )
 
+realm_add_gtest(realm_protocol_test
+    SOURCES realm_protocol_test.cpp
+    LIBS realm_game_common
+)
+
 realm_add_gtest(identity_replay_guard_test
     SOURCES identity_replay_guard_test.cpp
     LIBS realm_game_common

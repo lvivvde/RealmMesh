@@ -7,3 +7,5 @@ include(${CMAKE_CURRENT_SOURCE_DIR}/../cmake/test_helpers.cmake)
 
 realm_add_lua_test(LuaHarnessSelfTest
     "${CMAKE_CURRENT_SOURCE_DIR}/self_test.lua")
+realm_add_lua_test(RealmTrainingRule
+    "${CMAKE_CURRENT_SOURCE_DIR}/realm/training_rule_test.lua")

@@ -6,7 +6,7 @@ C++20 distributed game server framework (CMake, Lua config, protobuf wire). Proj
 
 - **Glossary first**: read `CONTEXT.md` before naming a domain concept in code, tests, issues, or docs, and use its terms (each entry's `_Avoid_` list names the rejected synonyms). Read the `docs/adr/` entries touching your area; when your change contradicts one, say so explicitly. Details: `docs/agents/domain.md`.
 - **Login chain** (verify → queue → gateway pipeline → direct Realm connect): design in `docs/specs/`, implemented structure in `docs/architecture.md`, wire format in `docs/protocol.md`.
-- **Services**: `game/login_verify` and `game/queue` are HTTPS/JSON services; `gateway` and `realm` both run on `game::gateway::GatewayRuntime` inside `game/gateway/` (realm has no directory of its own). Shared code lives in `game/common`. `apps/mesh_host` builds the single `realm_mesh` binary (`--service <name>` runs one service). The retired `login` wire name stays unused.
+- **Services**: `game/login_verify` and `game/queue` are HTTPS/JSON services; `gateway` and `realm` both run on `game::gateway::GatewayRuntime` from `game/gateway/`; Realm business logic (Realm Session phases, characters, Lua training rule) lives in `game/realm`. Shared code lives in `game/common`. `apps/mesh_host` builds the single `realm_mesh` binary (`--service <name>` runs one service). The retired `login` wire name stays unused.
 - **Lean tree** (ADR-0003): a directory appears in the same change as the code that fills it.
 
 ## Platforms

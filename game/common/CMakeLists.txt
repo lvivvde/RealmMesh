@@ -10,6 +10,7 @@ add_library(realm_game_common
     src/player_data_config.cpp
     src/player_data_store.cpp
     src/queue_number_v2.cpp
+    src/realm_protocol.cpp
     src/session_ticket.cpp
 )
 

@@ -15,10 +15,12 @@ namespace {
 
 constexpr std::byte ticket_version_v1{1};
 constexpr std::byte ticket_version_v2{2};
+// 明文布局:版本 | 用途 | ticket_id | [correlation_id] | account(8) |
+// realm(4) | expiry_ms(8),其后为 HMAC 标签。ADR-0013 起不再含 character。
 constexpr std::size_t signed_size_v1 =
-    1 + 1 + session_ticket_id_size + 8 + 4 + 8 + 8;
+    1 + 1 + session_ticket_id_size + 8 + 4 + 8;
 constexpr std::size_t signed_size_v2 =
-    1 + 1 + session_ticket_id_size + correlation_id_size + 8 + 4 + 8 + 8;
+    1 + 1 + session_ticket_id_size + correlation_id_size + 8 + 4 + 8;
 constexpr std::size_t tag_size = crypto_auth_hmacsha256_BYTES;
 constexpr std::size_t ticket_size_v1 = signed_size_v1 + tag_size;
 constexpr std::size_t ticket_size_v2 = signed_size_v2 + tag_size;
@@ -44,7 +46,6 @@ std::vector<std::byte> issue_ticket(
     TicketPurpose purpose,
     std::uint64_t account_id,
     std::uint32_t realm_id,
-    std::uint64_t character_id,
     const std::optional<CorrelationId>& correlation_id,
     std::chrono::seconds ttl,
     std::chrono::system_clock::time_point now) {
@@ -77,9 +78,6 @@ std::vector<std::byte> issue_ticket(
     write_unsigned(std::span<std::byte>(ticket.data() + offset, 4), realm_id);
     offset += 4;
     write_unsigned(
-        std::span<std::byte>(ticket.data() + offset, 8), character_id);
-    offset += 8;
-    write_unsigned(
         std::span<std::byte>(ticket.data() + offset, 8),
         static_cast<std::uint64_t>(expiry));
 
@@ -109,7 +107,6 @@ std::vector<std::byte> SessionTicketCodec::issue(
     TicketPurpose purpose,
     std::uint64_t account_id,
     std::uint32_t realm_id,
-    std::uint64_t character_id,
     std::chrono::seconds ttl,
     std::chrono::system_clock::time_point now) const {
     return issue_ticket(
@@ -117,7 +114,6 @@ std::vector<std::byte> SessionTicketCodec::issue(
         purpose,
         account_id,
         realm_id,
-        character_id,
         std::nullopt,
         ttl,
         now);
@@ -127,7 +123,6 @@ std::vector<std::byte> SessionTicketCodec::issue(
     TicketPurpose purpose,
     std::uint64_t account_id,
     std::uint32_t realm_id,
-    std::uint64_t character_id,
     const CorrelationId& correlation_id,
     std::chrono::seconds ttl,
     std::chrono::system_clock::time_point now) const {
@@ -136,7 +131,6 @@ std::vector<std::byte> SessionTicketCodec::issue(
         purpose,
         account_id,
         realm_id,
-        character_id,
         correlation_id,
         ttl,
         now);
@@ -181,8 +175,6 @@ std::optional<SessionTicketClaims> SessionTicketCodec::validate(
     claims.realm_id =
         static_cast<std::uint32_t>(read_unsigned(ticket.subspan(offset, 4)));
     offset += 4;
-    claims.character_id = read_unsigned(ticket.subspan(offset, 8));
-    offset += 8;
     const auto expiry_ms = read_unsigned(ticket.subspan(offset, 8));
     if (expiry_ms >
         static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max())) {
@@ -228,22 +220,20 @@ std::vector<std::byte> SessionTickets::issue(
     TicketPurpose purpose,
     std::uint64_t account_id,
     std::uint32_t realm_id,
-    std::uint64_t character_id,
     std::chrono::seconds ttl,
     std::chrono::system_clock::time_point now) const {
-    return codec_.issue(purpose, account_id, realm_id, character_id, ttl, now);
+    return codec_.issue(purpose, account_id, realm_id, ttl, now);
 }
 
 std::vector<std::byte> SessionTickets::issue(
     TicketPurpose purpose,
     std::uint64_t account_id,
     std::uint32_t realm_id,
-    std::uint64_t character_id,
     const CorrelationId& correlation_id,
     std::chrono::seconds ttl,
     std::chrono::system_clock::time_point now) const {
     return codec_.issue(
-        purpose, account_id, realm_id, character_id, correlation_id, ttl, now);
+        purpose, account_id, realm_id, correlation_id, ttl, now);
 }
 
 RedeemedTicket SessionTickets::redeem(

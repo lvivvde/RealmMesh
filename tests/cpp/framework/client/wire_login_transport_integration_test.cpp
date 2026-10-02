@@ -16,13 +16,15 @@
 
 #include "realmmesh/client/wire_login_transport.hpp"
 #include "realmmesh/game/common/edge_protocol.hpp"
-#include "realmmesh/game/common/player_data_store.hpp"
 #include "realmmesh/game/common/session_ticket.hpp"
 #include "realmmesh/game/gateway/gateway_runtime.hpp"
+#include "realmmesh/game/realm/realm_sessions.hpp"
+#include "realmmesh/game/realm/training_rule.hpp"
 #include "realmmesh/network/http/http_server.hpp"
 #include "realmmesh/network/transport/transport_factory.hpp"
 #include "realmmesh/observability/logger.hpp"
 #include "realmmesh/service_host/service_frame.hpp"
+#include "realmmesh/test_support/in_memory_character_store.hpp"
 #include "realmmesh/test_support/temporary_directory.hpp"
 
 #include <gtest/gtest.h>
@@ -69,7 +71,6 @@ constexpr std::string_view kSharedTicketKeyHex =
         common::TicketPurpose::EnterRealm,
         /*account_id=*/42,
         realm_id,
-        /*character_id=*/0,
         std::chrono::seconds{60});
     return std::string{
         reinterpret_cast<const char*>(ticket.data()), ticket.size()};
@@ -337,29 +338,6 @@ private:
     std::string last_enter_realm_ticket_;
 };
 
-/// Realm 复核角色归属的内存数据源:网关桩签发的票据恒为账号 42、
-/// 角色 0,只认这一个归属(Realm 必须注入数据源,见 ServiceFrame)。
-class StubPlayerData final : public common::PlayerDataReader {
-public:
-    [[nodiscard]] std::optional<common::AccountLoginFacts> login_facts(
-        std::uint64_t) const override {
-        return std::nullopt;
-    }
-
-    [[nodiscard]] std::optional<common::CharacterRecord> character(
-        std::uint64_t account_id,
-        std::uint32_t realm_id,
-        std::uint64_t character_id) const override {
-        if (account_id != 42 || character_id != 0) return std::nullopt;
-        return common::CharacterRecord{
-            .character_id = character_id,
-            .account_id = account_id,
-            .realm_id = realm_id,
-            .name = "stub-character",
-        };
-    }
-};
-
 /// Realm 段的服务端:真实 realm 服务帧(#46 的 1304/1305 处理器)+ 与网关桩
 /// 共享的票据键,监听真实 TLS。ALPN 与网关段一致 —— Realm 段就是 edge 段,
 /// 所以这里不配 `.alpn`,取传输层默认值。
@@ -386,12 +364,16 @@ public:
                 .outbound_capacity = 64,
                 .io_poll_interval = milliseconds{1}});
         runtime_->start();
+        outbox_.emplace(*runtime_);
+        sessions_.emplace(
+            characters_, rule_, *outbox_, game::realm::RealmConfig{});
         frame_.emplace(
-            "realm", "127.0.0.1", 8443, 64, 4, nullptr, &player_data_);
+            "realm", "127.0.0.1", 8443, 64, 4, nullptr, &*sessions_);
     }
 
     ~RealmServiceFixture() {
         frame_.reset();
+        sessions_.reset();
         runtime_->stop();
         static_cast<void>(::unsetenv("REALMMESH_SESSION_TICKET_KEY"));
     }
@@ -429,7 +411,12 @@ private:
     std::optional<test_support::TemporaryDirectory> log_directory_;
     std::optional<observability::Logger> logger_;
     std::optional<game::gateway::GatewayRuntime> runtime_;
-    StubPlayerData player_data_;
+    test_support::InMemoryCharacterStore characters_;
+    game::realm::TrainingRule rule_{
+        std::filesystem::path(REALMMESH_TEST_SOURCE_DIR) / "configs" /
+        "services" / "realm" / "training.lua"};
+    std::optional<game::realm::GatewayRuntimeRealmOutbox> outbox_;
+    std::optional<game::realm::RealmSessions> sessions_;
     std::optional<service_host::ServiceFrame> frame_;
 };
 
@@ -772,6 +759,102 @@ TEST(WireLoginTransportIntegrationTest, RealmRejectsForeignTicketAtPortLevel) {
     EXPECT_FALSE(status.ok);
     EXPECT_EQ(status.failure, ChainFailure::EnterRealmRejected);
     EXPECT_NE(status.detail.find("3002"), std::string::npos) << status.detail;
+}
+
+/// 直连真实 realm 服务并兑换一张账号 42 的票据;返回已入场的会话。
+[[nodiscard]] std::unique_ptr<RealmSession> enter_realm_directly(
+    WireLoginTransport& transport, std::uint16_t realm_port) {
+    const std::array<net_client::EndpointCandidate, 1> candidates{
+        net_client::EndpointCandidate{
+            .protocol = network::TransportProtocol::TlsTcp,
+            .host = "127.0.0.1",
+            .port = realm_port,
+            .priority = 0,
+        }};
+    const auto deadline = Clock::now() + std::chrono::seconds{5};
+    auto connected = transport.connect_realm(candidates, deadline);
+    EXPECT_TRUE(connected.status.ok) << connected.status.detail;
+    if (!connected.status.ok) return nullptr;
+    const auto status = transport.enter_realm(
+        *connected.value, mint_enter_realm_ticket(1), deadline);
+    EXPECT_TRUE(status.ok) << status.detail;
+    if (!status.ok) return nullptr;
+    return std::move(connected.value);
+}
+
+/// 客户端 Realm API(#93)走真实 TLS 与真实 realm 服务帧:选角阶段
+/// 列表/创建/选择,游戏中训练;错误码映射为 Rejected 且会话保持;同账号
+/// 新会话入场后,旧会话的下一次调用得到 Displaced。
+TEST(WireLoginTransportIntegrationTest, RealmApiRoundTripsOverRealTls) {
+    RealmServiceFixture realm;
+    const PollDriver driver(nullptr, nullptr, &realm);
+
+    WireEndpoints endpoints;
+    endpoints.verify_peer = false;
+    WireEnterRealmRedeemer redeemer;
+    WireLoginTransport transport(endpoints, redeemer, fast_wire_options());
+    auto session = enter_realm_directly(transport, realm.port());
+    ASSERT_NE(session, nullptr);
+    const auto deadline = [] {
+        return Clock::now() + std::chrono::seconds{5};
+    };
+
+    const auto empty = session->list_characters(deadline());
+    ASSERT_TRUE(empty.ok());
+    EXPECT_TRUE(empty.value.characters.empty());
+    EXPECT_EQ(empty.value.last_selected_character_id, 0U);
+
+    const auto invalid = session->create_character(" padded", deadline());
+    EXPECT_EQ(invalid.status, RealmCallStatus::Rejected);
+    EXPECT_EQ(invalid.error_code, common::edge_error_invalid_character_name);
+
+    const auto created = session->create_character("Hero", deadline());
+    ASSERT_TRUE(created.ok());
+    EXPECT_EQ(created.value.name, "Hero");
+    EXPECT_EQ(created.value.exp, 0U);
+    EXPECT_EQ(created.value.level, 1U);
+
+    // 选角前训练:阶段不符,会话保持。
+    const auto early = session->train(1, deadline());
+    EXPECT_EQ(early.status, RealmCallStatus::Rejected);
+    EXPECT_EQ(early.error_code, common::edge_error_phase_mismatch);
+
+    const auto selected =
+        session->select_character(created.value.character_id, deadline());
+    ASSERT_TRUE(selected.ok());
+    EXPECT_EQ(selected.value.character.character_id,
+              created.value.character_id);
+    EXPECT_EQ(selected.value.training_seq, 0U);
+
+    const auto trained = session->train(1, deadline());
+    ASSERT_TRUE(trained.ok());
+    EXPECT_EQ(trained.value.exp, 10U);
+    EXPECT_EQ(trained.value.level, 1U);
+    EXPECT_EQ(trained.value.seq, 1U);
+    EXPECT_FALSE(trained.value.replayed);
+
+    const auto replayed = session->train(1, deadline());
+    ASSERT_TRUE(replayed.ok());
+    EXPECT_TRUE(replayed.value.replayed);
+    EXPECT_EQ(replayed.value.exp, 10U);
+
+    const auto skipped = session->train(3, deadline());
+    EXPECT_EQ(skipped.status, RealmCallStatus::Rejected);
+    EXPECT_EQ(skipped.error_code, common::edge_error_invalid_training_seq);
+
+    // 同账号第二个会话入场:回到选角阶段,看得到上次选择。
+    auto second = enter_realm_directly(transport, realm.port());
+    ASSERT_NE(second, nullptr);
+    const auto roster = second->list_characters(deadline());
+    ASSERT_TRUE(roster.ok());
+    ASSERT_EQ(roster.value.characters.size(), 1U);
+    EXPECT_EQ(roster.value.characters.front().exp, 10U);
+    EXPECT_EQ(roster.value.last_selected_character_id,
+              created.value.character_id);
+
+    const auto displaced = session->train(2, deadline());
+    EXPECT_EQ(displaced.status, RealmCallStatus::Displaced);
+    EXPECT_FALSE(session->heartbeat(deadline()));
 }
 
 }  // namespace

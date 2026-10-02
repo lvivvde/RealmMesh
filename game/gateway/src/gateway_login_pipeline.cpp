@@ -46,7 +46,8 @@ struct PipelineSession {
     bool closing{false};
     bool fetch_reserved{false};
     std::uint64_t account_id{0};
-    std::uint64_t character_id{0};
+    /// 目前只有一个 Realm;票据只绑账号与 Realm,角色在 Realm 内选择
+    /// (ADR-0013)。
     std::uint32_t realm_id{1};
     std::optional<GatewayAdmissionReservation> admission_reservation;
     unsigned fetch_failures{0};
@@ -380,10 +381,6 @@ private:
                     {{"result", fetch_result}});
             }
             if (completion.ok) {
-                session.character_id = completion.character_id;
-                if (completion.realm_id != 0) {
-                    session.realm_id = completion.realm_id;
-                }
                 release_fetch_reservation(session);
                 session.intent = RuntimeIntent{IntentKind::Handoff, {}};
                 if (metrics_ != nullptr) {
@@ -405,7 +402,7 @@ private:
             }
 
             if (completion.status == AccountFetchStatus::NotEligible) {
-                // 封禁/不在白名单/无选定角色是确定性结果:立即以终态拒绝,
+                // 封禁/不在白名单是确定性结果:立即以终态拒绝,
                 // 不重试,也不与数据源故障共用退避路径(#98)。
                 if (logger_ != nullptr) {
                     static_cast<void>(logger_->info(
@@ -584,7 +581,6 @@ private:
                 handoff_payload(
                     session.account_id,
                     session.realm_id,
-                    session.character_id,
                     *endpoint,
                     frame.verification_now));
             if (result == PrimaryTransportResult::Queued) {
@@ -677,14 +673,12 @@ private:
     [[nodiscard]] std::vector<std::byte> handoff_payload(
         std::uint64_t account_id,
         std::uint32_t realm_id,
-        std::uint64_t character_id,
         const RealmEndpoint& endpoint,
         std::chrono::system_clock::time_point now) const {
         const auto ticket = tickets_.issue(
             common::TicketPurpose::EnterRealm,
             account_id,
             realm_id,
-            character_id,
             enter_realm_ticket_ttl,
             now);
         common::EnterRealmGranted granted;

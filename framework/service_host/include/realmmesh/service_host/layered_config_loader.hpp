@@ -3,6 +3,7 @@
 #include "realmmesh/game/gateway/gateway_config_loader.hpp"
 #include "realmmesh/game/login_verify/login_verify_config.hpp"
 #include "realmmesh/game/queue/queue_config.hpp"
+#include "realmmesh/game/realm/realm_config.hpp"
 
 #include <filesystem>
 #include <optional>
@@ -22,7 +23,7 @@ struct CliOverrides {
 /// CLI 覆盖最后生效;日志 file_path 按实例身份生成。
 class LayeredConfigLoader final {
 public:
-    /// 消息服务(gateway/realm)的配置。
+    /// 消息服务的宿主级配置(gateway;realm 另见 load_realm)。
     [[nodiscard]] static game::gateway::GatewayConfig load(
         const std::filesystem::path& config_root,
         std::string_view service_name,
@@ -49,6 +50,19 @@ public:
     };
 
     [[nodiscard]] static QueueServiceConfig load_queue(
+        const std::filesystem::path& config_root,
+        std::string_view service_name,
+        const CliOverrides& overrides = {});
+
+    /// Realm 配置:宿主级节段与 realm 专属节段(训练规则路径、数据访问
+    /// 额度)一次装载。
+    struct RealmServiceConfig {
+        game::gateway::GatewayConfig host;
+        game::realm::RealmConfig realm;
+    };
+
+    /// training_rule_file 的相对路径在此按 config_root 解析为绝对路径。
+    [[nodiscard]] static RealmServiceConfig load_realm(
         const std::filesystem::path& config_root,
         std::string_view service_name,
         const CliOverrides& overrides = {});

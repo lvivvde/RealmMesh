@@ -121,6 +121,23 @@ public:
                 closed_ = true;
             }
         }
+        // 链路编排不跑 Realm 业务;业务往返由集成档覆盖。
+        [[nodiscard]] RealmReply<RealmRoster> list_characters(
+            TimePoint) override {
+            return {};
+        }
+        [[nodiscard]] RealmReply<RealmCharacterView> create_character(
+            std::string_view, TimePoint) override {
+            return {};
+        }
+        [[nodiscard]] RealmReply<RealmSelection> select_character(
+            std::uint64_t, TimePoint) override {
+            return {};
+        }
+        [[nodiscard]] RealmReply<RealmTraining> train(
+            std::uint64_t, TimePoint) override {
+            return {};
+        }
 
     private:
         int& closes_;

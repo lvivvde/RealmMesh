@@ -700,9 +700,6 @@ TEST_F(
         .ok = true,
         .duration = 20ms,
         .status = AccountFetchStatus::Succeeded,
-        .character_id = 7001,
-        .realm_id = 1,
-        .character_revision = 4,
     });
 
     static_cast<void>(advance(2ms, 2ms, RealmEndpoint{"first.dynamic", 7200}));
@@ -734,7 +731,6 @@ TEST_F(
     ASSERT_TRUE(claims.has_value());
     EXPECT_EQ(claims->expires_at, system_origin + 90s);
     EXPECT_EQ(claims->realm_id, 1U);
-    EXPECT_EQ(claims->character_id, 7001U);
     EXPECT_NE(
         metrics_.render().find(
             "edge_fetch_result_total{result=\"succeeded\"} 1\n"),

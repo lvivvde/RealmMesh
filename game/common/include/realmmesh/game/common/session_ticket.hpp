@@ -32,7 +32,6 @@ struct SessionTicketClaims {
     SessionTicketId ticket_id{};
     std::uint64_t account_id{0};
     std::uint32_t realm_id{0};
-    std::uint64_t character_id{0};
     std::optional<CorrelationId> correlation_id;
     std::chrono::system_clock::time_point expires_at;
 };
@@ -45,7 +44,6 @@ public:
         TicketPurpose purpose,
         std::uint64_t account_id,
         std::uint32_t realm_id,
-        std::uint64_t character_id,
         std::chrono::seconds ttl,
         std::chrono::system_clock::time_point now =
             std::chrono::system_clock::now()) const;
@@ -54,7 +52,6 @@ public:
         TicketPurpose purpose,
         std::uint64_t account_id,
         std::uint32_t realm_id,
-        std::uint64_t character_id,
         const CorrelationId& correlation_id,
         std::chrono::seconds ttl,
         std::chrono::system_clock::time_point now =
@@ -112,7 +109,6 @@ public:
         TicketPurpose purpose,
         std::uint64_t account_id,
         std::uint32_t realm_id,
-        std::uint64_t character_id,
         std::chrono::seconds ttl,
         std::chrono::system_clock::time_point now =
             std::chrono::system_clock::now()) const;
@@ -121,7 +117,6 @@ public:
         TicketPurpose purpose,
         std::uint64_t account_id,
         std::uint32_t realm_id,
-        std::uint64_t character_id,
         const CorrelationId& correlation_id,
         std::chrono::seconds ttl,
         std::chrono::system_clock::time_point now =

@@ -2,16 +2,14 @@
 
 #include "realmmesh/cluster/budget_publisher.hpp"
 #include "realmmesh/cluster/service_resolver.hpp"
-#include "realmmesh/concurrency/bounded_work_pool.hpp"
 #include "realmmesh/game/common/edge_protocol.hpp"
-#include "realmmesh/game/common/player_data_store.hpp"
 #include "realmmesh/game/gateway/gateway_login_pipeline.hpp"
 #include "realmmesh/game/gateway/gateway_runtime.hpp"
+#include "realmmesh/game/realm/realm_sessions.hpp"
 #include "realmmesh/observability/logger.hpp"
 
 #include <chrono>
 #include <cstdint>
-#include <exception>
 #include <cstdlib>
 #include <stdexcept>
 #include <string>
@@ -42,17 +40,6 @@ namespace {
     return placeholder;
 }
 
-enum class CharacterCheckOutcome : std::uint8_t {
-    Owned,
-    Missing,
-    Unavailable,
-};
-
-struct CharacterCheckResult final {
-    CharacterCheckOutcome outcome{CharacterCheckOutcome::Unavailable};
-    std::string error;
-};
-
 /// 入场拒绝的统一出口:未建立会话 decline,已建立会话回包后 close。
 void reject_enter_realm(
     game::gateway::GatewayRuntime& runtime,
@@ -77,15 +64,15 @@ void reject_enter_realm(
     }
 }
 
-/// 票据验签通过、但 Realm 或角色归属不符；此时才可安全记录账号标识
-/// (无效/重放时 redeem 不返回可信 claims)。
+/// 票据验签通过、但 Realm 不符;此时才可安全记录账号标识(无效/重放时
+/// redeem 不返回可信 claims)。
 void log_claim_mismatch(
     observability::Logger& logger,
     game::gateway::EdgeSessionId session_id,
     const game::common::SessionTicketClaims& claims) {
     static_cast<void>(logger.warn(
         "realm_enter_claim_mismatch",
-        "enter realm claims do not match player data",
+        "enter realm claims do not match this realm",
         {observability::field(
              "session_id",
              session_id.value,
@@ -94,33 +81,10 @@ void log_claim_mismatch(
              "account_id",
              claims.account_id,
              observability::DataClass::Pseudonymous),
-         observability::field("realm_id", claims.realm_id),
-         observability::field(
-             "character_id",
-             claims.character_id,
-             observability::DataClass::Pseudonymous)}));
+         observability::field("realm_id", claims.realm_id)}));
 }
 
 }  // namespace
-
-struct ServiceFrame::CharacterChecks final {
-    struct Pending final {
-        game::gateway::EdgeSessionId session_id{};
-        std::uint64_t request_id{0};
-        bool established{false};
-        game::common::SessionTicketClaims claims{};
-    };
-
-    explicit CharacterChecks(RealmCharacterCheckLimits limits)
-        : pool(limits.workers, limits.capacity) {}
-
-    std::uint64_t next_id{1};
-    std::unordered_map<std::uint64_t, Pending> pending;
-    std::unordered_map<game::gateway::EdgeSessionId, std::uint64_t>
-        by_session;
-    /// 最后声明、最先析构:先回收工作线程,再释放簿记。
-    concurrency::BoundedWorkPool<CharacterCheckResult> pool;
-};
 
 std::optional<cluster::ServiceType> parse_service_identity(
     std::string_view service_name) {
@@ -139,14 +103,13 @@ ServiceFrame::ServiceFrame(
     std::size_t max_events_per_frame,
     std::uint64_t conn_capacity,
     game::gateway::GatewayLoginPipeline* gateway_login_pipeline,
-    game::common::PlayerDataReader* player_data,
-    RealmCharacterCheckLimits character_checks)
+    game::realm::RealmSessions* realm_sessions)
     : service_name_(service_name),
       max_events_per_frame_(max_events_per_frame),
       identity_(parse_service_identity(service_name)),
       tickets_(service_ticket_key(identity_)),
       gateway_login_pipeline_(gateway_login_pipeline),
-      player_data_(player_data),
+      realm_sessions_(realm_sessions),
       conn_capacity_(conn_capacity) {
     if (identity_.has_value() && identity_ != cluster::ServiceType::Gateway &&
         (downstream_address.empty() || downstream_port == 0)) {
@@ -158,13 +121,8 @@ ServiceFrame::ServiceFrame(
         throw std::invalid_argument(
             "gateway login pipeline is required for gateway frame");
     }
-    if (identity_ == cluster::ServiceType::Realm) {
-        if (player_data_ == nullptr) {
-            throw std::invalid_argument(
-                "player data reader is required for realm frame");
-        }
-        character_checks_ =
-            std::make_unique<CharacterChecks>(character_checks);
+    if (identity_ == cluster::ServiceType::Realm && realm_sessions_ == nullptr) {
+        throw std::invalid_argument("realm sessions are required for realm frame");
     }
 }
 
@@ -177,14 +135,8 @@ bool ServiceFrame::ready() const noexcept {
 bool ServiceFrame::absorb_lifecycle(const game::gateway::GatewayEvent& event) {
     if (event.kind == game::gateway::GatewayEventKind::SessionClosed) {
         authenticated_.erase(event.session_id);
-        if (character_checks_ != nullptr) {
-            auto& checks = *character_checks_;
-            if (const auto pending = checks.by_session.find(event.session_id);
-                pending != checks.by_session.end()) {
-                checks.pool.cancel(pending->second);
-                checks.pending.erase(pending->second);
-                checks.by_session.erase(pending);
-            }
+        if (realm_sessions_ != nullptr) {
+            realm_sessions_->closed(event.session_id);
         }
         return false;
     }
@@ -308,26 +260,35 @@ void ServiceFrame::handle_realm_events(
                 session, game::common::encode(error, request_id)));
             continue;
         }
-        if (game::common::decode_heartbeat_request(event.payload).has_value() &&
-            authenticated_.contains(session)) {
+        const bool authenticated = authenticated_.contains(session);
+        // 被顶替的会话已收到 1409、关闭在途:关闭事件到达前的来包直接丢弃。
+        if (authenticated && !realm_sessions_->contains(session)) {
+            continue;
+        }
+        if (authenticated &&
+            game::common::decode_heartbeat_request(event.payload).has_value()) {
             game::common::HeartbeatResponse heartbeat;
             static_cast<void>(runtime.try_send(
                 session, game::common::encode(heartbeat, request_id)));
             continue;
         }
-        // 已建立会话:未认证的回 2002 后终结;已认证的业务消息在选角等
-        // 真实玩法落地前没有可转发去处,同样回 2002 并保持会话。
+        // 选角与训练(1401/1403/1405/1407)交给 RealmSessions;阶段校验、
+        // 数据访问与回包都在那里。
+        if (authenticated && realm_sessions_->handle(session, event.payload)) {
+            continue;
+        }
+        // 已建立会话:未认证的回 2002 后终结;已认证但不认识的消息回 2002
+        // 并保持会话。
         game::common::EdgeError error;
         error.set_code(game::common::edge_error_not_authenticated);
         error.set_message("unsupported message");
-        const bool authenticated = authenticated_.contains(session);
         static_cast<void>(
             runtime.try_send(session, game::common::encode(error, request_id)));
         if (!authenticated) {
             static_cast<void>(runtime.try_close(session));
         }
     }
-    complete_character_checks(logger, runtime);
+    realm_sessions_->complete(max_events_per_frame_);
     // 帧尾发布额度快照(#46):realm 仅 conn_free(has_fetch=false),
     // 策略节流在 InstanceBudgetReporter 内,写失败不更新已发布状态,
     // 后续帧自动重试。
@@ -347,13 +308,8 @@ void ServiceFrame::handle_enter_realm(
     const game::common::EnterRealm& request) {
     const auto request_id =
         game::common::edge_request_id(event.payload).value_or(0);
-    auto& checks = *character_checks_;
-    if (const auto duplicate = checks.by_session.find(event.session_id);
-        duplicate != checks.by_session.end()) {
-        // 复核未决时重复提交:协议违例,撤销在途复核并终结会话。
-        checks.pool.cancel(duplicate->second);
-        checks.pending.erase(duplicate->second);
-        checks.by_session.erase(duplicate);
+    if (authenticated_.contains(event.session_id)) {
+        // 已入场会话重复提交:协议违例,终结会话(不兑换新票据)。
         reject_enter_realm(
             runtime,
             event.session_id,
@@ -363,33 +319,15 @@ void ServiceFrame::handle_enter_realm(
             "invalid enter realm ticket");
         return;
     }
-    // 额度先于兑换:满额时票据原样留给客户端重试,不能先烧票再拒绝。
-    if (checks.pool.in_flight() >= checks.pool.capacity()) {
-        reject_enter_realm(
-            runtime,
-            event.session_id,
-            event.established,
-            request_id,
-            game::common::edge_error_throttled,
-            "realm character checks saturated",
-            1);
-        static_cast<void>(logger.warn(
-            "realm_enter_throttled",
-            "realm character check capacity exhausted",
-            {observability::field(
-                "session_id",
-                event.session_id.value,
-                observability::DataClass::Internal)}));
-        return;
-    }
     const auto redeemed = tickets_.redeem(
         game::common::protobuf_bytes(request.enter_realm_ticket()),
         game::common::TicketPurpose::EnterRealm);
-    // realm 固定 1 是当前单 Realm 拓扑的不变量。回放保护在 redeem 处
-    // 烧票；验签通过后仍须用权威数据源核对角色归属，不能仅信票据快照。
+    // 回放保护在 redeem 处烧票。票据只绑定账号与 Realm(ADR-0013),兑换
+    // 不再读数据库;角色归属在选择角色时核对。
     const bool ticket_valid =
         redeemed.status == game::common::RedeemStatus::Accepted;
-    if (!ticket_valid || redeemed.claims.realm_id != 1) {
+    if (!ticket_valid ||
+        redeemed.claims.realm_id != game::realm::RealmSessions::realm_id) {
         reject_enter_realm(
             runtime,
             event.session_id,
@@ -413,105 +351,25 @@ void ServiceFrame::handle_enter_realm(
         return;
     }
 
-    const auto check_id = checks.next_id++;
-    const auto* reader = player_data_;
-    const auto claims = redeemed.claims;
-    const auto submitted = checks.pool.try_submit(
-        check_id, [reader, claims]() noexcept -> CharacterCheckResult {
-            try {
-                return {reader->character(
-                                claims.account_id,
-                                claims.realm_id,
-                                claims.character_id)
-                                .has_value()
-                            ? CharacterCheckOutcome::Owned
-                            : CharacterCheckOutcome::Missing,
-                        {}};
-            } catch (const std::exception& error) {
-                return {CharacterCheckOutcome::Unavailable, error.what()};
-            } catch (...) {
-                return {CharacterCheckOutcome::Unavailable, "unknown error"};
-            }
-        });
-    if (submitted != concurrency::WorkSubmitResult::Submitted) {
-        // 帧线程是唯一提交者且已先查额度,只有停机时才会走到这里。
-        reject_enter_realm(
-            runtime,
-            event.session_id,
-            event.established,
-            request_id,
-            game::common::edge_error_invalid_enter_realm_ticket,
-            "invalid enter realm ticket");
-        return;
+    authenticated_[event.session_id] = redeemed.claims;
+    game::common::EnterRealmAccepted accepted;
+    accepted.set_account_id(redeemed.claims.account_id);
+    const auto response = game::common::encode(accepted, request_id);
+    if (event.established) {
+        static_cast<void>(runtime.try_send(event.session_id, response));
+    } else {
+        static_cast<void>(runtime.try_accept(event.session_id, response));
     }
-    checks.pending.emplace(
-        check_id,
-        CharacterChecks::Pending{
-            .session_id = event.session_id,
-            .request_id = request_id,
-            .established = event.established,
-            .claims = claims});
-    checks.by_session.emplace(event.session_id, check_id);
-}
-
-void ServiceFrame::complete_character_checks(
-    observability::Logger& logger,
-    game::gateway::GatewayRuntime& runtime) {
-    auto& checks = *character_checks_;
-    for (auto& completion : checks.pool.drain(max_events_per_frame_)) {
-        const auto found = checks.pending.find(completion.id);
-        if (found == checks.pending.end()) {
-            continue;
-        }
-        const auto pending = std::move(found->second);
-        checks.pending.erase(found);
-        checks.by_session.erase(pending.session_id);
-
-        if (completion.result.outcome != CharacterCheckOutcome::Owned) {
-            reject_enter_realm(
-                runtime,
-                pending.session_id,
-                pending.established,
-                pending.request_id,
-                game::common::edge_error_invalid_enter_realm_ticket,
-                "invalid enter realm ticket");
-            if (completion.result.outcome ==
-                CharacterCheckOutcome::Unavailable) {
-                static_cast<void>(logger.error(
-                    "realm_player_data_unavailable",
-                    "realm player data lookup failed",
-                    {observability::field(
-                         "account_id",
-                         pending.claims.account_id,
-                         observability::DataClass::Pseudonymous),
-                     observability::field(
-                         "error", completion.result.error)}));
-            } else {
-                log_claim_mismatch(logger, pending.session_id, pending.claims);
-            }
-            continue;
-        }
-
-        authenticated_[pending.session_id] = pending.claims;
-        game::common::EnterRealmAccepted accepted;
-        accepted.set_account_id(pending.claims.account_id);
-        const auto response =
-            game::common::encode(accepted, pending.request_id);
-        if (pending.established) {
-            static_cast<void>(runtime.try_send(pending.session_id, response));
-        } else {
-            static_cast<void>(
-                runtime.try_accept(pending.session_id, response));
-        }
-        static_cast<void>(logger.info(
-            "player_session_established",
-            "realm accepted direct entry",
-            {observability::field(
-                "account_id",
-                pending.claims.account_id,
-                observability::DataClass::Pseudonymous)},
-            observability::EventContext{.request_id = pending.request_id}));
-    }
+    // 受理回包先于登记:同账号旧会话随后收到 1409 并被关闭。
+    realm_sessions_->enter(event.session_id, redeemed.claims.account_id);
+    static_cast<void>(logger.info(
+        "player_session_established",
+        "realm accepted direct entry",
+        {observability::field(
+            "account_id",
+            redeemed.claims.account_id,
+            observability::DataClass::Pseudonymous)},
+        observability::EventContext{.request_id = request_id}));
 }
 
 void ServiceFrame::handle_gateway_events(

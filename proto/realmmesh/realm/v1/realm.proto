@@ -1,0 +1,75 @@
+syntax = "proto3";
+
+package realmmesh.protocol.realm.v1;
+
+option optimize_for = LITE_RUNTIME;
+
+// Realm Session 业务消息(#93)。与 edge.proto 共用 common.v1.Envelope
+// (protocol_version 不变)与 1999 EdgeError;编号永久,不复用。
+// C2S 请求的 request_id 由回包原样回显;1409 为服务器推送,request_id 为 0。
+enum MessageId {
+  MESSAGE_ID_UNSPECIFIED = 0;
+
+  // 选角阶段:列表 / 创建 / 选择。
+  MESSAGE_ID_C2S_LIST_CHARACTERS = 1401;
+  MESSAGE_ID_S2C_CHARACTER_LIST = 1402;
+  MESSAGE_ID_C2S_CREATE_CHARACTER = 1403;
+  MESSAGE_ID_S2C_CHARACTER_CREATED = 1404;
+  MESSAGE_ID_C2S_SELECT_CHARACTER = 1405;
+  MESSAGE_ID_S2C_CHARACTER_SELECTED = 1406;
+
+  // 游戏中阶段:训练。
+  MESSAGE_ID_C2S_TRAIN = 1407;
+  MESSAGE_ID_S2C_TRAIN_RESULT = 1408;
+
+  // 同账号新会话受理后推给旧会话,随后服务器关闭旧会话。
+  MESSAGE_ID_S2C_REALM_SESSION_DISPLACED = 1409;
+}
+
+message CharacterSummary {
+  uint64 character_id = 1;
+  string name = 2;
+  uint64 exp = 3;
+  uint32 level = 4;
+}
+
+message ListCharacters {}
+
+message CharacterList {
+  repeated CharacterSummary characters = 1;
+  // 上次选定的角色;0 表示从未选过。
+  uint64 last_selected_character_id = 2;
+}
+
+message CreateCharacter {
+  string name = 1;
+}
+
+message CharacterCreated {
+  CharacterSummary character = 1;
+}
+
+message SelectCharacter {
+  uint64 character_id = 1;
+}
+
+message CharacterSelected {
+  CharacterSummary character = 1;
+  // 该角色已确认的最后一次训练序号;下一次 Train 用 training_seq + 1。
+  uint64 training_seq = 2;
+}
+
+message Train {
+  uint64 seq = 1;
+}
+
+message TrainResult {
+  uint64 character_id = 1;
+  uint64 exp = 2;
+  uint32 level = 3;
+  uint64 seq = 4;
+  // seq 等于已确认序号时为 true:未重复执行规则,只回当前状态。
+  bool replayed = 5;
+}
+
+message RealmSessionDisplaced {}
