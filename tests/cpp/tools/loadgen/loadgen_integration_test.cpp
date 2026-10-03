@@ -37,6 +37,7 @@
 #include <exception>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <iostream>
 #include <map>
 #include <mutex>
@@ -585,11 +586,18 @@ void use_loadgen_free_ports(
 /// unbuffered stderr 并停摆驱动,让后续断言失败时还能看到 what()。
 class TickDriver final {
 public:
-    explicit TickDriver(service_host::MeshHost& mesh)
-        : thread_([this, &mesh] {
+    /// after_tick 在每次 mesh.tick() 之后、同一线程上调用:网关水位 gauge
+    /// 只在 tick 内的 advance() 里发布,这里观察能看到每一个发布过的状态。
+    explicit TickDriver(
+        service_host::MeshHost& mesh,
+        std::function<void()> after_tick = {})
+        : thread_([this, &mesh, after_tick = std::move(after_tick)] {
               try {
                   while (running_.load(std::memory_order_relaxed)) {
                       mesh.tick();
+                      if (after_tick) {
+                          after_tick();
+                      }
                       std::this_thread::sleep_for(
                           std::chrono::milliseconds{2});
                   }
@@ -868,7 +876,21 @@ TEST(LoadgenIntegrationTest, L1GatewaySoakHoldsWaterLevelWithoutFdLeak) {
          {"queue", {}, false},
          {"gateway", {"login_verify"}, true}});
     ASSERT_TRUE(mesh.start_all());
-    const TickDriver driver(mesh);
+    // 水位采样挂在 tick 线程上:每次 advance() 发布后取一次快照,不会像
+    // 独立定时线程那样在慢机器上整段错过阶段重叠。基线跑与主跑都采样,
+    // 采样开销两边相同,不污染时延对照;断言只看主跑的样本。
+    std::vector<WaterSample> samples;
+    std::mutex samples_mutex;
+    std::atomic_bool sampling{false};
+    const TickDriver driver(mesh, [&] {
+        if (!sampling.load(std::memory_order_relaxed)) {
+            return;
+        }
+        auto snapshot = sample_water(parse_metrics_text(
+            mesh.service("gateway").prometheus_metrics()));
+        std::scoped_lock lock{samples_mutex};
+        samples.push_back(snapshot);
+    });
     const auto endpoints =
         loadgen_endpoints(login_verify_port, queue_port, gateway_port);
 
@@ -906,6 +928,7 @@ TEST(LoadgenIntegrationTest, L1GatewaySoakHoldsWaterLevelWithoutFdLeak) {
     // 线性一致消费记录,ADR-0009),attach 时延随并发排队增长是预期行为,
     // 把 30 并发的 p99 拿去和 100 并发的 p99 比,量的是负载曲线而不是
     // 漂移。同并发对照仍能抓住"病态劣化"(5 倍守门不变)。
+    sampling.store(true, std::memory_order_relaxed);
     LoadgenConfig baseline;
     baseline.target = LoadgenLoginTarget::GatewaySoak;
     baseline.robots = 100;
@@ -931,19 +954,10 @@ TEST(LoadgenIntegrationTest, L1GatewaySoakHoldsWaterLevelWithoutFdLeak) {
     const auto base_fetch_count =
         base_metrics.total("edge_fetch_duration_seconds_count");
 
-    // 采样线程:主跑期间 20ms 一次抓网关水位,避免错过并发阶段重叠。
-    std::vector<WaterSample> samples;
-    std::mutex samples_mutex;
-    std::atomic_bool sampling{true};
-    std::thread sampler([&] {
-        while (sampling.load(std::memory_order_relaxed)) {
-            auto snapshot = parse_metrics_text(
-                mesh.service("gateway").prometheus_metrics());
-            std::scoped_lock lock{samples_mutex};
-            samples.push_back(sample_water(snapshot));
-            std::this_thread::sleep_for(std::chrono::milliseconds{20});
-        }
-    });
+    {
+        std::scoped_lock lock{samples_mutex};
+        samples.clear();
+    }
 
     LoadgenConfig main_run;
     main_run.target = LoadgenLoginTarget::GatewaySoak;
@@ -954,7 +968,11 @@ TEST(LoadgenIntegrationTest, L1GatewaySoakHoldsWaterLevelWithoutFdLeak) {
     main_run.endpoints = endpoints;
     const auto report = run_loadgen(main_run);
     sampling.store(false, std::memory_order_relaxed);
-    sampler.join();
+    std::vector<WaterSample> main_samples;
+    {
+        std::scoped_lock lock{samples_mutex};
+        main_samples = std::move(samples);
+    }
 
     EXPECT_EQ(report.completed, 100);
     EXPECT_EQ(report.attach.failures, 0);
@@ -965,13 +983,13 @@ TEST(LoadgenIntegrationTest, L1GatewaySoakHoldsWaterLevelWithoutFdLeak) {
     // 水位断言:三段计数与额度账自洽(段和 + conn_free 恒等于管线连接
     // 容量,任何时刻快照都成立);handed-off 水位真实存在(hold 语义下
     // 100 个机器人全持,取 ≥ 50 宽松)。
-    ASSERT_FALSE(samples.empty());
+    ASSERT_FALSE(main_samples.empty());
     double capacity = 0;
     double max_pending = 0;
     double max_fetching = 0;
     double max_handed_off = 0;
     bool saw_mixed_water = false;
-    for (const auto& sample : samples) {
+    for (const auto& sample : main_samples) {
         const auto total =
             sample.pending + sample.fetching + sample.handed_off +
             sample.conn_free;
@@ -1052,6 +1070,7 @@ TEST(LoadgenIntegrationTest, L1GatewaySoakHoldsWaterLevelWithoutFdLeak) {
               << " max_fetching=" << max_fetching
               << " max_handed_off=" << max_handed_off
               << " mixed_water_sample=" << saw_mixed_water
+              << " water_samples=" << main_samples.size()
               << " baseline_attach_p50_ms=" << base_latency.p50_ms
               << " main_attach_p50_ms=" << main_latency.p50_ms
               << " baseline_attach_p99_ms=" << base_latency.p99_ms
