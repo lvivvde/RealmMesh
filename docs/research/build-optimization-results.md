@@ -180,3 +180,74 @@ R0 的改动类数据来自不复位的旧工具；后续阶段在同平台取�
 
 - [`r0-mac-samples.json`](assets/build-optimization-results/r0-mac-samples.json)、[`r0-lima-samples.json`](assets/build-optimization-results/r0-lima-samples.json)：逐次样本（含预热与恢复）、每步墙钟、编译/链接次数与合计、静态库归档次数、内存摘要、探针变体 hash、由日志重新解析的 CTest 结果、不超过 60 项时的编译源码与链接产物名单、`environment.json` 与 `summary.json`，由 `024694c` 的 `measure.py export` 从原始结果导出（计时与汇总和原始结果一致）。本机路径已替换为 `<bench>`。逐调用事件、原始日志与时间线体积较大，没有提交。
 - 复现方法：按 [tools/build-bench](../../tools/build-bench/README.md) 的用法，用 `git archive 4ffb58d` 生成源码副本，加 `--scenario all`；Mac 附加上表的 OpenSSL 适配参数，Lima 附加 `--env TMPDIR=<磁盘目录>`。R0 不改代码，所以没有回滚步骤。
+
+## P1：隔离第三方头来源与配置状态（[#121](https://github.com/lvivvde/RealmMesh/issues/121)）
+
+P1 是正确性阶段，门槛是来源与配置状态，不设耗时目标；本节秒数都只作筛查，不参与判定。
+
+### 条件
+
+| 项 | 值 |
+| --- | --- |
+| 源码 | `fd4fa7721513104b6f75d0f0dc16858d19e63710`，`git archive` 独立副本；Lima 取推送后的分支（`git fetch` ＋ `git archive FETCH_HEAD`），不动 Lima 工作区 |
+| 测量工具 | 同提交的 measure.py（sha256 `c272f92a…67b5`）、launcher.cpp（`1374833a…034b`）；launcher 在各平台本机编译（Mac `7c015b5f…`，Lima `19554d55…`） |
+| 生成器 / preset | Unix Makefiles，`dev`（Debug），binaryDir `build/dev` |
+| 并行 | 构建按验收约定的资源预算：Mac `--jobs 8`，Lima `--jobs 2`；CTest 串行 |
+| 编译缓存 | 无 |
+| 场景 | `fetch`（新目录全新获取＋配置）、`cold-entry` 1 组（全量构建＋完整 CTest）、`repro`（同目录连续 3 轮配置＋构建，首次重新配置计入） |
+| 适配参数 | 两平台都没有 CMake 适配参数。Mac 测量进程去掉了 `OPENSSL_ROOT_DIR`，走 macOS 默认根；Lima 只附加 `--env TMPDIR=<磁盘目录>` |
+| 测试身份 | 650 个 CTest 用例：R0 的 649 个加本阶段的 `DependencyIsolationTest`（integration） |
+
+机器、操作系统与工具链同 R0。Mac 与 Lima 按 Mac→Lima 先后测量，从未重叠。
+
+### 门槛验收
+
+| 门槛 | Mac | Lima |
+| --- | --- | --- |
+| OpenSSL 来源 | `RealmMesh: OpenSSL 3.6.5 from /opt/homebrew/Cellar/openssl@3/3.6.5 (root /opt/homebrew/opt/openssl@3, macOS default (Homebrew openssl@3))`；编译命令只有 `-isystem /opt/homebrew/opt/openssl@3/include` | `RealmMesh: OpenSSL 3.5.5 from /usr (root none, FindOpenSSL search)` |
+| macOS 实际使用固定版 Abseil | 是：`compile_commands.json` 中 `/opt/homebrew/include` 出现 0 次；依赖文件里的 `absl/base/config.h` 指向复用的 `absl-src`；开发目录 `nm` 只见 `lts_20250512` 符号（Homebrew 为 20260817） | 不适用（无系统 Abseil 混入，`-I/usr/include` 0 次） |
+| 新目录连续 3 轮配置＋构建，第三方 0 次额外编译 | 3 轮编译均为 0，链接均为 0 | 3 轮编译均为 0；第 1 轮有 1 次静态库归档＋52 次重链，见“异常与限制” |
+| 生成版本头 hash 与 mtime 稳定 | 7 个版本头 3 轮均未变（sha256 与 `mtime_ns`） | 同左 |
+| Mongo 版本头 | `BSON_VERSION_S`、`MONGOC_VERSION_S` 均为 `"2.5.5"` | 同左 |
+| 缓存不残留通用键 | `CMakeCache.txt` 中无 `BUILD_VERSION`、`WITH_PROTOC` | 同左 |
+| 完整 CTest | `100% tests passed out of 650` | `100% tests passed, 0 tests failed out of 650` |
+| QUIC | `realm_network: QUIC transport enabled` | 同左 |
+
+R0 在冷入口后第一次重新配置会改写 mongo-c 版本头，随后重编 265（Mac）/ 266（Lima）个依赖源码；P1 下这一代价消失，Mac 第 1 轮构建 2.52 s、0 编译。
+
+### 迁移验证（Mac 既有 `build/dev`）
+
+在开发机原有构建目录上逐项确认旧缓存的处理（不计时）：
+
+- 旧缓存带 `BUILD_VERSION:STRING=0.0.0`：配置失败并给出 `-UBUILD_VERSION` 命令；按提示重新配置后两个 Mongo 版本头为 2.5.5，此后重新配置＋构建反复为 0 编译。
+- `-DOPENSSL_INCLUDE_DIR=/opt/homebrew/include`（共享根）：配置失败并点名该项；`-UOPENSSL_INCLUDE_DIR` 后恢复。
+- 缓存中的 `WITH_PROTOC`：配置失败并给出 `-UWITH_PROTOC -DREALMMESH_PROTOC_EXECUTABLE=…`；`REALMMESH_PROTOC_EXECUTABLE` 指向 protoc 35.0 时通过，指向 `/usr/bin/true` 时被拒绝。
+
+### 筛查耗时（不判定）
+
+| 场景 | Mac（8 jobs）s | Lima（2 jobs）s |
+| --- | ---: | ---: |
+| 首次获取：FetchContent 全新获取＋配置 | 272.47 | 323.05 |
+| 首次获取：libsodium 包下载 | 见下 | 5.82 |
+| 冷入口 总 | 427.76 | 457.67 |
+| 　configure | 5.83 | 1.83 |
+| 　build | 54.38 | 171.85 |
+| 　test（完整 CTest） | 367.54 | 283.99 |
+| repro 配置（3 轮） | 1.49 / 1.44 / 1.48 | 0.63 / 0.63 / 0.62 |
+| repro 构建（3 轮） | 2.52 / 2.60 / 2.47 | 10.23 / 1.16 / 1.11 |
+
+冷入口编译 771 / 770 次（依赖 598，项目 173 / 172），链接 74 / 73 次，与 R0 相同。并行度与 R0 不同，build 步不与串行 R0 比较；按验收约定，并行条件下的同平台基线由后续阶段重新取。资源：Mac 进程树 RSS 峰值 2686 MiB，最低可用 20455 MiB；Lima 峰值 1717 MiB，最低可用 4359 MiB（高于 1 GiB 门槛）；两平台 swap 无增长，Lima 无 OOM。
+
+### 异常与限制
+
+- **Lima 第 1 轮构建重链。** `repro-build-1` 没有编译，但重新归档了 `libabsl_graphcycles_internal.a` 并重链 52 个产物（10.23 s）；第 2、3 轮完全为 0。归档的唯一输入 `graphcycles.cc.o` 仍是冷入口时的文件（mtime 未变），规则依赖的 `build.make`、`link.txt` 也未被重新配置改写，版本头不变，所以触发点是冷入口留下的归档比目标文件旧，不是配置状态。归档不经 launcher，冷入口时的归档 mtime 没有记录，具体原因未确认；Mac 未出现。R0 的 Lima 第 1 轮因版本头污染重编 266 个源码，掩盖了同类现象，无法对照。门槛（第三方 0 次额外编译、版本头稳定）不受影响，原因另行跟踪。
+- **Mac libsodium 下载 503。** Mac 的 `fetch-sodium` 遇到 GitHub 503 失败；`fetch-configure` 已完成（272.47 s，退出码 0）。随后手动下载同一 URL、核对 SHA256 `adbdd8f1…3349` 与 `third_party/sodium` 的固定值一致，放回依赖目录，以 `--deps-dir` 复用这次获取的源码另跑冷入口与 repro。因此 Mac 资产只含冷入口与 repro，下载耗时无数据。
+- **CMake 3.20 未实跑。** 最低版本 3.20 下 CMP0126 为 OLD；契约测试以 `cmake_policy` 分别设 OLD/NEW 重放上游语句，两平台本机与 CI 的 CMake 都高于 3.20。
+- **Linux 不指定根时没有旧缓存选择检查。** 未设 `OPENSSL_ROOT_DIR` 时不知道“应在哪个根”，只检查 FindOpenSSL 结果的布局（专用头目录、头与库同一安装），混装仍会被拒绝。
+- **macOS 默认根不进缓存。** 默认根是普通变量，`environment.json` 的缓存项里看不到；以配置日志中的 `RealmMesh: OpenSSL` 状态行为准。
+- **macOS 不带 QUIC 的组合**本机未测，由 CI 的 macOS job 覆盖。
+
+### 资产
+
+- [`p1-mac-samples.json`](assets/build-optimization-results/p1-mac-samples.json)（冷入口＋repro）、[`p1-lima-samples.json`](assets/build-optimization-results/p1-lima-samples.json)（fetch＋冷入口＋repro）：由同提交的 `measure.py export` 导出，本机路径替换为 `<bench>`。
+- 复现：`git archive fd4fa77` 生成源码副本，`--scenario fetch --scenario cold-entry --scenario repro --long-samples 1`，Mac 加 `--jobs 8`，Lima 加 `--jobs 2 --env TMPDIR=<磁盘目录>`；两平台都不需要 CMake 适配参数。
