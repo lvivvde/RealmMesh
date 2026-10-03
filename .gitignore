@@ -36,3 +36,6 @@ compile_commands.json
 
 # codebase-memory-mcp local artifact
 .codebase-memory/
+
+# Python bytecode (tools/build-bench)
+__pycache__/
