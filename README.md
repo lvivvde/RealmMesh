@@ -228,16 +228,40 @@ macOS（开发基准；装 `libmsquic` 即本地启用 QUIC，不装则只走 TL
 
 ```bash
 brew install openssl@3 libmsquic
-export OPENSSL_ROOT_DIR="$(brew --prefix openssl@3)"
 export PATH="$(brew --prefix openssl@3)/bin:$PATH"   # 测试证书生成要用 openssl(1)
 ./scripts/build.sh
 ```
 
-`OPENSSL_ROOT_DIR` 必须在首次配置前导出：缺了它，CMake 会从共享前缀
-`/opt/homebrew/include` 找到 OpenSSL，而 Homebrew 的 `mongodb-community` 会
-顺带装上 abseil，其头文件就会盖过工程固定版本，导致 protobuf 链接失败。
-已用错误前缀配置过的构建目录，需带
-`-DOPENSSL_ROOT_DIR="$(brew --prefix openssl@3)" -UOPENSSL_INCLUDE_DIR` 重新配置。
+### 第三方来源与配置状态
+
+配置开头由 `cmake/RealmMeshOpenSSL.cmake` 统一选定并校验 OpenSSL，Mongo 驱动与网络层都复用这一份结果；
+配置输出的 `RealmMesh: OpenSSL` 行给出版本、安装前缀与 root 来源。
+
+- **OpenSSL**：显式 `OPENSSL_ROOT_DIR`（`-D` 或环境变量）优先，无效即失败、不回退；未指定时
+  macOS 默认 Homebrew `openssl@3` 专用前缀。不能用共享前缀 `/opt/homebrew/include`：其中还有
+  Homebrew 的 Abseil（`mongodb-community` 会顺带装上），会盖过工程固定版本。配置期会校验：头文件来自专用
+  include 目录，头与库属于同一安装，探针程序能链接（架构一致），头与运行时主次版本一致。
+- **protoc**：默认下载并校验官方 protoc 35.0（无官方包的宿主从源码构建）。要用本机已有的 protoc，唯一入口是
+  `-DREALMMESH_PROTOC_EXECUTABLE=<绝对路径>`，版本必须是 35.0，无效即失败、不改走下载。
+  `WITH_PROTOC` 只是内部映射，不接受外部设置。
+- **Mongo 驱动版本**：C 驱动 2.5.5 与 C++ 驱动 4.6.0 在 `third_party/mongo` 各自设定，通用键
+  `BUILD_VERSION` 不进缓存，避免重新配置后改写版本头、触发大批重编。
+
+Mongo、protobuf 等 FetchContent 依赖按固定 URL + SHA256 获取；`FETCHCONTENT_SOURCE_DIR_<NAME>` 只作显式的
+开发/实验覆盖（如复用已下载并核对过的源码），不属于验收构建的默认来源。
+
+旧构建目录里残留的冲突缓存会让配置明确失败，错误信息列出缓存项与迁移命令，按提示定向移除即可，无需删构建目录：
+
+| 残留 | 迁移 |
+| --- | --- |
+| 旧版配置留下的 `BUILD_VERSION`，或手动 `-DBUILD_VERSION` | `cmake --preset dev -UBUILD_VERSION` |
+| `OPENSSL_INCLUDE_DIR` 等发现结果不在选定 root 内（如 `/opt/homebrew/include`） | `cmake --preset dev -UOPENSSL_INCLUDE_DIR`（报错列出的其他键同理） |
+| `-DWITH_PROTOC=...` | `cmake --preset dev -UWITH_PROTOC -DREALMMESH_PROTOC_EXECUTABLE=<路径>` |
+
+本机路径（OpenSSL、protoc、MsQuic 前缀等）不写进仓库预设：复制
+[`CMakeUserPresets.example.json`](CMakeUserPresets.example.json) 为 `CMakeUserPresets.json`（已被
+`.gitignore` 忽略），改成本机路径并删去不需要的键；它以 `dev-local` 继承 `dev`，构建目录为 `build/dev-local`，
+用 `cmake --preset dev-local`、`cmake --build --preset dev-local`、`ctest --preset dev-local` 配置、构建、测试。
 
 `scripts/build.sh` 依次执行 `cmake --preset dev`、`cmake --build --preset dev` 和
 `ctest --preset dev`（配置 + 构建 + 全量测试），并在首次构建时把

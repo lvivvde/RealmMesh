@@ -11,6 +11,7 @@
 | `configs/*.lua` 加载冒烟 | `tests/cpp/framework/service_host/configs_load_smoke_test.cpp` | 随 C++ 单测走 | `unit` |
 | 脚本级/跨进程集成测试(bash 驱动真实脚本与 `realm_mesh`,占真实端口) | `tests/scripts/` | `tests/cmake/dev-services-tests.cmake` 的模式(`add_test` + `RUN_SERIAL`) | `integration` |
 | C++ E2E/占端口用例 | `tests/cpp/`(目标内) | `realm_add_gtest … LABELS integration` | `integration` |
+| CMake 配置期契约(`cmake/*.cmake` 模块的分支，可能拉起子 `cmake` 配置小工程) | `tests/cmake/*_test.cmake` | `tests/cmake/<契约>-contract.cmake` 里 `add_test` 跑 `cmake -P`,由 `tests/cpp/CMakeLists.txt` 引入 | `integration` |
 
 - 分类标签只有两个:`unit` / `integration`,Lua 套件另带的 `lua` 只作筛选;三者定义都在 `test_helpers.cmake` 头注释与根目录 `CONTEXT.md`(Testing 词目)。
 - 新增测试必须带标签:常规 GTest / Lua 套件用缺省即可;**占用固定端口或拉起 `realm_mesh` 的目标必须显式 `LABELS integration`**,否则会混进快速子集抢端口。

@@ -747,7 +747,8 @@ class Bench:
             for line in cache_path.read_text(errors='replace').splitlines():
                 match = re.match(r'^([A-Za-z_][\w.-]*):[A-Z]+=(.*)$', line)
                 if match and match.group(1) in ('CMAKE_GENERATOR', 'CMAKE_BUILD_TYPE', 'CMAKE_C_COMPILER', 'CMAKE_CXX_COMPILER',
-                                                'CMAKE_CXX_COMPILER_LAUNCHER', 'OPENSSL_INCLUDE_DIR', 'MSQUIC_LIBRARY', 'WITH_PROTOC'):
+                                                'CMAKE_CXX_COMPILER_LAUNCHER', 'OPENSSL_ROOT_DIR', 'OPENSSL_INCLUDE_DIR', 'MSQUIC_LIBRARY',
+                                                'WITH_PROTOC', 'REALMMESH_PROTOC_EXECUTABLE'):
                     cache[match.group(1)] = match.group(2)
         quic = None
         for log in self.out.glob('*configure*.log'):

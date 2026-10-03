@@ -81,7 +81,8 @@ target_compile_definitions(realm_network PRIVATE
     REALM_NETWORK_EVENT_LOOP_BACKEND_${REALM_NETWORK_EVENT_LOOP_BACKEND_UPPER}
 )
 
-find_package(OpenSSL 3.0 REQUIRED COMPONENTS SSL Crypto)
+# OpenSSL::SSL/OpenSSL::Crypto come from realmmesh_find_openssl() in the
+# top-level CMakeLists.txt.
 
 add_library(RealmMesh::Network ALIAS realm_network)
 

@@ -1,0 +1,29 @@
+{
+  "version": 2,
+  "configurePresets": [
+    {
+      "name": "dev-local",
+      "displayName": "Development (local overrides)",
+      "inherits": "dev",
+      "binaryDir": "${sourceDir}/build/dev-local",
+      "cacheVariables": {
+        "OPENSSL_ROOT_DIR": "/path/to/openssl-3-prefix",
+        "REALMMESH_PROTOC_EXECUTABLE": "/path/to/protoc-35.0/bin/protoc",
+        "MSQUIC_ROOT": "/path/to/msquic-2.6-prefix"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "dev-local",
+      "configurePreset": "dev-local"
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "dev-local",
+      "inherits": "dev",
+      "configurePreset": "dev-local"
+    }
+  ]
+}

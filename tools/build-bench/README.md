@@ -54,7 +54,7 @@ python3 tools/build-bench/measure.py export --out "$out/result" --dest docs/rese
 
 常用参数：
 
-- `--cmake-arg=-D...`：每次配置都附加的平台适配参数，例如 macOS 在 P1 前需要 `-DOPENSSL_INCLUDE_DIR=/opt/homebrew/opt/openssl@3/include`。
+- `--cmake-arg=-D...`：每次配置都附加的平台适配参数。R0 在 macOS 上需要 `-DOPENSSL_INCLUDE_DIR=/opt/homebrew/opt/openssl@3/include`；P1（#121）起默认即选 Homebrew `openssl@3` 专用前缀，不再需要。
 - `--env NAME=VALUE`：测量进程的附加环境，例如 Lima 把 `TMPDIR` 指到磁盘目录。
 - `--jobs N`：传给 `cmake --build --parallel`；缺省串行（R0 条件）。
 - `--preset`、`--build-dir`：改预设与构建目录后用。
