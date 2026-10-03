@@ -33,23 +33,36 @@ set(ENABLE_MONGODB_AWS_AUTH OFF)
 set(ENABLE_SHM_COUNTERS OFF)
 set(BUILD_SHARED_LIBS OFF)
 
+# 两个驱动各有版本，却读同一个通用键 BUILD_VERSION:C 驱动沿用已定义的值，
+# C++ 驱动把它声明为缓存项 0.0.0。缓存里一旦留下这一项，下次配置 C 驱动就
+# 拿到 0.0.0,改写版本头并重编全部依赖它的源码(#121)。因此逐个驱动设为
+# 本目录普通变量，并由 RealmMeshCacheIsolation 保证该键不进缓存。
+set(realmmesh_mongo_c_version 2.5.5)
+set(realmmesh_mongo_cxx_version 4.6.0)
+include("${PROJECT_SOURCE_DIR}/cmake/RealmMeshCacheIsolation.cmake")
+realmmesh_cache_isolation_begin("third_party/mongo" BUILD_VERSION)
+
 FetchContent_Declare(
     mongo-c-driver
-    URL https://github.com/mongodb/mongo-c-driver/releases/download/2.5.5/mongo-c-driver-2.5.5.tar.gz
+    URL https://github.com/mongodb/mongo-c-driver/releases/download/${realmmesh_mongo_c_version}/mongo-c-driver-${realmmesh_mongo_c_version}.tar.gz
     URL_HASH SHA256=fa255802fe748b98d4464e07223e87a44c88c02c35398d7607b2f02e967395b1
     DOWNLOAD_EXTRACT_TIMESTAMP TRUE
     ${fetch_args}
 )
+set(BUILD_VERSION ${realmmesh_mongo_c_version})
 FetchContent_MakeAvailable(mongo-c-driver)
 
 FetchContent_Declare(
     mongo-cxx-driver
-    URL https://github.com/mongodb/mongo-cxx-driver/releases/download/r4.6.0/mongo-cxx-driver-r4.6.0.tar.gz
+    URL https://github.com/mongodb/mongo-cxx-driver/releases/download/r${realmmesh_mongo_cxx_version}/mongo-cxx-driver-r${realmmesh_mongo_cxx_version}.tar.gz
     URL_HASH SHA256=eac122db0789fc82b0ba93f92a1503d74c502bfe4728345eaa8650e50a79da11
     DOWNLOAD_EXTRACT_TIMESTAMP TRUE
     ${fetch_args}
 )
+set(BUILD_VERSION ${realmmesh_mongo_cxx_version})
 FetchContent_MakeAvailable(mongo-cxx-driver)
+unset(BUILD_VERSION)
+realmmesh_cache_isolation_end(BUILD_VERSION)
 
 add_library(realm_mongocxx INTERFACE)
 add_library(Mongo::cxx ALIAS realm_mongocxx)

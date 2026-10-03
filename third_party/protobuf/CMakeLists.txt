@@ -19,35 +19,62 @@ FetchContent_MakeAvailable(absl)
 # compile upb's bootstrap reflection headers (google/protobuf/descriptor.upb.h
 # is only generated for the normal, non-bootstrap build). Hosts without a
 # prebuilt binary still build protoc from source.
+#
+# REALMMESH_PROTOC_EXECUTABLE is the one public way to supply protoc (#121): it
+# must be protoc 35.0 and takes precedence over the download; an invalid choice
+# fails rather than falling back. WITH_PROTOC stays an internal mapping: the
+# normal variable set below would shadow a cached one, so a -DWITH_PROTOC
+# override is rejected with its migration.
+set(realmmesh_protobuf_version 35.0)
+set(REALMMESH_PROTOC_EXECUTABLE "" CACHE FILEPATH
+    "Absolute path to an external protoc ${realmmesh_protobuf_version}; empty uses the pinned release download")
+if(DEFINED CACHE{WITH_PROTOC})
+    include("${PROJECT_SOURCE_DIR}/cmake/RealmMeshCacheIsolation.cmake")
+    realmmesh_cache_migration_hint(realmmesh_protoc_hint
+        " -UWITH_PROTOC -DREALMMESH_PROTOC_EXECUTABLE=<absolute path to protoc ${realmmesh_protobuf_version}>")
+    message(FATAL_ERROR
+        "WITH_PROTOC='$CACHE{WITH_PROTOC}' is in the cache, but RealmMesh sets WITH_PROTOC itself and would "
+        "ignore it. Use the project entry instead:\n${realmmesh_protoc_hint}\n"
+        "Leave out -DREALMMESH_PROTOC_EXECUTABLE to use the pinned release download.")
+endif()
+
+include("${PROJECT_SOURCE_DIR}/cmake/RealmMeshProtoc.cmake")
 set(realmmesh_protoc_url "")
 set(realmmesh_protoc_sha256 "")
 if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux" AND
    CMAKE_HOST_SYSTEM_PROCESSOR MATCHES "^(x86_64|amd64|AMD64)$")
     set(realmmesh_protoc_url
-        "https://github.com/protocolbuffers/protobuf/releases/download/v35.0/protoc-35.0-linux-x86_64.zip")
+        "https://github.com/protocolbuffers/protobuf/releases/download/v${realmmesh_protobuf_version}/protoc-${realmmesh_protobuf_version}-linux-x86_64.zip")
     set(realmmesh_protoc_sha256
         a45cda0989c17dd950db55f6fbe1e5814c50fda08e87aa422980ac1f89dddbbc)
 elseif(CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux" AND
        CMAKE_HOST_SYSTEM_PROCESSOR MATCHES "^(arm64|aarch64)$")
     set(realmmesh_protoc_url
-        "https://github.com/protocolbuffers/protobuf/releases/download/v35.0/protoc-35.0-linux-aarch_64.zip")
+        "https://github.com/protocolbuffers/protobuf/releases/download/v${realmmesh_protobuf_version}/protoc-${realmmesh_protobuf_version}-linux-aarch_64.zip")
     set(realmmesh_protoc_sha256
         36b518ac14d90351cc6598228ed2bbe5afe4e357b1af470b07e0ec1609875de2)
 elseif(CMAKE_HOST_SYSTEM_NAME STREQUAL "Darwin" AND
        CMAKE_HOST_SYSTEM_PROCESSOR MATCHES "^(arm64|aarch64)$")
     set(realmmesh_protoc_url
-        "https://github.com/protocolbuffers/protobuf/releases/download/v35.0/protoc-35.0-osx-aarch_64.zip")
+        "https://github.com/protocolbuffers/protobuf/releases/download/v${realmmesh_protobuf_version}/protoc-${realmmesh_protobuf_version}-osx-aarch_64.zip")
     set(realmmesh_protoc_sha256
         45444963204757fd3e2fbe304bc1fdadfb488d8556ff099c4cc06575eab88976)
 elseif(CMAKE_HOST_SYSTEM_NAME STREQUAL "Darwin" AND
        CMAKE_HOST_SYSTEM_PROCESSOR MATCHES "^(x86_64|amd64|AMD64)$")
     set(realmmesh_protoc_url
-        "https://github.com/protocolbuffers/protobuf/releases/download/v35.0/protoc-35.0-osx-x86_64.zip")
+        "https://github.com/protocolbuffers/protobuf/releases/download/v${realmmesh_protobuf_version}/protoc-${realmmesh_protobuf_version}-osx-x86_64.zip")
     set(realmmesh_protoc_sha256
         3580c2d115fccb5b0239960c8f70f8da14787b1973a46b2f39c315ad71c11e01)
 endif()
 
-if(realmmesh_protoc_url)
+if(REALMMESH_PROTOC_EXECUTABLE)
+    realmmesh_check_protoc("${REALMMESH_PROTOC_EXECUTABLE}" ${realmmesh_protobuf_version} realmmesh_protoc_error)
+    if(realmmesh_protoc_error)
+        message(FATAL_ERROR "${realmmesh_protoc_error}")
+    endif()
+    set(WITH_PROTOC "${REALMMESH_PROTOC_EXECUTABLE}")
+    message(STATUS "realm_protocol: protoc ${realmmesh_protobuf_version} from REALMMESH_PROTOC_EXECUTABLE (${WITH_PROTOC})")
+elseif(realmmesh_protoc_url)
     FetchContent_Declare(
         realmmesh_protoc
         URL "${realmmesh_protoc_url}"
@@ -62,6 +89,9 @@ if(realmmesh_protoc_url)
             GROUP_READ GROUP_EXECUTE
             WORLD_READ WORLD_EXECUTE
     )
+    message(STATUS "realm_protocol: protoc ${realmmesh_protobuf_version} from the pinned release download")
+else()
+    message(STATUS "realm_protocol: protoc built from source (no pinned release for this host)")
 endif()
 
 set(protobuf_BUILD_TESTS OFF CACHE BOOL "" FORCE)
@@ -76,7 +106,7 @@ set(protobuf_WITH_ZLIB OFF CACHE BOOL "" FORCE)
 
 FetchContent_Declare(
     protobuf
-    URL https://github.com/protocolbuffers/protobuf/releases/download/v35.0/protobuf-35.0.tar.gz
+    URL https://github.com/protocolbuffers/protobuf/releases/download/v${realmmesh_protobuf_version}/protobuf-${realmmesh_protobuf_version}.tar.gz
     URL_HASH SHA256=8f907baca4b34a3b4854103ba5811e418fb6e2ff11fe0d8df9e8280b11d79926
     DOWNLOAD_EXTRACT_TIMESTAMP TRUE
 )
