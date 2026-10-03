@@ -182,7 +182,7 @@ def parse_external_url(text):
     return url.group(1), digest.group(1).lower()
 
 
-_CTEST_SUMMARY = re.compile(r'(\d+)% tests passed, (\d+) tests? failed out of (\d+)')
+_CTEST_SUMMARY = re.compile(r'(\d+)% tests passed(?:, (\d+) tests? failed)? out of (\d+)')
 _CTEST_FAILED = re.compile(r'Test\s+#\d+: (\S+) .*\*\*\*(?:Failed|Timeout|Exception|Not Run)')
 _CTEST_REAL = re.compile(r'Total Test time \(real\) =\s*([\d.]+) sec')
 
@@ -198,7 +198,7 @@ def parse_ctest_log(text):
     real = _CTEST_REAL.search(text)
     return {
         'tests_total': int(summary.group(3)),
-        'tests_failed': int(summary.group(2)),
+        'tests_failed': int(summary.group(2) or 0),
         'failed_tests': failed,
         'ctest_real_s': float(real.group(1)) if real else None,
     }
@@ -754,7 +754,13 @@ def cmd_run(args):
 
 def cmd_summarize(args):
     out = Path(args.out)
-    summary = summarize(json.loads((out / 'stages.json').read_text()))
+    rows = json.loads((out / 'stages.json').read_text())
+    for row in rows:
+        # 按原始日志重新解析 CTest 结果，修正旧版解析器写入的行。
+        log = out / row.get('log', '')
+        if row.get('log') and log.is_file():
+            row.update(parse_ctest_log(log.read_text(errors='replace')))
+    summary = summarize(rows)
     (out / 'summary.json').write_text(json.dumps(summary, indent=2, ensure_ascii=False))
     markdown = render_markdown(summary)
     (out / 'summary.md').write_text(markdown)

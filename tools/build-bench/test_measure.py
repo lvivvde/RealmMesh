@@ -96,6 +96,11 @@ class ParseCtestLogTest(unittest.TestCase):
             'RealmJourneyTest.Character',
         ])
 
+    def test_all_passed_without_failed_clause(self):
+        # CMake 4.x 的 CTest 全部通过时省略 “N tests failed”。
+        got = measure.parse_ctest_log('100% tests passed out of 649\n\nTotal Test time (real) = 364.24 sec\n')
+        self.assertEqual((got['tests_total'], got['tests_failed']), (649, 0))
+
     def test_no_ctest_output(self):
         self.assertEqual(measure.parse_ctest_log('[ 10%] Building CXX object a.o\n'), {})
 
