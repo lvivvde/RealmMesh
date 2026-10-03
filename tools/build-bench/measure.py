@@ -6,6 +6,7 @@
 """
 
 import argparse
+import collections
 import contextlib
 import hashlib
 import json
@@ -26,13 +27,14 @@ SOURCE_SUFFIXES = ('.c', '.cc', '.cpp', '.cxx')
 NOISE_FLOOR = 0.05
 
 # 代表探针：主指标向文件末尾追加改变预处理 token、不改行为的声明（variant_bytes 的 token 变体），
-# 历史对照仍追加注释（comment 变体）；测完恢复原始字节。
+# 历史对照仍追加注释（comment 变体）；每个样本后恢复原始字节并构建回稳定状态（edit_plan）。
 PROBES = {
     'lua-cpp': 'framework/scripting/src/lua_runtime.cpp',
     'lua-hpp': 'framework/scripting/include/realmmesh/scripting/lua_runtime.hpp',
     'gateway-hpp': 'game/gateway/include/realmmesh/game/gateway/gateway_runtime.hpp',
     'player-data-hpp': 'game/common/include/realmmesh/game/common/player_data_store.hpp',
     'proto': 'proto/realmmesh/common/v1/envelope.proto',
+    'private-hpp': 'game/common/src/envelope_codec.hpp',
 }
 SCENARIOS = ['fetch', 'cold-entry', 'repro', 'hot-full', 'unit-entry', 'cpp-entry', 'probes']
 # libsodium 是 ExternalProject：下载包放进其默认 DOWNLOAD_DIR 且 hash 相符时，构建跳过下载。
@@ -42,6 +44,13 @@ SODIUM_CACHE = 'sodium-download'
 TIMELINE_MARKERS = ('Building ', 'Linking ', 'Performing ', 'Downloading', 'Test #', 'Test  #', 'tests passed', 'QUIC transport')
 QUIC_ENABLED = 'realm_network: QUIC transport enabled'
 QUIC_DISABLED = 'realm_network: QUIC transport disabled'
+STATIC_LIBRARY = re.compile(r'Linking (?:C|CXX) static library')
+# 资产保留的阶段字段；名单（编译源码、链接产物）只在不超过 EXPORT_LIST_LIMIT 项时保留。
+EXPORT_FIELDS = ('name', 'warmup', 'wall_s', 'exit', 'loadavg_start', 'loadavg_end', 'compile_count',
+                 'dependency_compile_count', 'project_compile_count', 'link_count', 'compile_wall_sum_s', 'link_wall_sum_s',
+                 'max_compile_rss_kib', 'max_link_rss_kib', 'failed_tool_calls', 'memory', 'variant',
+                 'generated_version_headers', 'generated_version_headers_changed')
+EXPORT_LIST_LIMIT = 60
 
 
 # ---------------------------------------------------------------- 纯函数（test_measure.py 覆盖）
@@ -131,6 +140,22 @@ def variant_bytes(original, relative, label, index, kind):
     raise ValueError(f'no token variant for {relative}')
 
 
+EditSample = collections.namedtuple('EditSample', 'name index warmup kind reset')
+
+
+def edit_plan(prefix, samples, comment_samples):
+    """编辑场景的样本顺序：token 变体预热 1 次 + samples 次，再注释变体 comment_samples 次。
+
+    每个样本都由原始字节派生；测完写回原始字节并构建回稳定状态（reset 阶段，自成一组），
+    下一个样本总是相对原始状态改动——注释变体因此预处理后与原始相同。
+    """
+    plan = [EditSample(f'{prefix}-{suffix}', index, warmup, 'token', f'{prefix}-reset-{suffix}')
+            for suffix, index, warmup in [('warmup', 0, True)] + [(str(i), i, False) for i in range(1, samples + 1)]]
+    plan += [EditSample(f'{prefix}-comment-{i}', i, False, 'comment', f'{prefix}-comment-reset-{i}')
+             for i in range(1, comment_samples + 1)]
+    return plan
+
+
 @contextlib.contextmanager
 def edited(path, write):
     """只读取一次原始字节；with 块内的各样本都由它派生变体，退出（含异常）时用 write 恢复原始字节。"""
@@ -208,6 +233,31 @@ def parse_ctest_log(text):
         'failed_tests': failed,
         'ctest_real_s': float(real.group(1)) if real else None,
     }
+
+
+def anonymize(value, roots):
+    """把字符串里的本机测量根目录替换为 <bench>（递归处理 dict/list）。"""
+    if isinstance(value, dict):
+        return {k: anonymize(v, roots) for k, v in value.items()}
+    if isinstance(value, list):
+        return [anonymize(v, roots) for v in value]
+    if isinstance(value, str):
+        for root in sorted(roots, key=len, reverse=True):
+            value = value.replace(root.rstrip('/'), '<bench>')
+    return value
+
+
+def export_sample(row, log_text):
+    """stages.json 一行 → 可提交的样本：去掉命令与逐调用事件，补日志里的 CTest 结果与静态库归档次数。"""
+    item = {k: row[k] for k in EXPORT_FIELDS if k in row}
+    item['steps'] = [{'label': s['label'], 'wall_s': s['wall_s'], 'exit': s['exit']} for s in row.get('steps', [])]
+    item['static_library_count'] = len(STATIC_LIBRARY.findall(log_text))
+    item.update(parse_ctest_log(log_text))
+    if row.get('compile_count', 0) <= EXPORT_LIST_LIMIT and 'compiled_sources' in row:
+        item['compiled_sources'] = sorted(row['compiled_sources'])
+    if row.get('link_count', 0) <= EXPORT_LIST_LIMIT and 'linked_outputs' in row:
+        item['linked_outputs'] = sorted(row['linked_outputs'])
+    return item
 
 
 def summarize(rows):
@@ -586,6 +636,17 @@ class Bench:
             'original_sha256': hashlib.sha256(original).hexdigest(),
             'variant_sha256': hashlib.sha256(content).hexdigest()}}
 
+    def run_edits(self, relative, label, plan, steps):
+        """按 edit_plan 逐个样本：写入变体 → 计时 → 写回原始字节 → 同样的步骤构建回稳定状态。"""
+        with edited(self.source / relative, self.write_source) as original:
+            for sample in plan:
+                extra = self.apply_variant(relative, original, label, sample.index, sample.kind)
+                row = self.run(sample.name, steps(), warmup=sample.warmup, extra=extra)
+                self.write_source(self.source / relative, original)
+                reset = self.run(sample.reset, steps(), warmup=sample.warmup)
+                if row['exit'] or reset['exit']:
+                    raise SystemExit(f'{sample.name}: exit {row["exit"]}, reset exit {reset["exit"]}')
+
     def sample_indexes(self, count, warmup):
         """(阶段后缀, 变体序号, 是否预热)；预热序号 0，正式样本 1..count。"""
         return ([('warmup', 0, True)] if warmup else []) + [(str(i), i, False) for i in range(1, count + 1)]
@@ -657,31 +718,18 @@ class Bench:
                                               ('test', self.ctest_cmd('-L', 'unit'))], warmup=warmup)
 
     def scenario_cpp_entry(self):
-        """默认 Unit、代表 .cpp 真实改动：token 变体改 lua_runtime.cpp 后配置 + ALL 构建 + 全部 Unit。"""
-        relative = PROBES['lua-cpp']
-        with edited(self.source / relative, self.write_source) as original:
-            for suffix, index, warmup in self.sample_indexes(self.args.samples, warmup=True):
-                extra = self.apply_variant(relative, original, 'cpp-entry', index, 'token')
-                row = self.run(f'cpp-entry-{suffix}', [('configure', self.configure_cmd()), ('build', self.build_cmd()),
-                                                       ('test', self.ctest_cmd('-L', 'unit'))], warmup=warmup, extra=extra)
-                if row['exit']:
-                    break
-        self.run('cpp-entry-restore', [('configure', self.configure_cmd()), ('build', self.build_cmd())])
+        """默认 Unit、代表 .cpp 真实改动：token 变体改 lua_runtime.cpp 后配置 + ALL 构建 + 全部 Unit；
+        每个样本后恢复原始字节，以同样的入口回到稳定状态（cpp-entry-reset-N）。"""
+        self.run_edits(PROBES['lua-cpp'], 'cpp-entry', edit_plan('cpp-entry', self.args.samples, 0),
+                       lambda: [('configure', self.configure_cmd()), ('build', self.build_cmd()),
+                                ('test', self.ctest_cmd('-L', 'unit'))])
 
     def scenario_probes(self):
-        """每个探针：token 变体预热 1 次 + --samples 次（主指标），注释变体 --comment-samples 次（历史对照），
-        之后恢复原始字节并构建回稳定状态。只计 build。"""
+        """每个探针：token 变体预热 1 次 + --samples 次（主指标），注释变体 --comment-samples 次（历史对照）；
+        每个样本后恢复原始字节并构建回稳定状态（probe-<探针>-reset-N）。只计 build。"""
         for label in self.args.probe or list(PROBES):
-            relative = PROBES[label]
-            plan = [(f'probe-{label}-{suffix}', index, warmup, 'token')
-                    for suffix, index, warmup in self.sample_indexes(self.args.samples, warmup=True)]
-            plan += [(f'probe-{label}-comment-{i}', i, False, 'comment') for i in range(1, self.args.comment_samples + 1)]
-            with edited(self.source / relative, self.write_source) as original:
-                for name, index, warmup, kind in plan:
-                    extra = self.apply_variant(relative, original, label, index, kind)
-                    if self.run(name, [('build', self.build_cmd())], warmup=warmup, extra=extra)['exit']:
-                        break
-            self.run(f'probe-{label}-restore', [('build', self.build_cmd())])
+            self.run_edits(PROBES[label], label, edit_plan(f'probe-{label}', self.args.samples, self.args.comment_samples),
+                           lambda: [('build', self.build_cmd())])
 
     # 环境 --------------------------------------------------------------
 
@@ -774,32 +822,59 @@ def cmd_summarize(args):
     print(markdown, end='')
 
 
+def cmd_export(args):
+    """把一个 --out 目录压缩成可提交的样本资产：逐次样本、environment.json、summary.json，本机路径换成 <bench>。"""
+    out = Path(args.out)
+    rows = json.loads((out / 'stages.json').read_text())
+    samples = []
+    for row in rows:
+        log = out / row.get('log', '')
+        samples.append(export_sample(row, log.read_text(errors='replace') if row.get('log') and log.is_file() else ''))
+    env_path, summary_path = out / 'environment.json', out / 'summary.json'
+    asset = {
+        'platform': args.platform,
+        'environment': json.loads(env_path.read_text()) if env_path.exists() else [],
+        'samples': samples,
+        'summary': json.loads(summary_path.read_text()) if summary_path.exists() else summarize(rows),
+    }
+    dest = Path(args.dest)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(json.dumps(anonymize(asset, args.root), indent=1, ensure_ascii=False) + '\n')
+    print(dest)
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest='command', required=True)
-    run = sub.add_parser('run', help='按场景测量')
-    run.add_argument('--source', required=True, help='被测源码树（建议是独立副本，探针会临时改写其中文件）')
-    run.add_argument('--out', required=True, help='结果目录；同一目录内阶段名不可重复')
-    run.add_argument('--launcher', required=True, help='已编译的 launcher 可执行文件')
-    run.add_argument('--scenario', action='append', required=True, choices=SCENARIOS + ['all'])
-    run.add_argument('--probe', action='append', choices=list(PROBES), help='probes 场景只跑这些探针（默认全部）')
-    run.add_argument('--samples', type=int, default=5, help='短场景正式样本数（另加 1 次预热）')
-    run.add_argument('--long-samples', type=int, default=3, help='冷入口、热完整验证的样本数；repro 至少 3 轮')
-    run.add_argument('--comment-samples', type=int, default=3, help='注释探针（历史对照）样本数')
-    run.add_argument('--preset', default='dev')
-    run.add_argument('--build-dir', help='相对 --source 的构建目录，默认 build/<preset>')
-    run.add_argument('--deps-dir', help='复用的依赖源码目录，默认 <out>/deps-src（由 fetch 场景填充）')
-    run.add_argument('--jobs', type=int, help='传给 cmake --build --parallel；缺省为串行')
-    run.add_argument('--cache-mode', default='none', help='记录用的编译缓存模式说明')
-    run.add_argument('--cmake-arg', action='append', default=[], help='每次配置附加的 CMake 参数（平台适配）')
-    run.add_argument('--env', action='append', default=[], metavar='NAME=VALUE', help='测量进程附加的环境变量')
-    run.add_argument('--name-prefix', default='')
-    run.add_argument('--commit', help='被测提交；缺省读 --source 的 git HEAD')
-    run.add_argument('--label', help='自由文本，例如 "P0 Mac"')
-    run.set_defaults(func=cmd_run)
-    summ = sub.add_parser('summarize', help='按场景汇总 stages.json')
-    summ.add_argument('--out', required=True)
-    summ.set_defaults(func=cmd_summarize)
+    run_parser = sub.add_parser('run', help='按场景测量')
+    run_parser.add_argument('--source', required=True, help='被测源码树（建议是独立副本，探针会临时改写其中文件）')
+    run_parser.add_argument('--out', required=True, help='结果目录；同一目录内阶段名不可重复')
+    run_parser.add_argument('--launcher', required=True, help='已编译的 launcher 可执行文件')
+    run_parser.add_argument('--scenario', action='append', required=True, choices=SCENARIOS + ['all'])
+    run_parser.add_argument('--probe', action='append', choices=list(PROBES), help='probes 场景只跑这些探针（默认全部）')
+    run_parser.add_argument('--samples', type=int, default=5, help='短场景正式样本数（另加 1 次预热）')
+    run_parser.add_argument('--long-samples', type=int, default=3, help='冷入口、热完整验证的样本数；repro 至少 3 轮')
+    run_parser.add_argument('--comment-samples', type=int, default=3, help='注释探针（历史对照）样本数')
+    run_parser.add_argument('--preset', default='dev')
+    run_parser.add_argument('--build-dir', help='相对 --source 的构建目录，默认 build/<preset>')
+    run_parser.add_argument('--deps-dir', help='复用的依赖源码目录，默认 <out>/deps-src（由 fetch 场景填充）')
+    run_parser.add_argument('--jobs', type=int, help='传给 cmake --build --parallel；缺省为串行')
+    run_parser.add_argument('--cache-mode', default='none', help='记录用的编译缓存模式说明')
+    run_parser.add_argument('--cmake-arg', action='append', default=[], help='每次配置附加的 CMake 参数（平台适配）')
+    run_parser.add_argument('--env', action='append', default=[], metavar='NAME=VALUE', help='测量进程附加的环境变量')
+    run_parser.add_argument('--name-prefix', default='')
+    run_parser.add_argument('--commit', help='被测提交；缺省读 --source 的 git HEAD')
+    run_parser.add_argument('--label', help='自由文本，例如 "P0 Mac"')
+    run_parser.set_defaults(func=cmd_run)
+    summarize_parser = sub.add_parser('summarize', help='按场景汇总 stages.json')
+    summarize_parser.add_argument('--out', required=True)
+    summarize_parser.set_defaults(func=cmd_summarize)
+    export = sub.add_parser('export', help='导出可提交的逐次样本资产')
+    export.add_argument('--out', required=True, help='run 的结果目录（先 summarize）')
+    export.add_argument('--dest', required=True, help='资产 JSON 路径')
+    export.add_argument('--platform', required=True, help='平台说明，写进资产')
+    export.add_argument('--root', action='append', default=[], help='替换为 <bench> 的本机目录前缀，可重复')
+    export.set_defaults(func=cmd_export)
     args = parser.parse_args(argv)
     args.func(args)
 

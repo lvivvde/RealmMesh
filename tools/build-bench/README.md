@@ -5,8 +5,8 @@
 | 文件 | 作用 |
 | --- | --- |
 | `launcher.cpp` | 作为 `CMAKE_<LANG>_{COMPILER,LINKER}_LAUNCHER` 包住每次真实编译/链接；设置 `REALMMESH_BUILD_BENCH_EVENTS` 时写一条事件 JSON：argv、cwd、墙钟、退出码、user/sys 时间、`maxrss_kib`（macOS 字节已换算为 KiB） |
-| `measure.py` | 按场景驱动 `cmake`/`ctest`，整体计时并分步记录，统计实际编译/链接名单与次数，每秒采样内存；`summarize` 按场景汇总 |
-| `test_measure.py` | `measure.py` 纯函数的单元测试 |
+| `measure.py` | 按场景驱动 `cmake`/`ctest`，整体计时并分步记录，统计实际编译/链接名单与次数，每秒采样内存；`summarize` 按场景汇总，`export` 导出可提交的样本资产 |
+| `test_measure.py` | `measure.py` 纯函数的单元测试。不按 [tests/README.md](../../tests/README.md) 进 `tests/` 与 CTest：测量工具不属于被测产品，注册进 CTest 会改变各阶段要比较的测试合集；改动本目录时手动运行，见“自测” |
 
 需要 Python 3.9+、C++17 编译器与 `curl`，不依赖第三方包。
 
@@ -21,17 +21,17 @@
 | `repro` | `repro-configure-N`、`repro-build-N` | configure；build | 冷入口后同目录连续配置 + 构建，至少 3 轮；行内记录构建树生成版本头（`*version*.h/.hpp`）hash 或 mtime 有变化的名单，首次重新配置单独可见 |
 | `hot-full` | `hot-full-N` | configure、build、test | 热完整验证：标准配置 + 稳定无操作 ALL 构建 + 完整 CTest |
 | `unit-entry` | `unit-entry-N` | configure、build、test | 默认 Unit、无改动：标准配置 + ALL 构建 + `ctest -L unit` |
-| `cpp-entry` | `cpp-entry-N`、`cpp-entry-restore` | configure、build、test | 默认 Unit、代表 `.cpp` 真实改动：`lua_runtime.cpp` 写入 token 变体后同 `unit-entry`；最后恢复并配置 + 构建 |
-| `probes` | `probe-<探针>-N`、`probe-<探针>-comment-N`、`probe-<探针>-restore` | build | 每个探针先 token 变体（主指标），再注释变体 `--comment-samples` 次（默认 3，历史对照），最后恢复原始字节再构建；`--probe` 可限定 |
+| `cpp-entry` | `cpp-entry-N`、`cpp-entry-reset-N` | configure、build、test | 默认 Unit、代表 `.cpp` 真实改动：`lua_runtime.cpp` 写入 token 变体后同 `unit-entry`；每个样本后恢复原始字节，以同样的入口回到稳定状态 |
+| `probes` | `probe-<探针>-N`、`probe-<探针>-comment-N`，及对应的 `…-reset-N` | build | 每个探针先 token 变体（主指标），再注释变体 `--comment-samples` 次（默认 3，历史对照）；每个样本后恢复原始字节并构建回稳定状态；`--probe` 可限定 |
 
 CTest 始终串行（测试并行 1）。
 
-探针：`lua-cpp`（`lua_runtime.cpp`）、`lua-hpp`（`lua_runtime.hpp`，Lua 重头内部变化）、`gateway-hpp`（`gateway_runtime.hpp`）、`player-data-hpp`（`player_data_store.hpp`）、`proto`（`envelope.proto`）。变体都追加在文件末尾、由原始字节派生，第 N 次与其他次内容不同：
+探针：`lua-cpp`（`lua_runtime.cpp`）、`lua-hpp`（`lua_runtime.hpp`，Lua 重头内部变化）、`gateway-hpp`（`gateway_runtime.hpp`）、`player-data-hpp`（`player_data_store.hpp`）、`proto`（`envelope.proto`）、`private-hpp`（`game/common/src/envelope_codec.hpp`，私有头）。变体都追加在文件末尾、由原始字节派生，第 N 次与其他次内容不同：
 
 - token 变体改变预处理结果、不改行为：C++ 追加 `inline constexpr int realmmesh_build_bench_<探针>_variant = N;`（外部链接，不触发未使用告警），proto 追加 `message BuildBenchVariantN {}`。
 - 注释变体追加 `// build-bench <探针> content-change sample N`，预处理后不变，只用于和旧数据对照。
 
-每行记录 `variant`：文件、种类、序号、原始与变体 sha256。每次改写前等到下一个整秒：macOS `/usr/bin/make`（GNU Make 3.81）按整秒比较 mtime，与上次产物同秒的改动会漏编。
+每个样本都相对原始状态改动：测完写回原始字节，再用同样的步骤构建回稳定状态，记为 `…-reset-N` 阶段（自成一组，可与样本对照）。因此注释变体预处理后与原始相同，后续缓存阶段也不会把上一个变体当基准。每行记录 `variant`：文件、种类、序号、原始与变体 sha256。每次改写前等到下一个整秒：macOS `/usr/bin/make`（GNU Make 3.81）按整秒比较 mtime，与上次产物同秒的改动会漏编。
 
 ## 用法
 
@@ -46,7 +46,11 @@ c++ -std=c++17 -O2 tools/build-bench/launcher.cpp -o "$out/launcher"
 python3 tools/build-bench/measure.py run --source "$out/source" --out "$out/result" \
     --launcher "$out/launcher" --scenario all --commit "$(git rev-parse HEAD)" --label "R0 Mac"
 python3 tools/build-bench/measure.py summarize --out "$out/result"
+python3 tools/build-bench/measure.py export --out "$out/result" --dest docs/research/assets/<目录>/<名>.json \
+    --platform "R0 Mac" --root "$out"
 ```
+
+`export` 保留逐次样本（含预热与 reset）、每步墙钟、编译/链接次数与合计、静态库归档次数、内存摘要、探针变体 hash、由日志重新解析的 CTest 结果、不超过 60 项的编译源码与链接产物名单、`environment.json` 与 `summary.json`，并把 `--root` 前缀换成 `<bench>`；不含命令行、逐调用事件与原始日志。
 
 常用参数：
 

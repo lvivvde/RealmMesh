@@ -2,6 +2,7 @@
 // 原样执行 argv 并返回其退出码；设置 REALMMESH_BUILD_BENCH_EVENTS 时，向该目录写一条事件 JSON
 // （argv、cwd、墙钟、退出码、user/sys 时间、最大 RSS）。用法见同目录 README.md。
 #include <chrono>
+#include <cerrno>
 #include <climits>
 #include <cstdlib>
 #include <fstream>
@@ -31,7 +32,9 @@ int main(int argc, char** argv) {
     if (pid < 0) return 127;
     int status = 0;
     struct rusage usage{};
-    while (wait4(pid, &status, 0, &usage) < 0) {}
+    while (wait4(pid, &status, 0, &usage) < 0) {
+        if (errno != EINTR) return 127;
+    }
     const double seconds = std::chrono::duration<double>(Clock::now() - start).count();
     const int result = WIFEXITED(status) ? WEXITSTATUS(status) : 128 + WTERMSIG(status);
     if (const char* directory = std::getenv("REALMMESH_BUILD_BENCH_EVENTS")) {

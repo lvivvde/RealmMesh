@@ -276,5 +276,48 @@ class SummarizeTest(unittest.TestCase):
         self.assertEqual(got['wall_s']['median'], 25.0)
 
 
+class EditPlanTest(unittest.TestCase):
+    def test_every_sample_is_followed_by_its_reset(self):
+        got = measure.edit_plan('probe-lua-hpp', samples=2, comment_samples=1)
+        self.assertEqual([(s.name, s.index, s.warmup, s.kind, s.reset) for s in got], [
+            ('probe-lua-hpp-warmup', 0, True, 'token', 'probe-lua-hpp-reset-warmup'),
+            ('probe-lua-hpp-1', 1, False, 'token', 'probe-lua-hpp-reset-1'),
+            ('probe-lua-hpp-2', 2, False, 'token', 'probe-lua-hpp-reset-2'),
+            ('probe-lua-hpp-comment-1', 1, False, 'comment', 'probe-lua-hpp-comment-reset-1'),
+        ])
+
+    def test_reset_rows_form_their_own_group(self):
+        names = [s.reset for s in measure.edit_plan('cpp-entry', samples=2, comment_samples=0)]
+        self.assertEqual({measure.stage_group(n) for n in names[1:]}, {'cpp-entry-reset'})
+
+    def test_private_header_probe(self):
+        self.assertEqual(measure.PROBES['private-hpp'], 'game/common/src/envelope_codec.hpp')
+
+
+class ExportSampleTest(unittest.TestCase):
+    def test_anonymizes_roots_everywhere(self):
+        got = measure.anonymize({'a': ['/w/bench/source/x', 'TMPDIR=/w/bench/tmp'], 'b': '/other'}, ['/w/bench'])
+        self.assertEqual(got, {'a': ['<bench>/source/x', 'TMPDIR=<bench>/tmp'], 'b': '/other'})
+
+    def test_keeps_counts_steps_and_small_name_lists(self):
+        row = {'name': 'probe-proto-1', 'warmup': False, 'wall_s': 9.0, 'exit': 0, 'compile_count': 2, 'link_count': 1,
+               'compiled_sources': ['b.cpp', 'a.cpp'], 'linked_outputs': ['bin/t'], 'events': 'probe-proto-1-events',
+               'steps': [{'label': 'build', 'command': ['cmake', '--build'], 'wall_s': 9.0, 'exit': 0}]}
+        log = 'Linking CXX static library libx.a\nLinking C static library liby.a\nLinking CXX executable t\n'
+        got = measure.export_sample(row, log)
+        self.assertEqual(got['steps'], [{'label': 'build', 'wall_s': 9.0, 'exit': 0}])
+        self.assertEqual(got['compiled_sources'], ['a.cpp', 'b.cpp'])
+        self.assertEqual(got['linked_outputs'], ['bin/t'])
+        self.assertEqual(got['static_library_count'], 2)
+        self.assertNotIn('events', got)
+
+    def test_drops_long_name_lists(self):
+        row = {'name': 'cold-entry-1', 'wall_s': 1.0, 'exit': 0, 'compile_count': 61, 'link_count': 61,
+               'compiled_sources': ['a.cpp'] * 61, 'linked_outputs': ['t'] * 61, 'steps': []}
+        got = measure.export_sample(row, '')
+        self.assertNotIn('compiled_sources', got)
+        self.assertNotIn('linked_outputs', got)
+
+
 if __name__ == '__main__':
     unittest.main()
