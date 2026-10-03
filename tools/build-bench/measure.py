@@ -13,6 +13,7 @@ import os
 import platform
 import re
 import shutil
+import signal
 import statistics
 import subprocess
 import sys
@@ -138,6 +139,11 @@ def edited(path, write):
         yield original
     finally:
         write(path, original)
+
+
+def exit_on_sigterm():
+    """SIGTERM 转为 SystemExit(143)，让 edited() 恢复源码、environment.json 照常写出。"""
+    signal.signal(signal.SIGTERM, lambda signum, frame: sys.exit(128 + signum))
 
 
 def parse_ps(text):
@@ -742,6 +748,7 @@ class Bench:
 def cmd_run(args):
     scenarios = SCENARIOS if 'all' in args.scenario else args.scenario
     bench = Bench(args)
+    exit_on_sigterm()
     try:
         for scenario in scenarios:
             getattr(bench, 'scenario_' + scenario.replace('-', '_'))()

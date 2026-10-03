@@ -1,5 +1,7 @@
 """measure.py 纯函数的单元测试：python3 -m unittest discover tools/build-bench"""
 
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -173,6 +175,28 @@ class EditedTest(unittest.TestCase):
                 with measure.edited(path, self.write):
                     self.write(path, b'broken')
                     raise RuntimeError
+            self.assertEqual(path.read_bytes(), b'int a;\n')
+
+    def test_restores_on_sigterm(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / 'a.cpp'
+            path.write_bytes(b'int a;\n')
+            child = subprocess.Popen([sys.executable, '-c', (
+                'import os, signal, sys, time\n'
+                f'sys.path.insert(0, {str(Path(__file__).parent)!r})\n'
+                'import measure\n'
+                'measure.exit_on_sigterm()\n'
+                f'path = measure.Path({str(path)!r})\n'
+                'with measure.edited(path, measure.Path.write_bytes):\n'
+                "    path.write_bytes(b'broken')\n"
+                "    print('edited', flush=True)\n"
+                '    time.sleep(30)\n'
+            )], stdout=subprocess.PIPE)
+            self.assertEqual(child.stdout.readline(), b'edited\n')
+            child.terminate()
+            child.wait(timeout=10)
+            child.stdout.close()
+            self.assertEqual(child.returncode, 143)
             self.assertEqual(path.read_bytes(), b'int a;\n')
 
 

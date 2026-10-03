@@ -69,6 +69,8 @@ python3 tools/build-bench/measure.py summarize --out "$out/result"
 
 同一 `--out` 内阶段名不可重复；重测换新目录或加 `--name-prefix`。
 
+暂停与续跑：等一个阶段 `DONE` 后对整个进程组发 `kill -TERM -<pgid>`。`measure.py` 收到 SIGTERM 会恢复正在改写的探针文件并写出 `environment.json`；中断阶段的半成品（`<阶段>-events/` 等）删掉后，用同一 `--out` 只跑剩余场景，`stages.json` 接着追加。
+
 内存摘要的口径：
 
 - 进程树 RSS：每秒用 `ps` 合计 `measure.py` 及全部后代进程的 RSS 取峰值；脱离进程树的守护进程与两次采样之间的短进程不在内。launcher 的 RSS 是单进程峰值，不能乘 jobs 推断整体峰值。
