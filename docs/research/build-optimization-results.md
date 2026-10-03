@@ -9,13 +9,13 @@
 | 项 | 值 |
 | --- | --- |
 | 源码 | `4ffb58df9b8d20beec59f4b056d3e9c90859401f`，`git archive` 独立副本，无补丁 |
-| 测量工具 | Mac：`e2df308`（measure.py sha256 `3ecb099c…79cf`）；Lima：`b4746f8`（`97acbbdd…425e`）。两者差别只在 CTest 4.x 汇总解析与 SIGTERM 收尾，不改变计时与场景；launcher.cpp 同为 `ac0a2b51…e0f1`，launcher 在各平台本机编译（Mac `64f28a77…`，Lima `b09628e8…`） |
+| 测量工具 | Mac：`e2df308`（measure.py sha256 `3ecb099c…79cf`）；Lima：`b4746f8`（`97acbbdd…425e`）。两者差别只在 CTest 4.x 汇总解析与 SIGTERM 收尾，不改变计时与场景；launcher.cpp 同为 `ac0a2b51…e0f1`，launcher 在各平台本机编译（Mac `64f28a77…`，Lima `b09628e8…`）。R0 之后 launcher.cpp 只修正了 `wait4` 非 EINTR 出错时的死循环，正常路径不变；measure.py 在 `024694c` 改为逐样本复位并新增私有头探针，R0 的改动类数据仍出自旧工具，见“异常、限制与历史对照” |
 | 生成器 / preset | Unix Makefiles，`dev`（Debug），binaryDir `build/dev` |
 | 并行 | 构建串行（不传 `--parallel`），CTest 串行；工具清除 `CMAKE_BUILD_PARALLEL_LEVEL`、`CTEST_PARALLEL_LEVEL`、`MAKEFLAGS` 等继承变量 |
 | 编译缓存 | 无（ccache 未安装，未设 launcher 之外的 compiler launcher） |
 | 来源准备 | FetchContent 源码由 `fetch` 场景一次获取后以 `FETCHCONTENT_SOURCE_DIR_<NAME>` 复用；libsodium 1.0.22 包预先下载并核对 SHA256 `adbdd8f1…3349`，冷入口前放入 ExternalProject 下载目录（hash 相符跳过下载），其 configure/make 仍在计时内 |
 | 测试身份 | 649 个 CTest 用例，标签计时 unit 496、integration 153、lua 2（标签可重叠，以 CTest 实际 649 为准），两平台相同，无跳过；自动化只用夹具自起的隔离 etcd/MongoDB |
-| 样本 | 冷入口、热完整验证各 3 组；短场景 1 次预热（不计）＋5 组；探针 token 变体 5 组＋注释变体 3 组＋恢复 1 次 |
+| 样本 | 冷入口、热完整验证各 3 组；短场景 1 次预热（不计）＋5 组；探针 token 变体 5 组＋注释变体 3 组＋恢复 1 次；`cpp-entry` 与探针的样本之间不复位（旧工具） |
 | 能力 | Mac 与 Lima 都编入 QUIC（configure 行 `realm_network: QUIC transport enabled`） |
 
 | 平台 | 机器 | 工具链 | 资源 |
@@ -55,7 +55,7 @@ Mac 与 Lima 共用宿主，按 Mac→Lima 先后测量，从未重叠。
 | 　build | 5 | 32.91（30.38–35.39） | 15.2% | 5 | 18.94（18.79–19.30） | 5.0% |
 | 　test | 5 | 8.84（8.35–9.12） | 8.7% | 5 | 4.66（4.63–4.69） | 5.0% |
 
-探针只计 build 步（之前是 ALL 构建的稳定状态）。token 变体是主指标；注释变体预处理后不变，只用于和旧数据对照。编译/链接次数在两平台和所有样本中都一致。
+探针只计 build 步（之前是 ALL 构建的稳定状态）。token 变体是主指标，注释变体只用于和旧数据对照。旧工具每个变体都由原始字节派生，但样本之间不写回原始字节、不重建：token 第 N 次是从第 N−1 次变体的稳定状态改过来的（仍是真实 token 变化）；注释第 1 次是从 token 第 5 次改过来的，实际是“去掉 token、加注释”，第 2、3 次才是纯注释变化。编译/链接次数在两平台和所有样本中都一致。
 
 | 探针（build 计时） | 变体 | Mac 秒 | Mac 噪声带 | Mac 编译/链接 | Lima 秒 | Lima 噪声带 | Lima 编译/链接 |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -103,9 +103,9 @@ Mac 与 Lima 共用宿主，按 Mac→Lima 先后测量，从未重叠。
 - Lima 的单 `.cpp` 改动以 53 次链接为主（gcc 默认链接器约 0.3 s/次）。
 - Mac 的单次链接只需约 0.06 s，但 53 次链接前后约有 27–32 s 花在编译、链接之外；无操作 Unit 构建（7.88 s 对 2.05 s）也是这样。候选来源包括测试可执行文件 POST_BUILD 的 `gtest_discover_tests` 用例枚举（`tests/cmake/test_helpers.cmake`）、Make 3.81 递归调度、`protoc` 等自定义命令，以及 libsodium 的 configure/make（只影响冷入口）。R0 没有逐项计时，归因留给 P2，这里只记录现象。
 
-**链接扇出。** 只改 `lua_runtime.cpp` 一个文件也要重新链接 53 个产物（Mac 共 74 个），改 `player_data_store.hpp` 或 `envelope.proto` 要重链 52 个；`gateway_runtime.hpp` 的扇出最小，为 28 次编译 / 20 次链接。Lua 重头 `lua_runtime.hpp` 触发 33 次编译。
+**链接扇出。** 只改 `lua_runtime.cpp` 一个文件也要重新链接 53 个产物（Mac 共 74 个），改 `player_data_store.hpp` 或 `envelope.proto` 要重链 52 个；`gateway_runtime.hpp` 的扇出最小，为 28 次编译 / 20 次链接。Lua 重头 `lua_runtime.hpp` 触发 33 次编译、53 次链接，名单见资产中 `probe-lua-hpp-*` 的 `compiled_sources` / `linked_outputs`：除 `lua_runtime.cpp` 与 `training_rule.cpp` 外，多数是各服务的配置加载、服务宿主与对应测试。哪些只用配置结果、应在 P3 后 0 次重编，由 P3 分类。
 
-**token 与注释。** 两种变体的编译/链接名单相同，耗时差别都在噪声带内。现行构建按文件时间戳失效，不区分是否只改了注释。
+**token 与注释。** 两种变体的编译/链接名单相同，耗时差别都在噪声带内（注释组含上述 1 次非纯注释样本）。现行构建按文件时间戳失效，不区分是否只改了注释。
 
 **生成版本头污染（#116）。** 冷入口后第一次重新配置会改写 mongo-c 的 `bson/version.h` 与 `mongoc-version.h`，随后第一次构建在 Mac 上重编 265 个依赖源码、重链 52 次，用时 75.01 s，在 Lima 上为 266 / 52，用时 70.49 s。Lima 多出的 1 个是 Linux 专用的 `mongoc-linux-distro-scanner.c`。第 2、3 轮重新配置不再改写，构建都是 0 编译（Mac 7.3–7.4 s，Lima 2.6 s）。热完整验证、Unit 入口与探针都发生在这次污染之后，不受它影响；但开发者首次重新配置时会付出这一代价。
 
@@ -151,18 +151,18 @@ Mac 与 Lima 共用宿主，按 Mac→Lima 先后测量，从未重叠。
 
 ### 与已选目标的距离
 
-门槛按各平台 R0 中位数换算，到时同平台、同条件配对比较；目标与判定口径以验收约定为准，下表只换算数字。
+门槛按各平台 R0 中位数（未四舍五入）换算并向严格方向截到 0.01 s，到时同平台、同条件配对比较；目标与判定口径以验收约定为准，下表只换算数字。
 
 | 指标 | R0 Mac | Mac 门槛 | R0 Lima | Lima 门槛 |
 | --- | ---: | ---: | ---: | ---: |
-| 完整构建（冷入口 build 步）快 ≥20% | 305.71 | ≤244.57 | 359.20 | ≤287.36 |
-| 默认 Unit 无改动（总）快 ≥30% | 17.78 | ≤12.45 | 7.32 | ≤5.12 |
-| 默认 Unit `.cpp` 改动（总）快 ≥30% | 43.25 | ≤30.28 | 24.26 | ≤16.98 |
+| 完整构建（冷入口 build 步）快 ≥20% | 305.71 | ≤244.56 | 359.20 | ≤287.36 |
+| 默认 Unit 无改动（总）快 ≥30% | 17.78 | ≤12.44 | 7.32 | ≤5.12 |
+| 默认 Unit `.cpp` 改动（总）快 ≥30% | 43.25 | ≤30.27 | 24.26 | ≤16.97 |
 | Lua 重头（`lua-hpp` token）快 ≥30%，只用配置结果的消费者 0 次重编 | 72.71（33 编译） | ≤50.90 | 73.79（33 编译） | ≤51.65 |
 | 热完整验证（总）回归 ≤5% | 369.22 | ≤387.68 | 288.66 | ≤303.09 |
 | 兼容缓存重建 | 不适用（R0 无缓存，P5 建立） | — | — | — |
 
-R0 的构建与测试都是串行。最终并行预算按验收约定为 Mac 8、Linux 2、CI 2，相应阶段在同平台以新条件重新取基线再配对，不拿串行 R0 直接比较。
+R0 的改动类数据来自不复位的旧工具；后续阶段在同平台取配对基线时用 `024694c` 起的逐样本复位工具，不拿 R0 改动类秒数直接判定。R0 的构建与测试都是串行。最终并行预算按验收约定为 Mac 8、Linux 2、CI 2，相应阶段在同平台以新条件重新取基线再配对，不拿串行 R0 直接比较。
 
 ### 异常、限制与历史对照
 
@@ -170,10 +170,13 @@ R0 的构建与测试都是串行。最终并行预算按验收约定为 Mac 8�
 - **Mac 的 `environment.json` 只有续跑段一条**（14:00:33，工具 `e2df308`）。第一段被 SIGTERM 中止时没有写出 environment，`b4746f8` 修复了这个问题，并补了测试。第一段的条件见各阶段日志与 `stages.json`，与续跑段相同。
 - **Mac 负载。** 测量期间桌面应用照常运行（WindowServer、Claude、Codex、XprotectService 等），负载均值 1.5–6.3；还有一对 10 月 2 日 14:46 起的空闲 etcd、mongod 孤儿进程，不属于本次测量。Mac 的 configure（26.4%）与 `cpp-entry` build（15.2%）噪声带较宽，后续配对比较时以噪声带判定。Lima 负载约为 1，各项噪声带基本为 5%。
 - **工具版本。** Mac 用 `e2df308`，Lima 用 `b4746f8`。两者计时与场景代码相同，差别只在 CTest 4.x 汇总解析（属后处理）与 SIGTERM 收尾。
+- **改动类样本未逐样本复位（偏离验收约定第 5 条）。** 验收约定要求每次改动后恢复原始字节与稳定状态。R0 的 `cpp-entry` 与探针用的旧工具只在整组结束后恢复一次（`cpp-entry-restore`、`probe-*-restore`），影响见“结果”一节的说明。工具已在 `024694c` 修正；按新工具的重测只跑完 Mac 的 `cpp-entry` 一组就按决定取消，未采用，R0 保留旧数据。
+- **私有头探针缺失。** 验收约定要求的私有头探针（`game/common/src/envelope_codec.hpp`，`edge_protocol.cpp`、`realm_protocol.cpp` 两个消费者）在 R0 没有数据，由后续阶段取同平台基线时首次测量。
+- **未覆盖的组合。** 两平台本机都编入 QUIC；macOS 不带 QUIC（只有 TLS/TCP）的组合本机未测，由 CI 的 macOS job 覆盖构建与测试。Linux 的 M1–M4 验收不在本机测量范围，由同提交 CI 的 Linux job 覆盖（254 s，通过）。
 - **libsodium。** libsodium 的 configure/make 不经 launcher，不计入编译次数，只体现在 build 步墙钟里。
 - **历史对照（不可比）。** 旧协议下的 Mac 数据（同一提交，旧工具）为：冷构建 316.14 s、完整测试 369.83 s；注释探针 `lua-cpp` 26.86、`lua-hpp` 68.99、`gateway-hpp` 52.39、`player-data-hpp` 77.21、`proto` 78.44 s。旧工具的恢复步骤有缺陷，注释探针受到污染；一组 `cpp` 样本还被 Xcode 许可弹窗打断（exit 2/69）。这些数据只用来说明数量级，不参与任何判定。
 
 ### 资产
 
-- [`r0-mac-samples.json`](assets/build-optimization-results/r0-mac-samples.json)、[`r0-lima-samples.json`](assets/build-optimization-results/r0-lima-samples.json)：逐次样本（含预热）、每步墙钟、编译/链接次数与合计、内存摘要、探针变体 hash、由日志重新解析的 CTest 结果、编译不超过 60 次时的源码名单、`environment.json` 与 `summary.json`。本机路径已替换为 `<bench>`。逐调用事件、原始日志与时间线体积较大，没有提交。
+- [`r0-mac-samples.json`](assets/build-optimization-results/r0-mac-samples.json)、[`r0-lima-samples.json`](assets/build-optimization-results/r0-lima-samples.json)：逐次样本（含预热与恢复）、每步墙钟、编译/链接次数与合计、静态库归档次数、内存摘要、探针变体 hash、由日志重新解析的 CTest 结果、不超过 60 项时的编译源码与链接产物名单、`environment.json` 与 `summary.json`，由 `024694c` 的 `measure.py export` 从原始结果导出（计时与汇总和原始结果一致）。本机路径已替换为 `<bench>`。逐调用事件、原始日志与时间线体积较大，没有提交。
 - 复现方法：按 [tools/build-bench](../../tools/build-bench/README.md) 的用法，用 `git archive 4ffb58d` 生成源码副本，加 `--scenario all`；Mac 附加上表的 OpenSSL 适配参数，Lima 附加 `--env TMPDIR=<磁盘目录>`。R0 不改代码，所以没有回滚步骤。
