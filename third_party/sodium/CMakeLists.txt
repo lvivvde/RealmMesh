@@ -1,5 +1,13 @@
 include(ExternalProject)
 
+# libsodium 走自己的 Autotools/Make,build/install 明确串行(#125):不用 $(MAKE)
+# 加入顶层 make 的 jobserver,也清掉继承的 MAKEFLAGS,顶层 --jobs 不乘进外部构建。
+find_program(REALMMESH_SODIUM_MAKE NAMES make gmake REQUIRED)
+mark_as_advanced(REALMMESH_SODIUM_MAKE)
+set(sodium_make
+    "${CMAKE_COMMAND}" -E env --unset=MAKEFLAGS --unset=MFLAGS --unset=MAKELEVEL
+    "${REALMMESH_SODIUM_MAKE}" -j1)
+
 set(sodium_install_dir "${CMAKE_CURRENT_BINARY_DIR}/install")
 file(MAKE_DIRECTORY "${sodium_install_dir}/include")
 
@@ -15,8 +23,8 @@ ExternalProject_Add(
         --disable-shared
         --enable-static
         --with-pic
-    BUILD_COMMAND $(MAKE)
-    INSTALL_COMMAND $(MAKE) install
+    BUILD_COMMAND ${sodium_make}
+    INSTALL_COMMAND ${sodium_make} install
     INSTALL_DIR "${sodium_install_dir}"
     BUILD_BYPRODUCTS "${sodium_install_dir}/lib/libsodium.a"
 )

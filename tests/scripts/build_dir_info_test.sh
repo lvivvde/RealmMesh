@@ -3,7 +3,8 @@
 # 构建目录信息(#122)的行为测试:在临时小工程里用真实 CMakePresets.json、
 # cmake/RealmMeshBuildDirInfo.cmake 与 scripts/ 入口跑 configure / build / test,
 # 验证各入口按 --preset 解析的是配置期记录的真实 binaryDir,未配置、身份不符
-# 或源码树不符时给出明确提示,并且派生用户预设走得通完整链路。
+# 或源码树不符时给出明确提示,并且派生用户预设走得通完整链路。test-fast.sh /
+# test-watch.sh 自己先配置,需要 Unit 登记清单,由 test_fast_test.sh 覆盖。
 #
 # 用法:build_dir_info_test.sh <源码根> <cmake 可执行文件>
 
@@ -12,7 +13,7 @@ set -euo pipefail
 source_root="$1"
 cmake_bin="$2"
 
-# build.sh / test-watch.sh 从 PATH 找 cmake,固定为与本次构建同一份。
+# build.sh 从 PATH 找 cmake,固定为与本次构建同一份。
 PATH="$(dirname "${cmake_bin}"):${PATH}"
 export PATH
 
@@ -63,8 +64,8 @@ expect_success() {
 mkdir -p "${fixture}/cmake" "${fixture}/scripts/lib"
 cp "${source_root}/CMakePresets.json" "${fixture}/"
 cp "${source_root}/cmake/RealmMeshBuildDirInfo.cmake" "${fixture}/cmake/"
-for script in build.sh build-dir.sh test-watch.sh dev-services.sh \
-    dev-all-in-one.sh lib/build-dir.sh lib/dev-process.sh; do
+for script in build.sh build-dir.sh dev-services.sh \
+    dev-all-in-one.sh lib/build-dir.sh lib/build-jobs.sh lib/dev-process.sh; do
     cp "${source_root}/scripts/${script}" "${fixture}/scripts/${script}"
 done
 
@@ -126,9 +127,6 @@ expect_contains "${last_output}" "./scripts/build.sh --preset dev-make" \
 expect_failure "invalid preset name" ./scripts/build-dir.sh --preset ../dev
 expect_contains "${last_output}" "Invalid preset name" "invalid preset name"
 expect_failure "unknown option" ./scripts/build-dir.sh --bogus
-expect_failure "unconfigured test-watch" \
-    ./scripts/test-watch.sh --preset dev-make --once
-expect_contains "${last_output}" "--preset dev-make" "unconfigured test-watch"
 expect_failure "unconfigured dev-services start" \
     ./scripts/dev-services.sh --preset dev-make start
 expect_contains "${last_output}" "./scripts/build.sh --preset dev-make" \
@@ -210,12 +208,6 @@ expect_success "build.sh keeps a regular file" ./scripts/build.sh --preset dev
 expect_contains "${last_output}" "not a symlink" "build.sh keeps a regular file"
 rm compile_commands.json
 expect_failure "build.sh unknown option" ./scripts/build.sh --bogus
-
-# --- test-watch:单轮跑所选预设,时间戳落在该预设的构建目录 ---
-expect_success "test-watch dev-local" \
-    ./scripts/test-watch.sh --preset dev-local --once
-[[ -f build/dev-local/.test-watch-stamp ]] ||
-    fail "test-watch must stamp the selected build directory"
 
 # --- 两个预设共用一个目录:配置期告警,原预设的记录随之失效 ---
 expect_success "configure dev-shared" "${cmake_bin}" --preset dev-shared

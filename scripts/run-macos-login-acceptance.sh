@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # 用途：在 macOS 上复现完整 Login Chain 的 TLS/TCP 验收矩阵，并生成报告。
-# 用法：./scripts/run-macos-login-acceptance.sh [--preset NAME]（默认 dev）
+# 用法：./scripts/run-macos-login-acceptance.sh [--preset NAME]（默认 dev）[--jobs N]
 # 可选：REALMMESH_ACCEPTANCE_REPEATS=5 ./scripts/run-macos-login-acceptance.sh
 # 构建目录取所选预设在配置期记录的真实 binaryDir(#122),报告写到其 acceptance/。
 
@@ -10,8 +10,11 @@ set -euo pipefail
 project_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 # shellcheck source=lib/build-dir.sh
 source "${project_root}/scripts/lib/build-dir.sh"
+# shellcheck source=lib/build-jobs.sh
+source "${project_root}/scripts/lib/build-jobs.sh"
 repeat_count="${REALMMESH_ACCEPTANCE_REPEATS:-3}"
 preset="${realmmesh_default_preset}"
+jobs=""
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -24,10 +27,20 @@ while [[ $# -gt 0 ]]; do
             preset="${1#--preset=}"
             shift
             ;;
+        --jobs)
+            [[ $# -ge 2 ]] || { echo "--jobs requires a value." >&2; exit 2; }
+            jobs="$2"
+            shift 2
+            ;;
+        --jobs=*)
+            jobs="${1#--jobs=}"
+            shift
+            ;;
         --help|-h)
-            echo "Usage: $0 [--preset NAME]"
-            echo "Configures and builds the preset (default: dev), then writes the"
-            echo "report to <its build directory>/acceptance/."
+            echo "Usage: $0 [--preset NAME] [--jobs N]"
+            echo "Configures and builds the preset (default: dev) with N compile jobs"
+            echo "(default: CMAKE_BUILD_PARALLEL_LEVEL if set, else the CPU/memory"
+            echo "budget), then writes the report to <its build directory>/acceptance/."
             exit 0
             ;;
         *)
@@ -37,6 +50,8 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 realmmesh_require_preset_name "${preset}" || exit 2
+# 编译并行度(#125):--jobs > CMAKE_BUILD_PARALLEL_LEVEL > CPU/内存预算。
+realmmesh_resolve_build_jobs "${jobs}" || exit 2
 
 if [[ "$(uname -s)" != "Darwin" ]]; then
     echo "This acceptance profile is macOS-only (TLS/TCP fallback)." >&2
@@ -139,7 +154,9 @@ run_logged() {
     return "${status}"
 }
 
-run_logged "Build" "${cmake_bin}" --build --preset "${preset}"
+echo "${realmmesh_build_jobs_report}" | tee -a "${log_path}"
+run_logged "Build" "${cmake_bin}" --build --preset "${preset}" \
+    --parallel "${realmmesh_build_jobs}"
 
 # 装了 libmsquic 的 Mac 会编入 QUIC(ADR-0012),Gateway 随之多起一个 QUIC
 # 监听;客户端仍只拨 TLS/TCP,报告记下监听状态以便对照。

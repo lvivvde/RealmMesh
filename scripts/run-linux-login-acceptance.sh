@@ -2,7 +2,7 @@
 
 # 用途：在 Linux 生产基准上复现 Login Chain 的 QUIC/TLS 与 M1–M4
 # 缩减验收矩阵，并生成可上传的 Markdown 报告和原始日志。
-# 用法：./scripts/run-linux-login-acceptance.sh [--preset NAME]（默认 dev）
+# 用法：./scripts/run-linux-login-acceptance.sh [--preset NAME]（默认 dev）[--jobs N]
 # 可选：REALMMESH_ACCEPTANCE_REPEATS=5 ./scripts/run-linux-login-acceptance.sh
 # CI 已构建时：REALMMESH_LINUX_ACCEPTANCE_SKIP_BUILD=1 ./scripts/run-linux-login-acceptance.sh --preset dev
 # 构建目录取所选预设在配置期记录的真实 binaryDir(#122),报告写到其 acceptance/。
@@ -12,9 +12,12 @@ set -euo pipefail
 project_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 # shellcheck source=lib/build-dir.sh
 source "${project_root}/scripts/lib/build-dir.sh"
+# shellcheck source=lib/build-jobs.sh
+source "${project_root}/scripts/lib/build-jobs.sh"
 repeat_count="${REALMMESH_ACCEPTANCE_REPEATS:-3}"
 skip_build="${REALMMESH_LINUX_ACCEPTANCE_SKIP_BUILD:-0}"
 preset="${realmmesh_default_preset}"
+jobs=""
 
 print_plan() {
     cat <<'EOF'
@@ -30,11 +33,13 @@ EOF
 
 print_usage() {
     cat <<'EOF'
-Usage: ./scripts/run-linux-login-acceptance.sh [--preset NAME] [--print-plan]
+Usage: ./scripts/run-linux-login-acceptance.sh [--preset NAME] [--jobs N] [--print-plan]
 
 Options:
   --preset NAME   CMake preset to configure, build and test (default: dev);
                   the report goes to <its build directory>/acceptance/
+  --jobs N        compile jobs (default: CMAKE_BUILD_PARALLEL_LEVEL if set,
+                  else the CPU/memory budget)
 
 Environment:
   REALMMESH_ACCEPTANCE_REPEATS=N          repeat transport/M1/M2 groups
@@ -62,6 +67,15 @@ while [[ $# -gt 0 ]]; do
             preset="${1#--preset=}"
             shift
             ;;
+        --jobs)
+            [[ $# -ge 2 ]] || { echo "--jobs requires a value." >&2; exit 2; }
+            jobs="$2"
+            shift 2
+            ;;
+        --jobs=*)
+            jobs="${1#--jobs=}"
+            shift
+            ;;
         *)
             echo "Unknown argument: $1" >&2
             exit 2
@@ -69,6 +83,8 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 realmmesh_require_preset_name "${preset}" || exit 2
+# 编译并行度(#125):--jobs > CMAKE_BUILD_PARALLEL_LEVEL > CPU/内存预算。
+realmmesh_resolve_build_jobs "${jobs}" || exit 2
 if [[ "$(uname -s)" != "Linux" ]]; then
     echo "This acceptance profile is Linux-only (QUIC + TLS/TCP baseline)." >&2
     exit 2
@@ -241,7 +257,9 @@ run_group() {
 }
 
 if [[ "${skip_build}" == "0" ]]; then
-    run_logged "Build" "${cmake_bin}" --build --preset "${preset}"
+    echo "${realmmesh_build_jobs_report}" | tee -a "${log_path}"
+    run_logged "Build" "${cmake_bin}" --build --preset "${preset}" \
+        --parallel "${realmmesh_build_jobs}"
 fi
 
 transport_tests=(
