@@ -1,6 +1,6 @@
 # 公共接口头与内部实现：首批拆分决策
 
-关联[确定公共接口头、内部实现与模块依赖的拆分原则](https://github.com/lvivvde/RealmMesh/issues/113)。用户已通过 Q1–Q4 确认通用能力、调用迁移、先隔离间接传播及完整首批范围。本文件记录决策；配置类型一项已由 [#126](https://github.com/lvivvde/RealmMesh/issues/126)（P3a）落地，见文末[实施记录](#实施记录126)，TrainingRule/拓扑与 Gateway 两项分别由 #127、#128 继续。
+关联[确定公共接口头、内部实现与模块依赖的拆分原则](https://github.com/lvivvde/RealmMesh/issues/113)。用户已通过 Q1–Q4 确认通用能力、调用迁移、先隔离间接传播及完整首批范围。本文件记录决策；配置类型一项已由 [#126](https://github.com/lvivvde/RealmMesh/issues/126)（P3a）落地，TrainingRule 与拓扑装载已由 [#127](https://github.com/lvivvde/RealmMesh/issues/127)（P3b）落地，见文末[实施记录（#126）](#实施记录126)与[实施记录（#127）](#实施记录127)；Gateway 一项由 #128 继续。
 
 已确认：保留通用 C++ ↔ Lua 绑定与任意函数调用能力，使用时显式选择绑定头；同步迁移仓库内 include 和调用位置，不保留旧入口兼容层，保持运行行为、Lua 扩展能力和线上协议。
 
@@ -88,3 +88,11 @@ P3a 按方案 A 落地配置类型一项；上文约定未改动的部分不再�
 - **守卫。** `config_headers_test` 包含配置值消费者会用到的普通头（含 `layered_config_loader.hpp`、`mesh_host.hpp`、各服务头），任一经传递 include 引入 sol2（`SOL_HPP` / `SOL_FORWARD_HPP`）即编译失败。
 - **生命周期。** LayeredConfigLoader 的 MergedLayers 顺序不变：先建 runtime、后建 root，解析在这一范围内完成，只把配置值返回给调用方。
 
+## 实施记录（#127）
+
+P3b 按方案 A 落地 TrainingRule 与拓扑装载两项，上文约定与 #126 记录不再重复。耗时与编译名单见[构建优化结果的 P3b 节](build-optimization-results.md#p3btrainingrule-前置声明与拓扑装载下沉127)。
+
+- **TrainingRule。** `training_rule.hpp` 只前置声明 `realm::scripting::LuaRuntime`；`unique_ptr<LuaRuntime>` 的析构本来就在 cpp，私有 `runtime()` 返回引用也只需声明。`lua_runtime.hpp` 改由 `training_rule.cpp` 包含。严格整数/nil 与取值范围验证、启动 `train(0)`/`level(0)` 检查、换线程用已捕获源码重建都没有改动，原有 TrainingRule 测试原样通过。
+- **拓扑装载。** `main.cpp` 中把 `main.config` 的 `services` 表转成 `ServiceSpec` 列表的代码原样移到 service_host，入口为 `startup_topology.hpp` 的自由函数 `load_topology(config_root)`，实现在 `startup_topology_lua.cpp`。声明与 `ServiceSpec` 同头，不另建头：它只用普通类型，消费者就是 `ServiceSpec` 的消费者。错误契约不变：加载或执行失败抛 `runtime_error`，表缺失、为空或条目格式错抛 `invalid_argument`，依赖关系仍由 `StartupTopology` 校验。`realm_mesh` 只拿列表与异常，不再包含 Lua 头，也不再链接 `realm_scripting`。新增 `load_topology_test`（unit）以临时 `main.config` 固定错误契约与缺省字段；随包 `configs/main.config` 的装载结果按测试归置约定放进 `configs_load_smoke_test`。
+- **CMake 使用需求。** `realm_game_realm` 对 `realm_scripting` 改为 PRIVATE；至此 gateway、login_verify、queue、realm、service_host 与 `realm_mesh` 都不再 PUBLIC 传播 sol2，只有直接驱动 Lua 的测试显式链接它。`realm_config_lua.hpp` 的包含方仍须自行链接 `RealmMesh::Scripting`，现有唯一跨目标使用方 service_host 已 PRIVATE 链接。
+- **守卫。** `config_headers_test` 增加 `training_rule.hpp`；`startup_topology.hpp` 经 `mesh_host.hpp` 已在守卫范围内。

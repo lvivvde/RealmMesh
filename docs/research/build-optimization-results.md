@@ -511,3 +511,101 @@ Mac 与 Lima 先后进行：两平台准备完成后先测 Mac，此时 Lima 空
   - `groups`：before、after 两组 `measure.py export` 结果，含每次调用的 `environment`、逐样本（含预热与复位）的 build 墙钟、编译与链接次数、编译源码与链接产物名单、内存摘要与汇总。
   - 本机路径都替换为 `<bench>`；原始日志与时间线没有提交。
 - 复现：两侧按上表提交各做一份源码副本并链接 `.tools`，准备一次 `--scenario fetch`，以复用依赖的配置做一次 ALL 构建。然后每侧以 `--scenario probes --probe lua-hpp --comment-samples 0 --samples 0` 预热 1 次，再按奇偶顺序交替调用 `--samples 1 --sample-start N --no-warmup`。Mac 加 `--jobs 8`，Lima 加 `--jobs 2 --env TMPDIR=<磁盘目录>`（见 [tools/build-bench](../../tools/build-bench/README.md)）。
+
+## P3b：TrainingRule 前置声明与拓扑装载下沉（[#127](https://github.com/lvivvde/RealmMesh/issues/127)）
+
+P3b 让 `training_rule.hpp` 只前置声明 `LuaRuntime`，完整的 Lua 包含与全部调用留在 `training_rule.cpp`，`realm_game_realm` 对 `realm_scripting` 改为 PRIVATE；`apps/mesh_host/main.cpp` 的 `main.config` 解析下沉为 service_host 的装载入口 `load_topology(config_root)`（实现在 `startup_topology_lua.cpp`），入口只拿 `ServiceSpec` 列表或异常，`realm_mesh` 不再链接 `realm_scripting`。做法与取舍见[接口边界决策的实施记录](interface-boundaries-proposal.md#实施记录127)。本阶段门槛是 `lua_runtime.hpp` 扰动的编译次数下降与双平台完整验证；“快 ≥30%、只用配置结果的消费者 0 次重编”仍在整个 P3 结束（[#128](https://github.com/lvivvde/RealmMesh/issues/128) P3c 之后）时判定，本节的降幅只记录、不判定。
+
+### 条件
+
+| 项 | 值 |
+| --- | --- |
+| 前版本（before） | `733d149`（main，P3a 之后） |
+| 后版本（after） | `618f612`（分支 `feat/p3b-training-rule-topology-load`，本阶段的代码提交；其后的提交只改测试归置、文档与资产，产品代码与 `lua_runtime.hpp` 探针的重编集合不变） |
+| 场景 | `probes --probe lua-hpp`：改 `framework/scripting/include/realmmesh/scripting/lua_runtime.hpp` 的 token，只计 build 步；每样本后复位原始字节并重建（`*-reset-N`，不计入）。注释变体不跑（`--comment-samples 0`） |
+| 生成器 / preset | Unix Makefiles，`dev`（Debug），binaryDir `build/dev` |
+| 并行 | 两侧相同：Mac `--jobs 8`，Lima `--jobs 2`，与 P3a 一致 |
+| 编译缓存 | 无（OFF） |
+| 源码 | 两平台两侧各一份 `git archive` 副本（Lima 从本地 clone 导出，不动 Lima 工作区）。`.tools` 以符号链接复用 |
+| 准备（不计时） | 每平台一次 `measure.py --scenario fetch` 获取依赖；两侧都以 launcher 与 `FETCHCONTENT_SOURCE_DIR_*` 复用它配置，再做一次 ALL 构建 |
+| 测量工具 | 与 P3a 相同：measure.py sha256 `368bd1c7…aac`，launcher.cpp `1374833a…034b`，本机编译（Mac `7c015b5f…`，Lima `19554d55…`） |
+| 采样 | 每侧预热 1 次后交替 5 组：奇数组 before 先，偶数组 after 先；每次调用 1 个样本（`--samples 1 --sample-start N --no-warmup`） |
+| 工具链 | Mac CMake 4.4.3、GNU Make 3.81、Apple clang 21.0.0；Lima CMake 4.2.3、GNU Make 4.4.1、GCC 15.2.0 |
+
+Mac 与 Lima 先后进行：先测 Mac（Lima 空闲），Mac 的完整验证与重复测试结束后再测 Lima（Mac 不跑构建与测试），计时从未重叠。
+
+### 门槛验收
+
+| 门槛 | Mac | Lima |
+| --- | --- | --- |
+| `lua_runtime.hpp` 扰动的编译次数下降 | 16 → 10，5 组一致 | 16 → 10，5 组一致 |
+| 链接次数 | 54 → 55：多出的 1 次是本阶段新增的 `load_topology_test`，其余 54 个产物名单相同 | 同左 |
+| `training_rule.hpp` 不带 sol2 | `config_headers_test` 增加包含 `training_rule.hpp` 后编译通过（`SOL_HPP` / `SOL_FORWARD_HPP` 的 `#error` 守卫） | 同左 |
+| 完整验证 `./scripts/build.sh`（ALL＋完整 CTest `-j 1`） | 退出 0；`100% tests passed out of 659`（P3a 的 653 加本阶段的 6 例：`load_topology_test` 5 例与 `ConfigsLoadSmokeTest` 新增 1 例，unit；CTest 387.62 s），`build jobs: 8`。首轮有 1 例失败，见“异常与限制” | 退出 0；`100% tests passed, 0 tests failed out of 659`（CTest 298.77 s），`build jobs: 2` |
+| 指名测试重复 3 次 | 3 次都是 `100% tests passed out of 77` | 3 次都是 `100% tests passed, 0 tests failed out of 77` |
+| QUIC | `realm_network: QUIC transport enabled` | 同左 |
+
+指名测试为 `TrainingRuleTest`、`TrainingRuleFileTest`、`RealmTrainingRule`（规则脚本的 Lua 侧测试）、`RealmSessionsTest`、`ServiceFrameRealmEnterTest`、`WireLoginTransportIntegrationTest`、`ConfigHeadersTest`、`LoadTopologyFileTest`、`StartupTopologyTest`、`ConfigsLoadSmokeTest`、`LuaRuntimeTest`、`MeshHostE2ETest`、`Mode2Test`、`RealmJourneyTest` 十四组，共 77 个用例。`ConfigsLoadSmokeTest.MainConfigTopologyLoadsInDeclarationOrder` 经新入口装载随包的 `main.config`；后三组启动 `realm_mesh`，经同一入口读取拓扑。
+
+### 重编名单
+
+两平台名单相同。前版本的 16 次里，下列 7 个源码在后版本不再重编：
+
+- P3a 记为“经 `training_rule.hpp` 间接引入”的 5 个：`service_host.cpp`、`realm_sessions.cpp`、`wire_login_transport_integration_test`、`service_frame_realm_enter_test`、`realm_sessions_test`，按预期归零；
+- `training_rule_test`：只通过 `TrainingRule` 的公共接口使用规则，不再经头文件引入运行时；
+- `apps/mesh_host/main.cpp`：拓扑装载移走，由下表的 `startup_topology_lua.cpp` 取代。
+
+后版本仍重编的 10 个都是真实直接 Lua 使用者：
+
+| 源码 | 说明 |
+| --- | --- |
+| `framework/scripting/src/lua_runtime.cpp` | 运行时本身 |
+| `framework/service_host/src/startup_topology_lua.cpp` | 本阶段新的拓扑装载入口 |
+| `framework/service_host/src/layered_config_loader.cpp` | 合并装载器 |
+| `game/gateway/src/gateway_config_loader.cpp` | `GatewayConfigLoader::load` 单文件装载 |
+| `game/common/src/account_store.cpp` | `ConfigAccountStore::load` 读取 Lua 账号配置 |
+| `game/common/src/player_data_store.cpp` | 首次导入实现读取 bootstrap 账号 Lua 文件 |
+| `game/realm/src/training_rule.cpp` | 规则实现 |
+| `lua_runtime_test`、`configs_load_smoke_test`、`gateway_login_config_test` | 直接驱动 LuaRuntime 或解析入口的测试 |
+
+### 筛查耗时（不判定）
+
+降幅为 `1 − 中位数(after) ÷ 中位数(before)`，只计 build 步。
+
+| 平台 | before 中位数 s（极差） | after 中位数 s（极差） | 降幅 | after 更快的组数 |
+| --- | ---: | ---: | ---: | ---: |
+| Mac（8 jobs） | 11.24（10.83–11.57） | 8.93（8.89–9.01） | 20.5% | 5/5 |
+| Lima（2 jobs） | 25.81（25.56–26.02） | 18.99（18.97–19.21） | 26.4% | 5/5 |
+
+逐组降幅（奇数组 before 先）：
+
+| 组 | Mac | Lima |
+| ---: | ---: | ---: |
+| 1 | 18.8% | 26.2% |
+| 2 | 20.7% | 26.1% |
+| 3 | 20.8% | 25.8% |
+| 4 | 22.8% | 26.8% |
+| 5 | 18.0% | 26.0% |
+
+- 两平台 5 组方向一致。Lima 两侧与 Mac after 的极差都在 2% 以内；Mac before 极差 0.74 s，为中位数的 6.6%，超出 5% 噪声带，但每组 before 都比同组 after 慢 1.9 s 以上，方向不受影响。
+- 本节 before（`733d149`，P3a 的合入提交）与 P3a 的 after（`0caeeb0`）产品代码相同。两次测得的中位数 Mac 为 11.24 / 11.03 s，Lima 为 25.81 / 26.31 s，都相差 2% 以内，两次测量可以互相印证。按本文件口径，两段降幅不相乘，也不跨比较组拼接秒数；整个 P3 的判定在 #128 之后，以 `4f2a8a9` 对 P3c 做同条件配对。
+- Lima 只有 2 路编译，少编 7 个源码基本都转成了墙钟，降幅 26.4%；Mac 是 8 路并行，降幅 20.5%，与 P3a 少编 17 个源码时的 22.4% 接近。少掉的 `service_host.cpp`、`realm_sessions.cpp` 以及服务帧、线协议、会话测试是重型源码，这可能是原因，但没有拆分关键路径，只是推测。
+
+资源：进程树 RSS 峰值 Mac 为 1441 MiB（before）/ 904 MiB（after），Lima 为 1325 / 1018 MiB；最低可用内存 Mac 约 18087 MiB，Lima 为 2068 MiB（before）/ 2473 MiB（after），都高于 1 GiB 门槛。两平台 swap 都没有增长（Lima 没有 swap 分区），Lima 没有 OOM，所有工具调用都以 0 退出。
+
+### 异常与限制
+
+- **测试归置在测量之后调整。** 代码审查后，随包 `main.config` 的装载用例从 `load_topology_test` 移到 `configs_load_smoke_test`（`4faf6dd`，按 [tests/README](../../tests/README.md) 的归置约定），只改测试。`configs_load_smoke_test` 原本就在重编名单里，`load_topology_test` 不包含 Lua 头，所以探针的重编集合不变，没有重测。两平台的完整验证与指名测试都在 `4faf6dd` 上跑：Mac 在开发仓库，Lima 在本地 clone 里，不动 Lima 工作区。
+- **Mac 首轮完整验证 1 例失败。** 在 `4faf6dd` 上第一次跑 `build.sh` 时，`LoadgenIntegrationTest.M3SmokeTenThousandTicketsAndConcurrentPolls` 发出的票数为 4989，低于下限 4995。这与 P3a 记录的是同一个吞吐阈值，当时 Lima 空闲，与本阶段改动无关。该用例单独重跑通过；随后整套 `build.sh` 重跑，659 个用例全部通过，上表记录的是重跑结果。
+- **Lima 上有一个外部空闲进程。** 测量期间 Lima 上一直有一个与本仓库无关的 `qemu-system-aarch64`，已运行约 12 小时，在串口上等待，平均 CPU 约 1.4%。before、after 两侧同样受影响，没有处理。
+- **Lima `/tmp` 接近满。** tmpfs `/tmp` 共 3.9 GiB，已用 3.5 GiB（89%），主要是本测量之外创建的目录。按“只清理由测量创建并明确拥有的目录”，这些目录没有动；测量与完整验证都用 `TMPDIR=<磁盘目录>` 把临时文件放到磁盘上。tmpfs 的占用计入共享内存（约 3.4 GiB），所以 Lima 开始测量时可用内存只有约 3.3 GiB，测得的最低可用内存（2068 MiB）仍高于门槛。
+- **拓扑装载里的重复形状原样保留。** `startup_topology_lua.cpp` 逐字搬移自 `main.cpp` 的旧函数。审查指出，可选字段检查与按序遍历的写法各出现两次；本阶段只做下沉，不重写。
+- **使用需求仍只写在注释里。** 与 P3a 相同，“包含 `*_config_lua.hpp` 的目标须自行链接 `realm_scripting`”没有构建期检查。现有包含方都已显式链接。
+- **链接扇出未变。** `lua_runtime.hpp` 扰动仍触发 54 个原有产物重链，加上新测试共 55 个；链接等待由 P4 处理。
+- **重复链接告警。** 与 P3a 相同：Apple ld 对显式链接 `realm_scripting` 的测试报 `ignoring duplicate libraries`，无害。
+- **CMake 3.20 未实跑**，两平台本机与 CI 的 CMake 都更高；本阶段没有用到新于 3.20 的 CMake 特性。
+
+### 资产
+
+- [`p3b-mac-samples.json`](assets/build-optimization-results/p3b-mac-samples.json)、[`p3b-lima-samples.json`](assets/build-optimization-results/p3b-lima-samples.json)：结构同 P3a（`pairs` 逐组配对与降幅，`groups` 为两侧 `measure.py export` 结果），本机路径都替换为 `<bench>`；原始日志与时间线没有提交。
+- 复现：同 P3a，把两侧提交换成上表的 `733d149` / `618f612`。
