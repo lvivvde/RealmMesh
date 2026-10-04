@@ -32,7 +32,10 @@ expect_contains() {
     local haystack="$1"
     local needle="$2"
     local context="$3"
-    if [[ "${haystack}" != *"${needle}"* ]]; then
+    # CMake 按宽度折行警告文本，断点随路径长短变化:比较前把空白压成单个空格。
+    local flat
+    flat="$(printf '%s' "${haystack}" | tr -s '[:space:]' ' ')"
+    if [[ "${haystack}" != *"${needle}"* && "${flat}" != *"${needle}"* ]]; then
         printf '%s\n' "${haystack}" >&2
         fail "${context}: expected output to contain '${needle}'"
     fi
