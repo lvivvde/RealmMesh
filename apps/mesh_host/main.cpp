@@ -1,17 +1,14 @@
 #include "realmmesh/game/gateway/gateway_runtime.hpp"
 #include "realmmesh/observability/logger.hpp"
 #include "realmmesh/scheduler/frame_scheduler.hpp"
-#include "realmmesh/scripting/lua_runtime.hpp"
 #include "realmmesh/service_host/mesh_host.hpp"
-
-#include <sol/sol.hpp>
+#include "realmmesh/service_host/startup_topology.hpp"
 
 #include <csignal>
 #include <exception>
 #include <filesystem>
 #include <iostream>
 #include <optional>
-#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -53,77 +50,6 @@ struct Options {
     return options;
 }
 
-/// 加载 <config_root>/main.config 的 services 表为拓扑描述;
-/// 文件缺失、services 表缺失或条目格式错抛异常。
-[[nodiscard]] std::vector<realm::service_host::ServiceSpec> load_topology(
-    const std::filesystem::path& config_root) {
-    realm::scripting::LuaRuntime runtime;
-    std::string error;
-    if (!runtime.load_module(
-            "main_config", config_root / "main.config", &error)) {
-        throw std::runtime_error("failed to load main.config: " + error);
-    }
-    const sol::table root = runtime.module("main_config");
-    const sol::object services_value = root.raw_get<sol::object>("services");
-    if (!services_value.is<sol::table>()) {
-        throw std::invalid_argument("main.config services table is missing");
-    }
-    const sol::table services = services_value.as<sol::table>();
-
-    std::vector<realm::service_host::ServiceSpec> specs;
-    specs.reserve(services.size());
-    for (std::size_t index = 1; index <= services.size(); ++index) {
-        const sol::object entry_value = services.raw_get<sol::object>(index);
-        if (!entry_value.is<sol::table>()) {
-            throw std::invalid_argument(
-                "main.config services entries must be tables");
-        }
-        const sol::table entry = entry_value.as<sol::table>();
-
-        realm::service_host::ServiceSpec spec;
-        const sol::object name = entry.raw_get<sol::object>("name");
-        if (!name.is<std::string>()) {
-            throw std::invalid_argument("main.config service name is required");
-        }
-        spec.name = name.as<std::string>();
-
-        const sol::object dependencies =
-            entry.raw_get<sol::object>("depends_on");
-        if (dependencies != sol::lua_nil) {
-            if (!dependencies.is<sol::table>()) {
-                throw std::invalid_argument(
-                    "main.config depends_on must be a table");
-            }
-            const sol::table dependency_table = dependencies.as<sol::table>();
-            spec.depends_on.reserve(dependency_table.size());
-            for (std::size_t position = 1; position <= dependency_table.size();
-                 ++position) {
-                const sol::object dependency =
-                    dependency_table.raw_get<sol::object>(position);
-                if (!dependency.is<std::string>()) {
-                    throw std::invalid_argument(
-                        "main.config depends_on entries must be strings");
-                }
-                spec.depends_on.push_back(dependency.as<std::string>());
-            }
-        }
-
-        const sol::object entry_flag = entry.raw_get<sol::object>("entry");
-        if (entry_flag != sol::lua_nil) {
-            if (!entry_flag.is<bool>()) {
-                throw std::invalid_argument(
-                    "main.config entry must be a boolean");
-            }
-            spec.entry = entry_flag.as<bool>();
-        }
-        specs.push_back(std::move(spec));
-    }
-    if (specs.empty()) {
-        throw std::invalid_argument("main.config services table is empty");
-    }
-    return specs;
-}
-
 }  // namespace
 
 int main(int argc, char* argv[]) {
@@ -136,7 +62,7 @@ int main(int argc, char* argv[]) {
 
     std::vector<realm::service_host::ServiceSpec> specs;
     try {
-        specs = load_topology(options->config_root);
+        specs = realm::service_host::load_topology(options->config_root);
         if (!options->service.empty()) {
             specs = realm::service_host::MeshHost::narrow_single_service(
                 std::move(specs), options->service);

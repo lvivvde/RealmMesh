@@ -205,9 +205,9 @@ MsQuic 自有调度不会直接调用业务逻辑。回调只完成长度帧组�
 - `framework/client`：客户端登录链路（七态状态机、分档轮询、两段竞速）与其 HTTPS/网关/业务服生产传输绑定。外部通过经验证的 `LoginRun` 选择 Verify、Tickets、Poll、Gateway、GatewaySoak 或 Full 停止点；Gateway/Realm 连接由 move-only RAII Session 独占，只有 Full 成功会把已入场 Realm Session 转移给调用方。
 - `tools/loadgen`：负载调度、报告与 Login Chain 的配置/指标适配层。所有目标都转换为同一个 `LoginRun` 并执行 `framework/client::LoginChain`；`gateway_soak` 负责保持 Gateway Session 水位，`full` 继续兑换 Realm Session，报告单列 Realm 拨号与入场的成功、失败和延迟。macOS 本机验收再通过同一 Full 路径发送生产 1105/1106 心跳并显式关闭会话。Linux CI 由 `scripts/run-linux-login-acceptance.sh` 汇总真实 QUIC、TLS/TCP 降级、四进程恢复与 M1–M4 缩减负载证据并上传报告；报告明确区分 CI 回归基线与专用机器上的 10 万/百万容量目标。CLI 的旧拼法 `all` 只在解析边界映射为 `GatewaySoak`，代码库中没有第二套登录状态机或新旧路径开关。
 - `tools/build-bench`：构建优化的测量工具（编译/链接 launcher 与场景驱动脚本），只在测量时使用，不进 CMake 构建；结果见 [build-optimization-results](research/build-optimization-results.md)。
-- `framework/service_host`：把服务名、分层配置与集群接线装配成一个可运行服务。
-- 配置头分两种（[#126](https://github.com/lvivvde/RealmMesh/issues/126)）：各模块的普通配置头（`player_data_config.hpp`、`gateway_config_loader.hpp`、`login_verify_config.hpp`、`queue_config.hpp`、`realm_config.hpp`）只声明配置值，不经 include 传递 sol2；已合并 Lua 根表的解析入口是同目录的 `*_config_lua.hpp`（`parse_*_config`，只含 `<sol/forward.hpp>`），只由解析实现、`LayeredConfigLoader` 的实现与解析测试显式包含，包含方自行链接 `RealmMesh::Scripting`。Lua 运行时与根表只活在 `LayeredConfigLoader`、`GatewayConfigLoader::load` 的函数范围内，越出的只有配置值。`config_headers_test` 在编译期守住这条边界。
-- `apps/mesh_host`：`realm_mesh` 单一入口，以 `--service` 区分服务与信号处理。
+- `framework/service_host`：把服务名、分层配置与集群接线装配成一个可运行服务；`load_topology`（`startup_topology.hpp`）读取 `main.config` 的 `services` 表，返回 `ServiceSpec` 列表，Lua 只在其实现 `startup_topology_lua.cpp` 里（[#127](https://github.com/lvivvde/RealmMesh/issues/127)）。
+- 配置头分两种（[#126](https://github.com/lvivvde/RealmMesh/issues/126)）：各模块的普通配置头（`player_data_config.hpp`、`gateway_config_loader.hpp`、`login_verify_config.hpp`、`queue_config.hpp`、`realm_config.hpp`）只声明配置值，不经 include 传递 sol2；已合并 Lua 根表的解析入口是同目录的 `*_config_lua.hpp`（`parse_*_config`，只含 `<sol/forward.hpp>`），只由解析实现、`LayeredConfigLoader` 的实现与解析测试显式包含，包含方自行链接 `RealmMesh::Scripting`。Lua 运行时与根表只活在 `LayeredConfigLoader`、`GatewayConfigLoader::load` 的函数范围内，越出的只有配置值。`training_rule.hpp` 只前置声明 `LuaRuntime`，Lua 调用与析构都在 `training_rule.cpp`，`realm_game_realm` 对 `realm_scripting` 为 PRIVATE（#127）。`config_headers_test` 在编译期守住这条边界。
+- `apps/mesh_host`：`realm_mesh` 单一入口，以 `--service` 区分服务与信号处理；拓扑经 `load_topology` 取得，入口本身不链接 Lua。
 
 ## 未实现的服务与模块
 

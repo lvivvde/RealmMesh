@@ -2,7 +2,6 @@ add_executable(realm_mesh main.cpp)
 
 target_link_libraries(realm_mesh PRIVATE
     realm_scheduler
-    realm_scripting
     realm_service_host
 )
 
