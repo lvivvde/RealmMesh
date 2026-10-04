@@ -4,6 +4,7 @@ add_library(realm_service_host
     src/service_frame.cpp
     src/service_host.cpp
     src/startup_topology.cpp
+    src/startup_topology_lua.cpp
 )
 
 add_library(RealmMesh::ServiceHost ALIAS realm_service_host)
@@ -24,7 +25,8 @@ target_link_libraries(realm_service_host PUBLIC
     realm_observability
 )
 # Lua 合并脚本与各模块 *_config_lua.hpp 解析入口只用在
-# layered_config_loader.cpp;公共头只带配置值(#126)。
+# layered_config_loader.cpp,拓扑装载只用在 startup_topology_lua.cpp;
+# 公共头只带配置值与拓扑描述(#126、#127)。
 target_link_libraries(realm_service_host PRIVATE realm_scripting)
 
 target_compile_features(realm_service_host PUBLIC cxx_std_20)

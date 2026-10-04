@@ -1,5 +1,7 @@
 #include "realmmesh/game/realm/training_rule.hpp"
 
+#include "realmmesh/scripting/lua_runtime.hpp"
+
 #include <fstream>
 #include <limits>
 #include <sstream>

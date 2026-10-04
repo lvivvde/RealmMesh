@@ -1,13 +1,15 @@
 #pragma once
 
-#include "realmmesh/scripting/lua_runtime.hpp"
-
 #include <cstdint>
 #include <filesystem>
 #include <memory>
 #include <optional>
 #include <string>
 #include <thread>
+
+namespace realm::scripting {
+class LuaRuntime;
+}  // namespace realm::scripting
 
 namespace realm::game::realm {
 
@@ -18,6 +20,9 @@ namespace realm::game::realm {
 /// LuaRuntime 绑定构造线程,而帧线程不一定是构造线程(MeshHost 可在一个
 /// 线程构造、在另一个线程 tick)。换线程调用时用同一份已校验源码在当前
 /// 线程重建运行时,不重读文件,行为不变。
+///
+/// 头只前置声明 LuaRuntime(#127):析构与全部 Lua 调用在实现文件,
+/// 使用规则的代码不经本头引入 sol2。
 class TrainingRule final {
 public:
     explicit TrainingRule(const std::filesystem::path& file);

@@ -44,3 +44,10 @@ realm_add_gtest(configs_load_smoke_test
         REALMMESH_TEST_TLS_PRIVATE_KEY="${REALMMESH_TEST_TLS_PRIVATE_KEY}"
     DEPENDS realmmesh_test_tls_identity
 )
+
+# 拓扑装载入口(#127):调用方只拿 ServiceSpec 列表与错误，不碰 Lua。
+realm_add_gtest(load_topology_test
+    SOURCES load_topology_test.cpp
+    LIBS realm_service_host
+    DEFINITIONS REALMMESH_SOURCE_DIR="${PROJECT_SOURCE_DIR}"
+)

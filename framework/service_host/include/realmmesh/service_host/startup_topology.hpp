@@ -1,5 +1,6 @@
 #pragma once
 
+#include <filesystem>
 #include <string>
 #include <vector>
 
@@ -11,6 +12,13 @@ struct ServiceSpec {
     std::vector<std::string> depends_on;
     bool entry{false};  ///< 入口服务(全部 ready 后才放行)
 };
+
+/// 拓扑装载入口(#127):读取 <config_root>/main.config 的 services 表，
+/// 按声明序返回拓扑描述;Lua 只在实现文件里。文件读取或执行失败抛
+/// std::runtime_error;services 表缺失或为空、条目格式错抛
+/// std::invalid_argument。依赖关系的校验仍由 StartupTopology 负责。
+[[nodiscard]] std::vector<ServiceSpec> load_topology(
+    const std::filesystem::path& config_root);
 
 /// 拓扑解析:环、未知依赖、重名、entry 被其他服务依赖 →
 /// 抛 std::invalid_argument;entry 服务统一放在全图最终波次。
