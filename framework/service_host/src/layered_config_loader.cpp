@@ -1,6 +1,10 @@
 #include "realmmesh/service_host/layered_config_loader.hpp"
 
 #include "realmmesh/game/common/player_data_config.hpp"
+#include "realmmesh/game/gateway/gateway_config_lua.hpp"
+#include "realmmesh/game/login_verify/login_verify_config_lua.hpp"
+#include "realmmesh/game/queue/queue_config_lua.hpp"
+#include "realmmesh/game/realm/realm_config_lua.hpp"
 #include "realmmesh/scripting/lua_runtime.hpp"
 
 #include <algorithm>
@@ -176,7 +180,7 @@ game::gateway::GatewayConfig LayeredConfigLoader::load(
     call_merger<sol::table>(
         layers.runtime, "ensure_table", layers.root, "transports");
 
-    auto config = game::gateway::GatewayConfigLoader::parse(layers.root);
+    auto config = game::gateway::parse_gateway_config(layers.root);
     game::common::resolve_player_data_paths(config.player_data, config_root);
     return config;
 }
@@ -194,9 +198,9 @@ LayeredConfigLoader::load_login_verify(
     // parse 要求 transports 为表(可为空):未配置时补空表。
     call_merger<sol::table>(
         layers.runtime, "ensure_table", layers.root, "transports");
-    config.host = game::gateway::GatewayConfigLoader::parse(layers.root);
+    config.host = game::gateway::parse_gateway_config(layers.root);
     config.login_verify =
-        game::login_verify::LoginVerifyConfigLoader::parse(layers.root);
+        game::login_verify::parse_login_verify_config(layers.root);
 
     if (config.login_verify.accounts_file.is_relative()) {
         config.login_verify.accounts_file =
@@ -222,10 +226,10 @@ LayeredConfigLoader::load_queue(
     // parse 要求 transports 为表(可为空):未配置时补空表。
     call_merger<sol::table>(
         layers.runtime, "ensure_table", layers.root, "transports");
-    config.host = game::gateway::GatewayConfigLoader::parse(layers.root);
+    config.host = game::gateway::parse_gateway_config(layers.root);
     game::common::resolve_player_data_paths(
         config.host.player_data, config_root);
-    config.queue = game::queue::QueueConfigLoader::parse(layers.root);
+    config.queue = game::queue::parse_queue_config(layers.root);
     return config;
 }
 
@@ -239,10 +243,10 @@ LayeredConfigLoader::RealmServiceConfig LayeredConfigLoader::load_realm(
     RealmServiceConfig config;
     call_merger<sol::table>(
         layers.runtime, "ensure_table", layers.root, "transports");
-    config.host = game::gateway::GatewayConfigLoader::parse(layers.root);
+    config.host = game::gateway::parse_gateway_config(layers.root);
     game::common::resolve_player_data_paths(
         config.host.player_data, config_root);
-    config.realm = game::realm::RealmConfigLoader::parse(layers.root);
+    config.realm = game::realm::parse_realm_config(layers.root);
     if (config.realm.training_rule_file.is_relative()) {
         config.realm.training_rule_file =
             config_root / config.realm.training_rule_file;

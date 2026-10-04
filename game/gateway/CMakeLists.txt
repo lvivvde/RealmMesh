@@ -4,6 +4,7 @@ add_library(realm_gateway_service
     src/edge_session_table.cpp
     src/gateway_admission.cpp
     src/gateway_config_loader.cpp
+    src/gateway_config_lua.cpp
     src/gateway_ingress.cpp
     src/gateway_login_config.cpp
     src/gateway_login_pipeline.cpp
@@ -25,10 +26,12 @@ target_link_libraries(realm_gateway_service PUBLIC
     realm_game_common
     realm_network
     realm_observability
-    realm_scripting
 )
+# Lua 只用在配置解析实现;包含 gateway_config_lua.hpp 的目标自行链接
+# realm_scripting(#126)。
 target_link_libraries(realm_gateway_service PRIVATE
     nlohmann_json::nlohmann_json
+    realm_scripting
 )
 
 find_package(Threads REQUIRED)

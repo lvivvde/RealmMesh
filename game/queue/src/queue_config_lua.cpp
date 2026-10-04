@@ -1,4 +1,6 @@
-#include "realmmesh/game/queue/queue_config.hpp"
+#include "realmmesh/game/queue/queue_config_lua.hpp"
+
+#include <sol/sol.hpp>
 
 #include <cstdlib>
 #include <stdexcept>
@@ -69,7 +71,7 @@ namespace {
 
 }  // namespace
 
-QueueConfig QueueConfigLoader::parse(const sol::table& root) {
+QueueConfig parse_queue_config(const sol::table& root) {
     const sol::object section = root.raw_get<sol::object>("queue");
     if (!section.is<sol::table>()) {
         throw std::invalid_argument(

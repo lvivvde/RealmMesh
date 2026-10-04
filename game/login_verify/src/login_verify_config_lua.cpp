@@ -1,6 +1,8 @@
-#include "realmmesh/game/login_verify/login_verify_config.hpp"
+#include "realmmesh/game/login_verify/login_verify_config_lua.hpp"
 
-#include "realmmesh/game/common/player_data_config.hpp"
+#include "realmmesh/game/common/player_data_config_lua.hpp"
+
+#include <sol/sol.hpp>
 
 #include <cstddef>
 #include <cstdlib>
@@ -77,7 +79,7 @@ namespace {
 
 }  // namespace
 
-LoginVerifyConfig LoginVerifyConfigLoader::parse(const sol::table& root) {
+LoginVerifyConfig parse_login_verify_config(const sol::table& root) {
     const sol::object section = root.raw_get<sol::object>("login_verify");
     if (!section.is<sol::table>()) {
         throw std::invalid_argument(

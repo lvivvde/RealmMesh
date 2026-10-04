@@ -1,7 +1,6 @@
 #pragma once
 
 #include "realmmesh/network/transport/transport_config.hpp"
-#include "realmmesh/scripting/lua_runtime.hpp"
 
 #include <chrono>
 #include <cstdint>
@@ -10,7 +9,7 @@
 namespace realm::game::queue {
 
 /// 排队调度服专属配置节(根表 `queue`);宿主级节段(logging、
-/// service_discovery、metrics)仍由 GatewayConfigLoader::parse 承载。
+/// service_discovery、metrics)仍由 parse_gateway_config 承载。
 /// TLS 路径支持配置直填或经环境变量名解析(先例同 login_verify)。
 struct QueueConfig {
     network::TransportConfig::TlsServerIdentity tls;
@@ -39,13 +38,6 @@ struct QueueConfig {
     std::string snapshot_key{"/realmmesh/queue/snapshot"};
     std::string issuance_prefix{"/realmmesh/queue/issuance"};
     std::string etcd_endpoint{"http://127.0.0.1:2379"};
-};
-
-class QueueConfigLoader final {
-public:
-    /// 解析已合并的 Lua 根表(供分层加载器复用);`queue` 节缺失或
-    /// 字段类型错抛 std::invalid_argument。
-    [[nodiscard]] static QueueConfig parse(const sol::table& root);
 };
 
 }  // namespace realm::game::queue
