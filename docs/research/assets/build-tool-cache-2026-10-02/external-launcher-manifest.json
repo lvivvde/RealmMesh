@@ -1,0 +1,52 @@
+[
+  {
+    "path": "facts.md",
+    "sha256": "e5032c7a8fa7d80dfa449e30d774cfc8f8641156168b69bb8276eaca71a9ac15",
+    "bytes": 5130
+  },
+  {
+    "path": "recursive.json",
+    "sha256": "895b0b7a7412868607c2b501f66caccad0ed830028d6039948537831c1e53635",
+    "bytes": 1553
+  },
+  {
+    "path": "explicit.json",
+    "sha256": "fef5bc5da8fd3824329fa12a392cca2d5dbfb1d9406da71ac45be39be51b15eb",
+    "bytes": 1549
+  },
+  {
+    "path": "launcher.log",
+    "sha256": "988434283bc7c4b1e9410c86fb785372a9a13edfd323f2f233d90e4099aab684",
+    "bytes": 714
+  },
+  {
+    "path": "launcher.sh",
+    "sha256": "9bf0f50c0ca891738ca89548e4f3352e7da0748c54bc0e7736200f9890998448",
+    "bytes": 105
+  },
+  {
+    "path": "source/native.c",
+    "sha256": "c20376e9581494fc561c72a96aa5e7541c6ecb1ff630631acb9da0586f4c4afc",
+    "bytes": 34
+  },
+  {
+    "path": "source/external.c",
+    "sha256": "c2d7f12e4f8418d60de749bc9154475a1a7656b80033c1573cf30f2a8694a22d",
+    "bytes": 36
+  },
+  {
+    "path": "source/ExternalMakefile",
+    "sha256": "468d37b5061ae148208f92f10e7eea9f2a11113b5bf523444e08911031680e04",
+    "bytes": 160
+  },
+  {
+    "path": "recursive/CMakeLists.txt",
+    "sha256": "2c32c9ac3c8dc757b8d2a4ae76a7f7272e04b508aaec20db6b532b756335ecab",
+    "bytes": 444
+  },
+  {
+    "path": "explicit/CMakeLists.txt",
+    "sha256": "318b06671a46815e015578029ae37678f8a44aada245547358954d48f702a509",
+    "bytes": 450
+  }
+]

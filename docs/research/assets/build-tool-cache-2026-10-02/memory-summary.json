@@ -1,0 +1,144 @@
+{
+  "provenance": "Published frozen baseline; not a new current-HEAD measurement",
+  "units": "macOS ru_maxrss bytes; Linux KiB; converted to MiB",
+  "limitation": "wait4 event maximum, not concurrent process-tree peak; external Autotools/archive/cache processes not captured",
+  "normalization": "Compile paths relative to frozen source root; heuristic source field removed from link entries; links use output field",
+  "platforms": {
+    "mac": {
+      "compile": {
+        "n": 771,
+        "max_mib": 565.265625,
+        "median_mib": 92.78125,
+        "p95_mib": 263.40625,
+        "top": [
+          {
+            "rss_mib": 565.265625,
+            "wall_s": 2.488549875,
+            "source": "tests/cpp/tools/loadgen/loadgen_integration_test.cpp"
+          },
+          {
+            "rss_mib": 524.5625,
+            "wall_s": 2.155077084,
+            "source": "tests/cpp/framework/service_host/service_host_test.cpp"
+          },
+          {
+            "rss_mib": 480.671875,
+            "wall_s": 1.892151041,
+            "source": "tests/cpp/framework/service_host/service_frame_realm_enter_test.cpp"
+          },
+          {
+            "rss_mib": 476.828125,
+            "wall_s": 2.109460375,
+            "source": "tests/cpp/framework/observability/logger_test.cpp"
+          },
+          {
+            "rss_mib": 474.703125,
+            "wall_s": 2.118074959,
+            "source": "framework/observability/src/logger.cpp"
+          }
+        ]
+      },
+      "link": {
+        "n": 74,
+        "max_mib": 264.5625,
+        "median_mib": 159.40625,
+        "p95_mib": 217.015625,
+        "top": [
+          {
+            "rss_mib": 264.5625,
+            "wall_s": 0.087887083,
+            "output": "service_host_test"
+          },
+          {
+            "rss_mib": 256.546875,
+            "wall_s": 0.090241875,
+            "output": "loadgen_integration_test"
+          },
+          {
+            "rss_mib": 241.625,
+            "wall_s": 0.155449959,
+            "output": "../../bin/realm_mesh"
+          },
+          {
+            "rss_mib": 229.40625,
+            "wall_s": 0.072556417,
+            "output": "wire_login_transport_integration_test"
+          },
+          {
+            "rss_mib": 217.015625,
+            "wall_s": 0.076322209,
+            "output": "gateway_server_test"
+          }
+        ]
+      }
+    },
+    "linux": {
+      "compile": {
+        "n": 770,
+        "max_mib": 1279.4140625,
+        "median_mib": 126.580078125,
+        "p95_mib": 518.5,
+        "top": [
+          {
+            "rss_mib": 1279.4140625,
+            "wall_s": 5.152361769,
+            "source": "tests/cpp/tools/loadgen/loadgen_integration_test.cpp"
+          },
+          {
+            "rss_mib": 1103.56640625,
+            "wall_s": 4.235633722,
+            "source": "tests/cpp/framework/service_host/service_host_test.cpp"
+          },
+          {
+            "rss_mib": 929.4453125,
+            "wall_s": 4.431717579,
+            "source": "framework/cluster/src/etcd_service_registry.cpp"
+          },
+          {
+            "rss_mib": 901.51171875,
+            "wall_s": 2.669235626,
+            "source": "tests/cpp/framework/service_host/service_frame_realm_enter_test.cpp"
+          },
+          {
+            "rss_mib": 876.96484375,
+            "wall_s": 4.189281186,
+            "source": "tests/cpp/framework/observability/logger_test.cpp"
+          }
+        ]
+      },
+      "link": {
+        "n": 73,
+        "max_mib": 560.55078125,
+        "median_mib": 72.3828125,
+        "p95_mib": 312.4453125,
+        "top": [
+          {
+            "rss_mib": 560.55078125,
+            "wall_s": 1.252905923,
+            "output": "service_host_test"
+          },
+          {
+            "rss_mib": 537.66796875,
+            "wall_s": 1.224968189,
+            "output": "loadgen_integration_test"
+          },
+          {
+            "rss_mib": 491.16796875,
+            "wall_s": 1.073580657,
+            "output": "../../bin/realm_mesh"
+          },
+          {
+            "rss_mib": 330.6015625,
+            "wall_s": 0.716219041,
+            "output": "realm_journey_test"
+          },
+          {
+            "rss_mib": 312.4453125,
+            "wall_s": 0.688690865,
+            "output": "wire_login_transport_integration_test"
+          }
+        ]
+      }
+    }
+  }
+}

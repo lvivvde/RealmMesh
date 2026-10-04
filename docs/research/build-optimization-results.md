@@ -1,6 +1,6 @@
 # 构建优化：测量结果
 
-关联[构建优化实施追踪](https://github.com/lvivvde/RealmMesh/issues/119)。口径以[实施顺序与验收约定](https://github.com/lvivvde/RealmMesh/blob/aeaaff7b94de8fd88f70b7f7a5d08d47ffed7a6b/docs/research/build-implementation-acceptance.md)与 [#115 决议](https://github.com/lvivvde/RealmMesh/issues/115#issuecomment-5954537886)为准；旧 build-optimization-rollout.md 只作历史。测量工具与场景定义见 [tools/build-bench](../../tools/build-bench/README.md)。各阶段按时间顺序追加；业务代码或测试合集变化产生新比较组，不拼接旧秒数。
+关联[构建优化实施追踪](https://github.com/lvivvde/RealmMesh/issues/119)。口径以[实施顺序与验收约定](build-implementation-acceptance.md)与 [#115 决议](https://github.com/lvivvde/RealmMesh/issues/115#issuecomment-5954537886)为准；旧[build-optimization-rollout.md](build-optimization-rollout.md)只作历史。测量工具与场景定义见 [tools/build-bench](../../tools/build-bench/README.md)。各阶段按时间顺序追加；业务代码或测试合集变化产生新比较组，不拼接旧秒数。
 
 ## R0：冻结起点（[#120](https://github.com/lvivvde/RealmMesh/issues/120)）
 
