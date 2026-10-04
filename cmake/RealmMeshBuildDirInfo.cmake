@@ -54,12 +54,12 @@ function(realmmesh_write_build_dir_info)
 
     string(CONCAT content
         "preset=${REALMMESH_PRESET}\n"
-        "source_dir=${CMAKE_SOURCE_DIR}\n"
+        "source_dir=${PROJECT_SOURCE_DIR}\n"
         "binary_dir=${CMAKE_BINARY_DIR}\n"
         "generator=${CMAKE_GENERATOR}\n")
     _realmmesh_write_if_changed("${identity_file}" "${content}")
     _realmmesh_write_if_changed(
-        "${CMAKE_SOURCE_DIR}/build/.build-dirs/${REALMMESH_PRESET}.txt"
+        "${PROJECT_SOURCE_DIR}/build/.build-dirs/${REALMMESH_PRESET}.txt"
         "${content}")
     message(STATUS
         "realm_build_dir: preset ${REALMMESH_PRESET} -> ${CMAKE_BINARY_DIR}")

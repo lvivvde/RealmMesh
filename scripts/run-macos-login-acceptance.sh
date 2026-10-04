@@ -68,6 +68,9 @@ set +e
 configure_status="${PIPESTATUS[0]}"
 set -e
 if [[ "${configure_status}" -ne 0 ]]; then
+    # 报告目录尚未确定:保留配置输出供排查。
+    trap - EXIT
+    echo "Configure failed; its output is kept at ${configure_log}." >&2
     exit "${configure_status}"
 fi
 if ! build_dir="$(realmmesh_resolve_build_dir "${project_root}" "${preset}")"; then

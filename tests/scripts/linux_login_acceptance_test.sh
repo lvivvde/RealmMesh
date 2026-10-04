@@ -21,8 +21,8 @@ grep -Fq 'Production targets are reported but not claimed by the CI profile.' <<
 help="$(bash "${acceptance_script}" --help)"
 grep -Fq -- '--preset NAME' <<<"${help}"
 grep -Fq '<its build directory>/acceptance/' <<<"${help}"
-bash "${acceptance_script}" --preset dev-make --print-plan |
-    grep -Fq 'Linux Login Chain M1-M4 acceptance plan'
+grep -Fq 'Linux Login Chain M1-M4 acceptance plan' \
+    <<<"$(bash "${acceptance_script}" --preset dev-make --print-plan)"
 if bash "${acceptance_script}" --bogus >/dev/null 2>&1; then
     echo "unknown arguments must be rejected" >&2
     exit 1

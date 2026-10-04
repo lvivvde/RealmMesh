@@ -47,6 +47,7 @@ realmmesh_resolve_build_dir() {
     if [[ ! -f "${realmmesh_registry}" ]]; then
         printf 'Preset "%s" has no recorded build directory (%s is missing).\n' \
             "${realmmesh_preset}" "${realmmesh_registry}" >&2
+        printf 'Only presets inheriting realmmesh-base (as dev does) record one at configure time.\n' >&2
         realmmesh_configure_hint "${realmmesh_preset}"
         return 1
     fi
@@ -98,4 +99,18 @@ realmmesh_resolve_build_dir() {
     fi
 
     printf '%s\n' "${realmmesh_binary_dir}"
+}
+
+# 输出 <root> 下预设 <preset> 构建出的 bin/<name>;构建目录不可用或可执行文件
+# 缺失时返回非零并提示构建命令。
+realmmesh_resolve_built_binary() {
+    local realmmesh_build_dir
+    realmmesh_build_dir="$(realmmesh_resolve_build_dir "$1" "$2")" || return 1
+    local realmmesh_binary="${realmmesh_build_dir}/bin/$3"
+    if [[ ! -x "${realmmesh_binary}" ]]; then
+        printf 'Service binary is missing: %s\nRun ./scripts/build.sh --preset %s first.\n' \
+            "${realmmesh_binary}" "$2" >&2
+        return 1
+    fi
+    printf '%s\n' "${realmmesh_binary}"
 }

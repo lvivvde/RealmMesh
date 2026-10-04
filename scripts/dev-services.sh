@@ -55,16 +55,9 @@ realmmesh_startup_timeout_seconds="${REALMMESH_STARTUP_TIMEOUT_SECONDS:-10}"
 
 # 按预设解析构建目录,设置 realmmesh_bin_dir 与 realmmesh_mesh_binary。
 resolve_mesh_binary() {
-    local realmmesh_build_dir
-    realmmesh_build_dir="$(realmmesh_resolve_build_dir \
-        "${realmmesh_root}" "${realmmesh_preset}")" || return 1
-    realmmesh_bin_dir="${realmmesh_build_dir}/bin"
-    realmmesh_mesh_binary="${realmmesh_bin_dir}/${realmmesh_mesh_binary_name}"
-    if [[ ! -x "${realmmesh_mesh_binary}" ]]; then
-        printf 'Service binary is missing: %s\nRun ./scripts/build.sh --preset %s first.\n' \
-            "${realmmesh_mesh_binary}" "${realmmesh_preset}" >&2
-        return 1
-    fi
+    realmmesh_mesh_binary="$(realmmesh_resolve_built_binary "${realmmesh_root}" \
+        "${realmmesh_preset}" "${realmmesh_mesh_binary_name}")" || return 1
+    realmmesh_bin_dir="$(dirname "${realmmesh_mesh_binary}")"
 }
 
 service_pid_file() {
