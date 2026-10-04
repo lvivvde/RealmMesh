@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 
 # 用途：以分布式开发模式分别管理 realm、gateway 两个服务进程。
-# 用法：./scripts/dev-services.sh [start|stop|restart|status]（默认 restart）
+# 用法：./scripts/dev-services.sh [--preset NAME] [start|stop|restart|status]（默认 restart）
+# --preset 选择 realm_mesh 所在的构建目录(默认 dev,取配置期记录的真实 binaryDir,
+# #122);只有启动路径需要它,stop/status 只看 PID 文件。
 
 set -euo pipefail
 
@@ -10,19 +12,53 @@ set -euo pipefail
 realmmesh_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 # shellcheck source=lib/dev-process.sh
 source "${realmmesh_root}/scripts/lib/dev-process.sh"
+# shellcheck source=lib/build-dir.sh
+source "${realmmesh_root}/scripts/lib/build-dir.sh"
 realmmesh_script_path="$(realmmesh_realpath "${BASH_SOURCE[0]}")"
 realmmesh_runtime_dir="${realmmesh_root}/.runtime"
 realmmesh_pid_dir="${realmmesh_runtime_dir}/pids"
-realmmesh_action="${1:-restart}"
+realmmesh_action="restart"
+realmmesh_preset="${realmmesh_default_preset}"
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --preset)
+            if [[ $# -lt 2 ]]; then
+                printf -- '--preset requires a name.\n' >&2
+                exit 2
+            fi
+            realmmesh_preset="$2"
+            shift 2
+            ;;
+        --preset=*)
+            realmmesh_preset="${1#--preset=}"
+            shift
+            ;;
+        *)
+            realmmesh_action="$1"
+            shift
+            ;;
+    esac
+done
+realmmesh_require_preset_name "${realmmesh_preset}" || exit 2
 # 停止/状态顺序(启动序的反转);启动按 realmmesh_start_services 依赖序。
 realmmesh_services=(gateway realm)
 realmmesh_start_services=(realm gateway)
-realmmesh_mesh_binary="${realmmesh_root}/build/dev/bin/realm_mesh"
+# 服务进程的 argv[0] 基名;二进制的完整路径在启动时按预设解析。
+realmmesh_mesh_binary_name="realm_mesh"
+realmmesh_mesh_binary=""
+realmmesh_bin_dir=""
 realmmesh_config_root="${realmmesh_root}/configs"
 realmmesh_supervisor_pid_file="${realmmesh_pid_dir}/supervisor.pid"
 realmmesh_supervisor_state_file="${realmmesh_runtime_dir}/supervisor.state"
 realmmesh_supervisor_log_file="${realmmesh_runtime_dir}/logs/supervisor/console.log"
 realmmesh_startup_timeout_seconds="${REALMMESH_STARTUP_TIMEOUT_SECONDS:-10}"
+
+# 按预设解析构建目录,设置 realmmesh_bin_dir 与 realmmesh_mesh_binary。
+resolve_mesh_binary() {
+    realmmesh_mesh_binary="$(realmmesh_resolve_built_binary "${realmmesh_root}" \
+        "${realmmesh_preset}" "${realmmesh_mesh_binary_name}")" || return 1
+    realmmesh_bin_dir="$(dirname "${realmmesh_mesh_binary}")"
+}
 
 service_pid_file() {
     printf '%s\n' "${realmmesh_pid_dir}/$1.pid"
@@ -70,8 +106,8 @@ is_expected_service_process() {
     local realmmesh_executable
     realmmesh_executable="$(realmmesh_process_executable "${realmmesh_pid}")" ||
         return 1
-    [[ "${realmmesh_executable##*/}" == \
-        "$(basename "${realmmesh_mesh_binary}")" ]] || return 1
+    [[ "${realmmesh_executable##*/}" == "${realmmesh_mesh_binary_name}" ]] ||
+        return 1
     [[ "$(realmmesh_process_cwd "${realmmesh_pid}")" == "${realmmesh_root}" ]] ||
         return 1
 
@@ -244,15 +280,19 @@ start_supervisor() {
         rm -f -- "${realmmesh_supervisor_pid_file}"
     fi
     rm -f -- "${realmmesh_supervisor_state_file}"
+    resolve_mesh_binary || return 1
     local realmmesh_detach
-    if ! realmmesh_detach="$(realmmesh_detach_command)"; then
+    if ! realmmesh_detach="$(realmmesh_detach_command "${realmmesh_bin_dir}")"; then
         return 1
     fi
 
     mkdir -p "${realmmesh_pid_dir}" \
         "$(dirname "${realmmesh_supervisor_log_file}")"
     cd "${realmmesh_root}"
+    # supervise 紧跟脚本路径:is_expected_supervisor_process 按这对连续参数
+    # 识别监督进程,与所选预设无关。
     nohup "${realmmesh_detach}" bash "${realmmesh_script_path}" supervise \
+        --preset "${realmmesh_preset}" \
         >> "${realmmesh_supervisor_log_file}" 2>&1 </dev/null &
     realmmesh_pid=$!
     printf '%s\n' "${realmmesh_pid}" > "${realmmesh_supervisor_pid_file}"
@@ -342,8 +382,9 @@ start_services() {
         show_status || true
         return 1
     fi
+    resolve_mesh_binary || return 1
     local realmmesh_detach
-    if ! realmmesh_detach="$(realmmesh_detach_command)"; then
+    if ! realmmesh_detach="$(realmmesh_detach_command "${realmmesh_bin_dir}")"; then
         return 1
     fi
     if ! command -v curl >/dev/null 2>&1; then
@@ -369,12 +410,6 @@ start_services() {
             return 1
         fi
     done
-
-    if [[ ! -x "${realmmesh_mesh_binary}" ]]; then
-        printf 'Service binary is missing: %s\nRun ./scripts/build.sh first.\n' \
-            "${realmmesh_mesh_binary}" >&2
-        return 1
-    fi
 
     mkdir -p "${realmmesh_pid_dir}"
     # 模式 2 单服务进程:以依赖序 realm → gateway 依次拉起,
@@ -425,7 +460,7 @@ case "${realmmesh_action}" in
         supervise_services
         ;;
     *)
-        printf 'Usage: %s [start|stop|restart|status]\n' "$0" >&2
+        printf 'Usage: %s [--preset NAME] [start|stop|restart|status]\n' "$0" >&2
         exit 2
         ;;
 esac

@@ -5,8 +5,8 @@
 # Linux 直接读 /proc;macOS 没有 /proc,改用 ps 与 lsof。所有函数只依赖 POSIX
 # 工具与 bash 3.2 语法(刻意不用 mapfile / readlink -f)。
 #
-# 约定:调用方先设置 realmmesh_root(仓库根),cwd 校验与 detach 辅助程序
-# 定位都基于它。
+# 约定:调用方先设置 realmmesh_root(仓库根),cwd 校验基于它;detach 辅助
+# 程序从调用方传入的构建目录定位。
 
 # 解析为绝对路径:macOS 的 readlink 不保证支持 -f,所以用 cd + pwd -P。
 realmmesh_realpath() {
@@ -68,20 +68,21 @@ realmmesh_process_cwd() {
         sed -n 's/^n//p' | head -n 1
 }
 
-# 把子进程放进新会话的命令前缀:优先系统 setsid,否则用仓库内构建的
-# realm_detach(macOS 没有 setsid)。失败时返回非零并说明如何构建。
+# 把子进程放进新会话的命令前缀:优先系统 setsid,否则用所选构建目录里的
+# realm_detach(macOS 没有 setsid)。$1 是构建目录的 bin/。失败时返回非零并
+# 说明如何构建。
 realmmesh_detach_command() {
     if command -v setsid >/dev/null 2>&1; then
         printf 'setsid\n'
         return 0
     fi
-    local realmmesh_helper="${realmmesh_root}/build/dev/bin/realm_detach"
+    local realmmesh_helper="$1/realm_detach"
     if [[ -x "${realmmesh_helper}" ]]; then
         printf '%s\n' "${realmmesh_helper}"
         return 0
     fi
     printf 'setsid is unavailable and the detach helper is missing: %s\n' \
         "${realmmesh_helper}" >&2
-    printf 'Run ./scripts/build.sh first.\n' >&2
+    printf 'Build it with ./scripts/build.sh (add --preset NAME for another preset).\n' >&2
     return 1
 }

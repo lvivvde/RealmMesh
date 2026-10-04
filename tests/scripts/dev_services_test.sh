@@ -95,6 +95,8 @@ mkdir -p "${realmmesh_test_root}/scripts/lib" \
 cp "${realmmesh_source_root}/scripts/dev-services.sh" "${realmmesh_script}"
 cp "${realmmesh_source_root}/scripts/lib/dev-process.sh" \
     "${realmmesh_test_root}/scripts/lib/dev-process.sh"
+cp "${realmmesh_source_root}/scripts/lib/build-dir.sh" \
+    "${realmmesh_test_root}/scripts/lib/build-dir.sh"
 cp -R "${realmmesh_source_root}/configs/common" \
     "${realmmesh_test_root}/configs/common"
 cp -R "${realmmesh_source_root}/configs/services" \
@@ -116,6 +118,21 @@ if ! command -v setsid >/dev/null 2>&1; then
     ln -s "${realmmesh_detach_binary}" \
         "${realmmesh_test_root}/build/dev/bin/realm_detach"
 fi
+
+# dev-services.sh 按 --preset(默认 dev)读配置期记录的构建目录信息(#122)。
+# 这里不跑 CMake,照 cmake/RealmMeshBuildDirInfo.cmake 的格式写出登记与身份,
+# 再放一个 CMakeCache.txt 让 build/dev 算作已配置。
+realmmesh_build_dir_info="$(printf '%s\n' \
+    "preset=dev" \
+    "source_dir=${realmmesh_test_root}" \
+    "binary_dir=${realmmesh_test_root}/build/dev" \
+    "generator=Unix Makefiles")"
+mkdir -p "${realmmesh_test_root}/build/.build-dirs"
+printf '%s\n' "${realmmesh_build_dir_info}" \
+    >"${realmmesh_test_root}/build/.build-dirs/dev.txt"
+printf '%s\n' "${realmmesh_build_dir_info}" \
+    >"${realmmesh_test_root}/build/dev/realmmesh-build-dir.txt"
+: >"${realmmesh_test_root}/build/dev/CMakeCache.txt"
 
 # macOS 自带 bash 3.2,没有 mapfile;用逐行读取保持同一行为。
 # 在临时端口范围(49152-65535)之外选端口:supervisor 的就绪探测用 curl

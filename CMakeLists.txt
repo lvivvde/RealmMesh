@@ -12,6 +12,10 @@ project(
 include("${PROJECT_SOURCE_DIR}/cmake/RealmMeshOpenSSL.cmake")
 realmmesh_find_openssl()
 
+# 记录「预设 → 真实构建目录」,脚本入口按 --preset 读取(#122)。
+include("${PROJECT_SOURCE_DIR}/cmake/RealmMeshBuildDirInfo.cmake")
+realmmesh_write_build_dir_info()
+
 add_subdirectory(third_party/lua)
 add_subdirectory(third_party/sol2)
 add_subdirectory(third_party/sodium)

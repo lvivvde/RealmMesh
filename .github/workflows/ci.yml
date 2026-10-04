@@ -10,6 +10,12 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# configure / build / test / acceptance all use this one preset name; the build
+# directory is the binaryDir CMake recorded at configure time (#122), resolved by
+# scripts/build-dir.sh rather than assumed from the preset name.
+env:
+  REALMMESH_CI_PRESET: dev
+
 jobs:
   # Two explicit jobs rather than a matrix: only the dependency steps differ
   # (Homebrew's keg-only OpenSSL here, apt plus the pinned libmsquic package on
@@ -58,13 +64,16 @@ jobs:
           c++ --version
 
       - name: Configure
-        run: cmake --preset dev
+        run: |
+          cmake --preset "$REALMMESH_CI_PRESET"
+          build_dir="$(./scripts/build-dir.sh --preset "$REALMMESH_CI_PRESET")"
+          echo "REALMMESH_BUILD_DIR=${build_dir}" >> "$GITHUB_ENV"
 
       - name: Build
-        run: cmake --build --preset dev
+        run: cmake --build --preset "$REALMMESH_CI_PRESET"
 
       - name: Test
-        run: ctest --preset dev
+        run: ctest --preset "$REALMMESH_CI_PRESET"
 
   # Linux is the production and behaviour baseline (ADR-0002), and the only job
   # where QUIC runs. It is not merely "also built here": on Linux
@@ -104,18 +113,21 @@ jobs:
           c++ --version
 
       - name: Configure
-        run: cmake --preset dev
+        run: |
+          cmake --preset "$REALMMESH_CI_PRESET"
+          build_dir="$(./scripts/build-dir.sh --preset "$REALMMESH_CI_PRESET")"
+          echo "REALMMESH_BUILD_DIR=${build_dir}" >> "$GITHUB_ENV"
 
       - name: Build
-        run: cmake --build --preset dev
+        run: cmake --build --preset "$REALMMESH_CI_PRESET"
 
       - name: Test
-        run: ctest --preset dev
+        run: ctest --preset "$REALMMESH_CI_PRESET"
 
       - name: Linux M1-M4 acceptance
         env:
           REALMMESH_LINUX_ACCEPTANCE_SKIP_BUILD: "1"
-        run: ./scripts/run-linux-login-acceptance.sh
+        run: ./scripts/run-linux-login-acceptance.sh --preset "$REALMMESH_CI_PRESET"
 
       - name: Upload Linux acceptance report
         if: always()
@@ -123,6 +135,6 @@ jobs:
         with:
           name: linux-login-chain-m1-m4
           path: |
-            build/dev/acceptance/linux-login-chain-m1-m4.md
-            build/dev/acceptance/linux-login-chain-m1-m4.log
+            ${{ env.REALMMESH_BUILD_DIR }}/acceptance/linux-login-chain-m1-m4.md
+            ${{ env.REALMMESH_BUILD_DIR }}/acceptance/linux-login-chain-m1-m4.log
           if-no-files-found: warn

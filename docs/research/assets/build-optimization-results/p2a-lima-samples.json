@@ -1,0 +1,193 @@
+{
+  "platform": "P2a Lima",
+  "environment": {
+    "before_commit": "16d1a14e0276cbe74d9f697c0fd55cfb233d04a1",
+    "generator": "Unix Makefiles",
+    "compiler_cache": "none",
+    "sample_method": "a sampling script: 1 warmup each (not recorded), then before/after test-watch --once alternated on the same build/dev; resolve = scripts/build-dir.sh --preset dev",
+    "label": "P2a Lima",
+    "platform": "Ubuntu 26.04.1 aarch64 (Lima VM), 8 CPUs, 7.73 GiB",
+    "cmake_ctest": "4.2.3",
+    "build_jobs": 2,
+    "samples_commit": "82fdab207c87e98d33bb0a4f5aaf3aa83fd3dc17"
+  },
+  "entries": [
+    {
+      "name": "cold-entry dev-make",
+      "commit": "448334f7bba43f9767e92a2d8411554022eb0977",
+      "command": "CMAKE_BUILD_PARALLEL_LEVEL=2 ./scripts/build.sh --preset dev-make",
+      "build_dir": "<bench>/build/dev-make",
+      "fresh": true,
+      "exit": 8,
+      "wall_s": 504,
+      "configure_reported_s": 57.7,
+      "compile_count": 770,
+      "link_or_archive_count": 189,
+      "ctest_real_s": 286.88,
+      "tests_total": 651,
+      "tests_failed": 1,
+      "failed_tests": [
+        "BuildDirScriptTest.PresetEntriesResolveRecordedBuildDirs"
+      ],
+      "quic": true,
+      "note": "test matched a CMake warning across a width-dependent line break; fixed in 82fdab2"
+    },
+    {
+      "name": "full ctest dev-make (rerun)",
+      "commit": "82fdab207c87e98d33bb0a4f5aaf3aa83fd3dc17",
+      "command": "ctest --preset dev-make",
+      "exit": 0,
+      "wall_s": 282,
+      "ctest_real_s": 286.69,
+      "tests_total": 651,
+      "tests_failed": 0
+    },
+    {
+      "name": "acceptance dev-make",
+      "commit": "82fdab207c87e98d33bb0a4f5aaf3aa83fd3dc17",
+      "command": "REALMMESH_LINUX_ACCEPTANCE_SKIP_BUILD=1 ./scripts/run-linux-login-acceptance.sh --preset dev-make",
+      "exit": 0,
+      "wall_s": 222,
+      "report": "<bench>/build/dev-make/acceptance/linux-login-chain-m1-m4.md",
+      "groups_pass": 5,
+      "groups_fail": 0
+    },
+    {
+      "name": "configure+build dev",
+      "commit": "82fdab207c87e98d33bb0a4f5aaf3aa83fd3dc17",
+      "command": "cmake --preset dev; cmake --build --preset dev (2 jobs)",
+      "fresh": true,
+      "exit": 0,
+      "configure_wall_s": 68,
+      "build_wall_s": 167,
+      "compile_count": 770
+    }
+  ],
+  "samples": [
+    {
+      "platform": "lima",
+      "stage": "unit-watch-before",
+      "index": 1,
+      "exit": 0,
+      "seconds": 5.683
+    },
+    {
+      "platform": "lima",
+      "stage": "unit-watch-after",
+      "index": 1,
+      "exit": 0,
+      "seconds": 5.699
+    },
+    {
+      "platform": "lima",
+      "stage": "unit-watch-before",
+      "index": 2,
+      "exit": 0,
+      "seconds": 5.645
+    },
+    {
+      "platform": "lima",
+      "stage": "unit-watch-after",
+      "index": 2,
+      "exit": 0,
+      "seconds": 5.625
+    },
+    {
+      "platform": "lima",
+      "stage": "unit-watch-before",
+      "index": 3,
+      "exit": 0,
+      "seconds": 5.595
+    },
+    {
+      "platform": "lima",
+      "stage": "unit-watch-after",
+      "index": 3,
+      "exit": 0,
+      "seconds": 5.637
+    },
+    {
+      "platform": "lima",
+      "stage": "unit-watch-before",
+      "index": 4,
+      "exit": 0,
+      "seconds": 5.61
+    },
+    {
+      "platform": "lima",
+      "stage": "unit-watch-after",
+      "index": 4,
+      "exit": 0,
+      "seconds": 5.631
+    },
+    {
+      "platform": "lima",
+      "stage": "unit-watch-before",
+      "index": 5,
+      "exit": 0,
+      "seconds": 5.599
+    },
+    {
+      "platform": "lima",
+      "stage": "unit-watch-after",
+      "index": 5,
+      "exit": 0,
+      "seconds": 5.661
+    },
+    {
+      "platform": "lima",
+      "stage": "resolve-build-dir",
+      "index": 1,
+      "exit": 0,
+      "seconds": 0.016
+    },
+    {
+      "platform": "lima",
+      "stage": "resolve-build-dir",
+      "index": 2,
+      "exit": 0,
+      "seconds": 0.014
+    },
+    {
+      "platform": "lima",
+      "stage": "resolve-build-dir",
+      "index": 3,
+      "exit": 0,
+      "seconds": 0.015
+    },
+    {
+      "platform": "lima",
+      "stage": "resolve-build-dir",
+      "index": 4,
+      "exit": 0,
+      "seconds": 0.015
+    },
+    {
+      "platform": "lima",
+      "stage": "resolve-build-dir",
+      "index": 5,
+      "exit": 0,
+      "seconds": 0.014
+    }
+  ],
+  "summary": {
+    "unit-watch-before": {
+      "n": 5,
+      "median_s": 5.61,
+      "min_s": 5.595,
+      "max_s": 5.683
+    },
+    "unit-watch-after": {
+      "n": 5,
+      "median_s": 5.637,
+      "min_s": 5.625,
+      "max_s": 5.699
+    },
+    "resolve-build-dir": {
+      "n": 5,
+      "median_s": 0.015,
+      "min_s": 0.014,
+      "max_s": 0.016
+    }
+  }
+}

@@ -1,6 +1,6 @@
 # RealmMesh C++ 静态检查配置
 # 核心:用 readability-identifier-naming 固化命名规范( STL 风格)。
-# 运行方式:clang-tidy -p build/dev <源文件>
+# 运行方式:clang-tidy -p "$(./scripts/build-dir.sh --preset dev)" <源文件>
 # 需要 clang-tidy >= 16。
 ---
 Checks: >

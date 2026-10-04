@@ -251,3 +251,68 @@ R0 在冷入口后第一次重新配置会改写 mongo-c 版本头，随后重�
 
 - [`p1-mac-samples.json`](assets/build-optimization-results/p1-mac-samples.json)（冷入口＋repro）、[`p1-lima-samples.json`](assets/build-optimization-results/p1-lima-samples.json)（fetch＋冷入口＋repro）：由同提交的 `measure.py export` 导出，本机路径替换为 `<bench>`。
 - 复现：`git archive fd4fa77` 生成源码副本，`--scenario fetch --scenario cold-entry --scenario repro --long-samples 1`，Mac 加 `--jobs 8`，Lima 加 `--jobs 2 --env TMPDIR=<磁盘目录>`；两平台都不需要 CMake 适配参数。
+
+## P2a：统一预设、构建目录信息与 `--preset` 入口（[#122](https://github.com/lvivvde/RealmMesh/issues/122)）
+
+P2a 是正确性阶段，门槛是“全部目录消费者迁移完毕，启动与验收不误用旧 `build/dev`”，不设耗时目标。生成器不变（`dev` 与新增的 `dev-make` 都是 Unix Makefiles），Ninja 与切默认留给 P2b/P4；本节秒数只用来确认入口没有引入额外开销。
+
+### 条件
+
+| 项 | 值 |
+| --- | --- |
+| 前版本 | `16d1a14`（main，P1 之后），入口固定读 `build/dev` |
+| 后版本 | 分支 `feat/p2a-preset-build-dir`：Mac 冷入口 `e13bcf1`，此后各项 `448334f`（评审修正，只改脚本与测试）；Lima 冷入口 `448334f`，此后各项 `82fdab2`（只改测试匹配，见“异常与限制”） |
+| 源码 | Mac 用开发仓库本身（新建 `build/dev-make`；`build/dev` 为既有目录）；Lima 从推送后的分支做本地 `git clone` 到独立目录，不动 Lima 工作区，`.tools` 以符号链接复用 |
+| 预设 | `dev`（`build/dev`）、`dev-make`（`build/dev-make`），均继承隐藏基 `realmmesh-base`（Debug、导出编译数据库、`REALMMESH_PRESET=${presetName}`） |
+| 并行 | `CMAKE_BUILD_PARALLEL_LEVEL`：Mac 8，Lima 2；CTest 串行 |
+| 工具 | Mac CMake/CTest 4.4.3，Lima 4.2.3；编译缓存无；机器同 R0 |
+| 测试身份 | 651 个 CTest 用例：P1 的 650 个加本阶段的 `BuildDirScriptTest.PresetEntriesResolveRecordedBuildDirs`（integration） |
+
+Mac 与 Lima 先后进行，计时项从未重叠。
+
+### 门槛验收
+
+| 检查 | Mac | Lima |
+| --- | --- | --- |
+| 新目录 `./scripts/build.sh --preset dev-make`（配置＋全量构建＋完整 CTest） | 退出 0；`realm_build_dir: preset dev-make -> …/build/dev-make`；编译 771、链接与归档 190（与 P1 冷入口相同）；`100% tests passed out of 651` | 编译 770、链接与归档 189（与 P1 相同）；首轮 650/651，唯一失败是新测试自身的匹配问题，修正后整套重跑 `100% tests passed, 0 tests failed out of 651` |
+| 登记与目录身份 | `build/.build-dirs/{dev,dev-make}.txt` 与各目录的 `realmmesh-build-dir.txt` 互相对应，source_dir 为本仓库 | 同左（source_dir 为独立副本） |
+| 编译数据库 | 仓库根 `compile_commands.json` 随 `--preset dev-make` 指向 `build/dev-make/…`，随 `--preset dev` 改回 `build/dev/…` | 指向 `build/dev-make/…` |
+| 既有 `build/dev` 迁移（`./scripts/build.sh --preset dev`） | 重新配置 1.7 s 写入登记，0 编译，完整 CTest 651/651 | 不适用（独立副本另配 `dev`：配置 68 s、构建 167 s、编译 770） |
+| 接入验收按所选预设 | `run-macos-login-acceptance.sh --preset dev-make`：4 组 PASS，报告写到 `build/dev-make/acceptance/`，`build/dev/acceptance/` 仍是 10-01 的旧文件 | `REALMMESH_LINUX_ACCEPTANCE_SKIP_BUILD=1 run-linux-login-acceptance.sh --preset dev-make`：Transport、M1–M4 共 5 组 PASS，报告写到 `build/dev-make/acceptance/`，副本中不存在 `build/dev/acceptance/` |
+| 服务启动、watch、派生用户预设、误用拒绝 | 由 `BuildDirScriptTest` 与更新后的 `DevServicesScriptTest` 覆盖，两平台都通过：未配置时 build-dir / test-watch / dev-services / dev-all-in-one 都失败并给出配置命令，不起进程；`dev-local`（继承 `dev`）经 `build.sh` 走完配置、构建、测试；目录身份不符、来自另一棵源码树、缓存缺失均被拒绝；两个预设共用 binaryDir 时配置期告警、解析失败 | 同左 |
+| QUIC | `realm_network: QUIC transport enabled` | 同左 |
+
+### 入口开销（前后版本）
+
+同一 `build/dev`（无改动），旧版 `test-watch.sh --once`（`16d1a14`，固定 `build/dev`）与新版（按 `--preset dev` 解析）各预热 1 次后交替运行 5 次；工作量相同：无操作 ALL 构建＋`ctest -L unit`（496 用例）。
+
+| 场景 | Mac 中位数 s（极差） | Lima 中位数 s（极差） |
+| --- | ---: | ---: |
+| 前：`test-watch --once` | 9.645（9.573–9.973） | 5.610（5.595–5.683） |
+| 后：`test-watch --once`（默认 `--preset dev`） | 9.654（9.613–9.763） | 5.637（5.625–5.699） |
+| 解析一次构建目录（`build-dir.sh --preset dev`） | 0.037（0.036–0.038） | 0.015（0.014–0.016） |
+
+前后差 9 ms / 27 ms，在各自极差之内；解析本身是几十毫秒的 sed 读取。
+
+### 筛查耗时（不判定）
+
+| 场景 | Mac（8 jobs）s | Lima（2 jobs）s |
+| --- | ---: | ---: |
+| `build.sh --preset dev-make` 新目录 总（含 FetchContent 获取） | 510 | 504 |
+| 　其中配置（CMake 自报） | 82.9 | 57.7 |
+| 　其中完整 CTest | 371.51 | 286.88 |
+| 既有 `build/dev` 上 `build.sh --preset dev` 总 | 377 | — |
+| 接入验收 `--preset dev-make` | 126 | 222（跳过构建） |
+
+### 异常与限制
+
+- **Lima 首轮新测试失败。** CMake 按宽度折行警告文本，Lima 的临时目录路径更长，折行断点落在被匹配的句子里（`was previously` 后换行），Mac 未出现。`82fdab2` 改为比较前压缩空白，Lima 上单跑与整套重跑均通过；产品行为无变化。
+- **Lima 报告标注 dirty。** 独立副本里 `.tools` 是符号链接，`.gitignore` 的 `.tools/` 只匹配目录，故 Linux 验收报告的工作树状态为 dirty；源码文件无改动。
+- **`tools/build-bench/measure.py` 未迁移。** 它以显式 `--build-dir`（缺省 `build/<preset>`）测量，需要与 R0/P1 同口径；对仓库预设这一缺省与登记一致。
+- **文档里的 `build/dev`。** `docs/operations` 运行手册与历史 `docs/plans` 仍写 `build/dev`，`dev` 预设仍映射到它，P4 切默认时一并复查。
+- **只有继承 `realmmesh-base` 的预设会被登记。** 不继承它的用户预设可以配置，但脚本入口找不到其构建目录，解析失败时会说明原因。
+- **CMake 3.20 未实跑**，两平台本机与 CI 的 CMake 都更高；`${presetName}` 宏为预设格式 v2 已有。
+
+### 资产
+
+- [`p2a-mac-samples.json`](assets/build-optimization-results/p2a-mac-samples.json)、[`p2a-lima-samples.json`](assets/build-optimization-results/p2a-lima-samples.json)：各入口的命令、提交、退出码、计数与 CTest 结果，以及前后入口与解析的逐次样本；本机路径替换为 `<repo>` / `<bench>`。
