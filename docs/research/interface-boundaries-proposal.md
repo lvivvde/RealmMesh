@@ -1,6 +1,6 @@
 # 公共接口头与内部实现：首批拆分决策
 
-关联[确定公共接口头、内部实现与模块依赖的拆分原则](https://github.com/lvivvde/RealmMesh/issues/113)。用户已通过 Q1–Q4 确认通用能力、调用迁移、先隔离间接传播及完整首批范围。本文件记录决策，尚未实施重构。
+关联[确定公共接口头、内部实现与模块依赖的拆分原则](https://github.com/lvivvde/RealmMesh/issues/113)。用户已通过 Q1–Q4 确认通用能力、调用迁移、先隔离间接传播及完整首批范围。本文件记录决策；配置类型一项已由 [#126](https://github.com/lvivvde/RealmMesh/issues/126)（P3a）落地，见文末[实施记录](#实施记录126)，TrainingRule/拓扑与 Gateway 两项分别由 #127、#128 继续。
 
 已确认：保留通用 C++ ↔ Lua 绑定与任意函数调用能力，使用时显式选择绑定头；同步迁移仓库内 include 和调用位置，不保留旧入口兼容层，保持运行行为、Lua 扩展能力和线上协议。
 
@@ -74,7 +74,17 @@ std::vector<ServiceSpec> load_topology(const std::filesystem::path& path);
 - 生命周期与拓扑：framework/service_host/src/layered_config_loader.cpp:88、framework/service_host/include/realmmesh/service_host/service_host.hpp:105、apps/mesh_host/main.cpp:58。
 - Gateway：game/gateway/include/realmmesh/game/gateway/gateway_runtime.hpp:51、:77、:169；gateway_primary_transport.hpp:3；game/gateway/src/gateway_runtime.cpp:60。
 - 存储：game/common/include/realmmesh/game/common/player_data_store.hpp:153、:205；game/gateway/include/realmmesh/game/gateway/account_fetch_port.hpp:95。
-- 构建：framework/scripting/CMakeLists.txt:13，game/common/CMakeLists.txt:29，game/gateway/CMakeLists.txt:22，game/realm/CMakeLists.txt:18。GameCommon 的“Lua 不进公共头”注释与 player_data_config.hpp 现实不一致，应在后续代码迁移中一并纠正。
+- 构建：framework/scripting/CMakeLists.txt:13，game/common/CMakeLists.txt:29，game/gateway/CMakeLists.txt:22，game/realm/CMakeLists.txt:18。GameCommon 的“Lua 不进公共头”注释与 player_data_config.hpp 现实不一致，已在 #126 中随代码一并纠正。
 
 [原始双平台基线](build-baseline-2026-10-02.md)使用较早冻结快照；本次未跑新的耗时实验、未实施优化。本票确定目的与首批范围，全面 Gateway PIMPL、存储视图另拆头和其他模块只有在新证据支持时继续判断。
+
+## 实施记录（#126）
+
+P3a 按方案 A 落地配置类型一项；上文约定未改动的部分不再重复。耗时与编译名单见[构建优化结果的 P3a 节](build-optimization-results.md#p3a分离配置-dto-与-lua-解析入口126)。
+
+- **两类头。** 普通配置头（`player_data_config.hpp`、`gateway_config_loader.hpp`、`login_verify_config.hpp`、`queue_config.hpp`、`realm_config.hpp`）只声明配置值与不碰 Lua 的辅助函数。各模块新增 Lua 解析入口 `*_config_lua.hpp`，声明 `parse_<模块>_config(const sol::table&)` 自由函数，只包含 `<sol/forward.hpp>`；`*_config_lua.cpp` 实现解析并包含完整 sol2。原 `GatewayConfigLoader::parse`、`QueueConfigLoader` 等静态类入口删除，不留兼容层。
+- **选择解析入口的只有三处**：合并装载器 `layered_config_loader.cpp`、`GatewayConfigLoader::load`（单文件装载，运行时与根表都在函数内创建和销毁，只返回配置值），以及直接驱动解析的测试。`player_data_config.cpp` 拆为不碰 Lua 的路径解析部分与 `player_data_config_lua.cpp`。
+- **CMake 使用需求。** gateway、login_verify、queue 与 service_host 对 `realm_scripting` 改为 PRIVATE；直接驱动 Lua 的测试显式链接它。realm 仍 PUBLIC，因为公共头 `training_rule.hpp` 还包含 `lua_runtime.hpp`，由 #127 收口。解析入口的“包含方须自行链接 RealmMesh::Scripting”目前写在头注释与 CMake 注释里，没有另建 INTERFACE target：两个跨目标使用方都已 PRIVATE 链接，按上文“必要时”不新增目标。
+- **守卫。** `config_headers_test` 包含配置值消费者会用到的普通头（含 `layered_config_loader.hpp`、`mesh_host.hpp`、各服务头），任一经传递 include 引入 sol2（`SOL_HPP` / `SOL_FORWARD_HPP`）即编译失败。
+- **生命周期。** LayeredConfigLoader 的 MergedLayers 顺序不变：先建 runtime、后建 root，解析在这一范围内完成，只把配置值返回给调用方。
 
