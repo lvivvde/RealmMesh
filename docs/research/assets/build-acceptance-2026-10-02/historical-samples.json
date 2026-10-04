@@ -1,0 +1,477 @@
+{
+  "provenance": "Derived from published frozen baseline and j4 supplement, not a new measurement",
+  "relative_range_definition": "(maximum - minimum) / median; not a confidence interval",
+  "platforms": {
+    "macos": {
+      "configure_warm": {
+        "n": 3,
+        "samples": [
+          {
+            "stage": "configure-warm-1",
+            "wall_s": 1.714613415999338,
+            "exit": 0,
+            "compile_count": 0,
+            "link_count": 0
+          },
+          {
+            "stage": "configure-warm-2",
+            "wall_s": 1.336031250000815,
+            "exit": 0,
+            "compile_count": 0,
+            "link_count": 0
+          },
+          {
+            "stage": "configure-warm-3",
+            "wall_s": 1.3660511660127668,
+            "exit": 0,
+            "compile_count": 0,
+            "link_count": 0
+          }
+        ],
+        "median_s": 1.3660511660127668,
+        "min_s": 1.336031250000815,
+        "max_s": 1.714613415999338,
+        "relative_range_percent": 27.71361537675998
+      },
+      "stable_noop": {
+        "n": 3,
+        "samples": [
+          {
+            "stage": "build-stable-noop-1",
+            "wall_s": 6.465193916999851,
+            "exit": 0,
+            "compile_count": 0,
+            "link_count": 0
+          },
+          {
+            "stage": "build-stable-noop-2",
+            "wall_s": 6.195755459004431,
+            "exit": 0,
+            "compile_count": 0,
+            "link_count": 0
+          },
+          {
+            "stage": "build-stable-noop-3",
+            "wall_s": 5.961482166996575,
+            "exit": 0,
+            "compile_count": 0,
+            "link_count": 0
+          }
+        ],
+        "median_s": 6.195755459004431,
+        "min_s": 5.961482166996575,
+        "max_s": 6.465193916999851,
+        "relative_range_percent": 8.12994885508628
+      },
+      "cpp_change": {
+        "n": 3,
+        "samples": [
+          {
+            "stage": "build-cpp-1",
+            "wall_s": 31.043409999998403,
+            "exit": 0,
+            "compile_count": 1,
+            "link_count": 53
+          },
+          {
+            "stage": "build-cpp-2",
+            "wall_s": 29.44972879200941,
+            "exit": 0,
+            "compile_count": 1,
+            "link_count": 53
+          },
+          {
+            "stage": "build-cpp-3",
+            "wall_s": 30.169871999998577,
+            "exit": 0,
+            "compile_count": 1,
+            "link_count": 53
+          }
+        ],
+        "median_s": 30.169871999998577,
+        "min_s": 29.44972879200941,
+        "max_s": 31.043409999998403,
+        "relative_range_percent": 5.282359858832243
+      },
+      "lua_header_change": {
+        "n": 3,
+        "samples": [
+          {
+            "stage": "build-header-1",
+            "wall_s": 67.94859295799688,
+            "exit": 0,
+            "compile_count": 33,
+            "link_count": 53
+          },
+          {
+            "stage": "build-header-2",
+            "wall_s": 69.49014012499538,
+            "exit": 0,
+            "compile_count": 33,
+            "link_count": 53
+          },
+          {
+            "stage": "build-header-3",
+            "wall_s": 65.12362520900206,
+            "exit": 0,
+            "compile_count": 33,
+            "link_count": 53
+          }
+        ],
+        "median_s": 67.94859295799688,
+        "min_s": 65.12362520900206,
+        "max_s": 69.49014012499538,
+        "relative_range_percent": 6.426203584072045
+      },
+      "unit_serial": {
+        "n": 3,
+        "samples": [
+          {
+            "stage": "test-unit-1",
+            "wall_s": 9.594584999998915,
+            "exit": 0,
+            "compile_count": 0,
+            "link_count": 0
+          },
+          {
+            "stage": "test-unit-2",
+            "wall_s": 8.34957237499475,
+            "exit": 0,
+            "compile_count": 0,
+            "link_count": 0
+          },
+          {
+            "stage": "test-unit-3",
+            "wall_s": 8.503361665992998,
+            "exit": 0,
+            "compile_count": 0,
+            "link_count": 0
+          }
+        ],
+        "median_s": 8.503361665992998,
+        "min_s": 8.34957237499475,
+        "max_s": 9.594584999998915,
+        "relative_range_percent": 14.641416817342627
+      },
+      "cold_build": {
+        "n": 1,
+        "samples": [
+          {
+            "stage": "adapted-build-cold",
+            "wall_s": 335.7566582500003,
+            "exit": 0,
+            "compile_count": 771,
+            "link_count": 74
+          }
+        ],
+        "median_s": 335.7566582500003,
+        "min_s": 335.7566582500003,
+        "max_s": 335.7566582500003,
+        "relative_range_percent": null
+      },
+      "full_ctest": {
+        "n": 1,
+        "samples": [
+          {
+            "stage": "test-full",
+            "wall_s": 362.79920624999795,
+            "exit": 0,
+            "compile_count": 0,
+            "link_count": 0
+          }
+        ],
+        "median_s": 362.79920624999795,
+        "min_s": 362.79920624999795,
+        "max_s": 362.79920624999795,
+        "relative_range_percent": null
+      },
+      "full_script": {
+        "n": 1,
+        "samples": [
+          {
+            "stage": "script-full",
+            "wall_s": 350.6765720840049,
+            "exit": 0,
+            "compile_count": 0,
+            "link_count": 0
+          }
+        ],
+        "median_s": 350.6765720840049,
+        "min_s": 350.6765720840049,
+        "max_s": 350.6765720840049,
+        "relative_range_percent": null
+      },
+      "unit_j4": {
+        "n": 3,
+        "samples": [
+          {
+            "sample": 1,
+            "wall_s": 2.0995448750036303,
+            "exit": 0
+          },
+          {
+            "sample": 2,
+            "wall_s": 2.0629441249911906,
+            "exit": 0
+          },
+          {
+            "sample": 3,
+            "wall_s": 2.0514955410035327,
+            "exit": 0
+          }
+        ],
+        "median_s": 2.0629441249911906,
+        "min_s": 2.0514955410035327,
+        "max_s": 2.0995448750036303,
+        "relative_range_percent": 2.3291631323413946
+      }
+    },
+    "linux": {
+      "configure_warm": {
+        "n": 3,
+        "samples": [
+          {
+            "stage": "configure-warm-1",
+            "wall_s": 1.0055516809989058,
+            "exit": 0,
+            "compile_count": 0,
+            "link_count": 0
+          },
+          {
+            "stage": "configure-warm-2",
+            "wall_s": 0.9816962919994694,
+            "exit": 0,
+            "compile_count": 0,
+            "link_count": 0
+          },
+          {
+            "stage": "configure-warm-3",
+            "wall_s": 0.9807754049998039,
+            "exit": 0,
+            "compile_count": 0,
+            "link_count": 0
+          }
+        ],
+        "median_s": 0.9816962919994694,
+        "min_s": 0.9807754049998039,
+        "max_s": 1.0055516809989058,
+        "relative_range_percent": 2.523822917639717
+      },
+      "stable_noop": {
+        "n": 3,
+        "samples": [
+          {
+            "stage": "build-stable-noop-1",
+            "wall_s": 1.9423096050013555,
+            "exit": 0,
+            "compile_count": 0,
+            "link_count": 0
+          },
+          {
+            "stage": "build-stable-noop-2",
+            "wall_s": 1.8215846219991363,
+            "exit": 0,
+            "compile_count": 0,
+            "link_count": 0
+          },
+          {
+            "stage": "build-stable-noop-3",
+            "wall_s": 1.8529962860011437,
+            "exit": 0,
+            "compile_count": 0,
+            "link_count": 0
+          }
+        ],
+        "median_s": 1.8529962860011437,
+        "min_s": 1.8215846219991363,
+        "max_s": 1.9423096050013555,
+        "relative_range_percent": 6.515122772466513
+      },
+      "cpp_change": {
+        "n": 3,
+        "samples": [
+          {
+            "stage": "build-cpp-1",
+            "wall_s": 19.13082366799972,
+            "exit": 0,
+            "compile_count": 1,
+            "link_count": 53
+          },
+          {
+            "stage": "build-cpp-2",
+            "wall_s": 19.287911344999884,
+            "exit": 0,
+            "compile_count": 1,
+            "link_count": 53
+          },
+          {
+            "stage": "build-cpp-3",
+            "wall_s": 19.288385330999517,
+            "exit": 0,
+            "compile_count": 1,
+            "link_count": 53
+          }
+        ],
+        "median_s": 19.287911344999884,
+        "min_s": 19.13082366799972,
+        "max_s": 19.288385330999517,
+        "relative_range_percent": 0.81689333894954
+      },
+      "lua_header_change": {
+        "n": 3,
+        "samples": [
+          {
+            "stage": "build-header-1",
+            "wall_s": 75.4221126930006,
+            "exit": 0,
+            "compile_count": 33,
+            "link_count": 53
+          },
+          {
+            "stage": "build-header-2",
+            "wall_s": 76.20174860800034,
+            "exit": 0,
+            "compile_count": 33,
+            "link_count": 53
+          },
+          {
+            "stage": "build-header-3",
+            "wall_s": 75.71356613699936,
+            "exit": 0,
+            "compile_count": 33,
+            "link_count": 53
+          }
+        ],
+        "median_s": 75.71356613699936,
+        "min_s": 75.4221126930006,
+        "max_s": 76.20174860800034,
+        "relative_range_percent": 1.0297175985463922
+      },
+      "unit_serial": {
+        "n": 3,
+        "samples": [
+          {
+            "stage": "test-unit-1",
+            "wall_s": 4.367956357998992,
+            "exit": 0,
+            "compile_count": 0,
+            "link_count": 0
+          },
+          {
+            "stage": "test-unit-2",
+            "wall_s": 4.391404484000304,
+            "exit": 0,
+            "compile_count": 0,
+            "link_count": 0
+          },
+          {
+            "stage": "test-unit-3",
+            "wall_s": 4.371542902999863,
+            "exit": 0,
+            "compile_count": 0,
+            "link_count": 0
+          }
+        ],
+        "median_s": 4.371542902999863,
+        "min_s": 4.367956357998992,
+        "max_s": 4.391404484000304,
+        "relative_range_percent": 0.536381010586032
+      },
+      "cold_build": {
+        "n": 1,
+        "samples": [
+          {
+            "stage": "build-cold",
+            "wall_s": 328.4038750740001,
+            "exit": 0,
+            "compile_count": 770,
+            "link_count": 73
+          }
+        ],
+        "median_s": 328.4038750740001,
+        "min_s": 328.4038750740001,
+        "max_s": 328.4038750740001,
+        "relative_range_percent": null
+      },
+      "full_ctest": {
+        "n": 1,
+        "samples": [
+          {
+            "stage": "disk-fixtures-test-full",
+            "wall_s": 281.7361629520001,
+            "exit": 8,
+            "compile_count": 0,
+            "link_count": 0
+          }
+        ],
+        "median_s": 281.7361629520001,
+        "min_s": 281.7361629520001,
+        "max_s": 281.7361629520001,
+        "relative_range_percent": null
+      },
+      "full_script": {
+        "n": 1,
+        "samples": [
+          {
+            "stage": "disk-fixtures-script-full",
+            "wall_s": 289.26727598599973,
+            "exit": 8,
+            "compile_count": 0,
+            "link_count": 0
+          }
+        ],
+        "median_s": 289.26727598599973,
+        "min_s": 289.26727598599973,
+        "max_s": 289.26727598599973,
+        "relative_range_percent": null
+      },
+      "unit_j4": {
+        "n": 3,
+        "samples": [
+          {
+            "sample": 1,
+            "wall_s": 1.0816674739999144,
+            "exit": 0
+          },
+          {
+            "sample": 2,
+            "wall_s": 1.0755001360012102,
+            "exit": 0
+          },
+          {
+            "sample": 3,
+            "wall_s": 1.0691801809989556,
+            "exit": 0
+          }
+        ],
+        "median_s": 1.0755001360012102,
+        "min_s": 1.0691801809989556,
+        "max_s": 1.0816674739999144,
+        "relative_range_percent": 1.1610684725143254
+      }
+    }
+  },
+  "sources": [
+    {
+      "path": "docs/research/assets/build-baseline-2026-10-02/macos.tar.gz",
+      "member": "stages.json",
+      "archive_sha256": "1616c987a9c2f54df14746bb4ccdfd020a692700abfa41d5065d7ecfec449f9a"
+    },
+    {
+      "path": "docs/research/assets/build-baseline-2026-10-02/linux.tar.gz",
+      "member": "results/stages.json",
+      "archive_sha256": "96a0d2c544375688d446a7aec5052e7b2fd19c829ab57e1f7e58046ca6d687de"
+    },
+    {
+      "path": "docs/research/assets/fast-feedback-2026-10-02/unit-parallel-probe.tar.gz",
+      "archive_sha256": "01a988989d0f8958546ba418ec23700b92b0853c0a0fbeebeb83b93410fc4dce"
+    }
+  ],
+  "limitations": [
+    "Cold/full scenarios n=1; no stability estimate",
+    "Linux full CTest/script exit 8; not valid green acceptance",
+    "Incremental changes append comments; cache-on real-token probes required",
+    "Old default fast entry joint total was not measured; sum of separate medians cannot be acceptance",
+    "No new Ninja/ccache, parallel peak or CI runner measurements"
+  ]
+}

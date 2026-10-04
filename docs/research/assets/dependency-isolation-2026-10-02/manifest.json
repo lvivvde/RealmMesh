@@ -1,0 +1,82 @@
+{
+  "date": "2026-10-02",
+  "source_head": "cecb9375dcf27471378e2c20d73b0f76d793c187",
+  "scope": "macOS CMake 4.4.3 最小配置探针；未全项目构建、未测试业务",
+  "mongo_dependency_versions": {
+    "c": "2.5.5",
+    "cxx": "4.6.0"
+  },
+  "archives": {
+    "mongo-version-probe.tar.gz": {
+      "sha256": "9d7a19d666fa34fb5ba94578561f03fd519b4119a51c1fa443a7fe16469f8133",
+      "bytes": 3925,
+      "files": {
+        "summary.json": "70a12b0d550e361c75a0e74fb3101d1bd1401c3d1b7dc76e8d20d7ee5a0cf813",
+        "bare/source/CMakeLists.txt": "5e4246e091ba7f27ac36d575ace1f64545a4d474d14bd340bbbe873233234fd9",
+        "bare/source/c/CMakeLists.txt": "0eebeae7af938e632e2074624114631362356d559e05129f5beb391528d77e64",
+        "bare/source/c/bson/CMakeLists.txt": "609c6578d282d4d3a707173316d18c18be5e802de1e205daa4d3e8a6d997831d",
+        "bare/source/c/mongoc/CMakeLists.txt": "da9e906822adf3474d88e85c089bf6b8d5f929bff4350652402dbb8ce79de134",
+        "bare/source/cxx/CMakeLists.txt": "10c7c05a6e059c0a7527eeb3683b3b12d32441644ac2d7e4fb889f014772177c",
+        "bare/source/c/VERSION_CURRENT": "08360ef472cdda093bc9598a33958d86f627b19db7314c88f54f7fb28e83996b",
+        "bare/results.json": "90df3a7d8e847311a7f51ef3618e3dce4aaebf8a1417067ac260ca8e013e4ae3",
+        "bare/configure-1.log": "b0a9934ecde804f38602598857f1c5662f82b1a1772c0bb258630b61f72529f1",
+        "bare/configure-2.log": "b0a9934ecde804f38602598857f1c5662f82b1a1772c0bb258630b61f72529f1",
+        "bare/configure-3.log": "b0a9934ecde804f38602598857f1c5662f82b1a1772c0bb258630b61f72529f1",
+        "parent-only/source/CMakeLists.txt": "a5b232e42fdd3e8ab5da3fcba9f35d60386fb6604d189c5a711ffafcd4e9ef25",
+        "parent-only/source/c/CMakeLists.txt": "0eebeae7af938e632e2074624114631362356d559e05129f5beb391528d77e64",
+        "parent-only/source/c/bson/CMakeLists.txt": "609c6578d282d4d3a707173316d18c18be5e802de1e205daa4d3e8a6d997831d",
+        "parent-only/source/c/mongoc/CMakeLists.txt": "da9e906822adf3474d88e85c089bf6b8d5f929bff4350652402dbb8ce79de134",
+        "parent-only/source/cxx/CMakeLists.txt": "10c7c05a6e059c0a7527eeb3683b3b12d32441644ac2d7e4fb889f014772177c",
+        "parent-only/source/c/VERSION_CURRENT": "08360ef472cdda093bc9598a33958d86f627b19db7314c88f54f7fb28e83996b",
+        "parent-only/results.json": "8bed672e48b4a5d9c804a3b71000c871b279a2c9d94740b11ff0de344fbeba96",
+        "parent-only/configure-1.log": "181aa43705002cb35a0ca567db6bcebc1362cf1feb7cdb2aaf6043d681b553d9",
+        "parent-only/configure-2.log": "181aa43705002cb35a0ca567db6bcebc1362cf1feb7cdb2aaf6043d681b553d9",
+        "parent-only/configure-3.log": "181aa43705002cb35a0ca567db6bcebc1362cf1feb7cdb2aaf6043d681b553d9",
+        "per-child/source/CMakeLists.txt": "4740439fccb0083f786a1f0a7d2f027d8262e7a8bf5e004d2d5e3ad26d02a3d7",
+        "per-child/source/c/CMakeLists.txt": "0eebeae7af938e632e2074624114631362356d559e05129f5beb391528d77e64",
+        "per-child/source/c/bson/CMakeLists.txt": "609c6578d282d4d3a707173316d18c18be5e802de1e205daa4d3e8a6d997831d",
+        "per-child/source/c/mongoc/CMakeLists.txt": "da9e906822adf3474d88e85c089bf6b8d5f929bff4350652402dbb8ce79de134",
+        "per-child/source/cxx/CMakeLists.txt": "10c7c05a6e059c0a7527eeb3683b3b12d32441644ac2d7e4fb889f014772177c",
+        "per-child/source/c/VERSION_CURRENT": "08360ef472cdda093bc9598a33958d86f627b19db7314c88f54f7fb28e83996b",
+        "per-child/results.json": "1f521e33529b2bbc85f9507866a9b81bfab7cfdaaad49c596922972e91999a9f",
+        "per-child/configure-1.log": "878b9b6d8103984f8d4f64d53220b27da2c60afd7fe122b7ee5be026eb35af7b",
+        "per-child/configure-2.log": "878b9b6d8103984f8d4f64d53220b27da2c60afd7fe122b7ee5be026eb35af7b",
+        "per-child/configure-3.log": "878b9b6d8103984f8d4f64d53220b27da2c60afd7fe122b7ee5be026eb35af7b",
+        "cleanup-cache/source/CMakeLists.txt": "627bc1b93edb3e0a729c237d1def10901229f5f3de54449a80a954e6b58ebfee",
+        "cleanup-cache/source/c/CMakeLists.txt": "0eebeae7af938e632e2074624114631362356d559e05129f5beb391528d77e64",
+        "cleanup-cache/source/c/bson/CMakeLists.txt": "609c6578d282d4d3a707173316d18c18be5e802de1e205daa4d3e8a6d997831d",
+        "cleanup-cache/source/c/mongoc/CMakeLists.txt": "da9e906822adf3474d88e85c089bf6b8d5f929bff4350652402dbb8ce79de134",
+        "cleanup-cache/source/cxx/CMakeLists.txt": "10c7c05a6e059c0a7527eeb3683b3b12d32441644ac2d7e4fb889f014772177c",
+        "cleanup-cache/source/c/VERSION_CURRENT": "08360ef472cdda093bc9598a33958d86f627b19db7314c88f54f7fb28e83996b",
+        "cleanup-cache/results.json": "f8723164b32d8af03db29d8518fc74e716a233b61141cfc7747de5519d38ceb2",
+        "cleanup-cache/configure-1.log": "29604ba780a4d7a383fdf89afcf9300b77615691dc294879623d961c54b49d95",
+        "cleanup-cache/configure-2.log": "29604ba780a4d7a383fdf89afcf9300b77615691dc294879623d961c54b49d95",
+        "cleanup-cache/configure-3.log": "29604ba780a4d7a383fdf89afcf9300b77615691dc294879623d961c54b49d95",
+        "bare/effective-state.txt": "7c8fe2a72b4559d74071fe53182156b018ce66a6e2d52535e8a42474158577e2",
+        "parent-only/effective-state.txt": "0542ab8e06ca5bf1914c2c1c0870c8a68262abc34030665f69fa6f0f32b704f8",
+        "per-child/effective-state.txt": "79e66b8c981c52cb2d9bfffdde3fcc6a9431201b554e37b5c5ea57e58035af92",
+        "cleanup-cache/effective-state.txt": "2458723de39812749c8258a5a6086064e4661f504494291df2ae1bf8a48f83a4",
+        "cmp0126-old-untyped-cache/source/CMakeLists.txt": "4740439fccb0083f786a1f0a7d2f027d8262e7a8bf5e004d2d5e3ad26d02a3d7",
+        "cmp0126-old-untyped-cache/source/c/CMakeLists.txt": "0eebeae7af938e632e2074624114631362356d559e05129f5beb391528d77e64",
+        "cmp0126-old-untyped-cache/source/c/bson/CMakeLists.txt": "609c6578d282d4d3a707173316d18c18be5e802de1e205daa4d3e8a6d997831d",
+        "cmp0126-old-untyped-cache/source/c/mongoc/CMakeLists.txt": "da9e906822adf3474d88e85c089bf6b8d5f929bff4350652402dbb8ce79de134",
+        "cmp0126-old-untyped-cache/source/cxx/CMakeLists.txt": "16688820fa22cde07f80f678e3241227f1b507a564b64ea7c05b265787a5631b",
+        "cmp0126-old-untyped-cache/source/c/VERSION_CURRENT": "08360ef472cdda093bc9598a33958d86f627b19db7314c88f54f7fb28e83996b",
+        "cmp0126-old-untyped-cache/configure-1.log": "57ae99a01681e2a9eec52196ea0b2d9a474e2845bac4189aa948273be765cf63",
+        "cmp0126-old-untyped-cache/effective-state.txt": "7f7fb94847fdf41f942d001b787c37436a6474d4a4816caf9a60f805e0135fef"
+      }
+    },
+    "openssl-probe.tar.gz": {
+      "sha256": "c7ae7b278651960c851c313406ef6cad5f73e918323a830e8d7da151b8afb23b",
+      "bytes": 904,
+      "files": {
+        "CMakeLists.txt": "86b31bd3b57b2ada2bd9f3e9ac75c83678dbd4c0fe22566d965fa980cb3e109d",
+        "results.json": "1da201513b2282c885a553bddd3b5535658eb48194f94c4b1c7773736da5e329",
+        "default.log": "1496174d996b77e1b935c5111e9d0d2a22f575c07370bb8f8254bc59facfde55",
+        "broad-initial.log": "900a83e7f08c2a00f43aea6a04bdb23191f5f73960ab8df7e332bd415bfbbd0f",
+        "root-only-cached.log": "439447bb7a8e75b1a9009c47dd2d19106fb3d81e1a2bac3f4ad9cf32fc852319",
+        "root-clear-include.log": "e6f0e0b8939190d31ecd4d922c87605aff60e29921af4d107b25dc98bc9a1046"
+      }
+    }
+  }
+}

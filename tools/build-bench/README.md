@@ -1,6 +1,6 @@
 # build-bench：构建测量工具
 
-构建优化各阶段（R0、P1–P6）共用的测量工具。路线、目标、采样与资源门槛见[实施顺序与验收约定](https://github.com/lvivvde/RealmMesh/blob/aeaaff7b94de8fd88f70b7f7a5d08d47ffed7a6b/docs/research/build-implementation-acceptance.md)与 [#115 决议](https://github.com/lvivvde/RealmMesh/issues/115#issuecomment-5954537886)；旧 build-optimization-rollout.md 只作历史。结果追加到 [build-optimization-results.md](../../docs/research/build-optimization-results.md)。它只用于测量，不进 CMake 构建，也不属于日常入口。
+构建优化各阶段（R0、P1–P6）共用的测量工具。路线、目标、采样与资源门槛见[实施顺序与验收约定](../../docs/research/build-implementation-acceptance.md)与 [#115 决议](https://github.com/lvivvde/RealmMesh/issues/115#issuecomment-5954537886)；旧[build-optimization-rollout.md](../../docs/research/build-optimization-rollout.md)只作历史。结果追加到 [build-optimization-results.md](../../docs/research/build-optimization-results.md)。它只用于测量，不进 CMake 构建，也不属于日常入口。
 
 | 文件 | 作用 |
 | --- | --- |

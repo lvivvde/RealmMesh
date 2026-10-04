@@ -1,0 +1,22 @@
+[
+  {
+    "path": "external-launcher-manifest.json",
+    "bytes": 1403,
+    "sha256": "122a275bdd7ec346c8052a2ed390ef3c21a442d654d41283133ed98608b9fac7"
+  },
+  {
+    "path": "external-launcher-probe.tar.gz",
+    "bytes": 5302,
+    "sha256": "fc97c5d9234e878abb17576747127528e37c3bfbe7fd3f146589a862d6654695"
+  },
+  {
+    "path": "memory-summary.json",
+    "bytes": 4314,
+    "sha256": "a70a79168cfec370e631e010c84527f5c59ac99fc5f018f587849cc386804929"
+  },
+  {
+    "path": "resource-cache-facts.md",
+    "bytes": 5488,
+    "sha256": "95985c6c0d3cab86b5e8faf413b7411fe27651f29a0c0caba1b39c271b4f60b1"
+  }
+]
