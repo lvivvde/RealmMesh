@@ -801,10 +801,12 @@ class Bench:
 
     def scenario_probes(self):
         """每个探针：token 变体预热 1 次 + --samples 次（主指标），注释变体 --comment-samples 次（历史对照）；
-        每个样本后恢复原始字节并构建回稳定状态（probe-<探针>-reset-N）。只计 build。"""
+        每个样本后恢复原始字节并构建回稳定状态（probe-<探针>-reset-N）。只计 build。
+        --sample-start、--no-warmup 同其他短场景，供前后版本交替配对（P3a #126 起）。"""
         for label in self.args.probe or list(PROBES):
-            self.run_edits(PROBES[label], label, edit_plan(f'probe-{label}', self.args.samples, self.args.comment_samples),
-                           lambda: [('build', self.build_cmd())])
+            plan = edit_plan(f'probe-{label}', self.args.samples, self.args.comment_samples,
+                             self.args.sample_start, not self.args.no_warmup)
+            self.run_edits(PROBES[label], label, plan, lambda: [('build', self.build_cmd())])
 
     # 环境 --------------------------------------------------------------
 
