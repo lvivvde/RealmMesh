@@ -1,0 +1,184 @@
+{
+  "platform": "P2a Mac",
+  "environment": {
+    "before_commit": "16d1a14e0276cbe74d9f697c0fd55cfb233d04a1",
+    "generator": "Unix Makefiles",
+    "compiler_cache": "none",
+    "sample_method": "a sampling script: 1 warmup each (not recorded), then before/after test-watch --once alternated on the same build/dev; resolve = scripts/build-dir.sh --preset dev",
+    "label": "P2a Mac",
+    "platform": "macOS 27.0.1 arm64, 15 logical CPUs, 48 GiB",
+    "cmake_ctest": "4.4.3",
+    "build_jobs": 8,
+    "samples_commit": "448334f7bba43f9767e92a2d8411554022eb0977"
+  },
+  "entries": [
+    {
+      "name": "cold-entry dev-make",
+      "commit": "e13bcf138e2d3871958dc745f01231009ba4cc85",
+      "command": "CMAKE_BUILD_PARALLEL_LEVEL=8 ./scripts/build.sh --preset dev-make",
+      "build_dir": "<repo>/build/dev-make",
+      "fresh": true,
+      "exit": 0,
+      "wall_s": 510,
+      "configure_reported_s": 82.9,
+      "compile_count": 771,
+      "link_or_archive_count": 190,
+      "ctest_real_s": 371.51,
+      "tests_total": 651,
+      "tests_failed": 0,
+      "quic": true
+    },
+    {
+      "name": "migrate dev",
+      "commit": "448334f7bba43f9767e92a2d8411554022eb0977",
+      "command": "CMAKE_BUILD_PARALLEL_LEVEL=8 ./scripts/build.sh --preset dev",
+      "build_dir": "<repo>/build/dev",
+      "fresh": false,
+      "exit": 0,
+      "wall_s": 377,
+      "configure_reported_s": 1.7,
+      "compile_count": 0,
+      "ctest_real_s": 370.97,
+      "tests_total": 651,
+      "tests_failed": 0,
+      "quic": true
+    },
+    {
+      "name": "acceptance dev-make",
+      "commit": "448334f7bba43f9767e92a2d8411554022eb0977",
+      "command": "./scripts/run-macos-login-acceptance.sh --preset dev-make",
+      "exit": 0,
+      "wall_s": 126,
+      "report": "<repo>/build/dev-make/acceptance/macos-login-chain.md",
+      "groups_pass": 4,
+      "groups_fail": 0
+    }
+  ],
+  "samples": [
+    {
+      "platform": "mac",
+      "stage": "unit-watch-before",
+      "index": 1,
+      "exit": 0,
+      "seconds": 9.645
+    },
+    {
+      "platform": "mac",
+      "stage": "unit-watch-after",
+      "index": 1,
+      "exit": 0,
+      "seconds": 9.687
+    },
+    {
+      "platform": "mac",
+      "stage": "unit-watch-before",
+      "index": 2,
+      "exit": 0,
+      "seconds": 9.973
+    },
+    {
+      "platform": "mac",
+      "stage": "unit-watch-after",
+      "index": 2,
+      "exit": 0,
+      "seconds": 9.763
+    },
+    {
+      "platform": "mac",
+      "stage": "unit-watch-before",
+      "index": 3,
+      "exit": 0,
+      "seconds": 9.629
+    },
+    {
+      "platform": "mac",
+      "stage": "unit-watch-after",
+      "index": 3,
+      "exit": 0,
+      "seconds": 9.654
+    },
+    {
+      "platform": "mac",
+      "stage": "unit-watch-before",
+      "index": 4,
+      "exit": 0,
+      "seconds": 9.573
+    },
+    {
+      "platform": "mac",
+      "stage": "unit-watch-after",
+      "index": 4,
+      "exit": 0,
+      "seconds": 9.613
+    },
+    {
+      "platform": "mac",
+      "stage": "unit-watch-before",
+      "index": 5,
+      "exit": 0,
+      "seconds": 9.678
+    },
+    {
+      "platform": "mac",
+      "stage": "unit-watch-after",
+      "index": 5,
+      "exit": 0,
+      "seconds": 9.649
+    },
+    {
+      "platform": "mac",
+      "stage": "resolve-build-dir",
+      "index": 1,
+      "exit": 0,
+      "seconds": 0.036
+    },
+    {
+      "platform": "mac",
+      "stage": "resolve-build-dir",
+      "index": 2,
+      "exit": 0,
+      "seconds": 0.037
+    },
+    {
+      "platform": "mac",
+      "stage": "resolve-build-dir",
+      "index": 3,
+      "exit": 0,
+      "seconds": 0.037
+    },
+    {
+      "platform": "mac",
+      "stage": "resolve-build-dir",
+      "index": 4,
+      "exit": 0,
+      "seconds": 0.038
+    },
+    {
+      "platform": "mac",
+      "stage": "resolve-build-dir",
+      "index": 5,
+      "exit": 0,
+      "seconds": 0.038
+    }
+  ],
+  "summary": {
+    "unit-watch-before": {
+      "n": 5,
+      "median_s": 9.645,
+      "min_s": 9.573,
+      "max_s": 9.973
+    },
+    "unit-watch-after": {
+      "n": 5,
+      "median_s": 9.654,
+      "min_s": 9.613,
+      "max_s": 9.763
+    },
+    "resolve-build-dir": {
+      "n": 5,
+      "median_s": 0.037,
+      "min_s": 0.036,
+      "max_s": 0.038
+    }
+  }
+}
