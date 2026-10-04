@@ -704,8 +704,9 @@ class Bench:
         return edit_plan(prefix, self.args.samples, 0, self.args.sample_start, not self.args.no_warmup)
 
     def fast_setup(self, scenario):
-        """快速入口只跑 cmake --preset：先以标准配置（launcher、复用依赖）写好缓存，不计时（预热组）。"""
-        row = self.run(f'{scenario}-setup-{self.args.sample_start}', [('configure', self.configure_cmd())], warmup=True)
+        """快速入口只跑 cmake --preset：先以标准配置（launcher、复用依赖）写好缓存，不计时（预热组）。
+        阶段名取本次调用第一个样本的后缀，分次交替调用时不重名。"""
+        row = self.run(f'{scenario}-setup-{self.short_samples()[0][0]}', [('configure', self.configure_cmd())], warmup=True)
         self.require(row, 'configure')
 
     # 场景 --------------------------------------------------------------
@@ -784,12 +785,16 @@ class Bench:
     def scenario_fast_entry(self):
         """快速入口、无改动（P2b）：scripts/test-fast.sh 一步（配置 + Unit 聚合目标 + Unit 4 路），整体计时；
         脚本自报的分段耗时记在 fast_times。与 unit-entry 配对时在各自的源码副本里交替跑。"""
+        if not self.short_samples():
+            return
         self.fast_setup('fast-entry')
         for suffix, _, warmup in self.short_samples():
             self.run(f'fast-entry-{suffix}', [('test-fast', self.fast_cmd())], warmup=warmup)
 
     def scenario_fast_cpp_entry(self):
         """快速入口、代表 .cpp 真实改动（P2b）：同 cpp-entry 的 token 变体与 reset，入口换成 test-fast.sh。"""
+        if not self.short_samples():
+            return
         self.fast_setup('fast-cpp-entry')
         self.run_edits(PROBES['lua-cpp'], 'fast-cpp-entry', self.short_edit_plan('fast-cpp-entry'),
                        lambda: [('test-fast', self.fast_cmd())])
