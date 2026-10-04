@@ -2,10 +2,12 @@
 #include "realmmesh/game/common/admission_grant.hpp"
 #include "realmmesh/game/queue/queue_config.hpp"
 #include "realmmesh/service_host/layered_config_loader.hpp"
+#include "realmmesh/service_host/startup_topology.hpp"
 
 #include <gtest/gtest.h>
 
 #include <chrono>
+#include <cstddef>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -82,6 +84,21 @@ TEST_F(ConfigsLoadSmokeTest, LoginServiceConfigIsGone) {
     const auto topology = read_file(configs_root() / "main.config");
     EXPECT_EQ(topology.find("\"login\""), std::string::npos);
     EXPECT_NE(topology.find("\"login_verify\""), std::string::npos);
+}
+
+/// 随包的 main.config 经装载入口按声明序给出四个服务，gateway 是唯一入口(#127)。
+TEST_F(ConfigsLoadSmokeTest, MainConfigTopologyLoadsInDeclarationOrder) {
+    const auto specs = load_topology(configs_root());
+
+    ASSERT_EQ(specs.size(), std::size_t{4});
+    EXPECT_EQ(specs[0].name, "login_verify");
+    EXPECT_EQ(specs[1].name, "queue");
+    EXPECT_EQ(specs[2].name, "realm");
+    EXPECT_TRUE(specs[2].depends_on.empty());
+    EXPECT_FALSE(specs[2].entry);
+    EXPECT_EQ(specs[3].name, "gateway");
+    EXPECT_EQ(specs[3].depends_on, std::vector<std::string>{"realm"});
+    EXPECT_TRUE(specs[3].entry);
 }
 
 TEST_F(ConfigsLoadSmokeTest, EveryServiceConfigLoadsThroughLayeredLoader) {

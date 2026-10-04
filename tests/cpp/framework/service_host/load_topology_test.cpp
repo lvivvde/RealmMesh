@@ -2,6 +2,7 @@
 
 #include <gtest/gtest.h>
 
+#include <cstddef>
 #include <filesystem>
 #include <fstream>
 #include <stdexcept>
@@ -11,20 +12,21 @@
 namespace realm::service_host {
 namespace {
 
-/// 每个用例一个临时配置根，只写 main.config。
+/// 每个用例一个临时配置根，只写 main.config;随包配置的装载冒烟在
+/// configs_load_smoke_test。
 class LoadTopologyFileTest : public ::testing::Test {
 protected:
     void SetUp() override {
+        const auto* unit_test = ::testing::UnitTest::GetInstance();
         root_ = std::filesystem::temp_directory_path() /
                 ("realm_load_topology_" +
-                 std::string(::testing::UnitTest::GetInstance()
-                                 ->current_test_info()
-                                 ->name()));
+                 std::string(unit_test->current_test_info()->name()) + "_" +
+                 std::to_string(unit_test->random_seed()));
         std::filesystem::create_directories(root_);
     }
     void TearDown() override { std::filesystem::remove_all(root_); }
 
-    [[nodiscard]] const std::filesystem::path& write(
+    [[nodiscard]] const std::filesystem::path& config_root_with(
         const std::string& source) const {
         std::ofstream(root_ / "main.config") << source;
         return root_;
@@ -33,23 +35,8 @@ protected:
     std::filesystem::path root_;
 };
 
-TEST(LoadTopologyTest, ShippedMainConfigListsServicesInDeclarationOrder) {
-    const auto specs = load_topology(
-        std::filesystem::path(REALMMESH_SOURCE_DIR) / "configs");
-
-    ASSERT_EQ(specs.size(), std::size_t{4});
-    EXPECT_EQ(specs[0].name, "login_verify");
-    EXPECT_EQ(specs[1].name, "queue");
-    EXPECT_EQ(specs[2].name, "realm");
-    EXPECT_TRUE(specs[2].depends_on.empty());
-    EXPECT_FALSE(specs[2].entry);
-    EXPECT_EQ(specs[3].name, "gateway");
-    EXPECT_EQ(specs[3].depends_on, std::vector<std::string>{"realm"});
-    EXPECT_TRUE(specs[3].entry);
-}
-
 TEST_F(LoadTopologyFileTest, OmittedFieldsDefaultToNoDependenciesAndNotEntry) {
-    const auto specs = load_topology(write(R"(return {
+    const auto specs = load_topology(config_root_with(R"(return {
         services = {
             { name = "realm" },
             { name = "gateway", depends_on = { "realm", "queue" }, entry = true },
@@ -73,19 +60,21 @@ TEST_F(LoadTopologyFileTest, MissingFileIsALoadFailure) {
 
 TEST_F(LoadTopologyFileTest, LuaErrorIsALoadFailure) {
     EXPECT_THROW(
-        static_cast<void>(load_topology(write("error('boom')"))),
+        static_cast<void>(load_topology(config_root_with("error('boom')"))),
         std::runtime_error);
 }
 
 TEST_F(LoadTopologyFileTest, RejectsMissingOrEmptyServicesTable) {
     EXPECT_THROW(
-        static_cast<void>(load_topology(write("return {}"))),
+        static_cast<void>(load_topology(config_root_with("return {}"))),
         std::invalid_argument);
     EXPECT_THROW(
-        static_cast<void>(load_topology(write("return { services = {} }"))),
+        static_cast<void>(
+            load_topology(config_root_with("return { services = {} }"))),
         std::invalid_argument);
     EXPECT_THROW(
-        static_cast<void>(load_topology(write("return { services = 1 }"))),
+        static_cast<void>(
+            load_topology(config_root_with("return { services = 1 }"))),
         std::invalid_argument);
 }
 
@@ -100,8 +89,8 @@ TEST_F(LoadTopologyFileTest, RejectsMalformedEntries) {
          }) {
         SCOPED_TRACE(services);
         EXPECT_THROW(
-            static_cast<void>(load_topology(
-                write(std::string("return { services = ") + services + " }"))),
+            static_cast<void>(load_topology(config_root_with(
+                std::string("return { services = ") + services + " }"))),
             std::invalid_argument);
     }
 }

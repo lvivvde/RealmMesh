@@ -49,5 +49,4 @@ realm_add_gtest(configs_load_smoke_test
 realm_add_gtest(load_topology_test
     SOURCES load_topology_test.cpp
     LIBS realm_service_host
-    DEFINITIONS REALMMESH_SOURCE_DIR="${PROJECT_SOURCE_DIR}"
 )
