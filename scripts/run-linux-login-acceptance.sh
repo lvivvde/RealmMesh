@@ -2,18 +2,19 @@
 
 # 用途：在 Linux 生产基准上复现 Login Chain 的 QUIC/TLS 与 M1–M4
 # 缩减验收矩阵，并生成可上传的 Markdown 报告和原始日志。
-# 用法：./scripts/run-linux-login-acceptance.sh
+# 用法：./scripts/run-linux-login-acceptance.sh [--preset NAME]（默认 dev）
 # 可选：REALMMESH_ACCEPTANCE_REPEATS=5 ./scripts/run-linux-login-acceptance.sh
-# CI 已构建时：REALMMESH_LINUX_ACCEPTANCE_SKIP_BUILD=1 ./scripts/run-linux-login-acceptance.sh
+# CI 已构建时：REALMMESH_LINUX_ACCEPTANCE_SKIP_BUILD=1 ./scripts/run-linux-login-acceptance.sh --preset dev
+# 构建目录取所选预设在配置期记录的真实 binaryDir(#122),报告写到其 acceptance/。
 
 set -euo pipefail
 
-project_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+project_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+# shellcheck source=lib/build-dir.sh
+source "${project_root}/scripts/lib/build-dir.sh"
 repeat_count="${REALMMESH_ACCEPTANCE_REPEATS:-3}"
 skip_build="${REALMMESH_LINUX_ACCEPTANCE_SKIP_BUILD:-0}"
-report_dir="${project_root}/build/dev/acceptance"
-report_path="${report_dir}/linux-login-chain-m1-m4.md"
-log_path="${report_dir}/linux-login-chain-m1-m4.log"
+preset="${realmmesh_default_preset}"
 
 print_plan() {
     cat <<'EOF'
@@ -27,24 +28,47 @@ Production targets are reported but not claimed by the CI profile.
 EOF
 }
 
-if [[ "${1:-}" == "--print-plan" ]]; then
-    print_plan
-    exit 0
-fi
-if [[ "${1:-}" == "--help" ]]; then
+print_usage() {
     cat <<'EOF'
-Usage: ./scripts/run-linux-login-acceptance.sh [--print-plan]
+Usage: ./scripts/run-linux-login-acceptance.sh [--preset NAME] [--print-plan]
+
+Options:
+  --preset NAME   CMake preset to configure, build and test (default: dev);
+                  the report goes to <its build directory>/acceptance/
 
 Environment:
   REALMMESH_ACCEPTANCE_REPEATS=N          repeat transport/M1/M2 groups
-  REALMMESH_LINUX_ACCEPTANCE_SKIP_BUILD=1 reuse build/dev
+  REALMMESH_LINUX_ACCEPTANCE_SKIP_BUILD=1 reuse the preset's configured build
+                                          directory instead of building
 EOF
-    exit 0
-fi
-if [[ $# -ne 0 ]]; then
-    echo "Unknown argument: $1" >&2
-    exit 2
-fi
+}
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --print-plan)
+            print_plan
+            exit 0
+            ;;
+        --help|-h)
+            print_usage
+            exit 0
+            ;;
+        --preset)
+            [[ $# -ge 2 ]] || { echo "--preset requires a name." >&2; exit 2; }
+            preset="$2"
+            shift 2
+            ;;
+        --preset=*)
+            preset="${1#--preset=}"
+            shift
+            ;;
+        *)
+            echo "Unknown argument: $1" >&2
+            exit 2
+            ;;
+    esac
+done
+realmmesh_require_preset_name "${preset}" || exit 2
 if [[ "$(uname -s)" != "Linux" ]]; then
     echo "This acceptance profile is Linux-only (QUIC + TLS/TCP baseline)." >&2
     exit 2
@@ -68,8 +92,45 @@ else
 fi
 ctest_bin="$(dirname "${cmake_bin}")/ctest"
 
+cd "${project_root}"
+# 配置先于报告目录:报告写在所选预设的构建目录里,配置之前还不知道它在哪。
+# 配置输出先落到临时文件,确定报告目录后再并入原始日志。
+configure_log=""
+cleanup_configure_log() {
+    if [[ -n "${configure_log}" ]]; then
+        rm -f -- "${configure_log}"
+    fi
+}
+trap cleanup_configure_log EXIT
+if [[ "${skip_build}" == "0" ]]; then
+    configure_log="$(mktemp)"
+    echo "## Configure" | tee -a "${configure_log}"
+    set +e
+    "${cmake_bin}" --preset "${preset}" 2>&1 | tee -a "${configure_log}"
+    configure_status="${PIPESTATUS[0]}"
+    set -e
+    if [[ "${configure_status}" -ne 0 ]]; then
+        exit "${configure_status}"
+    fi
+fi
+if ! build_dir="$(realmmesh_resolve_build_dir "${project_root}" "${preset}")"; then
+    echo "The ${preset} preset has no usable build directory for acceptance." >&2
+    exit 1
+fi
+if [[ "${skip_build}" == "1" && ! -x "${build_dir}/bin/realm_mesh_loadgen" ]]; then
+    echo "REALMMESH_LINUX_ACCEPTANCE_SKIP_BUILD=1 requires a built ${preset} preset: ${build_dir}/bin/realm_mesh_loadgen is missing." >&2
+    echo "Build it first: cmake --build --preset ${preset}" >&2
+    exit 1
+fi
+report_dir="${build_dir}/acceptance"
+report_path="${report_dir}/linux-login-chain-m1-m4.md"
+log_path="${report_dir}/linux-login-chain-m1-m4.log"
+
 mkdir -p "${report_dir}"
 : >"${log_path}"
+if [[ -n "${configure_log}" ]]; then
+    cat "${configure_log}" >>"${log_path}"
+fi
 
 revision="$(git -C "${project_root}" rev-parse HEAD)"
 tree_state="clean"
@@ -97,14 +158,15 @@ started_at="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
     echo "- Memory: ${memory_kib:-unknown} KiB"
     echo "- File-descriptor limit: ${fd_limit}"
     echo "- Revision: \`${revision}\` (${tree_state} working tree)"
-    echo "- Topology: one Linux host; production service/loadgen paths in the dev-preset CI build; four independent service processes where required; temporary real etcd"
+    echo "- Build: preset \`${preset}\`; directory \`${build_dir}\`"
+    echo "- Topology: one Linux host; production service/loadgen paths in the ${preset}-preset build; four independent service processes where required; temporary real etcd"
     echo "- Transport: real MsQuic server/client exchange plus production Login Chain TLS/TCP fallback"
     echo "- Repetitions: transport/M1/M2=${repeat_count}; M3/M4=1"
     echo "- Raw log: \`linux-login-chain-m1-m4.log\`"
     echo
     echo "## Command"
     echo
-    echo "\`REALMMESH_ACCEPTANCE_REPEATS=${repeat_count} REALMMESH_LINUX_ACCEPTANCE_SKIP_BUILD=${skip_build} ./scripts/run-linux-login-acceptance.sh\`"
+    echo "\`REALMMESH_ACCEPTANCE_REPEATS=${repeat_count} REALMMESH_LINUX_ACCEPTANCE_SKIP_BUILD=${skip_build} ./scripts/run-linux-login-acceptance.sh --preset ${preset}\`"
     echo
     echo "## Acceptance levels"
     echo
@@ -166,7 +228,7 @@ run_group() {
     fi
     if run_logged "${label}" \
         env REALMMESH_ACCEPTANCE_REPEATS=1 \
-        "${ctest_bin}" --test-dir build/dev -R "${regex}" \
+        "${ctest_bin}" --test-dir "${build_dir}" -R "${regex}" \
         "${repeat_args[@]}" --verbose; then
         echo "| ${label} | ${runs} | ${last_elapsed}s | PASS |" >>"${report_path}"
         return 0
@@ -175,13 +237,8 @@ run_group() {
     return 1
 }
 
-cd "${project_root}"
 if [[ "${skip_build}" == "0" ]]; then
-    run_logged "Configure" "${cmake_bin}" --preset dev
-    run_logged "Build" "${cmake_bin}" --build --preset dev
-elif [[ ! -x build/dev/bin/realm_mesh_loadgen ]]; then
-    echo "REALMMESH_LINUX_ACCEPTANCE_SKIP_BUILD=1 requires build/dev." >&2
-    exit 1
+    run_logged "Build" "${cmake_bin}" --build --preset "${preset}"
 fi
 
 transport_tests=(
@@ -226,7 +283,7 @@ test_regex() {
     printf '^(%s)$' "${regex}"
 }
 
-registered_tests="$("${ctest_bin}" --test-dir build/dev -N |
+registered_tests="$("${ctest_bin}" --test-dir "${build_dir}" -N |
     sed -n 's/^ *Test *#[0-9][0-9]*: //p')"
 for required_test in \
     "${transport_tests[@]}" "${m1_tests[@]}" "${m2_tests[@]}" \

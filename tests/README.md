@@ -21,12 +21,12 @@
 
 | 场景 | 命令 |
 |---|---|
-| TDD 反馈环(保存即重跑快速子集) | `./scripts/test-watch.sh`(单跑一轮加 `--once`) |
+| TDD 反馈环(保存即重跑快速子集) | `./scripts/test-watch.sh`(单跑一轮加 `--once`;换预设加 `--preset NAME`) |
 | 手动快速子集 | `ctest --preset dev -L unit`(或 `-L lua` 只筛 Lua 用例) |
-| 一键全量(构建 + 全部测试) | `./scripts/build.sh` |
+| 一键全量(构建 + 全部测试) | `./scripts/build.sh`(换预设加 `--preset NAME`,configure / build / test 同用一个名字) |
 | 仅全量测试 | `ctest --preset dev` |
-| macOS 登录链验收 | `./scripts/run-macos-login-acceptance.sh`（TLS/TCP：本仓客户端没有 QUIC 拨号器，报告另记 Gateway 的 QUIC 监听是否编入；成功链默认重复 3 次，并在 `build/dev/acceptance/` 生成报告和原始日志） |
-| Linux M1–M4 登录链验收 | `./scripts/run-linux-login-acceptance.sh`（Linux QUIC + TLS/TCP，默认重复关键组 3 次，并在 `build/dev/acceptance/` 生成报告和原始日志） |
+| macOS 登录链验收 | `./scripts/run-macos-login-acceptance.sh`（TLS/TCP：本仓客户端没有 QUIC 拨号器，报告另记 Gateway 的 QUIC 监听是否编入；成功链默认重复 3 次，并在所选预设构建目录的 `acceptance/`（默认 `build/dev/acceptance/`）生成报告和原始日志；换预设加 `--preset NAME`） |
+| Linux M1–M4 登录链验收 | `./scripts/run-linux-login-acceptance.sh`（Linux QUIC + TLS/TCP，默认重复关键组 3 次，并在所选预设构建目录的 `acceptance/`（默认 `build/dev/acceptance/`）生成报告和原始日志；换预设加 `--preset NAME`） |
 | 全量兜底 | push / PR 时 GitHub Actions 在 macOS + Linux 双平台跑 `ctest --preset dev`(`.github/workflows/ci.yml`) |
 
 ## 前置条件

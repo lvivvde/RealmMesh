@@ -263,9 +263,18 @@ Mongo、protobuf 等 FetchContent 依赖按固定 URL + SHA256 获取；`FETCHCO
 `.gitignore` 忽略），改成本机路径并删去不需要的键；它以 `dev-local` 继承 `dev`，构建目录为 `build/dev-local`，
 用 `cmake --preset dev-local`、`cmake --build --preset dev-local`、`ctest --preset dev-local` 配置、构建、测试。
 
-`scripts/build.sh` 依次执行 `cmake --preset dev`、`cmake --build --preset dev` 和
-`ctest --preset dev`（配置 + 构建 + 全量测试），并在首次构建时把
-`compile_commands.json` 链接到仓库根。
+仓库预设：`dev`（Unix Makefiles，`build/dev`，日常默认）与 `dev-make`（Unix Makefiles，`build/dev-make`，
+Make 对照基线的显式名字，今后 `dev` 换生成器时它保持不变）。两者都继承隐藏的 `realmmesh-base`，后者把
+缓存变量 `REALMMESH_PRESET` 设为当前预设名；派生的用户预设继承 `dev` 时同样得到自己的名字。
+
+配置时 `cmake/RealmMeshBuildDirInfo.cmake` 记下「预设 → 真实构建目录」：`build/.build-dirs/<预设>.txt`
+是登记，`<构建目录>/realmmesh-build-dir.txt` 是该目录自带的身份。脚本入口都接受 `--preset NAME`
+（默认 `dev`），按这份记录找构建目录，不自行解析预设 JSON；预设未配置、登记与目录身份不符或目录来自另一
+棵源码树时直接失败并提示配置命令。`./scripts/build-dir.sh --preset NAME` 输出该预设已配置的构建目录。
+
+`scripts/build.sh [--preset NAME]` 用同一个预设依次执行 `cmake --preset`、`cmake --build --preset` 和
+`ctest --preset`（配置 + 构建 + 全量测试），并把仓库根的 `compile_commands.json` 符号链接指向所选
+预设的编译数据库；切换预设时改指向，仓库根若是普通文件则保留并告警。
 
 Linux 的 MsQuic 开发安装脚本固定使用 Microsoft 官方 `libmsquic 2.6.1` 包和对应头文件，
 下载内容均校验 SHA-256；macOS 用 Homebrew 当前的 `libmsquic` 2.6.x。CMake 输出会打印
@@ -337,12 +346,17 @@ export REALMMESH_ADMISSION_CONSUMPTION_DIGEST_KEY="$(openssl rand -hex 32)"  # �
 ./scripts/dev-services.sh          # 默认 restart
 ./scripts/dev-services.sh status
 ./scripts/dev-services.sh stop
+
+# 用另一个预设的构建产物启动（默认 dev）
+./scripts/dev-services.sh --preset dev-make restart
 ```
 
 脚本默认使用 `.runtime/tls/` 中的开发证书，将 PID 写入 `.runtime/pids/`。all-in-one
 控制台输出追加到 `.runtime/logs/all-in-one/console.log`；多进程模式的 supervisor
 日志写入 `.runtime/logs/supervisor/console.log`，各服务输出追加到
 `.runtime/logs/<service>/console.log`。首次运行前需要完成构建和开发证书生成。
+启动时按 `--preset`（默认 `dev`）取已配置构建目录中的 `realm_mesh`（macOS 上连同
+`realm_detach`）；`stop` / `status` 只看 PID 文件，不需要构建目录。
 
 多进程脚本由后台 supervisor 按 `Realm → Gateway` 启动，每个服务的
 `realmmesh_service_ready` 指标变为 `1` 后才启动下一个服务。默认每项最多等待
@@ -353,7 +367,8 @@ export REALMMESH_ADMISSION_CONSUMPTION_DIGEST_KEY="$(openssl rand -hex 32)"  # �
 不代表已经支持跨机器生产部署、服务多副本或高可用。
 
 也可以手动启动。`realm_mesh` 是唯一入口，默认按 `configs/main.config` 的拓扑
-all-in-one 启动全部服务：
+all-in-one 启动全部服务（`dev` 预设的构建目录即 `build/dev`，其他预设用
+`./scripts/build-dir.sh --preset NAME` 查）：
 
 ```bash
 ./build/dev/bin/realm_mesh --config configs
@@ -424,6 +439,7 @@ ctest --preset dev -L unit    # 快速子集：C++ 单测 + Lua 模块测试
 ctest --preset dev -L lua     # 只筛 Lua 用例
 ./scripts/test-watch.sh       # 保存即重跑快速子集（单跑一轮加 --once）
 ./scripts/build.sh            # 配置 + 构建 + 全量测试
+./scripts/build.sh --preset dev-local   # 换预设：configure / build / test 同用一个名字
 ```
 
 单元测试基座是 Google Test 1.17 与 LuaUnit v3.5（均经 FetchContent 固定版本），
@@ -446,7 +462,8 @@ ctest --preset dev -L lua     # 只筛 Lua 用例
 既有五相位指标和报告汇总，不保留独立登录状态机，也不进入服务拓扑。测试证书和私钥
 只生成在 `build/` 中。push / PR 时 GitHub
 Actions 在 macOS 与 Linux 双平台跑全量 `ctest --preset dev`
-（`.github/workflows/ci.yml`），CI 的 QUIC 路径仅在 Linux 覆盖。
+（`.github/workflows/ci.yml`；预设名集中在工作流的 `REALMMESH_CI_PRESET`，验收报告按
+`scripts/build-dir.sh` 解析出的构建目录上传），CI 的 QUIC 路径仅在 Linux 覆盖。
 
 ## License
 

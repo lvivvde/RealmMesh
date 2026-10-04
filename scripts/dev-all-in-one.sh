@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 
 # 用途：以单进程 all-in-one 模式管理完整 RealmMesh 拓扑，并统一保存 PID 和控制台日志。
-# 用法：./scripts/dev-all-in-one.sh [start|stop|restart|status]（默认 restart）
+# 用法：./scripts/dev-all-in-one.sh [--preset NAME] [start|stop|restart|status]（默认 restart）
+# --preset 选择 realm_mesh 所在的构建目录(默认 dev,取配置期记录的真实 binaryDir,
+# #122);只有启动路径需要它,stop/status 只看 PID 文件。
 
 set -euo pipefail
 
@@ -10,13 +12,38 @@ set -euo pipefail
 realmmesh_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 # shellcheck source=lib/dev-process.sh
 source "${realmmesh_root}/scripts/lib/dev-process.sh"
+# shellcheck source=lib/build-dir.sh
+source "${realmmesh_root}/scripts/lib/build-dir.sh"
 realmmesh_runtime_dir="${realmmesh_root}/.runtime"
 realmmesh_pid_file="${realmmesh_runtime_dir}/pids/all-in-one.pid"
 realmmesh_log_file="${realmmesh_runtime_dir}/logs/all-in-one/console.log"
 realmmesh_ticket_key_file="${realmmesh_runtime_dir}/session-ticket-key.hex"
-realmmesh_mesh_binary="${realmmesh_root}/build/dev/bin/realm_mesh"
+# 进程的 argv[0] 基名;二进制的完整路径在启动时按预设解析。
+realmmesh_mesh_binary_name="realm_mesh"
 realmmesh_config_root="${realmmesh_root}/configs"
-realmmesh_action="${1:-restart}"
+realmmesh_action="restart"
+realmmesh_preset="${realmmesh_default_preset}"
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --preset)
+            if [[ $# -lt 2 ]]; then
+                printf -- '--preset requires a name.\n' >&2
+                exit 2
+            fi
+            realmmesh_preset="$2"
+            shift 2
+            ;;
+        --preset=*)
+            realmmesh_preset="${1#--preset=}"
+            shift
+            ;;
+        *)
+            realmmesh_action="$1"
+            shift
+            ;;
+    esac
+done
+realmmesh_require_preset_name "${realmmesh_preset}" || exit 2
 
 read_pid() {
     [[ -f "${realmmesh_pid_file}" ]] || return 1
@@ -35,8 +62,8 @@ is_expected_process() {
     local realmmesh_executable
     realmmesh_executable="$(realmmesh_process_executable "${realmmesh_pid}")" ||
         return 1
-    [[ "${realmmesh_executable##*/}" == \
-        "$(basename "${realmmesh_mesh_binary}")" ]] || return 1
+    [[ "${realmmesh_executable##*/}" == "${realmmesh_mesh_binary_name}" ]] ||
+        return 1
     [[ "$(realmmesh_process_cwd "${realmmesh_pid}")" == "${realmmesh_root}" ]] ||
         return 1
 
@@ -136,13 +163,18 @@ start_service() {
         rm -f -- "${realmmesh_pid_file}"
     fi
 
-    local realmmesh_detach
-    if ! realmmesh_detach="$(realmmesh_detach_command)"; then
+    local realmmesh_build_dir
+    realmmesh_build_dir="$(realmmesh_resolve_build_dir \
+        "${realmmesh_root}" "${realmmesh_preset}")" || return 1
+    local realmmesh_mesh_binary="${realmmesh_build_dir}/bin/${realmmesh_mesh_binary_name}"
+    if [[ ! -x "${realmmesh_mesh_binary}" ]]; then
+        printf 'Service binary is missing: %s\nRun ./scripts/build.sh --preset %s first.\n' \
+            "${realmmesh_mesh_binary}" "${realmmesh_preset}" >&2
         return 1
     fi
-    if [[ ! -x "${realmmesh_mesh_binary}" ]]; then
-        printf 'Service binary is missing: %s\nRun ./scripts/build.sh first.\n' \
-            "${realmmesh_mesh_binary}" >&2
+    local realmmesh_detach
+    if ! realmmesh_detach="$(realmmesh_detach_command \
+        "${realmmesh_build_dir}/bin")"; then
         return 1
     fi
     load_environment
@@ -183,7 +215,7 @@ case "${realmmesh_action}" in
         show_status
         ;;
     *)
-        printf 'Usage: %s [start|stop|restart|status]\n' "$0" >&2
+        printf 'Usage: %s [--preset NAME] [start|stop|restart|status]\n' "$0" >&2
         exit 2
         ;;
 esac

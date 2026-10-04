@@ -1,16 +1,42 @@
 #!/usr/bin/env bash
 
 # 用途：在 macOS 上复现完整 Login Chain 的 TLS/TCP 验收矩阵，并生成报告。
-# 用法：./scripts/run-macos-login-acceptance.sh
+# 用法：./scripts/run-macos-login-acceptance.sh [--preset NAME]（默认 dev）
 # 可选：REALMMESH_ACCEPTANCE_REPEATS=5 ./scripts/run-macos-login-acceptance.sh
+# 构建目录取所选预设在配置期记录的真实 binaryDir(#122),报告写到其 acceptance/。
 
 set -euo pipefail
 
-project_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+project_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+# shellcheck source=lib/build-dir.sh
+source "${project_root}/scripts/lib/build-dir.sh"
 repeat_count="${REALMMESH_ACCEPTANCE_REPEATS:-3}"
-report_dir="${project_root}/build/dev/acceptance"
-report_path="${report_dir}/macos-login-chain.md"
-log_path="${report_dir}/macos-login-chain.log"
+preset="${realmmesh_default_preset}"
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --preset)
+            [[ $# -ge 2 ]] || { echo "--preset requires a name." >&2; exit 2; }
+            preset="$2"
+            shift 2
+            ;;
+        --preset=*)
+            preset="${1#--preset=}"
+            shift
+            ;;
+        --help|-h)
+            echo "Usage: $0 [--preset NAME]"
+            echo "Configures and builds the preset (default: dev), then writes the"
+            echo "report to <its build directory>/acceptance/."
+            exit 0
+            ;;
+        *)
+            echo "Unknown argument: $1" >&2
+            exit 2
+            ;;
+    esac
+done
+realmmesh_require_preset_name "${preset}" || exit 2
 
 if [[ "$(uname -s)" != "Darwin" ]]; then
     echo "This acceptance profile is macOS-only (TLS/TCP fallback)." >&2
@@ -31,8 +57,29 @@ else
 fi
 ctest_bin="$(dirname "${cmake_bin}")/ctest"
 
+cd "${project_root}"
+# 配置先于报告目录:报告写在所选预设的构建目录里,配置之前还不知道它在哪。
+# 配置输出先落到临时文件,确定报告目录后再并入原始日志。
+configure_log="$(mktemp)"
+trap 'rm -f -- "${configure_log}"' EXIT
+echo "## Configure" | tee -a "${configure_log}"
+set +e
+"${cmake_bin}" --preset "${preset}" 2>&1 | tee -a "${configure_log}"
+configure_status="${PIPESTATUS[0]}"
+set -e
+if [[ "${configure_status}" -ne 0 ]]; then
+    exit "${configure_status}"
+fi
+if ! build_dir="$(realmmesh_resolve_build_dir "${project_root}" "${preset}")"; then
+    echo "The ${preset} preset has no usable build directory for acceptance." >&2
+    exit 1
+fi
+report_dir="${build_dir}/acceptance"
+report_path="${report_dir}/macos-login-chain.md"
+log_path="${report_dir}/macos-login-chain.log"
+
 mkdir -p "${report_dir}"
-: >"${log_path}"
+cat "${configure_log}" >"${log_path}"
 
 revision="$(git -C "${project_root}" rev-parse HEAD)"
 tree_state="clean"
@@ -48,13 +95,14 @@ started_at="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
     echo "- Started: ${started_at}"
     echo "- Platform: ${platform}"
     echo "- Revision: \`${revision}\` (${tree_state} working tree)"
+    echo "- Build: preset \`${preset}\`; directory \`${build_dir}\`"
     echo "- Transport: TLS/TCP (repository clients carry no QUIC dialer)"
     echo "- Success-chain repetitions: ${repeat_count}"
     echo "- Raw log: \`macos-login-chain.log\`"
     echo
     echo "## Command"
     echo
-    echo "\`REALMMESH_ACCEPTANCE_REPEATS=${repeat_count} ./scripts/run-macos-login-acceptance.sh\`"
+    echo "\`REALMMESH_ACCEPTANCE_REPEATS=${repeat_count} ./scripts/run-macos-login-acceptance.sh --preset ${preset}\`"
     echo
     echo "## Source configuration"
     echo
@@ -88,9 +136,7 @@ run_logged() {
     return "${status}"
 }
 
-cd "${project_root}"
-run_logged "Configure" "${cmake_bin}" --preset dev
-run_logged "Build" "${cmake_bin}" --build --preset dev
+run_logged "Build" "${cmake_bin}" --build --preset "${preset}"
 
 # 装了 libmsquic 的 Mac 会编入 QUIC(ADR-0012),Gateway 随之多起一个 QUIC
 # 监听;客户端仍只拨 TLS/TCP,报告记下监听状态以便对照。
@@ -106,7 +152,7 @@ soak_regex='^LoadgenIntegrationTest\.L1GatewaySoakHoldsWaterLevelWithoutFdLeak$'
 
 overall_status=0
 if run_logged "Four-process Full Login Chain" \
-    "${ctest_bin}" --test-dir build/dev -R "${external_success_regex}" \
+    "${ctest_bin}" --test-dir "${build_dir}" -R "${external_success_regex}" \
     --verbose; then
     echo "| Four independent service processes + real etcd, Full chain | ${repeat_count} | PASS |" >>"${report_path}"
 else
@@ -115,7 +161,7 @@ else
 fi
 
 if run_logged "Repeated full success" \
-    "${ctest_bin}" --test-dir build/dev -R "${success_regex}" \
+    "${ctest_bin}" --test-dir "${build_dir}" -R "${success_regex}" \
     --repeat "until-fail:${repeat_count}" --verbose; then
     echo "| Full Login Chain + Realm heartbeat/orderly close | ${repeat_count} | PASS |" >>"${report_path}"
 else
@@ -124,7 +170,7 @@ else
 fi
 
 if run_logged "Failure and restart recovery" \
-    "${ctest_bin}" --test-dir build/dev -R "${recovery_regex}" \
+    "${ctest_bin}" --test-dir "${build_dir}" -R "${recovery_regex}" \
     --output-on-failure; then
     echo "| Timeout, replay, process restart, Queue recovery, etcd outage | 1 | PASS |" >>"${report_path}"
 else
@@ -133,7 +179,7 @@ else
 fi
 
 if run_logged "L1 soak" \
-    "${ctest_bin}" --test-dir build/dev -R "${soak_regex}" \
+    "${ctest_bin}" --test-dir "${build_dir}" -R "${soak_regex}" \
     --output-on-failure; then
     echo "| L1 Gateway water-level / fd soak | 1 | PASS |" >>"${report_path}"
 else

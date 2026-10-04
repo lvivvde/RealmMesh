@@ -7,32 +7,59 @@
   },
   "configurePresets": [
     {
-      "name": "dev",
-      "displayName": "Development",
-      "generator": "Unix Makefiles",
-      "binaryDir": "${sourceDir}/build/dev",
+      "name": "realmmesh-base",
+      "hidden": true,
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
-        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "REALMMESH_PRESET": "${presetName}"
       }
+    },
+    {
+      "name": "dev",
+      "displayName": "Development",
+      "inherits": "realmmesh-base",
+      "generator": "Unix Makefiles",
+      "binaryDir": "${sourceDir}/build/dev"
+    },
+    {
+      "name": "dev-make",
+      "displayName": "Development (Make baseline)",
+      "inherits": "realmmesh-base",
+      "generator": "Unix Makefiles",
+      "binaryDir": "${sourceDir}/build/dev-make"
     }
   ],
   "buildPresets": [
     {
       "name": "dev",
       "configurePreset": "dev"
+    },
+    {
+      "name": "dev-make",
+      "configurePreset": "dev-make"
     }
   ],
   "testPresets": [
     {
-      "name": "dev",
-      "configurePreset": "dev",
+      "name": "realmmesh-test-base",
+      "hidden": true,
       "output": {
         "outputOnFailure": true
       },
       "execution": {
         "timeout": 300
       }
+    },
+    {
+      "name": "dev",
+      "inherits": "realmmesh-test-base",
+      "configurePreset": "dev"
+    },
+    {
+      "name": "dev-make",
+      "inherits": "realmmesh-test-base",
+      "configurePreset": "dev-make"
     }
   ]
 }
