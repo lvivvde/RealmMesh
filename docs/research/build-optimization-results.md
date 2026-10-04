@@ -316,3 +316,97 @@ Mac 与 Lima 先后进行，计时项从未重叠。
 ### 资产
 
 - [`p2a-mac-samples.json`](assets/build-optimization-results/p2a-mac-samples.json)、[`p2a-lima-samples.json`](assets/build-optimization-results/p2a-lima-samples.json)：各入口的命令、提交、退出码、计数与 CTest 结果，以及前后入口与解析的逐次样本；本机路径替换为 `<repo>` / `<bench>`。
+
+## P2b：快速入口与并行预算（[#125](https://github.com/lvivvde/RealmMesh/issues/125)）
+
+P2b 新增日常反馈入口 `scripts/test-fast.sh`（配置＋只构建 Unit 聚合目标＋Unit 用例 4 路并行），统一编译 jobs 预算，并把完整验证与 CI 的 CTest 固定为 `-j 1`。门槛是主无操作与真实 `.cpp` 编辑两个反馈场景各快至少 30%。实际选择与失败行为见[入口决策的实施记录](build-test-entry-decisions.md#实施记录125)。生成器仍是 Unix Makefiles，Ninja 链接池留给 P4。
+
+### 条件
+
+| 项 | 值 |
+| --- | --- |
+| 前版本（before） | `06c75b4`（main，P2a 之后），R0 同款连续流程：`cmake --preset dev`＋ALL 构建＋串行 `ctest -L unit`（`unit-entry` / `cpp-entry` 场景） |
+| 后版本（after） | `82b52ee`（分支 `feat/p2b-test-fast-budget`），`scripts/test-fast.sh --preset dev`，编译 jobs 与测试 jobs 都取脚本缺省（`fast-entry` / `fast-cpp-entry` 场景） |
+| 编译并行 | 按验收约定在新条件下重新取基线，不与串行 R0 直接比较：before 显式 `--jobs`，Mac 8、Lima 2；after 由预算得出，同为 Mac 8（`min(15 CPUs, 8, 48 GiB)`）、Lima 2（`min(8 CPUs, 8, 7.73 GiB)`），每个样本日志的 `build jobs:` 行可查 |
+| 测试并行 | before 串行；after 默认 4 |
+| 工作量 | 两侧都是同一组 496 个 Unit 用例（与 R0、P2a 相同），全部通过、无跳过。`.cpp` 场景改 `framework/scripting/src/lua_runtime.cpp` 的 token，每样本 1 次编译；链接 before 53、after 40（见“工作量差异”） |
+| 源码 | 两侧各一份 `git clone --no-checkout` 的独立副本，检出上表提交，`.tools` 以符号链接复用。Lima 从本机工作仓库克隆，再从 GitHub 取推送后的分支提交，不动 Lima 工作区 |
+| 准备（不计时） | 同提交的 `measure.py --scenario fetch` 获取一次依赖，两侧都以 launcher 与 `FETCHCONTENT_SOURCE_DIR_*` 复用它配置，并先做一次 ALL 构建 |
+| 测量工具 | `82b52ee` 的 measure.py（sha256 `8a24dbcc…acf2`），两侧共用；launcher.cpp `1374833a…034b`，本机编译（Mac `a1b6b957…`，Lima `19554d55…`） |
+| 编译缓存 | 无 |
+| 采样 | 每侧预热 1 次后交替 5 组：奇数组 before 先，偶数组 after 先；每次调用只跑 1 个样本（`--samples 1 --sample-start N --no-warmup`）。`.cpp` 场景每样本后复位原始字节并重建（`*-reset-N`，不计入判定） |
+| 工具链 | Mac CMake/CTest 4.4.3、GNU Make 3.81、Apple clang 21.0.0；Lima CMake/CTest 4.2.3、GNU Make 4.4.1、GCC 15.2.0 |
+
+Mac 与 Lima 先后进行：两侧准备完成后先测 Mac，此时 Lima 空闲；Mac 的完整验证结束后再测 Lima，此时 Mac 不跑构建与测试。计时从未重叠。
+
+### 门槛验收
+
+降幅为 `1 − 中位数(after) ÷ 中位数(before)`。
+
+| 平台 | 场景 | before 中位数 s（极差） | after 中位数 s（极差） | 降幅 | after 更快的组数 | R0 目标（≥30%） |
+| --- | --- | ---: | ---: | ---: | ---: | --- |
+| Mac | 无改动 | 13.21（12.56–13.42） | 6.50（6.23–6.59） | 50.8% | 5/5 | ≤12.44，达成 |
+| Mac | `.cpp` token 改动 | 14.87（14.70–15.83） | 8.04（7.73–8.27） | 45.9% | 5/5 | ≤30.27，达成 |
+| Lima | 无改动 | 6.51（6.38–6.85） | 2.96（2.95–3.05） | 54.5% | 5/5 | ≤5.12，达成 |
+| Lima | `.cpp` token 改动 | 16.65（16.58–16.82） | 8.45（8.30–8.92） | 49.2% | 5/5 | ≤16.97，达成 |
+
+逐组降幅如下（奇数组 before 先）：
+
+| 组 | Mac 无改动 | Mac `.cpp` | Lima 无改动 | Lima `.cpp` |
+| ---: | ---: | ---: | ---: | ---: |
+| 1 | 50.1% | 47.8% | 57.0% | 49.8% |
+| 2 | 51.2% | 47.2% | 54.2% | 47.2% |
+| 3 | 48.2% | 45.4% | 54.8% | 46.2% |
+| 4 | 53.5% | 48.6% | 53.1% | 49.8% |
+| 5 | 48.3% | 44.0% | 53.1% | 50.0% |
+
+四个场景对同条件配对基线都降 44% 以上，5 组方向全部一致，差距远大于噪声带（5.0–7.6%）。after 的中位数也都低于 R0 换算出的绝对门槛。
+
+### 分段与工作量差异
+
+各段为中位数，单位 s。before 是 measure.py 的步骤墙钟，after 是 `test-fast.sh` 的自报分段。
+
+| 平台 / 场景 | configure 前 → 后 | build 前 → 后 | test 前 → 后 |
+| --- | --- | --- | --- |
+| Mac 无改动 | 1.46 → 1.35 | 2.56 → 2.52 | 9.19 → 2.36 |
+| Mac `.cpp` | 1.43 → 1.31 | 4.94 → 4.31 | 8.55 → 2.19 |
+| Lima 无改动 | 0.63 → 0.65 | 1.18 → 1.09 | 4.68 → 1.18 |
+| Lima `.cpp` | 0.67 → 0.64 | 11.29 → 6.44 | 4.73 → 1.18 |
+
+- **测试 4 路并行是两个场景的共同来源。** Unit 用例由串行改为 4 路后，Mac 从约 9 s 降到约 2.3 s，Lima 从约 4.7 s 降到约 1.2 s。
+- **只构建 Unit 范围主要节省链接。** `.cpp` 改动后，ALL 要重链 53 个产物；Unit 聚合目标只重链 40 个 Unit 测试。少掉的 13 个是 `realm_mesh`、`realm_mesh_loadgen` 和 11 个 integration 测试。Lima 只有 2 路编译，链接占比高，build 段因此由 11.29 s 降到 6.44 s；Mac 8 路并行下差别只有 0.6 s。
+- **无改动时 build 段两侧相当。** 两侧都只做 Make 的时间戳检查，少检查 13 个非 Unit 产物省下的时间在 0.1 s 以内。
+- **R0 是串行编译**（Mac 无改动 build 7.88 s，`.cpp` 32.91 s），所以 before 已经吃到了预算并行的收益。按验收约定，判定只用上表的同条件配对；R0 绝对门槛列只作对照。
+
+### 正确性与稳定性
+
+| 检查 | Mac | Lima |
+| --- | --- | --- |
+| 完整验证 `./scripts/build.sh`（after 副本，预算 jobs，ALL＋完整 CTest `-j 1`） | 退出 0，397 s；`100% tests passed out of 652`（P2a 的 651 加本阶段的 `TestFastScriptTest`，integration） | 退出 0，301 s；`100% tests passed, 0 tests failed out of 652` |
+| Unit 4 路重复 20 次（`ctest --preset dev -L '^unit$' -j 4`） | 0 次失败；测试时间 2.14–2.32 s | 0 次失败；1.15–1.23 s |
+| `TestFastScriptTest`（含于上面的完整 CTest） | 通过；本机有 fswatch，轮询与 fswatch 两种模式都跑 | 通过；本机没有 inotifywait，只跑轮询模式 |
+| QUIC | `realm_network: QUIC transport enabled` | 同左 |
+| 预算行 | `build jobs: 8 (from budget; budget 8 = min(15 CPUs, 8, memory 48.00 GiB))` | `build jobs: 2 (from budget; budget 2 = min(8 CPUs, 8, memory 7.73 GiB))` |
+
+资源：进程树 RSS 峰值在 Mac 为 714 MiB（`.cpp` 复位重建），在 Lima 为 783 MiB。最低可用内存 Mac 为 18053 MiB，Lima 为 2646 MiB，高于 1 GiB 门槛。两平台 swap 都没有增长，Lima 无 OOM。
+
+CI 的 workflow 同步改为 `REALMMESH_CI_BUILD_JOBS: 2`、`--parallel` 与 `ctest -j 1`，以本 PR 的 CI 结果为准。
+
+### 异常与限制
+
+- **4 路 Unit 不是完整验证。** 快速入口只覆盖 496 个 Unit 用例；完整验证仍是 `build.sh`，即 ALL 加 652 个用例串行。4 路 Unit 秒数不和任何完整测试秒数比较。
+- **before 的 `ctest -L unit` 没有加锚点**，那是 R0 场景的原样命令。当前标签下它选中的仍是同一组 496 个用例，后版本入口一律用 `^unit$`。
+- **after 侧 `environment.json` 的 `jobs` 记为 `serial`。** 这个字段只表示 measure.py 没有传 `--jobs`；实际 jobs 由脚本按预算决定，记在每个样本的 `build_jobs` 与日志里。
+- **准备阶段的配置不计时。** `fast-*` 场景每次调用前先用标准参数配置一次（launcher、复用依赖），记为预热组的 `*-setup-*` 阶段，不进统计。原因是 `test-fast.sh` 只跑 `cmake --preset`，不带 launcher 参数，靠缓存保留。
+- **Mac 负载。** 测量期间桌面应用照常运行。加上测量本身，负载均值为 5–15。各组噪声带为 5.0–7.6%。
+- **Lima 环境。** 另有一个与本项目无关、空闲的 qemu 进程（CPU 约 0.7%），以及几乎写满的 tmpfs `/tmp`。准备与测量都把 `TMPDIR` 设到磁盘目录，没有动它们。
+- **Ninja 与链接池未做**，留给 P4；外部 libsodium 构建固定 `make -j1`，并断开顶层 jobserver（见实施记录）。
+- **CMake 3.20 未实跑**，两平台本机与 CI 的 CMake 都更高。3.20 下 `gtest_discover_tests` 拆平列表的问题，靠生成的标签脚本绕开。
+
+### 资产
+
+- [`p2b-mac-samples.json`](assets/build-optimization-results/p2b-mac-samples.json)、[`p2b-lima-samples.json`](assets/build-optimization-results/p2b-lima-samples.json)：内容包括：
+  - `pairs`：逐组配对与降幅；
+  - `groups`：四组 `measure.py export` 结果，含每次调用的 `environment`、逐样本的每步墙钟、`fast_times` 自报分段、`build_jobs`、编译与链接次数、链接产物名单、内存摘要与汇总。
+  - 本机路径都替换为 `<bench>`；原始日志与时间线体积较大，没有提交。
+- 复现：两侧按上表提交各做一份克隆并链接 `.tools`，准备一次 `--scenario fetch`，以复用依赖的配置做一次 ALL 构建，然后各预热 1 次，再交替调用 `measure.py run`。before 用 `--scenario unit-entry` 或 `cpp-entry` 加 `--jobs 8` / `--jobs 2`；after 用 `--scenario fast-entry` 或 `fast-cpp-entry`，参数为 `--samples 1 --sample-start N --no-warmup`（见 [tools/build-bench](../../tools/build-bench/README.md)）。Lima 另外附加 `TMPDIR=<磁盘目录>`。

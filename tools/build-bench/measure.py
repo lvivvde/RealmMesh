@@ -36,7 +36,8 @@ PROBES = {
     'proto': 'proto/realmmesh/common/v1/envelope.proto',
     'private-hpp': 'game/common/src/envelope_codec.hpp',
 }
-SCENARIOS = ['fetch', 'cold-entry', 'repro', 'hot-full', 'unit-entry', 'cpp-entry', 'probes']
+SCENARIOS = ['fetch', 'cold-entry', 'repro', 'hot-full', 'unit-entry', 'cpp-entry', 'fast-entry', 'fast-cpp-entry',
+             'probes']
 # libsodium 是 ExternalProject：下载包放进其默认 DOWNLOAD_DIR 且 hash 相符时，构建跳过下载。
 SODIUM_CMAKE = 'third_party/sodium/CMakeLists.txt'
 SODIUM_DOWNLOAD_DIR = 'third_party/sodium/sodium_external-prefix/src'
@@ -49,7 +50,7 @@ STATIC_LIBRARY = re.compile(r'Linking (?:C|CXX) static library')
 EXPORT_FIELDS = ('name', 'warmup', 'wall_s', 'exit', 'loadavg_start', 'loadavg_end', 'compile_count',
                  'dependency_compile_count', 'project_compile_count', 'link_count', 'compile_wall_sum_s', 'link_wall_sum_s',
                  'max_compile_rss_kib', 'max_link_rss_kib', 'failed_tool_calls', 'memory', 'variant',
-                 'generated_version_headers', 'generated_version_headers_changed')
+                 'generated_version_headers', 'generated_version_headers_changed', 'fast_times', 'build_jobs')
 EXPORT_LIST_LIMIT = 60
 
 
@@ -143,14 +144,22 @@ def variant_bytes(original, relative, label, index, kind):
 EditSample = collections.namedtuple('EditSample', 'name index warmup kind reset')
 
 
-def edit_plan(prefix, samples, comment_samples):
-    """编辑场景的样本顺序：token 变体预热 1 次 + samples 次，再注释变体 comment_samples 次。
+def sample_indexes(count, warmup, start=1):
+    """(阶段后缀, 变体序号, 是否预热)；预热序号 0，正式样本 start..start+count-1。
+
+    start 让配对测量分多次调用、交替跑前后两侧时，各侧样本序号连续不重名。
+    """
+    return ([('warmup', 0, True)] if warmup else []) + [(str(i), i, False) for i in range(start, start + count)]
+
+
+def edit_plan(prefix, samples, comment_samples, start=1, warmup=True):
+    """编辑场景的样本顺序：token 变体预热 1 次（warmup）+ samples 次，再注释变体 comment_samples 次。
 
     每个样本都由原始字节派生；测完写回原始字节并构建回稳定状态（reset 阶段，自成一组），
     下一个样本总是相对原始状态改动——注释变体因此预处理后与原始相同。
     """
-    plan = [EditSample(f'{prefix}-{suffix}', index, warmup, 'token', f'{prefix}-reset-{suffix}')
-            for suffix, index, warmup in [('warmup', 0, True)] + [(str(i), i, False) for i in range(1, samples + 1)]]
+    plan = [EditSample(f'{prefix}-{suffix}', index, is_warmup, 'token', f'{prefix}-reset-{suffix}')
+            for suffix, index, is_warmup in sample_indexes(samples, warmup, start)]
     plan += [EditSample(f'{prefix}-comment-{i}', i, False, 'comment', f'{prefix}-comment-reset-{i}')
              for i in range(1, comment_samples + 1)]
     return plan
@@ -235,6 +244,27 @@ def parse_ctest_log(text):
     }
 
 
+FAST_TIMES = re.compile(r'^test-fast: time configure (\S+)s, build (\S+)s, test (\S+)s, total (\S+)s \(exit (\d+)\)$', re.M)
+BUILD_JOBS = re.compile(r'^build jobs: (\d+) \(', re.M)
+
+
+def parse_fast_log(text):
+    """test-fast.sh 自报的分段耗时（未到达的阶段为 None）与编译并行度；不是 test-fast 的日志返回 {}。"""
+    result = {}
+    times = FAST_TIMES.findall(text)
+    if times:
+        configure, build, test, total, code = times[-1]
+        result['fast_times'] = {
+            'configure_s': None if configure == '-' else float(configure),
+            'build_s': None if build == '-' else float(build),
+            'test_s': None if test == '-' else float(test),
+            'total_s': float(total), 'exit': int(code)}
+    jobs = BUILD_JOBS.findall(text)
+    if jobs:
+        result['build_jobs'] = int(jobs[-1])
+    return result
+
+
 def anonymize(value, roots):
     """把字符串里的本机测量根目录替换为 <bench>（递归处理 dict/list）。"""
     if isinstance(value, dict):
@@ -292,6 +322,17 @@ def summarize(rows):
             entry['steps'] = [{'label': label, 'wall_s': sample_stats(
                 [sum(s['wall_s'] for s in r.get('steps', []) if s['label'] == label) for r in members])}
                 for label in labels]
+        fast = [r['fast_times'] for r in members if r.get('fast_times')]
+        if fast:
+            # test-fast.sh 自报的分段；某阶段未到达（失败提前结束）的样本不计入该段。
+            entry['fast_steps'] = []
+            for key in ('configure_s', 'build_s', 'test_s'):
+                values = [f[key] for f in fast if f.get(key) is not None]
+                if values:
+                    entry['fast_steps'].append({'label': key[:-len('_s')], 'wall_s': sample_stats(values)})
+        jobs = sorted({r['build_jobs'] for r in members if 'build_jobs' in r})
+        if jobs:
+            entry['build_jobs'] = jobs
         memory = [r['memory'] for r in members if r.get('memory')]
         if memory:
             available = [m['min_available_mib'] for m in memory if m.get('min_available_mib') is not None]
@@ -343,12 +384,14 @@ def render_markdown(summary):
             mib(memory.get('max_swap_growth_mib')),
             '<br>'.join(g['failures']) or '—',
         ))
-    steps = [g for g in summary if g.get('steps')]
+    steps = [g for g in summary if g.get('steps') or g.get('fast_steps')]
     if steps:
         lines += ['', '| 场景 | 步骤 | 墙钟秒，中位数（最小–最大） |', '| --- | --- | ---: |']
         for g in steps:
-            for step in g['steps']:
+            for step in g.get('steps', []):
                 lines.append(f"| {g['group']} | {step['label']} | {_fmt_seconds(step['wall_s'])} |")
+            for step in g.get('fast_steps', []):
+                lines.append(f"| {g['group']} | test-fast {step['label']}（自报） | {_fmt_seconds(step['wall_s'])} |")
     return '\n'.join(lines) + '\n'
 
 
@@ -520,6 +563,10 @@ class Bench:
     def ctest_cmd(self, *extra):
         return ['ctest', '--preset', self.args.preset] + list(extra)
 
+    def fast_cmd(self):
+        """P2b（#125）的快速入口：并行度缺省由脚本按 CPU/内存预算决定，--jobs 显式覆盖。"""
+        return ['scripts/test-fast.sh', '--preset', self.args.preset] + (['--jobs', str(self.args.jobs)] if self.args.jobs else [])
+
     # 阶段 --------------------------------------------------------------
 
     def save(self):
@@ -590,7 +637,9 @@ class Bench:
             'linked_outputs': sorted(relative(e['output']) or '?' for e in linked),
         }
         row.update(extra or {})
-        row.update(parse_ctest_log(log.read_text(errors='replace')))
+        log_text = log.read_text(errors='replace')
+        row.update(parse_ctest_log(log_text))
+        row.update(parse_fast_log(log_text))
         self.rows.append(row)
         self.save()
         print('DONE ' + json.dumps({k: row[k] for k in ('name', 'wall_s', 'exit', 'compile_count', 'link_count')}), flush=True)
@@ -647,9 +696,18 @@ class Bench:
                 if row['exit'] or reset['exit']:
                     raise SystemExit(f'{sample.name}: exit {row["exit"]}, reset exit {reset["exit"]}')
 
-    def sample_indexes(self, count, warmup):
-        """(阶段后缀, 变体序号, 是否预热)；预热序号 0，正式样本 1..count。"""
-        return ([('warmup', 0, True)] if warmup else []) + [(str(i), i, False) for i in range(1, count + 1)]
+    def short_samples(self):
+        """短场景本次调用的 (阶段后缀, 变体序号, 是否预热)，按 --samples、--sample-start、--no-warmup。"""
+        return sample_indexes(self.args.samples, not self.args.no_warmup, self.args.sample_start)
+
+    def short_edit_plan(self, prefix):
+        return edit_plan(prefix, self.args.samples, 0, self.args.sample_start, not self.args.no_warmup)
+
+    def fast_setup(self, scenario):
+        """快速入口只跑 cmake --preset：先以标准配置（launcher、复用依赖）写好缓存，不计时（预热组）。
+        阶段名取本次调用第一个样本的后缀，分次交替调用时不重名。"""
+        row = self.run(f'{scenario}-setup-{self.short_samples()[0][0]}', [('configure', self.configure_cmd())], warmup=True)
+        self.require(row, 'configure')
 
     # 场景 --------------------------------------------------------------
 
@@ -713,16 +771,33 @@ class Bench:
 
     def scenario_unit_entry(self):
         """默认 Unit、无改动：标准配置 + ALL 构建 + 全部 Unit（串行），整体计时。"""
-        for suffix, _, warmup in self.sample_indexes(self.args.samples, warmup=True):
+        for suffix, _, warmup in self.short_samples():
             self.run(f'unit-entry-{suffix}', [('configure', self.configure_cmd()), ('build', self.build_cmd()),
                                               ('test', self.ctest_cmd('-L', 'unit'))], warmup=warmup)
 
     def scenario_cpp_entry(self):
         """默认 Unit、代表 .cpp 真实改动：token 变体改 lua_runtime.cpp 后配置 + ALL 构建 + 全部 Unit；
         每个样本后恢复原始字节，以同样的入口回到稳定状态（cpp-entry-reset-N）。"""
-        self.run_edits(PROBES['lua-cpp'], 'cpp-entry', edit_plan('cpp-entry', self.args.samples, 0),
+        self.run_edits(PROBES['lua-cpp'], 'cpp-entry', self.short_edit_plan('cpp-entry'),
                        lambda: [('configure', self.configure_cmd()), ('build', self.build_cmd()),
                                 ('test', self.ctest_cmd('-L', 'unit'))])
+
+    def scenario_fast_entry(self):
+        """快速入口、无改动（P2b）：scripts/test-fast.sh 一步（配置 + Unit 聚合目标 + Unit 4 路），整体计时；
+        脚本自报的分段耗时记在 fast_times。与 unit-entry 配对时在各自的源码副本里交替跑。"""
+        if not self.short_samples():
+            return
+        self.fast_setup('fast-entry')
+        for suffix, _, warmup in self.short_samples():
+            self.run(f'fast-entry-{suffix}', [('test-fast', self.fast_cmd())], warmup=warmup)
+
+    def scenario_fast_cpp_entry(self):
+        """快速入口、代表 .cpp 真实改动（P2b）：同 cpp-entry 的 token 变体与 reset，入口换成 test-fast.sh。"""
+        if not self.short_samples():
+            return
+        self.fast_setup('fast-cpp-entry')
+        self.run_edits(PROBES['lua-cpp'], 'fast-cpp-entry', self.short_edit_plan('fast-cpp-entry'),
+                       lambda: [('test-fast', self.fast_cmd())])
 
     def scenario_probes(self):
         """每个探针：token 变体预热 1 次 + --samples 次（主指标），注释变体 --comment-samples 次（历史对照）；
@@ -854,6 +929,8 @@ def main(argv=None):
     run_parser.add_argument('--scenario', action='append', required=True, choices=SCENARIOS + ['all'])
     run_parser.add_argument('--probe', action='append', choices=list(PROBES), help='probes 场景只跑这些探针（默认全部）')
     run_parser.add_argument('--samples', type=int, default=5, help='短场景正式样本数（另加 1 次预热）')
+    run_parser.add_argument('--sample-start', type=int, default=1, help='短场景正式样本的起始序号（分次交替配对测量用）')
+    run_parser.add_argument('--no-warmup', action='store_true', help='短场景本次不跑预热')
     run_parser.add_argument('--long-samples', type=int, default=3, help='冷入口、热完整验证的样本数；repro 至少 3 轮')
     run_parser.add_argument('--comment-samples', type=int, default=3, help='注释探针（历史对照）样本数')
     run_parser.add_argument('--preset', default='dev')

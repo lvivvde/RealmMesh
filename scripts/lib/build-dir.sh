@@ -114,3 +114,41 @@ realmmesh_resolve_built_binary() {
     fi
     printf '%s\n' "${realmmesh_binary}"
 }
+
+# 输出本次使用的 cmake:系统 PATH 优先,.tools/cmake 兜底;ctest 取同一目录下的
+# 那份(同一分发)。都没有时返回非零并说明。
+realmmesh_find_cmake() {
+    if command -v cmake >/dev/null 2>&1; then
+        command -v cmake
+    elif [[ -x "$1/.tools/cmake/bin/cmake" ]]; then
+        printf '%s\n' "$1/.tools/cmake/bin/cmake"
+    else
+        echo "CMake 3.20 or newer is required." >&2
+        echo "Install CMake or place a local distribution in .tools/cmake." >&2
+        return 1
+    fi
+}
+
+# 根目录的 compile_commands.json 是指向所选预设编译数据库的符号链接;切换
+# 预设时跟着改指向。用户自己放的普通文件不动。
+# 用法:realmmesh_link_compile_commands <root> <构建目录> <preset>
+realmmesh_link_compile_commands() {
+    local realmmesh_root_dir="$1"
+    local realmmesh_database="$2/compile_commands.json"
+    local realmmesh_link="${realmmesh_root_dir}/compile_commands.json"
+    [[ -f "${realmmesh_database}" ]] || return 0
+
+    local realmmesh_target="${realmmesh_database}"
+    if [[ "${realmmesh_database}" == "${realmmesh_root_dir}/"* ]]; then
+        realmmesh_target="${realmmesh_database#"${realmmesh_root_dir}/"}"
+    fi
+    if [[ -L "${realmmesh_link}" || ! -e "${realmmesh_link}" ]]; then
+        if [[ "$(readlink "${realmmesh_link}" 2>/dev/null || true)" != \
+            "${realmmesh_target}" ]]; then
+            ln -sfn "${realmmesh_target}" "${realmmesh_link}"
+        fi
+    else
+        echo "warning: ${realmmesh_link} is not a symlink; leaving it unchanged" \
+            "(the $3 database is ${realmmesh_database})." >&2
+    fi
+}

@@ -83,4 +83,8 @@ if(BUILD_TESTING)
 
     add_subdirectory(tests/cpp)
     add_subdirectory(tests/lua)
+    # Unit 构建目标登记清单(#125):test-fast.sh 据此校验 --target 与构建产物。
+    realmmesh_write_unit_test_registry()
+else()
+    file(REMOVE "${CMAKE_BINARY_DIR}/realmmesh-unit-targets.txt")
 endif()

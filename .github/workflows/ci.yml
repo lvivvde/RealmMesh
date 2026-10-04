@@ -13,8 +13,14 @@ concurrency:
 # configure / build / test / acceptance all use this one preset name; the build
 # directory is the binaryDir CMake recorded at configure time (#122), resolved by
 # scripts/build-dir.sh rather than assumed from the preset name.
+#
+# Resource budget (#125): compile with 2 jobs, always passed explicitly rather
+# than left to the generator default; run the full ctest serially (-j 1), the
+# same as ./scripts/build.sh. Only the edit-loop entry ./scripts/test-fast.sh
+# runs Unit tests in parallel.
 env:
   REALMMESH_CI_PRESET: dev
+  REALMMESH_CI_BUILD_JOBS: 2
 
 jobs:
   # Two explicit jobs rather than a matrix: only the dependency steps differ
@@ -70,10 +76,10 @@ jobs:
           echo "REALMMESH_BUILD_DIR=${build_dir}" >> "$GITHUB_ENV"
 
       - name: Build
-        run: cmake --build --preset "$REALMMESH_CI_PRESET"
+        run: cmake --build --preset "$REALMMESH_CI_PRESET" --parallel "$REALMMESH_CI_BUILD_JOBS"
 
       - name: Test
-        run: ctest --preset "$REALMMESH_CI_PRESET"
+        run: ctest --preset "$REALMMESH_CI_PRESET" -j 1
 
   # Linux is the production and behaviour baseline (ADR-0002), and the only job
   # where QUIC runs. It is not merely "also built here": on Linux
@@ -119,10 +125,10 @@ jobs:
           echo "REALMMESH_BUILD_DIR=${build_dir}" >> "$GITHUB_ENV"
 
       - name: Build
-        run: cmake --build --preset "$REALMMESH_CI_PRESET"
+        run: cmake --build --preset "$REALMMESH_CI_PRESET" --parallel "$REALMMESH_CI_BUILD_JOBS"
 
       - name: Test
-        run: ctest --preset "$REALMMESH_CI_PRESET"
+        run: ctest --preset "$REALMMESH_CI_PRESET" -j 1
 
       - name: Linux M1-M4 acceptance
         env:

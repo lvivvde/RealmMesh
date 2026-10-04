@@ -290,8 +290,59 @@ class EditPlanTest(unittest.TestCase):
         names = [s.reset for s in measure.edit_plan('cpp-entry', samples=2, comment_samples=0)]
         self.assertEqual({measure.stage_group(n) for n in names[1:]}, {'cpp-entry-reset'})
 
+    def test_alternating_call_continues_numbering_without_warmup(self):
+        got = measure.edit_plan('fast-cpp-entry', samples=1, comment_samples=0, start=3, warmup=False)
+        self.assertEqual([(s.name, s.index, s.warmup, s.reset) for s in got], [
+            ('fast-cpp-entry-3', 3, False, 'fast-cpp-entry-reset-3')])
+
+    def test_warmup_only_call(self):
+        got = measure.edit_plan('cpp-entry', samples=0, comment_samples=0)
+        self.assertEqual([(s.name, s.warmup) for s in got], [('cpp-entry-warmup', True)])
+
     def test_private_header_probe(self):
         self.assertEqual(measure.PROBES['private-hpp'], 'game/common/src/envelope_codec.hpp')
+
+
+class SampleIndexesTest(unittest.TestCase):
+    def test_default_numbering(self):
+        self.assertEqual(measure.sample_indexes(2, True),
+                         [('warmup', 0, True), ('1', 1, False), ('2', 2, False)])
+
+    def test_start_offsets_numbering(self):
+        self.assertEqual(measure.sample_indexes(2, False, start=4), [('4', 4, False), ('5', 5, False)])
+
+
+class ParseFastLogTest(unittest.TestCase):
+    def test_reads_last_time_line_and_jobs(self):
+        text = (
+            'build jobs: 8 (from budget; budget 8 = min(15 CPUs, 8, memory 48.00 GiB))\n'
+            'test-fast: PASSED: 520 passed, 0 failed, 0 skipped of 520 selected.\n'
+            'test-fast: time configure 1.20s, build 3.45s, test 6.70s, total 11.40s (exit 0)\n'
+        )
+        self.assertEqual(measure.parse_fast_log(text), {
+            'fast_times': {'configure_s': 1.2, 'build_s': 3.45, 'test_s': 6.7, 'total_s': 11.4, 'exit': 0},
+            'build_jobs': 8})
+
+    def test_unreached_stages_are_none(self):
+        text = 'test-fast: time configure 1.00s, build 2.00s, test -s, total 3.10s (exit 1)\n'
+        got = measure.parse_fast_log(text)['fast_times']
+        self.assertEqual((got['build_s'], got['test_s'], got['exit']), (2.0, None, 1))
+
+    def test_other_logs(self):
+        self.assertEqual(measure.parse_fast_log('100% tests passed out of 3\n'), {})
+
+    def test_summary_lists_self_reported_stages(self):
+        rows = [
+            {'name': 'fast-entry-1', 'wall_s': 5.0, 'exit': 0, 'build_jobs': 2,
+             'fast_times': {'configure_s': 1.0, 'build_s': 1.0, 'test_s': 2.8, 'total_s': 4.9, 'exit': 0}},
+            {'name': 'fast-entry-2', 'wall_s': 7.0, 'exit': 1, 'build_jobs': 2,
+             'fast_times': {'configure_s': 1.0, 'build_s': 3.0, 'test_s': None, 'total_s': 4.1, 'exit': 1}},
+        ]
+        got = measure.summarize(rows)[0]
+        self.assertEqual([(s['label'], s['wall_s']['n']) for s in got['fast_steps']],
+                         [('configure', 2), ('build', 2), ('test', 1)])
+        self.assertEqual(got['build_jobs'], [2])
+        self.assertIn('test-fast build（自报）', measure.render_markdown([got]))
 
 
 class ExportSampleTest(unittest.TestCase):

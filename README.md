@@ -272,8 +272,8 @@ Make 对照基线的显式名字，今后 `dev` 换生成器时它保持不变�
 （默认 `dev`），按这份记录找构建目录，不自行解析预设 JSON；预设未配置、登记与目录身份不符或目录来自另一
 棵源码树时直接失败并提示配置命令。`./scripts/build-dir.sh --preset NAME` 输出该预设已配置的构建目录。
 
-`scripts/build.sh [--preset NAME]` 用同一个预设依次执行 `cmake --preset`、`cmake --build --preset` 和
-`ctest --preset`（配置 + 构建 + 全量测试），并把仓库根的 `compile_commands.json` 符号链接指向所选
+`scripts/build.sh [--preset NAME] [--jobs N]` 用同一个预设依次执行 `cmake --preset`、`cmake --build --preset` 和
+`ctest --preset -j 1`（配置 + 构建 ALL + 串行全量测试），并把仓库根的 `compile_commands.json` 符号链接指向所选
 预设的编译数据库；切换预设时改指向，仓库根若是普通文件则保留并告警。
 
 Linux 的 MsQuic 开发安装脚本固定使用 Microsoft 官方 `libmsquic 2.6.1` 包和对应头文件，
@@ -431,16 +431,20 @@ UDP 与 TCP 端口空间）。
 归置、注册与标签约定见 [tests/README.md](tests/README.md)。分类标签只有 `unit` 与
 `integration` 两类：进程内单测与 Lua 模块测试归 `unit`（快速子集），占用固定端口
 或拉起 `realm_mesh` 的用例必须显式标 `integration`；Lua 套件另带的 `lua` 标签只作
-筛选（`ctest -L lua`）。
+筛选（`ctest -L '^lua$'`）。
 
 ```bash
-ctest --preset dev            # 全量
-ctest --preset dev -L unit    # 快速子集：C++ 单测 + Lua 模块测试
-ctest --preset dev -L lua     # 只筛 Lua 用例
-./scripts/test-watch.sh       # 保存即重跑快速子集（单跑一轮加 --once）
-./scripts/build.sh            # 配置 + 构建 + 全量测试
-./scripts/build.sh --preset dev-local   # 换预设：configure / build / test 同用一个名字
+./scripts/test-fast.sh        # 快速子集：配置 + 只构建 Unit 聚合目标 + 4 路跑 unit 用例
+./scripts/test-fast.sh --target lua_runtime_test --test-regex Reload   # 聚焦一个 Unit 目标与部分用例
+./scripts/test-watch.sh       # 保存即重跑快速入口（单跑一轮加 --once）
+./scripts/build.sh            # 配置 + 构建 ALL + 全量测试（串行）
+./scripts/build.sh --preset dev-local --jobs 4   # 换预设、指定编译并行
+ctest --preset dev -j 1       # 只跑全量测试
+ctest --preset dev -L '^lua$' # 只筛 Lua 用例（标签筛选是正则，要加锚点）
 ```
+
+快速入口不是完整验证；退出码、编译并行预算（缺省开发 Mac 8 路、Lima 2 路）与筛选规则见
+[tests/README.md](tests/README.md#运行方式)。
 
 单元测试基座是 Google Test 1.17 与 LuaUnit v3.5（均经 FetchContent 固定版本），
 分别由 `realm_add_gtest` / `realm_add_lua_test` 注册；`configs/*.lua` 的真实加载路径

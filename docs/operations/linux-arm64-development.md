@@ -10,10 +10,8 @@ sudo apt install build-essential cmake curl python3 libssl-dev libnuma1
 ./scripts/install-msquic-dev.sh
 ./scripts/install-etcd.sh
 ./scripts/install-mongodb.sh
-cmake --preset dev
-cmake --build --preset dev --parallel 4
-ctest --preset dev -L unit --parallel 4
-ctest --preset dev -L integration
+./scripts/test-fast.sh          # 配置 + 只构建 Unit 聚合目标 + 4 路跑 unit 用例
+./scripts/build.sh              # 配置 + 构建 ALL + 串行全量测试
 ```
 
 MsQuic 与 MongoDB 使用 Ubuntu 24.04 的上游二进制；ARM64 同样强制编入 QUIC。
@@ -21,7 +19,7 @@ CMake 通过 `CMAKE_LIBRARY_ARCHITECTURE` 查找 MsQuic 的原生库目录，并
 官方 protoc 35.0 的 Linux ARM64 包。此前未覆盖该架构时会进入 Protobuf 编译器
 源码构建，因缺少 `google/protobuf/descriptor.upb.h` 而失败。
 
-4 路编译并发用于本次 8 GiB 开发机，其他机器按内存调整。CI 仍以 Ubuntu 24.04
+两个入口按 CPU/内存预算选编译并行（8 GiB 机器为 2 路，见 `scripts/lib/build-jobs.sh`），`--jobs N` 可覆盖。下文 2026-10-02 的验证早于这两个入口，当时手动用 4 路编译、`ctest -L unit --parallel 4`。CI 仍以 Ubuntu 24.04
 x86_64 为 Linux 回归门槛；本次适配不改变 ADR-0001、ADR-0002、ADR-0011、
 ADR-0012 的平台后端、QUIC 与数据库边界。
 
