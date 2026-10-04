@@ -2,7 +2,6 @@
 
 #include "realmmesh/game/common/player_data_store.hpp"
 #include "realmmesh/network/transport/transport_config.hpp"
-#include "realmmesh/scripting/lua_runtime.hpp"
 
 #include <cstddef>
 #include <filesystem>
@@ -11,7 +10,7 @@
 namespace realm::game::login_verify {
 
 /// 健全服专属配置节(根表 `login_verify`);宿主级节段(logging、
-/// service_discovery)仍由 GatewayConfigLoader::parse 承载,ServiceHost
+/// service_discovery)仍由 parse_gateway_config 承载,ServiceHost
 /// 装配时两路合流。TLS 路径支持配置直填或经环境变量名解析(先例同
 /// gateway 传输配置)。
 struct LoginVerifyConfig {
@@ -28,13 +27,6 @@ struct LoginVerifyConfig {
     /// verify_capacity 是排队 + 运行中 + 未取走结果的上限,满额回 503。
     std::size_t verify_workers{4};
     std::size_t verify_capacity{64};
-};
-
-class LoginVerifyConfigLoader final {
-public:
-    /// 解析已合并的 Lua 根表(供分层加载器复用);`login_verify` 节缺失
-    /// 或字段类型错抛 std::invalid_argument。
-    [[nodiscard]] static LoginVerifyConfig parse(const sol::table& root);
 };
 
 }  // namespace realm::game::login_verify

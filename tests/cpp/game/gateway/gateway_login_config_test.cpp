@@ -1,7 +1,7 @@
 #include "realmmesh/game/gateway/gateway_login_config.hpp"
 
 #include "realmmesh/game/common/admission_grant.hpp"
-#include "realmmesh/game/gateway/gateway_config_loader.hpp"
+#include "realmmesh/game/gateway/gateway_config_lua.hpp"
 #include "realmmesh/scripting/lua_runtime.hpp"
 
 #include <gtest/gtest.h>
@@ -16,7 +16,7 @@ namespace {
 
 using namespace std::chrono_literals;
 
-/// 解析一段 Lua 根表:走与生产同一入口 GatewayConfigLoader::parse,
+/// 解析一段 Lua 根表:走与生产同一入口 parse_gateway_config,
 /// 不复制字段名。transports 与 logging 是 loader 的必填节,给最小合法值
 /// (TLS 路径在 parse 期只解析不打开文件);其余字段吃生产默认值。
 [[nodiscard]] GatewayConfig parse_lua(
@@ -33,7 +33,7 @@ using namespace std::chrono_literals;
     if (!runtime.load_module_source("gateway_config", source, &error)) {
         throw std::runtime_error("lua load failed: " + error);
     }
-    return GatewayConfigLoader::parse(runtime.module("gateway_config"));
+    return parse_gateway_config(runtime.module("gateway_config"));
 }
 
 /// 一份能通过校验的完整登录配置:负例只在它之上改一个字段,免得断言

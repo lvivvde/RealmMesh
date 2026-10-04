@@ -1,19 +1,16 @@
 #pragma once
 
 #include "realmmesh/game/gateway/gateway_runtime.hpp"
-#include "realmmesh/scripting/lua_runtime.hpp"
 
 #include <filesystem>
 
 namespace realm::game::gateway {
 
+/// 单文件装载 gateway 配置；只返回配置值，Lua 运行时不越出实现。
+/// 已合并根表的解析入口见 gateway_config_lua.hpp。
 class GatewayConfigLoader final {
 public:
-    /// 从文件加载并解析(行为不变)。
     [[nodiscard]] static GatewayConfig load(const std::filesystem::path& path);
-
-    /// 直接解析已合并的 Lua 根表(供分层加载器复用)。
-    [[nodiscard]] static GatewayConfig parse(const sol::table& root);
 };
 
 }  // namespace realm::game::gateway

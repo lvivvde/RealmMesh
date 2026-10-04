@@ -27,10 +27,17 @@ realm_add_gtest(service_host_test
     DISCOVER_PROPERTIES RUN_SERIAL TRUE
 )
 
+# 普通配置头不经传递 include 引入 sol2(#126):编译即断言。
+realm_add_gtest(config_headers_test
+    SOURCES config_headers_test.cpp
+    LIBS realm_service_host
+)
+
 # 真实 configs/ 树的生产加载冒烟:不占端口、不起进程,留在快速子集。
+# 用例直接驱动 LuaRuntime:显式链接 realm_scripting(#126)。
 realm_add_gtest(configs_load_smoke_test
     SOURCES configs_load_smoke_test.cpp
-    LIBS realm_service_host
+    LIBS realm_service_host realm_scripting
     DEFINITIONS
         REALMMESH_SOURCE_DIR="${PROJECT_SOURCE_DIR}"
         REALMMESH_TEST_TLS_CERTIFICATE="${REALMMESH_TEST_TLS_CERTIFICATE}"

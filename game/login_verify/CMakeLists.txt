@@ -1,5 +1,5 @@
 add_library(realm_login_verify_service
-    src/login_verify_config.cpp
+    src/login_verify_config_lua.cpp
     src/login_verify_dispatcher.cpp
     src/login_verify_handler.cpp
     src/login_verify_service.cpp
@@ -19,8 +19,10 @@ target_link_libraries(realm_login_verify_service PUBLIC
     realm_game_common
     realm_network
     realm_observability
-    realm_scripting
 )
+# Lua 只用在配置解析实现;包含 login_verify_config_lua.hpp 的目标自行链接
+# realm_scripting(#126)。
+target_link_libraries(realm_login_verify_service PRIVATE realm_scripting)
 
 target_compile_features(realm_login_verify_service PUBLIC cxx_std_20)
 set_target_properties(realm_login_verify_service PROPERTIES

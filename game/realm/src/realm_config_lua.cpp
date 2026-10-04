@@ -1,4 +1,6 @@
-#include "realmmesh/game/realm/realm_config.hpp"
+#include "realmmesh/game/realm/realm_config_lua.hpp"
+
+#include <sol/sol.hpp>
 
 #include <stdexcept>
 #include <string>
@@ -20,7 +22,7 @@ namespace {
 
 }  // namespace
 
-RealmConfig RealmConfigLoader::parse(const sol::table& root) {
+RealmConfig parse_realm_config(const sol::table& root) {
     const sol::object section = root.raw_get<sol::object>("realm");
     if (!section.is<sol::table>()) {
         throw std::invalid_argument(

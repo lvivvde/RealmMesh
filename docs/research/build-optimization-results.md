@@ -410,3 +410,104 @@ CI 的 workflow 同步改为 `REALMMESH_CI_BUILD_JOBS: 2`、`--parallel` 与 `ct
   - `groups`：四组 `measure.py export` 结果，含每次调用的 `environment`、逐样本的每步墙钟、`fast_times` 自报分段、`build_jobs`、编译与链接次数、链接产物名单、内存摘要与汇总。
   - 本机路径都替换为 `<bench>`；原始日志与时间线体积较大，没有提交。
 - 复现：两侧按上表提交各做一份克隆并链接 `.tools`，准备一次 `--scenario fetch`，以复用依赖的配置做一次 ALL 构建，然后各预热 1 次，再交替调用 `measure.py run`。before 用 `--scenario unit-entry` 或 `cpp-entry` 加 `--jobs 8` / `--jobs 2`；after 用 `--scenario fast-entry` 或 `fast-cpp-entry`，参数为 `--samples 1 --sample-start N --no-warmup`（见 [tools/build-bench](../../tools/build-bench/README.md)）。Lima 另外附加 `TMPDIR=<磁盘目录>`。
+
+## P3a：分离配置 DTO 与 Lua 解析入口（[#126](https://github.com/lvivvde/RealmMesh/issues/126)）
+
+P3a 把各模块配置头里的 `parse(sol::table)` 移到显式的 Lua 解析入口 `*_config_lua.hpp`，普通配置头不再带 sol2，gateway、login_verify、queue、service_host 对 `realm_scripting` 改为 PRIVATE。做法与取舍见[接口边界决策的实施记录](interface-boundaries-proposal.md#实施记录126)。本阶段门槛是 `lua_runtime.hpp` 扰动的编译次数下降、列出真实直接 Lua 使用者，以及双平台完整验证；“快 ≥30%、只用配置结果的消费者 0 次重编”在整个 P3（P3a＋[#127](https://github.com/lvivvde/RealmMesh/issues/127) P3b＋[#128](https://github.com/lvivvde/RealmMesh/issues/128) P3c）结束时判定，本节的降幅只记录、不判定。
+
+### 条件
+
+| 项 | 值 |
+| --- | --- |
+| 前版本（before） | `4f2a8a9`（main，P2b 之后） |
+| 后版本（after） | `0caeeb0`（分支 `feat/p3a-config-lua-parse`，本阶段的代码提交；其后的提交只改测量工具与文档） |
+| 场景 | `probes --probe lua-hpp`：改 `framework/scripting/include/realmmesh/scripting/lua_runtime.hpp` 的 token，只计 build 步；每样本后复位原始字节并重建（`*-reset-N`，不计入）。注释变体不跑（`--comment-samples 0`） |
+| 生成器 / preset | Unix Makefiles，`dev`（Debug），binaryDir `build/dev` |
+| 并行 | 两侧相同：Mac `--jobs 8`，Lima `--jobs 2`，与 P2b 的预算一致 |
+| 编译缓存 | 无（OFF） |
+| 源码 | Mac 两侧各一份 `git archive` 副本；Lima 两侧各一份本地 `git clone` 并检出上表提交，不动 Lima 工作区。`.tools` 以符号链接复用 |
+| 准备（不计时） | 每平台一次 `measure.py --scenario fetch` 获取依赖；两侧都以 launcher 与 `FETCHCONTENT_SOURCE_DIR_*` 复用它配置，再做一次 ALL 构建 |
+| 测量工具 | `6d92abd` 的 measure.py（sha256 `368bd1c7…aac`），两侧共用；这一提交让 `probes` 场景也遵守 `--sample-start` / `--no-warmup`，P3a 起用于交替配对。launcher.cpp `1374833a…034b`，本机编译（Mac `7c015b5f…`，Lima `19554d55…`） |
+| 采样 | 每侧预热 1 次后交替 5 组：奇数组 before 先，偶数组 after 先；每次调用 1 个样本（`--samples 1 --sample-start N --no-warmup`） |
+| 工具链 | Mac CMake 4.4.3、GNU Make 3.81、Apple clang 21.0.0；Lima CMake 4.2.3、GNU Make 4.4.1、GCC 15.2.0 |
+
+Mac 与 Lima 先后进行：两平台准备完成后先测 Mac，此时 Lima 空闲；Mac 的完整验证与重复测试结束后再测 Lima，此时 Mac 不跑构建与测试。计时从未重叠。
+
+### 门槛验收
+
+| 门槛 | Mac | Lima |
+| --- | --- | --- |
+| `lua_runtime.hpp` 扰动的编译次数下降 | 33 → 16，5 组一致 | 33 → 16，5 组一致 |
+| 链接次数 | 53 → 54：多出的 1 次是本阶段新增的 `config_headers_test`，其余 53 个产物名单相同 | 同左 |
+| 普通配置头不带 sol2 | `config_headers_test` 编译通过（含 `SOL_HPP` / `SOL_FORWARD_HPP` 的 `#error` 守卫） | 同左 |
+| 完整验证 `./scripts/build.sh`（ALL＋完整 CTest `-j 1`） | 退出 0；`100% tests passed out of 653`（P2b 的 652 加本阶段的 `ConfigHeadersTest`，unit）。首轮有 1 例失败，见“异常与限制” | 退出 0；`100% tests passed, 0 tests failed out of 653`（CTest 293.27 s），`build jobs: 2` |
+| 指名测试重复 3 次 | 3 次都是 `100% tests passed out of 45` | 3 次都是 `100% tests passed, 0 tests failed out of 45` |
+| QUIC | `realm_network: QUIC transport enabled` | 同左 |
+
+指名测试为 `LuaRuntimeTest`、`ConfigsLoadSmokeTest`、`GatewayLoginConfigTest`、`LayeredConfigLoaderTest`、`LayeredConfigTest`、`GatewayConfigLoaderTest`（`gateway_server_test`）、`TrainingRuleTest`、`TrainingRuleFileTest`、`ConfigHeadersTest` 九组，共 45 个用例。
+
+### 重编名单
+
+两平台名单相同。前版本的 33 次里，下列 17 个源码在后版本不再重编：
+
+- 配置与服务实现：`player_data_config.cpp`、`login_verify_config.cpp`、`login_verify_service.cpp`、`queue_config.cpp`、`queue_service.cpp`、`realm_config.cpp`、`mesh_host.cpp`、`service_frame.cpp`；
+- 测试：`layered_config_loader_test`、`mesh_host_test`、`mesh_host_e2e_test`、`mode2_test`、`service_host_test`、`gateway_server_test`、`login_verify_service_test`、`queue_service_test`、`loadgen_integration_test`。
+
+后版本仍重编的 16 个分两类：
+
+| 类别 | 源码 | 说明 |
+| --- | --- | --- |
+| 真实直接 Lua 使用者（11） | `framework/scripting/src/lua_runtime.cpp` | 运行时本身 |
+| | `apps/mesh_host/main.cpp` | 拓扑装载直接驱动 LuaRuntime；装载下沉由 #127 处理 |
+| | `framework/service_host/src/layered_config_loader.cpp` | 合并装载器：MergedLayers 持有 runtime 与根表，调用各 `parse_*_config` |
+| | `game/gateway/src/gateway_config_loader.cpp` | `GatewayConfigLoader::load` 单文件装载 |
+| | `game/common/src/account_store.cpp` | `ConfigAccountStore::load` 读取 Lua 账号配置 |
+| | `game/common/src/player_data_store.cpp` | 首次导入实现读取 bootstrap 账号 Lua 文件 |
+| | `game/realm/src/training_rule.cpp` | 规则实现 |
+| | `lua_runtime_test`、`configs_load_smoke_test`、`gateway_login_config_test`、`training_rule_test` | 直接驱动 LuaRuntime 或解析入口的测试 |
+| 经 `training_rule.hpp` 间接引入（5） | `service_host.cpp`、`realm_sessions.cpp`、`wire_login_transport_integration_test`、`service_frame_realm_enter_test`、`realm_sessions_test` | 公共头 `training_rule.hpp` 仍包含 `lua_runtime.hpp`，由 #127 前置声明后应归零 |
+
+各模块的 `*_config_lua.cpp` 是 sol2 的直接使用者，但只包含 `<sol/sol.hpp>` 与解析入口头，不包含 `lua_runtime.hpp`，所以不在本探针的名单里；改 sol2 本身时它们会重编。
+
+### 筛查耗时（不判定）
+
+降幅为 `1 − 中位数(after) ÷ 中位数(before)`，只计 build 步。
+
+| 平台 | before 中位数 s（极差） | after 中位数 s（极差） | 降幅 | after 更快的组数 |
+| --- | ---: | ---: | ---: | ---: |
+| Mac（8 jobs） | 14.20（13.96–14.52） | 11.03（10.85–11.06） | 22.4% | 5/5 |
+| Lima（2 jobs） | 44.04（43.64–44.25） | 26.31（26.18–27.20） | 40.3% | 5/5 |
+
+逐组降幅（奇数组 before 先）：
+
+| 组 | Mac | Lima |
+| ---: | ---: | ---: |
+| 1 | 22.1% | 39.4% |
+| 2 | 21.6% | 40.4% |
+| 3 | 24.4% | 38.3% |
+| 4 | 22.3% | 40.8% |
+| 5 | 22.8% | 40.3% |
+
+- 两平台 5 组方向一致，各侧极差都在 5% 噪声带内。
+- 编译次数减半，降幅却差别很大：Lima 只有 2 路编译，少编 17 个源码几乎全数转成墙钟；Mac 8 路并行下，剩余的 16 次编译与 54 次链接决定了大部分时间。这只是推测，没有拆分关键路径。
+- R0 的同名探针是串行构建（Mac 72.71 s、Lima 73.79 s），与本节的并行条件不可比；P3 结束时按同条件配对判定。
+
+资源：进程树 RSS 峰值 Mac 为 2712 MiB（before）/ 1409 MiB（after），Lima 为 1989 / 1406 MiB；最低可用内存 Mac 约 17950 MiB，Lima 为 1449 MiB（before）/ 2044 MiB（after），都高于 1 GiB 门槛。两平台 swap 无增长，Lima 无 OOM。
+
+### 异常与限制
+
+- **Mac 首轮完整验证 1 例失败。** 第一次 `build.sh` 与 Lima 的不计时准备构建同时进行（Lima 虚拟机与 Mac 共用宿主 CPU），`LoadgenIntegrationTest.M3SmokeTenThousandTicketsAndConcurrentPolls` 的发票数 4991 低于下限 4995，属于吞吐阈值，与配置解析无关。在 Lima 空闲时重跑整套 `build.sh`，653 个用例全部通过（CTest 387.89 s）。上表记录的是重跑结果。
+- **realm 仍 PUBLIC 传播 sol2。** `realm_game_realm` 的公共头 `training_rule.hpp` 还包含 `lua_runtime.hpp`，`realm_service_host` 经它仍间接获得 sol2。因此 service_host 改 PRIVATE 对 `lua_runtime.hpp` 探针的效果要到 #127 才完全体现，本节不把那 5 个间接重编算作已解决。
+- **使用需求只写在注释里。** 解析入口“包含方须自行链接 RealmMesh::Scripting”写在头注释与 CMake 注释中，没有用 INTERFACE target 表达；现有两个跨目标使用方都已 PRIVATE 链接。
+- **链接扇出未变。** PRIVATE 不消除静态库的最终链接，`lua_runtime.hpp` 扰动仍触发 53 个原有产物重链，与决策文档的预期一致；链接等待由 P4 处理。
+- **重复链接告警。** `configs_load_smoke_test`、`gateway_login_config_test` 显式链接 `realm_scripting` 后，Apple ld 报 `ignoring duplicate libraries: librealm_scripting.a`，与既有的 `game_common` 同类告警一样无害。
+- **完整验证用的源码。** Mac 在开发仓库 `6d92abd` 上跑；Lima 在 after 副本 `0caeeb0` 上跑，两者产品代码相同，`6d92abd` 只改测量工具。
+- **CMake 3.20 未实跑**，两平台本机与 CI 的 CMake 都更高；本阶段没有用到新于 3.20 的 CMake 特性。
+
+### 资产
+
+- [`p3a-mac-samples.json`](assets/build-optimization-results/p3a-mac-samples.json)、[`p3a-lima-samples.json`](assets/build-optimization-results/p3a-lima-samples.json)：内容包括：
+  - `pairs`：逐组配对、降幅与每组的编译 / 链接次数；
+  - `groups`：before、after 两组 `measure.py export` 结果，含每次调用的 `environment`、逐样本（含预热与复位）的 build 墙钟、编译与链接次数、编译源码与链接产物名单、内存摘要与汇总。
+  - 本机路径都替换为 `<bench>`；原始日志与时间线没有提交。
+- 复现：两侧按上表提交各做一份源码副本并链接 `.tools`，准备一次 `--scenario fetch`，以复用依赖的配置做一次 ALL 构建。然后每侧以 `--scenario probes --probe lua-hpp --comment-samples 0 --samples 0` 预热 1 次，再按奇偶顺序交替调用 `--samples 1 --sample-start N --no-warmup`。Mac 加 `--jobs 8`，Lima 加 `--jobs 2 --env TMPDIR=<磁盘目录>`（见 [tools/build-bench](../../tools/build-bench/README.md)）。

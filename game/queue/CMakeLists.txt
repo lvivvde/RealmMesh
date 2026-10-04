@@ -1,5 +1,5 @@
 add_library(realm_queue_service
-    src/queue_config.cpp
+    src/queue_config_lua.cpp
     src/queue_core.cpp
     src/queue_handler.cpp
     src/queue_service.cpp
@@ -20,10 +20,13 @@ target_link_libraries(realm_queue_service PUBLIC
     realm_game_common
     realm_network
     realm_observability
+)
+# etcd v3 应答解析只在 queue_store 实现(.cpp),Lua 只用在配置解析实现:
+# 私有依赖。包含 queue_config_lua.hpp 的目标自行链接 realm_scripting(#126)。
+target_link_libraries(realm_queue_service PRIVATE
+    nlohmann_json::nlohmann_json
     realm_scripting
 )
-# etcd v3 应答解析只在 queue_store 实现(.cpp):私有依赖。
-target_link_libraries(realm_queue_service PRIVATE nlohmann_json::nlohmann_json)
 
 target_compile_features(realm_queue_service PUBLIC cxx_std_20)
 set_target_properties(realm_queue_service PROPERTIES

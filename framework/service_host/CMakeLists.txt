@@ -22,8 +22,10 @@ target_link_libraries(realm_service_host PUBLIC
     realm_queue_service
     realm_game_realm
     realm_observability
-    realm_scripting
 )
+# Lua 合并脚本与各模块 *_config_lua.hpp 解析入口只用在
+# layered_config_loader.cpp;公共头只带配置值(#126)。
+target_link_libraries(realm_service_host PRIVATE realm_scripting)
 
 target_compile_features(realm_service_host PUBLIC cxx_std_20)
 set_target_properties(realm_service_host PROPERTIES CXX_EXTENSIONS OFF)

@@ -8,6 +8,7 @@ add_library(realm_game_common
     src/identity_token.cpp
     src/json.cpp
     src/player_data_config.cpp
+    src/player_data_config_lua.cpp
     src/player_data_store.cpp
     src/queue_number_v2.cpp
     src/realm_protocol.cpp
@@ -26,7 +27,9 @@ target_link_libraries(realm_game_common PUBLIC
     RealmMesh::Protocol
     Sodium::Sodium
 )
-# Lua 装载与 MongoDB 驱动都只存在于实现(.cpp),不进公共头:私有依赖。
+# Lua 与 MongoDB 驱动只用在实现(.cpp):私有依赖。公共头里唯一碰 sol2 的
+# 是 Lua 解析入口 player_data_config_lua.hpp(#126),包含它的目标须自行
+# 链接 RealmMesh::Scripting;普通配置头不传递 sol2。
 target_link_libraries(realm_game_common PRIVATE
     RealmMesh::Scripting
     Mongo::cxx
