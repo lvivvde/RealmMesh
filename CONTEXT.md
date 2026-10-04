@@ -173,7 +173,7 @@ _Avoid_: realm login(兑换是凭据消费,不是再登录一次)、handoff(hand
 ### Testing
 
 **Unit Test**:
-进程内验证单个组件行为的 GTest 用例:不拉子进程、不占固定端口,CTest 标签 `unit`,构成快速子集(`ctest -L unit`)。
+进程内验证单个组件行为的 GTest 用例:不拉子进程、不占固定端口,CTest 标签 `unit`,构成快速子集(`./scripts/test-fast.sh`,手工筛选 `ctest -L '^unit$'`)。
 _Avoid_: 快速子集(那是运行时选择的名字,不是测试类别)
 
 **Integration Test**:

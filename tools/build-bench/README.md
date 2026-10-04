@@ -12,7 +12,7 @@
 
 ## 场景
 
-`--scenario` 可重复，`all` 按下表顺序全跑。短场景（`unit-entry`、`cpp-entry`、`probes`）先跑 1 次预热（阶段名带 `-warmup`，`summarize` 不计入），再跑 `--samples` 次（默认 5）；长场景（`cold-entry`、`hot-full`）跑 `--long-samples` 次（默认 3）。一个阶段里的多条命令整体计时，`steps` 另记每步墙钟；总耗时不由各步中位数相加。
+`--scenario` 可重复，`all` 按下表顺序全跑。短场景（`unit-entry`、`cpp-entry`、`fast-entry`、`fast-cpp-entry`、`probes`）先跑 1 次预热（阶段名带 `-warmup`，`summarize` 不计入），再跑 `--samples` 次（默认 5）；长场景（`cold-entry`、`hot-full`）跑 `--long-samples` 次（默认 3）。一个阶段里的多条命令整体计时，`steps` 另记每步墙钟；总耗时不由各步中位数相加。
 
 | 场景 | 阶段名 | 步骤 | 内容 |
 | --- | --- | --- | --- |
@@ -22,9 +22,11 @@
 | `hot-full` | `hot-full-N` | configure、build、test | 热完整验证：标准配置 + 稳定无操作 ALL 构建 + 完整 CTest |
 | `unit-entry` | `unit-entry-N` | configure、build、test | 默认 Unit、无改动：标准配置 + ALL 构建 + `ctest -L unit` |
 | `cpp-entry` | `cpp-entry-N`、`cpp-entry-reset-N` | configure、build、test | 默认 Unit、代表 `.cpp` 真实改动：`lua_runtime.cpp` 写入 token 变体后同 `unit-entry`；每个样本后恢复原始字节，以同样的入口回到稳定状态 |
+| `fast-entry` | `fast-entry-N`；`fast-entry-setup-…` | test-fast | P2b（#125）的快速入口、无改动：`scripts/test-fast.sh --preset P`（配置 + Unit 聚合目标 + Unit 4 路）一步整体计时。编译并行缺省由脚本按预算决定，`--jobs` 显式传给它。脚本自报的 configure/build/test 分段记在 `fast_times`，实际编译并行记在 `build_jobs`。每次调用先以标准配置（launcher、复用依赖）写好缓存，记为预热组的 setup 阶段，不计入统计 |
+| `fast-cpp-entry` | `fast-cpp-entry-N`、`fast-cpp-entry-reset-N` | test-fast | 同 `cpp-entry` 的 token 变体与 reset，入口换成 `test-fast.sh` |
 | `probes` | `probe-<探针>-N`、`probe-<探针>-comment-N`，及对应的 `…-reset-N` | build | 每个探针先 token 变体（主指标），再注释变体 `--comment-samples` 次（默认 3，历史对照）；每个样本后恢复原始字节并构建回稳定状态；`--probe` 可限定 |
 
-CTest 始终串行（测试并行 1）。
+`unit-entry`、`cpp-entry`、`hot-full`、`cold-entry` 的 CTest 串行（测试并行 1）；`fast-*` 场景的测试并行由 `test-fast.sh` 决定（默认 4）。
 
 探针：`lua-cpp`（`lua_runtime.cpp`）、`lua-hpp`（`lua_runtime.hpp`，Lua 重头内部变化）、`gateway-hpp`（`gateway_runtime.hpp`）、`player-data-hpp`（`player_data_store.hpp`）、`proto`（`envelope.proto`）、`private-hpp`（`game/common/src/envelope_codec.hpp`，私有头）。变体都追加在文件末尾、由原始字节派生，第 N 次与其他次内容不同：
 
@@ -56,7 +58,8 @@ python3 tools/build-bench/measure.py export --out "$out/result" --dest docs/rese
 
 - `--cmake-arg=-D...`：每次配置都附加的平台适配参数。R0 在 macOS 上需要 `-DOPENSSL_INCLUDE_DIR=/opt/homebrew/opt/openssl@3/include`；P1（#121）起默认即选 Homebrew `openssl@3` 专用前缀，不再需要。
 - `--env NAME=VALUE`：测量进程的附加环境，例如 Lima 把 `TMPDIR` 指到磁盘目录。
-- `--jobs N`：传给 `cmake --build --parallel`；缺省串行（R0 条件）。
+- `--jobs N`：传给 `cmake --build --parallel`；缺省串行（R0 条件）。`fast-*` 场景传给 `test-fast.sh --jobs`，缺省用脚本的预算。
+- `--samples N --sample-start S --no-warmup`：配对交替测量时，每次调用只跑一个样本，序号接续。例如前后各先用 `--samples 0` 预热，再按组交替调用 `--samples 1 --sample-start <组号> --no-warmup`。前后两侧用各自的源码副本与 `--out`。
 - `--preset`、`--build-dir`：改预设与构建目录后用。
 - `--cache-mode`：只做记录，如 `ccache-AUTO-hot`。
 

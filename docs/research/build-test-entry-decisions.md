@@ -1,6 +1,6 @@
 # 日常反馈与完整验证：构建测试入口决策
 
-关联[确定日常反馈与完整验证的构建测试入口](https://github.com/lvivvde/RealmMesh/issues/114)。用户已通过 Q1–Q5 选择入口、范围、配置、完整验证触发条件与并行度，并最终确认完整方案及正式记录。本文件是实施约定，尚未新增或修改入口脚本。
+关联[确定日常反馈与完整验证的构建测试入口](https://github.com/lvivvde/RealmMesh/issues/114)。用户已通过 Q1–Q5 选择入口、范围、配置、完整验证触发条件与并行度，并最终确认完整方案及正式记录。本文件是实施约定；[#125](https://github.com/lvivvde/RealmMesh/issues/125)（P2b）已按此落地，实际选择与失败行为见文末[实施记录](#实施记录125)。
 
 ## 入口与使用场景
 
@@ -64,6 +64,68 @@ Watch 复用快速入口的配置、选择和退出约定。关注 framework、g
 4. Watch 三种模式覆盖删除、移动、首轮与构建期间变更，不重叠、不漏跑，--once 和直接快速入口选择一致。
 5. 本地完整 CTest、双平台 CI、Linux QUIC/M1–M4 的覆盖保持；历史 Linux 基线失败独立处理，记录修复后结果。
 6. 文档随代码更新 tests/README、入口帮助与相关开发说明。只新增一个快速入口，注册信息统一维护，watch 复用；不创建手写目标表、自动变更测试映射或配置缓存判断器。
+
+## 实施记录（#125）
+
+以下是 P2b 的实际选择；上文约定未改动的部分不再重复。耗时与工作量见[构建优化结果的 P2b 节](build-optimization-results.md#p2b快速入口与并行预算125)。
+
+### 注册与身份
+
+- Unit 聚合目标名为 `realmmesh_unit_tests`，由 `tests/cmake/test_helpers.cmake` 在注册时追加依赖：GTest 目标本身；Lua 套件为 `realm_lua_cli`，多个套件只登记一次。原有 LIBS、DEPENDS 与 TLS 身份生成依赖不变。
+- 每次注册的分类标签必须恰好是 `unit`、`integration` 之一，否则配置失败；Lua 的 `lua` 筛选标签保留。
+- 精确身份标签为 `target=<构建目标>`，Lua 套件为 `target=realm_lua_cli`。CMake 3.20 的 `gtest_discover_tests` 会把 PROPERTIES 里的列表值拆平，所以标签不经它传递，而是由注册时生成的 `<目标>_realmmesh_labels.cmake` 追加到目录的 `TEST_INCLUDE_FILES`，对 `<目标>_TESTS` 整体设置 `LABELS`。二进制尚未构建时只有占位用例 `<目标>_NOT_BUILT`，它也带同样的标签，在所选范围内表现为失败，不会悄悄缺席。
+- 根 CMakeLists 在全部测试目录之后写出登记清单 `<构建目录>/realmmesh-unit-targets.txt`，每行 `<目标>=<产物路径>`（生成期求值）。`--target` 按字面查这份清单，不当正则。`BUILD_TESTING=OFF` 时删除清单。
+
+### 选择与并行
+
+| 入口 | 构建 | CTest 选择 | CTest 并行 |
+| --- | --- | --- | --- |
+| `test-fast.sh` | `--target realmmesh_unit_tests` | `-L '^unit$'` | `--test-jobs`，默认 4 |
+| `test-fast.sh --target T` | `--target T` | `-L '^target=<转义后的 T>$' -LE '^integration$'` | 同上 |
+| 上述追加 `--test-regex R` | 不变 | 另加 `-R R`，只收窄 | 同上 |
+| `build.sh`、CI | ALL | 全部 | 显式 `-j 1` |
+
+- 标签筛选是子串匹配的正则，所以一律加锚点，例如 `beta.x_test` 不会选中 `betaxx_test`。
+- 快速入口始终带 `--no-tests=error` 与显式 `-j`，不继承 `CTEST_PARALLEL_LEVEL`，也不透传其他 CTest 参数。
+- 编译 jobs 由 `scripts/lib/build-jobs.sh` 按[工具决策](build-tool-cache-decisions.md)的预算公式计算，`build.sh`、`test-fast.sh`、`test-watch.sh`（原样转给快速入口）与两份登录链验收脚本共用。
+  - 逻辑 CPU 数在 Linux 上与 cgroup v2 `cpu.max` 配额取小；内存取 `/proc/meminfo` 与 cgroup 内存限额中的较小值。读不到就按 1 路。
+  - 每次运行打印一行 `build jobs: N (from <来源>; budget …)`。开发 Mac（15 CPU、48 GiB）得 8，Lima（8 CPU、7.73 GiB）得 2。
+  - CI 不跑脚本，在 workflow 里显式 `--parallel 2`。
+- libsodium 的 ExternalProject 构建与安装命令固定 `make -j1`，并用 `cmake -E env --unset=MAKEFLAGS --unset=MFLAGS --unset=MAKELEVEL` 断开顶层 Make 的 jobserver，顶层 jobs 不乘进外部构建。
+- 生成器仍是 Unix Makefiles（`dev`、`dev-make` 两个预设）。链接池随 P4 的 Ninja 实施，这里不做。
+
+### 退出码与失败行为
+
+| 情况 | `test-fast.sh` | 结论行 |
+| --- | --- | --- |
+| 所选用例全部通过 | 0 | `PASSED: …` |
+| 通过但有跳过 | 0 | `passed with skips: …; the skipped tests were not verified.` |
+| 配置失败、构建失败、构建后缺二进制、无登记清单 | 1 | `FAILED: …`；构建失败与缺二进制都不运行任何测试 |
+| 用例失败、所选范围内没有用例 | 2 | `FAILED: …` |
+| 用法错误；`--target` 不是已登记的 Unit 目标；`--test-regex` 为空 | 64 | 打印用法或已登记目标 |
+
+- 每次结束打印 `test-fast: time configure Xs, build Ys, test Zs, total Ts (exit C)`。未到达的阶段记为 `-`。
+- `build.sh` 与登录链验收脚本的用法错误（包括非法 `--jobs`）仍返回 2，沿用原有约定。
+
+### Watch
+
+- `test-watch.sh` 每轮调用 `test-fast.sh`，参数原样转交；`--once` 返回该轮的退出码。循环模式下失败只报告，用法错误（64）直接退出。
+- 是否有变更以文件快照判定：路径、修改时间、大小，另加“比本轮开始时间戳新”的文件。所以新增、删除、移动都能识别，同一秒内的再次保存也不会漏。
+- 每轮开始前记快照，轮次结束后比较，所以第一轮和配置、构建、测试期间保存的变更都会再触发一轮。轮次在前台顺序执行，不会重叠。
+- fswatch、inotifywait 只负责尽快唤醒，另有定时复查兜底它们启动前后的空档；没有这两个工具时轮询。
+- 排除 `.git`、`__pycache__`、落在监听范围内的构建目录与常见编辑器临时文件。
+- SIGINT 或 SIGTERM 打印 `test-watch stopped.` 后以 0 退出。
+
+### 验证
+
+`tests/scripts/test_fast_test.sh`（CTest `TestFastScriptTest.FastEntryWatchAndJobsBudget`，integration）在临时小工程里驱动真实的预设、注册帮助函数与脚本。它覆盖：
+
+- 预算公式各分支，以及 `--jobs`、`CMAKE_BUILD_PARALLEL_LEVEL` 的优先级与非法值；
+- 首次未配置即可运行，标签是一个列表值，登记清单正确，新 Unit 目标自动进入聚合；
+- 转义后的精确筛选，Lua 聚焦，非 Unit 或未知目标被拒，空选择失败；
+- 用例失败、构建失败、缺二进制与跳过时的退出码，以及构建失败时不运行 CTest；
+- `build.sh` 的串行 CTest，用户预设；
+- watch 的 `--once`，以及首轮期间、修改、新增、移动、删除各触发一轮。编辑器临时文件不触发，轮次不重叠，SIGTERM 正常退出。轮询模式必测，本机装有 fswatch 或 inotifywait 时同样再跑一遍。
 
 ## 调查范围
 
