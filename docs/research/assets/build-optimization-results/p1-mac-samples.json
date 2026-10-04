@@ -1,0 +1,676 @@
+{
+ "platform": "P1 Mac",
+ "environment": [
+  {
+   "recorded_at": "2026-10-03T21:41:10+0800",
+   "label": "P1 Mac",
+   "commit": "fd4fa7721513104b6f75d0f0dc16858d19e63710",
+   "scenarios": [
+    "cold-entry",
+    "repro"
+   ],
+   "platform": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+   "machine": "arm64",
+   "logical_cpus": 15,
+   "memory_total_gib": 48.0,
+   "memory_limit": {
+    "cgroup": null,
+    "cgroup_memory_max_gib": null
+   },
+   "tool_sha256": {
+    "measure.py": "c272f92a723c37a872bacc7729359026d8e8bf715adac76fbd0759e5fbee67b5",
+    "launcher.cpp": "1374833a6c5e20d9d72f04055694ba4930c2066bc2147aa85116bf96d8f4034b",
+    "launcher": "7c015b5f447843c8e235a9dcbae6cdbd76f9416f3cb31cef7499bb45b60e4cc7"
+   },
+   "sodium": {
+    "url": "https://github.com/jedisct1/libsodium/releases/download/1.0.22-RELEASE/libsodium-1.0.22.tar.gz",
+    "sha256": "adbdd8f16149e81ac6078a03aca6fc03b592b89ef7b5ed83841c086191be3349"
+   },
+   "samples": {
+    "short": 5,
+    "short_warmup": 1,
+    "long": 1,
+    "comment_probe": 3
+   },
+   "jobs": 8,
+   "cache_mode": "none",
+   "quic_transport_enabled": true,
+   "preset": "dev",
+   "build_dir": "<bench>/source/build/dev",
+   "deps_dir": "<bench>/result/deps-src",
+   "cmake_args": [],
+   "env_overrides": [],
+   "tools": {
+    "cmake": "cmake version 4.4.3",
+    "ctest": "ctest version 4.4.3",
+    "make": "GNU Make 3.81",
+    "ninja": null,
+    "ccache": null,
+    "python": "3.13.15",
+    "cxx": "Apple clang version 21.0.0 (clang-2100.3.34.2)"
+   },
+   "cmake_cache": {
+    "CMAKE_BUILD_TYPE": "Debug",
+    "CMAKE_CXX_COMPILER": "/usr/bin/c++",
+    "CMAKE_CXX_COMPILER_LAUNCHER": "<bench>/launcher",
+    "CMAKE_C_COMPILER": "/usr/bin/cc",
+    "MSQUIC_LIBRARY": "/opt/homebrew/opt/libmsquic/lib/libmsquic.dylib",
+    "OPENSSL_INCLUDE_DIR": "/opt/homebrew/opt/openssl@3/include",
+    "REALMMESH_PROTOC_EXECUTABLE": "",
+    "CMAKE_GENERATOR": "Unix Makefiles"
+   }
+  }
+ ],
+ "samples": [
+  {
+   "name": "cold-entry-1",
+   "warmup": false,
+   "wall_s": 427.76442116699764,
+   "exit": 0,
+   "loadavg_start": [
+    3.25537109375,
+    3.8017578125,
+    4.0078125
+   ],
+   "loadavg_end": [
+    1.619140625,
+    3.04833984375,
+    3.7021484375
+   ],
+   "compile_count": 771,
+   "dependency_compile_count": 598,
+   "project_compile_count": 173,
+   "link_count": 74,
+   "compile_wall_sum_s": 301.176093403,
+   "link_wall_sum_s": 4.796161751,
+   "max_compile_rss_kib": 586640,
+   "max_link_rss_kib": 268896,
+   "failed_tool_calls": 0,
+   "memory": {
+    "samples": 411,
+    "max_tree_rss_mib": 2685.65625,
+    "min_available_mib": 20455.21875,
+    "swap_used_start_mib": 3.75,
+    "swap_used_max_mib": 3.75,
+    "swap_growth_mib": 0.0,
+    "max_pressure_level": 1,
+    "oom_kills": null
+   },
+   "steps": [
+    {
+     "label": "prepare",
+     "wall_s": 0.010083125001983717,
+     "exit": 0
+    },
+    {
+     "label": "configure",
+     "wall_s": 5.828225040997495,
+     "exit": 0
+    },
+    {
+     "label": "build",
+     "wall_s": 54.38125750000472,
+     "exit": 0
+    },
+    {
+     "label": "test",
+     "wall_s": 367.5432603329973,
+     "exit": 0
+    }
+   ],
+   "static_library_count": 116,
+   "tests_total": 650,
+   "tests_failed": 0,
+   "failed_tests": [],
+   "ctest_real_s": 367.53
+  },
+  {
+   "name": "repro-configure-1",
+   "warmup": false,
+   "wall_s": 1.4924926670064451,
+   "exit": 0,
+   "loadavg_start": [
+    1.619140625,
+    3.04833984375,
+    3.7021484375
+   ],
+   "loadavg_end": [
+    1.619140625,
+    3.04833984375,
+    3.7021484375
+   ],
+   "compile_count": 0,
+   "dependency_compile_count": 0,
+   "project_compile_count": 0,
+   "link_count": 0,
+   "compile_wall_sum_s": 0,
+   "link_wall_sum_s": 0,
+   "max_compile_rss_kib": 0,
+   "max_link_rss_kib": 0,
+   "failed_tool_calls": 0,
+   "memory": {
+    "samples": 3,
+    "max_tree_rss_mib": 92.6875,
+    "min_available_mib": 21831.484375,
+    "swap_used_start_mib": 3.75,
+    "swap_used_max_mib": 3.75,
+    "swap_growth_mib": 0.0,
+    "max_pressure_level": 1,
+    "oom_kills": null
+   },
+   "generated_version_headers": 7,
+   "generated_version_headers_changed": [],
+   "steps": [
+    {
+     "label": "configure",
+     "wall_s": 1.4906199580000248,
+     "exit": 0
+    }
+   ],
+   "static_library_count": 0,
+   "compiled_sources": [],
+   "linked_outputs": []
+  },
+  {
+   "name": "repro-build-1",
+   "warmup": false,
+   "wall_s": 2.519769542006543,
+   "exit": 0,
+   "loadavg_start": [
+    1.619140625,
+    3.04833984375,
+    3.7021484375
+   ],
+   "loadavg_end": [
+    1.619140625,
+    3.04833984375,
+    3.7021484375
+   ],
+   "compile_count": 0,
+   "dependency_compile_count": 0,
+   "project_compile_count": 0,
+   "link_count": 0,
+   "compile_wall_sum_s": 0,
+   "link_wall_sum_s": 0,
+   "max_compile_rss_kib": 0,
+   "max_link_rss_kib": 0,
+   "failed_tool_calls": 0,
+   "memory": {
+    "samples": 4,
+    "max_tree_rss_mib": 165.765625,
+    "min_available_mib": 21523.96875,
+    "swap_used_start_mib": 3.75,
+    "swap_used_max_mib": 3.75,
+    "swap_growth_mib": 0.0,
+    "max_pressure_level": 1,
+    "oom_kills": null
+   },
+   "generated_version_headers": 7,
+   "generated_version_headers_changed": [],
+   "steps": [
+    {
+     "label": "build",
+     "wall_s": 2.518039917005808,
+     "exit": 0
+    }
+   ],
+   "static_library_count": 0,
+   "compiled_sources": [],
+   "linked_outputs": []
+  },
+  {
+   "name": "repro-configure-2",
+   "warmup": false,
+   "wall_s": 1.4417440840043128,
+   "exit": 0,
+   "loadavg_start": [
+    1.619140625,
+    3.04833984375,
+    3.7021484375
+   ],
+   "loadavg_end": [
+    2.1298828125,
+    3.13037109375,
+    3.72705078125
+   ],
+   "compile_count": 0,
+   "dependency_compile_count": 0,
+   "project_compile_count": 0,
+   "link_count": 0,
+   "compile_wall_sum_s": 0,
+   "link_wall_sum_s": 0,
+   "max_compile_rss_kib": 0,
+   "max_link_rss_kib": 0,
+   "failed_tool_calls": 0,
+   "memory": {
+    "samples": 3,
+    "max_tree_rss_mib": 93.0,
+    "min_available_mib": 21703.75,
+    "swap_used_start_mib": 3.75,
+    "swap_used_max_mib": 3.75,
+    "swap_growth_mib": 0.0,
+    "max_pressure_level": 1,
+    "oom_kills": null
+   },
+   "generated_version_headers": 7,
+   "generated_version_headers_changed": [],
+   "steps": [
+    {
+     "label": "configure",
+     "wall_s": 1.4401970000035362,
+     "exit": 0
+    }
+   ],
+   "static_library_count": 0,
+   "compiled_sources": [],
+   "linked_outputs": []
+  },
+  {
+   "name": "repro-build-2",
+   "warmup": false,
+   "wall_s": 2.596736999999848,
+   "exit": 0,
+   "loadavg_start": [
+    2.1298828125,
+    3.13037109375,
+    3.72705078125
+   ],
+   "loadavg_end": [
+    2.1298828125,
+    3.13037109375,
+    3.72705078125
+   ],
+   "compile_count": 0,
+   "dependency_compile_count": 0,
+   "project_compile_count": 0,
+   "link_count": 0,
+   "compile_wall_sum_s": 0,
+   "link_wall_sum_s": 0,
+   "max_compile_rss_kib": 0,
+   "max_link_rss_kib": 0,
+   "failed_tool_calls": 0,
+   "memory": {
+    "samples": 4,
+    "max_tree_rss_mib": 193.6875,
+    "min_available_mib": 21611.90625,
+    "swap_used_start_mib": 3.75,
+    "swap_used_max_mib": 3.75,
+    "swap_growth_mib": 0.0,
+    "max_pressure_level": 1,
+    "oom_kills": null
+   },
+   "generated_version_headers": 7,
+   "generated_version_headers_changed": [],
+   "steps": [
+    {
+     "label": "build",
+     "wall_s": 2.595035292004468,
+     "exit": 0
+    }
+   ],
+   "static_library_count": 0,
+   "compiled_sources": [],
+   "linked_outputs": []
+  },
+  {
+   "name": "repro-configure-3",
+   "warmup": false,
+   "wall_s": 1.4775771669956157,
+   "exit": 0,
+   "loadavg_start": [
+    2.1298828125,
+    3.13037109375,
+    3.72705078125
+   ],
+   "loadavg_end": [
+    2.19921875,
+    3.1279296875,
+    3.72265625
+   ],
+   "compile_count": 0,
+   "dependency_compile_count": 0,
+   "project_compile_count": 0,
+   "link_count": 0,
+   "compile_wall_sum_s": 0,
+   "link_wall_sum_s": 0,
+   "max_compile_rss_kib": 0,
+   "max_link_rss_kib": 0,
+   "failed_tool_calls": 0,
+   "memory": {
+    "samples": 3,
+    "max_tree_rss_mib": 92.8125,
+    "min_available_mib": 21853.5625,
+    "swap_used_start_mib": 3.75,
+    "swap_used_max_mib": 3.75,
+    "swap_growth_mib": 0.0,
+    "max_pressure_level": 1,
+    "oom_kills": null
+   },
+   "generated_version_headers": 7,
+   "generated_version_headers_changed": [],
+   "steps": [
+    {
+     "label": "configure",
+     "wall_s": 1.4757598750002217,
+     "exit": 0
+    }
+   ],
+   "static_library_count": 0,
+   "compiled_sources": [],
+   "linked_outputs": []
+  },
+  {
+   "name": "repro-build-3",
+   "warmup": false,
+   "wall_s": 2.4742797079961747,
+   "exit": 0,
+   "loadavg_start": [
+    2.19921875,
+    3.1279296875,
+    3.72265625
+   ],
+   "loadavg_end": [
+    2.19921875,
+    3.1279296875,
+    3.72265625
+   ],
+   "compile_count": 0,
+   "dependency_compile_count": 0,
+   "project_compile_count": 0,
+   "link_count": 0,
+   "compile_wall_sum_s": 0,
+   "link_wall_sum_s": 0,
+   "max_compile_rss_kib": 0,
+   "max_link_rss_kib": 0,
+   "failed_tool_calls": 0,
+   "memory": {
+    "samples": 4,
+    "max_tree_rss_mib": 194.65625,
+    "min_available_mib": 21575.4375,
+    "swap_used_start_mib": 3.75,
+    "swap_used_max_mib": 3.75,
+    "swap_growth_mib": 0.0,
+    "max_pressure_level": 1,
+    "oom_kills": null
+   },
+   "generated_version_headers": 7,
+   "generated_version_headers_changed": [],
+   "steps": [
+    {
+     "label": "build",
+     "wall_s": 2.4726817079936154,
+     "exit": 0
+    }
+   ],
+   "static_library_count": 0,
+   "compiled_sources": [],
+   "linked_outputs": []
+  }
+ ],
+ "summary": [
+  {
+   "group": "cold-entry",
+   "wall_s": {
+    "n": 1,
+    "median": 427.76442116699764,
+    "min": 427.76442116699764,
+    "max": 427.76442116699764,
+    "noise": null,
+    "values": [
+     427.76442116699764
+    ]
+   },
+   "compile_count": {
+    "n": 1,
+    "median": 771.0,
+    "min": 771.0,
+    "max": 771.0,
+    "noise": null,
+    "values": [
+     771.0
+    ]
+   },
+   "link_count": {
+    "n": 1,
+    "median": 74.0,
+    "min": 74.0,
+    "max": 74.0,
+    "noise": null,
+    "values": [
+     74.0
+    ]
+   },
+   "dependency_compile_count": {
+    "n": 1,
+    "median": 598.0,
+    "min": 598.0,
+    "max": 598.0,
+    "noise": null,
+    "values": [
+     598.0
+    ]
+   },
+   "failures": [],
+   "steps": [
+    {
+     "label": "prepare",
+     "wall_s": {
+      "n": 1,
+      "median": 0.010083125001983717,
+      "min": 0.010083125001983717,
+      "max": 0.010083125001983717,
+      "noise": null,
+      "values": [
+       0.010083125001983717
+      ]
+     }
+    },
+    {
+     "label": "configure",
+     "wall_s": {
+      "n": 1,
+      "median": 5.828225040997495,
+      "min": 5.828225040997495,
+      "max": 5.828225040997495,
+      "noise": null,
+      "values": [
+       5.828225040997495
+      ]
+     }
+    },
+    {
+     "label": "build",
+     "wall_s": {
+      "n": 1,
+      "median": 54.38125750000472,
+      "min": 54.38125750000472,
+      "max": 54.38125750000472,
+      "noise": null,
+      "values": [
+       54.38125750000472
+      ]
+     }
+    },
+    {
+     "label": "test",
+     "wall_s": {
+      "n": 1,
+      "median": 367.5432603329973,
+      "min": 367.5432603329973,
+      "max": 367.5432603329973,
+      "noise": null,
+      "values": [
+       367.5432603329973
+      ]
+     }
+    }
+   ],
+   "memory": {
+    "max_tree_rss_mib": 2685.65625,
+    "min_available_mib": 20455.21875,
+    "max_swap_growth_mib": 0,
+    "max_pressure_level": 1,
+    "oom_kills": 0
+   },
+   "tests": [
+    {
+     "name": "cold-entry-1",
+     "total": 650,
+     "failed": 0
+    }
+   ]
+  },
+  {
+   "group": "repro-configure",
+   "wall_s": {
+    "n": 3,
+    "median": 1.4775771669956157,
+    "min": 1.4417440840043128,
+    "max": 1.4924926670064451,
+    "noise": 0.05,
+    "values": [
+     1.4924926670064451,
+     1.4417440840043128,
+     1.4775771669956157
+    ]
+   },
+   "compile_count": {
+    "n": 3,
+    "median": 0.0,
+    "min": 0.0,
+    "max": 0.0,
+    "noise": 0.05,
+    "values": [
+     0.0,
+     0.0,
+     0.0
+    ]
+   },
+   "link_count": {
+    "n": 3,
+    "median": 0.0,
+    "min": 0.0,
+    "max": 0.0,
+    "noise": 0.05,
+    "values": [
+     0.0,
+     0.0,
+     0.0
+    ]
+   },
+   "dependency_compile_count": {
+    "n": 3,
+    "median": 0.0,
+    "min": 0.0,
+    "max": 0.0,
+    "noise": 0.05,
+    "values": [
+     0.0,
+     0.0,
+     0.0
+    ]
+   },
+   "failures": [],
+   "steps": [
+    {
+     "label": "configure",
+     "wall_s": {
+      "n": 3,
+      "median": 1.4757598750002217,
+      "min": 1.4401970000035362,
+      "max": 1.4906199580000248,
+      "noise": 0.05,
+      "values": [
+       1.4906199580000248,
+       1.4401970000035362,
+       1.4757598750002217
+      ]
+     }
+    }
+   ],
+   "memory": {
+    "max_tree_rss_mib": 93.0,
+    "min_available_mib": 21703.75,
+    "max_swap_growth_mib": 0,
+    "max_pressure_level": 1,
+    "oom_kills": 0
+   }
+  },
+  {
+   "group": "repro-build",
+   "wall_s": {
+    "n": 3,
+    "median": 2.519769542006543,
+    "min": 2.4742797079961747,
+    "max": 2.596736999999848,
+    "noise": 0.05,
+    "values": [
+     2.519769542006543,
+     2.596736999999848,
+     2.4742797079961747
+    ]
+   },
+   "compile_count": {
+    "n": 3,
+    "median": 0.0,
+    "min": 0.0,
+    "max": 0.0,
+    "noise": 0.05,
+    "values": [
+     0.0,
+     0.0,
+     0.0
+    ]
+   },
+   "link_count": {
+    "n": 3,
+    "median": 0.0,
+    "min": 0.0,
+    "max": 0.0,
+    "noise": 0.05,
+    "values": [
+     0.0,
+     0.0,
+     0.0
+    ]
+   },
+   "dependency_compile_count": {
+    "n": 3,
+    "median": 0.0,
+    "min": 0.0,
+    "max": 0.0,
+    "noise": 0.05,
+    "values": [
+     0.0,
+     0.0,
+     0.0
+    ]
+   },
+   "failures": [],
+   "steps": [
+    {
+     "label": "build",
+     "wall_s": {
+      "n": 3,
+      "median": 2.518039917005808,
+      "min": 2.4726817079936154,
+      "max": 2.595035292004468,
+      "noise": 0.05,
+      "values": [
+       2.518039917005808,
+       2.595035292004468,
+       2.4726817079936154
+      ]
+     }
+    }
+   ],
+   "memory": {
+    "max_tree_rss_mib": 194.65625,
+    "min_available_mib": 21523.96875,
+    "max_swap_growth_mib": 0,
+    "max_pressure_level": 1,
+    "oom_kills": 0
+   }
+  }
+ ]
+}

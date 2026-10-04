@@ -25,9 +25,10 @@ jobs:
       - name: Check out
         uses: actions/checkout@v5
 
-      # openssl@3 is keg-only on Homebrew, so CMake's find_package(OpenSSL)
-      # cannot see it without an explicit root; the CLI is put first on PATH
-      # because the TLS test identity is generated with `openssl req -addext`.
+      # openssl@3 is keg-only on Homebrew. cmake/RealmMeshOpenSSL.cmake would
+      # default to its prefix, but CI names the root explicitly (#121); the CLI
+      # is put first on PATH because the TLS test identity is generated with
+      # `openssl req -addext`.
       - name: Install dependencies
         run: |
           brew install openssl@3

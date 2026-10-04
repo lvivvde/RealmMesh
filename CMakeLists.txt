@@ -7,6 +7,11 @@ project(
     LANGUAGES C CXX
 )
 
+# OpenSSL is resolved once, before any dependency that looks for it, so every
+# consumer shares one validated installation (#121).
+include("${PROJECT_SOURCE_DIR}/cmake/RealmMeshOpenSSL.cmake")
+realmmesh_find_openssl()
+
 add_subdirectory(third_party/lua)
 add_subdirectory(third_party/sol2)
 add_subdirectory(third_party/sodium)
