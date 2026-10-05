@@ -1,6 +1,9 @@
 #pragma once
 
-#include "realmmesh/game/gateway/gateway_runtime.hpp"
+// 主传输边界只需事件与 runtime 指针(#128):GatewayRuntime 仅前置声明，
+// 完整定义留在生产适配器的实现文件。
+#include "realmmesh/game/gateway/edge_session_table.hpp"
+#include "realmmesh/game/gateway/gateway_event.hpp"
 
 #include <array>
 #include <cstddef>
@@ -10,6 +13,8 @@
 #include <vector>
 
 namespace realm::game::gateway {
+
+class GatewayRuntime;
 
 enum class PrimaryTransportResult : std::uint8_t {
     Queued,

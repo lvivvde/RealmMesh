@@ -1,4 +1,3 @@
-#include "realmmesh/game/gateway/gateway_runtime.hpp"
 #include "realmmesh/observability/logger.hpp"
 #include "realmmesh/scheduler/frame_scheduler.hpp"
 #include "realmmesh/service_host/mesh_host.hpp"
