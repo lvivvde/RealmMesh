@@ -270,7 +270,8 @@ CMake 会拒绝换生成器，删掉该目录后重新配置即可；想在本�
 Make 回退）。两者都继承隐藏的 `realmmesh-base`，后者把缓存变量 `REALMMESH_PRESET` 设为当前预设名；派生的
 用户预设继承 `dev` 时同样得到自己的名字。`dev` 要求 Ninja 1.11+（`ninja -t missingdeps` 的最低版本）：
 缺失或过旧时配置在 `project()` 之前停下，提示安装或显式改用 `--preset dev-make`，从不悄悄换生成器。
-Ninja 下链接进深度 1 的原生池，编译仍用满 `--jobs`；libsodium 照旧是单独的 `make -j1`。旧的 `build/dev`
+Ninja 下库与生产程序的链接进深度 1 的原生池，编译仍用满 `--jobs`；GTest 可执行文件不进池（链接边里带着用例
+发现，见[实施记录](docs/research/build-tool-cache-decisions.md#实施记录123)）；libsodium 照旧是单独的 `make -j1`。旧的 `build/dev`
 （`dev` 曾用 Make 时的目录）不会被删除、搬移或换生成器，确认不再需要后自行删除即可。
 
 配置时 `cmake/RealmMeshBuildDirInfo.cmake` 记下「预设 → 真实构建目录」：`build/.build-dirs/<预设>.txt`

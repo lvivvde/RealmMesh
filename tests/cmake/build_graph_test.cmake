@@ -7,6 +7,8 @@
 # - realmmesh_use_ninja_link_pool must put every link edge in a depth-1 pool,
 #   except targets released with realmmesh_link_outside_pool, so a throwaway C
 #   project is generated with the real Ninja and its build.ninja is inspected.
+#   Under a Ninja build the project's own build.ninja is checked too: libraries
+#   and realm_mesh in the pool, realm_add_gtest executables outside it.
 # - The libsodium install manifest check runs in script mode against fixture
 #   install trees.
 cmake_minimum_required(VERSION 3.20)
@@ -158,6 +160,46 @@ if(link_edge STREQUAL "" OR NOT position EQUAL -1)
     message(FATAL_ERROR "the link edge of pool_free must not be in a pool:\n${link_edge}")
 endif()
 message(STATUS "ok: pool_free links outside the pool")
+
+# --- the project's own build graph ---------------------------------------------
+# Returns the Ninja edge that follows the exact comment <header> (up to the next
+# comment line), or an empty string when the header is absent.
+function(edge_after build_ninja header out_edge)
+    string(FIND "${build_ninja}" "${header}\n" start)
+    if(start EQUAL -1)
+        set(${out_edge} "" PARENT_SCOPE)
+        return()
+    endif()
+    string(SUBSTRING "${build_ninja}" ${start} -1 rest)
+    string(LENGTH "${header}\n" header_length)
+    string(SUBSTRING "${rest}" ${header_length} -1 body)
+    string(FIND "${body}" "\n#" end)
+    string(SUBSTRING "${body}" 0 ${end} body)
+    set(${out_edge} "${body}" PARENT_SCOPE)
+endfunction()
+
+if(NOT REALM_MESH_TEST_GENERATOR MATCHES "^Ninja")
+    message(STATUS "skip: the project is built with ${REALM_MESH_TEST_GENERATOR}, which has no link pool")
+else()
+    file(READ "${REALM_MESH_TEST_BINARY_DIR}/build.ninja" project_ninja)
+    foreach(header
+            "# Link the static library framework/scripting/librealm_scripting.a"
+            "# Link the executable bin/realm_mesh")
+        edge_after("${project_ninja}" "${header}" link_edge)
+        string(FIND "${link_edge}" "pool = ${REALMMESH_NINJA_LINK_POOL}" position)
+        if(link_edge STREQUAL "" OR position EQUAL -1)
+            message(FATAL_ERROR "'${header}' is missing or not in pool ${REALMMESH_NINJA_LINK_POOL}")
+        endif()
+        message(STATUS "ok: ${header} (pooled)")
+    endforeach()
+    set(header "# Link the executable tests/cpp/framework/scripting/lua_runtime_test")
+    edge_after("${project_ninja}" "${header}" link_edge)
+    string(FIND "${link_edge}" "pool = " position)
+    if(link_edge STREQUAL "" OR NOT position EQUAL -1)
+        message(FATAL_ERROR "'${header}' is missing or in a pool; realm_add_gtest must link outside it")
+    endif()
+    message(STATUS "ok: ${header} (outside the pool)")
+endif()
 
 # --- libsodium install manifest ------------------------------------------------
 function(check_sodium_tree label tree out_error)

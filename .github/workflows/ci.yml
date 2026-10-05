@@ -19,9 +19,10 @@ concurrency:
 # same as ./scripts/build.sh. Only the edit-loop entry ./scripts/test-fast.sh
 # runs Unit tests in parallel.
 #
-# Generator (#123): the dev preset uses Ninja (>= 1.11, with its native depth-1
-# link pool); both jobs install it explicitly instead of relying on the runner
-# image. The dev-make preset stays the Make fallback for local use.
+# Generator (#123): the dev preset uses Ninja (>= 1.11; libraries and programs
+# link in a depth-1 pool, test executables outside it); both jobs install it
+# explicitly instead of relying on the runner image. The dev-make preset stays
+# the Make fallback for local use.
 env:
   REALMMESH_CI_PRESET: dev
   REALMMESH_CI_BUILD_JOBS: 2

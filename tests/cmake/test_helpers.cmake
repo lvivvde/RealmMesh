@@ -33,6 +33,8 @@
 # add_subdirectory 的默认值变化导致测试的相对路径语义漂移。
 
 include(GoogleTest)
+# realmmesh_link_outside_pool(#123)。
+include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/RealmMeshNinja.cmake")
 
 if(NOT TARGET realmmesh_unit_tests)
     add_custom_target(realmmesh_unit_tests)

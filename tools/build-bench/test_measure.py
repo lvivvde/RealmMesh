@@ -371,7 +371,6 @@ class ExportSampleTest(unittest.TestCase):
         self.assertNotIn('linked_outputs', got)
 
 
-
 class PresetBinaryDirTest(unittest.TestCase):
     """--build-dir 缺省按副本的预设文件解析 binaryDir（#123），不从预设名推导，也不需要先配置。"""
 
