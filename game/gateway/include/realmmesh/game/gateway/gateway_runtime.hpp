@@ -5,7 +5,7 @@
 #include "realmmesh/game/gateway/gateway_config.hpp"
 #include "realmmesh/game/gateway/gateway_event.hpp"
 #include "realmmesh/game/gateway/gateway_ingress.hpp"
-#include "realmmesh/network/transport/transport_config.hpp"
+#include "realmmesh/network/transport/message_transport.hpp"
 #include "realmmesh/observability/logger.hpp"
 
 #include <atomic>

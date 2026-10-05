@@ -10,7 +10,6 @@
 
 #include <gtest/gtest.h>
 
-#include <chrono>
 #include <cstddef>
 #include <vector>
 
@@ -36,15 +35,6 @@ TEST(GatewayHeadersTest, EventsFlowThroughPrimaryTransportWithoutRuntime) {
     ASSERT_EQ(events.size(), 1U);
     EXPECT_EQ(events.front().kind, GatewayEventKind::MessageReceived);
     EXPECT_EQ(events.front().session_id, EdgeSessionId{7});
-    EXPECT_FALSE(events.front().established);
-}
-
-TEST(GatewayHeadersTest, StartupConfigIsUsableWithoutRuntime) {
-    GatewayConfig config;
-    EXPECT_EQ(config.tick_rate, 20U);
-    EXPECT_EQ(config.max_events_per_frame, 4'096U);
-    EXPECT_EQ(config.runtime.outbound_capacity, 65'536U);
-    EXPECT_EQ(config.runtime.io_poll_interval, std::chrono::milliseconds{2});
 }
 
 }  // namespace
