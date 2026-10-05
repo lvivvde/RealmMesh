@@ -1,6 +1,6 @@
 # 公共接口头与内部实现：首批拆分决策
 
-关联[确定公共接口头、内部实现与模块依赖的拆分原则](https://github.com/lvivvde/RealmMesh/issues/113)。用户已通过 Q1–Q4 确认通用能力、调用迁移、先隔离间接传播及完整首批范围。本文件记录决策；配置类型一项已由 [#126](https://github.com/lvivvde/RealmMesh/issues/126)（P3a）落地，TrainingRule 与拓扑装载已由 [#127](https://github.com/lvivvde/RealmMesh/issues/127)（P3b）落地，见文末[实施记录（#126）](#实施记录126)与[实施记录（#127）](#实施记录127)；Gateway 一项由 #128 继续。
+关联[确定公共接口头、内部实现与模块依赖的拆分原则](https://github.com/lvivvde/RealmMesh/issues/113)。用户已通过 Q1–Q4 确认通用能力、调用迁移、先隔离间接传播及完整首批范围。本文件记录决策；配置类型一项已由 [#126](https://github.com/lvivvde/RealmMesh/issues/126)（P3a）落地，TrainingRule 与拓扑装载已由 [#127](https://github.com/lvivvde/RealmMesh/issues/127)（P3b）落地，GatewayRuntime 与 GatewayPrimaryTransport 两项已由 [#128](https://github.com/lvivvde/RealmMesh/issues/128)（P3c）落地，见文末[实施记录（#126）](#实施记录126)、[实施记录（#127）](#实施记录127)与[实施记录（#128）](#实施记录128)。
 
 已确认：保留通用 C++ ↔ Lua 绑定与任意函数调用能力，使用时显式选择绑定头；同步迁移仓库内 include 和调用位置，不保留旧入口兼容层，保持运行行为、Lua 扩展能力和线上协议。
 
@@ -96,3 +96,14 @@ P3b 按方案 A 落地 TrainingRule 与拓扑装载两项，上文约定与 #126
 - **拓扑装载。** `main.cpp` 中把 `main.config` 的 `services` 表转成 `ServiceSpec` 列表的代码原样移到 service_host，入口为 `startup_topology.hpp` 的自由函数 `load_topology(config_root)`，实现在 `startup_topology_lua.cpp`。声明与 `ServiceSpec` 同头，不另建头：它只用普通类型，消费者就是 `ServiceSpec` 的消费者。错误契约不变：加载或执行失败抛 `runtime_error`，表缺失、为空或条目格式错抛 `invalid_argument`，依赖关系仍由 `StartupTopology` 校验。`realm_mesh` 只拿列表与异常，不再包含 Lua 头，也不再链接 `realm_scripting`。新增 `load_topology_test`（unit）以临时 `main.config` 固定错误契约与缺省字段；随包 `configs/main.config` 的装载结果按测试归置约定放进 `configs_load_smoke_test`。
 - **CMake 使用需求。** `realm_game_realm` 对 `realm_scripting` 改为 PRIVATE；至此 gateway、login_verify、queue、realm、service_host 与 `realm_mesh` 都不再 PUBLIC 传播 sol2，只有直接驱动 Lua 的测试显式链接它。`realm_config_lua.hpp` 的包含方仍须自行链接 `RealmMesh::Scripting`，现有唯一跨目标使用方 service_host 已 PRIVATE 链接。
 - **守卫。** `config_headers_test` 增加 `training_rule.hpp`；`startup_topology.hpp` 经 `mesh_host.hpp` 已在守卫范围内。
+
+## 实施记录（#128）
+
+P3c 按上表 GatewayRuntime 与 GatewayPrimaryTransport 两行落地，只拆轻量头与收窄消费者包含，不做 runtime PIMPL。耗时与编译名单见[构建优化结果的 P3c 节](build-optimization-results.md#p3cgateway-轻量事件与启动配置头128)。
+
+- **事件头。** `GatewayEventKind` 与 `GatewayEvent` 移到 `gateway_event.hpp`，只依赖 `edge_session_table.hpp` 与 `message_transport.hpp`。二者是 runtime 与主传输边界共用的同一契约，同头；字段、缺省值与语义不变。
+- **启动配置头。** `GatewayRuntimeOptions` 与 `GatewayConfig` 移到 `gateway_config.hpp`，属于普通配置头：不碰 Lua，也不带 runtime 的私有队列、线程与锁布局。`gateway_config_loader.hpp`、`gateway_config_lua.hpp` 改含它，切断 `layered_config_loader.hpp` → `gateway_config_loader.hpp` → `gateway_runtime.hpp` 这条把 runtime 布局带进 `service_host.hpp`、`mesh_host.hpp` 及其消费者的传播链。`mesh_host.cpp` 只用 `GatewayConfig`，改含配置头；`apps/mesh_host/main.cpp` 原有的 runtime 包含未被使用，删除。
+- **主传输边界。** `gateway_primary_transport.hpp` 只包含事件头并前置声明 `GatewayRuntime`：生产适配器只存 `GatewayRuntime*`，内联构造只取地址。`gateway_runtime.hpp` 由 `gateway_primary_transport.cpp` 包含；构造真实 runtime 的 `gateway_primary_transport_test` 自行包含。登录管线与准入经它同样不带 runtime。
+- **runtime 头。** `gateway_runtime.hpp` 只留 `QueueResult`、`GatewayRuntimeStats` 与 `GatewayRuntime`，网络层只含 `message_transport.hpp`，去掉不再使用的 `player_data_store.hpp`、`service_discovery_config.hpp`、`gateway_login_config.hpp` 与 `<filesystem>`。剩余包含方都真实构造或驱动 runtime（`try_send`、`drain_events`、`running()`、`local_port()` 或持有 `optional<GatewayRuntime>`），属于“稳定接口变化仍重编真实消费者”。
+- **契约。** 未新增虚接口；`GatewayRuntime::stop()` 仍在 IO 线程 request_stop 后 join，ServiceHost 的回收与销毁顺序未改动。
+- **守卫。** `config_headers_test` 断言普通配置头（含 `gateway_config.hpp`、`gateway_config_loader.hpp`、`mesh_host.hpp`）拿不到完整的 `GatewayRuntime`；新增 `gateway_headers_test`（unit）对事件、启动配置、主传输、登录管线与准入头做同样断言，并经内存适配器走一遍事件。

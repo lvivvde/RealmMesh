@@ -1,8 +1,8 @@
 #pragma once
 
 // Lua 解析入口(#126):只供解析实现与分层装载器显式选择；包含方须自行
-// 链接 RealmMesh::Scripting。只用配置值的代码包含 gateway_runtime.hpp。
-#include "realmmesh/game/gateway/gateway_runtime.hpp"
+// 链接 RealmMesh::Scripting。只用配置值的代码包含 gateway_config.hpp。
+#include "realmmesh/game/gateway/gateway_config.hpp"
 
 #include <sol/forward.hpp>
 

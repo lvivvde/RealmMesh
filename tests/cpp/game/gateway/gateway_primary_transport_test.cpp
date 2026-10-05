@@ -1,5 +1,7 @@
 #include "realmmesh/game/gateway/gateway_primary_transport.hpp"
 
+#include "realmmesh/game/gateway/gateway_runtime.hpp"
+
 #include <gtest/gtest.h>
 
 #include <array>

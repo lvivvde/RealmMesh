@@ -2,7 +2,10 @@
 // 会用到的头，任何一个经传递 include 引入 sol2 都在编译期失败。Lua 解析
 // 入口是各模块的 *_config_lua.hpp,由解析实现、分层装载器与解析测试显式选择。
 // 训练规则头只前置声明 LuaRuntime(#127),同样受本守卫约束。
+// Gateway 启动配置单独成头(#128):配置值消费者也不经传递 include 拿到
+// GatewayRuntime 的完整定义(私有队列、线程与锁布局)。
 #include "realmmesh/game/common/player_data_config.hpp"
+#include "realmmesh/game/gateway/gateway_config.hpp"
 #include "realmmesh/game/gateway/gateway_config_loader.hpp"
 #include "realmmesh/game/login_verify/login_verify_config.hpp"
 #include "realmmesh/game/login_verify/login_verify_service.hpp"
@@ -22,13 +25,28 @@
 
 #include <filesystem>
 
+namespace realm::game::gateway {
+class GatewayRuntime;
+}  // namespace realm::game::gateway
+
 namespace realm::service_host {
 namespace {
+
+template <typename T>
+concept CompleteType = requires { sizeof(T); };
+
+static_assert(
+    !CompleteType<game::gateway::GatewayRuntime>,
+    "plain configuration headers must not include gateway_runtime.hpp");
 
 TEST(ConfigHeadersTest, ConfigValuesAreUsableWithoutLua) {
     LayeredConfigLoader::RealmServiceConfig realm;
     realm.realm.training_rule_file = "services/realm/training.lua";
     EXPECT_EQ(realm.realm.data_workers, 4U);
+
+    game::gateway::GatewayConfig gateway;
+    EXPECT_EQ(gateway.tick_rate, 20U);
+    EXPECT_EQ(gateway.runtime.inbound_capacity, 65'536U);
 
     LayeredConfigLoader::QueueServiceConfig queue;
     EXPECT_EQ(queue.queue.listen_port, 8444);

@@ -33,6 +33,12 @@ realm_add_gtest(gateway_primary_transport_test
     LIBS realm_gateway_service
 )
 
+# Gateway 轻量头不经传递 include 引入 gateway_runtime.hpp(#128):编译即断言。
+realm_add_gtest(gateway_headers_test
+    SOURCES gateway_headers_test.cpp
+    LIBS realm_gateway_service
+)
+
 realm_add_gtest(account_fetch_port_test
     SOURCES account_fetch_port_test.cpp
     LIBS realm_gateway_service
