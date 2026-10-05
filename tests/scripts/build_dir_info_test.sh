@@ -63,7 +63,8 @@ expect_success() {
 
 mkdir -p "${fixture}/cmake" "${fixture}/scripts/lib"
 cp "${source_root}/CMakePresets.json" "${fixture}/"
-cp "${source_root}/cmake/RealmMeshBuildDirInfo.cmake" "${fixture}/cmake/"
+cp "${source_root}/cmake/RealmMeshBuildDirInfo.cmake" \
+    "${source_root}/cmake/RealmMeshNinja.cmake" "${fixture}/cmake/"
 for script in build.sh build-dir.sh dev-services.sh \
     dev-all-in-one.sh lib/build-dir.sh lib/build-jobs.sh lib/dev-process.sh; do
     cp "${source_root}/scripts/${script}" "${fixture}/scripts/${script}"
@@ -72,9 +73,12 @@ done
 # 与根 CMakeLists.txt 同样的接入方式,其余换成一个最小目标。
 cat >"${fixture}/CMakeLists.txt" <<'EOF'
 cmake_minimum_required(VERSION 3.20)
+include("${CMAKE_SOURCE_DIR}/cmake/RealmMeshNinja.cmake")
+realmmesh_require_ninja()
 project(BuildDirInfoFixture LANGUAGES C)
 include("${PROJECT_SOURCE_DIR}/cmake/RealmMeshBuildDirInfo.cmake")
 realmmesh_write_build_dir_info()
+realmmesh_use_ninja_link_pool()
 add_library(fixture STATIC fixture.c)
 enable_testing()
 add_test(NAME FixtureUnit COMMAND "${CMAKE_COMMAND}" -E true)
@@ -83,7 +87,8 @@ EOF
 printf 'int fixture_value(void) { return 1; }\n' >"${fixture}/fixture.c"
 
 # 派生用户预设:dev-local 照 CMakeUserPresets.example.json 的形状继承 dev;
-# dev-shared 故意与 dev 共用 build/dev,用来验证身份冲突能被识别。
+# dev-shared 故意与 dev 共用 build/dev-ninja,用来验证身份冲突能被识别;
+# dev-no-ninja 指向不存在的 ninja,用来验证 Ninja 缺失时停在提示上(#123)。
 cat >"${fixture}/CMakeUserPresets.json" <<'EOF'
 {
   "version": 2,
@@ -96,7 +101,15 @@ cat >"${fixture}/CMakeUserPresets.json" <<'EOF'
     {
       "name": "dev-shared",
       "inherits": "dev",
-      "binaryDir": "${sourceDir}/build/dev"
+      "binaryDir": "${sourceDir}/build/dev-ninja"
+    },
+    {
+      "name": "dev-no-ninja",
+      "inherits": "dev",
+      "binaryDir": "${sourceDir}/build/dev-no-ninja",
+      "cacheVariables": {
+        "CMAKE_MAKE_PROGRAM": "${sourceDir}/missing/ninja"
+      }
     }
   ],
   "buildPresets": [
@@ -145,13 +158,27 @@ expect_contains "${last_output}" "manager stopped" "dev-services status"
 expect_success "build.sh --help" ./scripts/build.sh --help
 expect_contains "${last_output}" "--preset" "build.sh --help"
 
-# --- dev 与 dev-make:各自记录真实 binaryDir ---
+# --- Ninja 缺失:停在安装/显式 dev-make 的提示上，不悄悄换成 Make(#123) ---
+expect_failure "configure without ninja" "${cmake_bin}" --preset dev-no-ninja
+expect_contains "${last_output}" "--preset dev-make" "configure without ninja"
+[[ ! -e build/.build-dirs/dev-no-ninja.txt ]] ||
+    fail "a configure stopped for missing ninja must not record a build directory"
+if grep -q '^CMAKE_GENERATOR:INTERNAL=Unix Makefiles$' build/dev-no-ninja/CMakeCache.txt 2>/dev/null; then
+    fail "a missing ninja must not switch the generator to Make"
+fi
+
+# --- dev(Ninja)与 dev-make(Make):各自记录真实 binaryDir,旧 build/dev 原样保留 ---
+mkdir -p build/dev
+printf 'legacy\n' >build/dev/CMakeCache.txt
 expect_success "configure dev" "${cmake_bin}" --preset dev
-expect_contains "${last_output}" "realm_build_dir: preset dev -> ${fixture}/build/dev" \
+expect_contains "${last_output}" "realm_build_dir: preset dev -> ${fixture}/build/dev-ninja" \
     "configure dev"
+[[ "$(cat build/dev/CMakeCache.txt)" == "legacy" ]] ||
+    fail "configuring dev must leave the legacy build/dev untouched"
+expect_contains "$(cat build/dev-ninja/realmmesh-build-dir.txt)" "generator=Ninja" "dev identity"
 expect_success "configure dev-make" "${cmake_bin}" --preset dev-make
-[[ "$(./scripts/build-dir.sh)" == "${fixture}/build/dev" ]] ||
-    fail "default preset must resolve to build/dev"
+[[ "$(./scripts/build-dir.sh)" == "${fixture}/build/dev-ninja" ]] ||
+    fail "default preset must resolve to build/dev-ninja"
 [[ "$(./scripts/build-dir.sh --preset dev-make)" == "${fixture}/build/dev-make" ]] ||
     fail "dev-make must resolve to build/dev-make"
 [[ "$(./scripts/build-dir.sh --preset=dev-make)" == "${fixture}/build/dev-make" ]] ||

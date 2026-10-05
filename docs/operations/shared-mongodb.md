@@ -53,7 +53,7 @@ SSH 的用户级规则只允许部署用户发起到 `127.0.0.1:27017` 的本地
 ```bash
 ./scripts/with-shared-mongodb.sh ./scripts/dev-services.sh restart
 # 单独启动一个服务时也可使用：
-./scripts/with-shared-mongodb.sh ./build/dev/bin/realm_mesh --service login_verify --config configs
+./scripts/with-shared-mongodb.sh ./build/dev-ninja/bin/realm_mesh --service login_verify --config configs
 ```
 
 包装命令只注入 MongoDB 连接配置；etcd、服务 TLS、签名材料与其他启动前置条件仍按

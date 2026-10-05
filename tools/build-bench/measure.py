@@ -222,6 +222,42 @@ def parse_external_url(text):
     return url.group(1), digest.group(1).lower()
 
 
+def preset_binary_dir(source, preset):
+    """预设的 binaryDir，按源码副本自己的 CMakePresets.json / CMakeUserPresets.json 解析（与 CMake 相同：沿
+    inherits 深度优先取第一个 binaryDir），只展开 ${sourceDir} 与 ${presetName}。不能由预设名推导：dev 是
+    build/dev-ninja（#123）。git archive 出来的副本还没有配置期登记（#122），所以不读 build/.build-dirs。"""
+    presets = {}
+    for name in ('CMakePresets.json', 'CMakeUserPresets.json'):
+        path = source / name
+        if path.is_file():
+            for entry in json.loads(path.read_text()).get('configurePresets', []):
+                presets.setdefault(entry['name'], entry)
+
+    def lookup(name, seen):
+        if name in seen:
+            return None
+        entry = presets.get(name)
+        if entry is None:
+            raise SystemExit(f'configure preset {name} not found in {source}/CMake*Presets.json')
+        if 'binaryDir' in entry:
+            return entry['binaryDir']
+        inherits = entry.get('inherits', [])
+        for parent in [inherits] if isinstance(inherits, str) else inherits:
+            found = lookup(parent, seen | {name})
+            if found is not None:
+                return found
+        return None
+
+    value = lookup(preset, frozenset())
+    if value is None:
+        raise SystemExit(f'preset {preset} has no binaryDir; pass --build-dir')
+    value = value.replace('${sourceDir}', str(source)).replace('${presetName}', preset)
+    if '$' in value:
+        raise SystemExit(f'preset {preset} binaryDir {value!r} uses macros this tool does not expand; pass --build-dir')
+    path = Path(value)
+    return path if path.is_absolute() else source / path
+
+
 _CTEST_SUMMARY = re.compile(r'(\d+)% tests passed(?:, (\d+) tests? failed)? out of (\d+)')
 _CTEST_FAILED = re.compile(r'Test\s+#\d+: (\S+) .*\*\*\*(?:Failed|Timeout|Exception|Not Run)')
 _CTEST_REAL = re.compile(r'Total Test time \(real\) =\s*([\d.]+) sec')
@@ -526,7 +562,8 @@ class Bench:
         self.out = Path(args.out).resolve()
         self.out.mkdir(parents=True, exist_ok=True)
         self.launcher = str(Path(args.launcher).resolve())
-        self.build_dir = (self.source / (args.build_dir or f'build/{args.preset}')).resolve()
+        self.build_dir = ((self.source / args.build_dir) if args.build_dir
+                          else preset_binary_dir(self.source, args.preset)).resolve()
         self.deps_dir = Path(args.deps_dir).resolve() if args.deps_dir else self.out / 'deps-src'
         self.stages_path = self.out / 'stages.json'
         self.rows = json.loads(self.stages_path.read_text()) if self.stages_path.exists() else []
@@ -558,7 +595,8 @@ class Bench:
         return ['cmake', '--preset', self.args.preset] + launchers + (self.deps_overrides() if reuse_deps else []) + self.args.cmake_arg
 
     def build_cmd(self):
-        return ['cmake', '--build', '--preset', self.args.preset] + (['--parallel', str(self.args.jobs)] if self.args.jobs else [])
+        # 缺省串行要显式 --parallel 1：Ninja 不传时按核数并行（Make 不传即串行，R0 的条件）。
+        return ['cmake', '--build', '--preset', self.args.preset, '--parallel', str(self.args.jobs or 1)]
 
     def ctest_cmd(self, *extra):
         return ['ctest', '--preset', self.args.preset] + list(extra)
@@ -936,9 +974,9 @@ def main(argv=None):
     run_parser.add_argument('--long-samples', type=int, default=3, help='冷入口、热完整验证的样本数；repro 至少 3 轮')
     run_parser.add_argument('--comment-samples', type=int, default=3, help='注释探针（历史对照）样本数')
     run_parser.add_argument('--preset', default='dev')
-    run_parser.add_argument('--build-dir', help='相对 --source 的构建目录，默认 build/<preset>')
+    run_parser.add_argument('--build-dir', help='相对 --source 的构建目录，默认按副本的 CMakePresets.json 解析该预设的 binaryDir（dev 为 build/dev-ninja）')
     run_parser.add_argument('--deps-dir', help='复用的依赖源码目录，默认 <out>/deps-src（由 fetch 场景填充）')
-    run_parser.add_argument('--jobs', type=int, help='传给 cmake --build --parallel；缺省为串行')
+    run_parser.add_argument('--jobs', type=int, help='传给 cmake --build --parallel；缺省 1（串行）')
     run_parser.add_argument('--cache-mode', default='none', help='记录用的编译缓存模式说明')
     run_parser.add_argument('--cmake-arg', action='append', default=[], help='每次配置附加的 CMake 参数（平台适配）')
     run_parser.add_argument('--env', action='append', default=[], metavar='NAME=VALUE', help='测量进程附加的环境变量')

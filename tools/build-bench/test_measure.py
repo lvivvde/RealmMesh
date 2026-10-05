@@ -1,5 +1,6 @@
 """measure.py 纯函数的单元测试：python3 -m unittest discover tools/build-bench"""
 
+import json
 import subprocess
 import sys
 import tempfile
@@ -369,6 +370,40 @@ class ExportSampleTest(unittest.TestCase):
         self.assertNotIn('compiled_sources', got)
         self.assertNotIn('linked_outputs', got)
 
+
+
+class PresetBinaryDirTest(unittest.TestCase):
+    """--build-dir 缺省按副本的预设文件解析 binaryDir（#123），不从预设名推导，也不需要先配置。"""
+
+    def write(self, root, name, presets):
+        (Path(root) / name).write_text(json.dumps({'version': 2, 'configurePresets': presets}))
+
+    def test_repository_presets(self):
+        repo = Path(__file__).resolve().parents[2]
+        self.assertEqual(measure.preset_binary_dir(repo, 'dev'), repo / 'build' / 'dev-ninja')
+        self.assertEqual(measure.preset_binary_dir(repo, 'dev-make'), repo / 'build' / 'dev-make')
+
+    def test_user_preset_inherits_depth_first(self):
+        with tempfile.TemporaryDirectory() as root:
+            self.write(root, 'CMakePresets.json', [
+                {'name': 'base', 'hidden': True},
+                {'name': 'dev', 'inherits': 'base', 'binaryDir': '${sourceDir}/build/dev-ninja'},
+                {'name': 'other', 'binaryDir': '${sourceDir}/build/other'}])
+            self.write(root, 'CMakeUserPresets.json', [
+                {'name': 'dev-local', 'inherits': ['dev', 'other']},
+                {'name': 'named', 'inherits': 'dev', 'binaryDir': 'build/${presetName}'}])
+            self.assertEqual(measure.preset_binary_dir(Path(root), 'dev-local'), Path(root) / 'build' / 'dev-ninja')
+            self.assertEqual(measure.preset_binary_dir(Path(root), 'named'), Path(root) / 'build' / 'named')
+
+    def test_unknown_preset_and_unexpanded_macro_ask_for_build_dir(self):
+        with tempfile.TemporaryDirectory() as root:
+            self.write(root, 'CMakePresets.json', [{'name': 'env', 'binaryDir': '$env{HOME}/build'}])
+            with self.assertRaises(SystemExit) as raised:
+                measure.preset_binary_dir(Path(root), 'env')
+            self.assertIn('--build-dir', str(raised.exception))
+            with self.assertRaises(SystemExit) as raised:
+                measure.preset_binary_dir(Path(root), 'missing')
+            self.assertIn('missing', str(raised.exception))
 
 if __name__ == '__main__':
     unittest.main()

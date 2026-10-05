@@ -210,14 +210,15 @@ Watch 该前缀，按 `min(Σ网关 fetch_free/conn_free, Σ业务服 conn_free,
 能力禁用 QUIC，只走 TLS/TCP），Windows 当前只交付后端开关（`iocp` 可配置但显式未实现，不进 CI）。同一构建只编入一个平台后端，
 后端在配置期选定（[ADR-0001](docs/adr/0001-compile-time-platform-backends.md)）。
 
-共同要求：CMake 3.20+、C++20 编译器与 OpenSSL 3 开发包。第三方依赖（Lua、sol2、
+共同要求：CMake 3.20+、Ninja 1.11+（默认预设 `dev` 的生成器；没有 Ninja 时配置会停下并提示，
+可显式改用 Make 回退 `--preset dev-make`）、C++20 编译器与 OpenSSL 3 开发包。第三方依赖（Lua、sol2、
 libsodium、nlohmann/json、cpp-httplib、protobuf、spdlog）随源码树一并构建，无需另行
 安装。
 
 Ubuntu 24.04（生产基准，含 QUIC）：
 
 ```bash
-sudo apt install libssl-dev libnuma1
+sudo apt install libssl-dev libnuma1 ninja-build
 ./scripts/install-msquic-dev.sh
 ./scripts/install-etcd.sh
 ./scripts/install-mongodb.sh  # 自动化集成测试需要；手动联调使用共享库
@@ -227,7 +228,7 @@ sudo apt install libssl-dev libnuma1
 macOS（开发基准；装 `libmsquic` 即本地启用 QUIC，不装则只走 TLS/TCP）：
 
 ```bash
-brew install openssl@3 libmsquic
+brew install openssl@3 ninja libmsquic
 export PATH="$(brew --prefix openssl@3)/bin:$PATH"   # 测试证书生成要用 openssl(1)
 ./scripts/build.sh
 ```
@@ -262,10 +263,15 @@ Mongo、protobuf 等 FetchContent 依赖按固定 URL + SHA256 获取；`FETCHCO
 [`CMakeUserPresets.example.json`](CMakeUserPresets.example.json) 为 `CMakeUserPresets.json`（已被
 `.gitignore` 忽略），改成本机路径并删去不需要的键；它以 `dev-local` 继承 `dev`，构建目录为 `build/dev-local`，
 用 `cmake --preset dev-local`、`cmake --build --preset dev-local`、`ctest --preset dev-local` 配置、构建、测试。
+`dev` 改用 Ninja 后，继承它的 `dev-local` 也随之是 Ninja：`build/dev-local` 里若还留着 Make 生成的缓存，
+CMake 会拒绝换生成器，删掉该目录后重新配置即可；想在本机预设上继续用 Make，就让它改为继承 `dev-make`。
 
-仓库预设：`dev`（Unix Makefiles，`build/dev`，日常默认）与 `dev-make`（Unix Makefiles，`build/dev-make`，
-Make 对照基线的显式名字，今后 `dev` 换生成器时它保持不变）。两者都继承隐藏的 `realmmesh-base`，后者把
-缓存变量 `REALMMESH_PRESET` 设为当前预设名；派生的用户预设继承 `dev` 时同样得到自己的名字。
+仓库预设：`dev`（Ninja，`build/dev-ninja`，日常默认）与 `dev-make`（Unix Makefiles，`build/dev-make`，
+Make 回退）。两者都继承隐藏的 `realmmesh-base`，后者把缓存变量 `REALMMESH_PRESET` 设为当前预设名；派生的
+用户预设继承 `dev` 时同样得到自己的名字。`dev` 要求 Ninja 1.11+（`ninja -t missingdeps` 的最低版本）：
+缺失或过旧时配置在 `project()` 之前停下，提示安装或显式改用 `--preset dev-make`，从不悄悄换生成器。
+Ninja 下链接进深度 1 的原生池，编译仍用满 `--jobs`；libsodium 照旧是单独的 `make -j1`。旧的 `build/dev`
+（`dev` 曾用 Make 时的目录）不会被删除、搬移或换生成器，确认不再需要后自行删除即可。
 
 配置时 `cmake/RealmMeshBuildDirInfo.cmake` 记下「预设 → 真实构建目录」：`build/.build-dirs/<预设>.txt`
 是登记，`<构建目录>/realmmesh-build-dir.txt` 是该目录自带的身份。脚本入口都接受 `--preset NAME`
@@ -274,7 +280,8 @@ Make 对照基线的显式名字，今后 `dev` 换生成器时它保持不变�
 
 `scripts/build.sh [--preset NAME] [--jobs N]` 用同一个预设依次执行 `cmake --preset`、`cmake --build --preset` 和
 `ctest --preset -j 1`（配置 + 构建 ALL + 串行全量测试），并把仓库根的 `compile_commands.json` 符号链接指向所选
-预设的编译数据库；切换预设时改指向，仓库根若是普通文件则保留并告警。
+预设的编译数据库；切换预设时改指向，仓库根若是普通文件则保留并告警。只有 `build.sh` 与 `test-fast.sh` 会刷新这个链接：
+单独执行 `cmake --preset dev` 不改它，切到 Ninja 后它仍指向旧目录（如 `build/dev`），跑一次上述脚本即可改指向。
 
 Linux 的 MsQuic 开发安装脚本固定使用 Microsoft 官方 `libmsquic 2.6.1` 包和对应头文件，
 下载内容均校验 SHA-256；macOS 用 Homebrew 当前的 `libmsquic` 2.6.x。CMake 输出会打印
@@ -367,12 +374,12 @@ export REALMMESH_ADMISSION_CONSUMPTION_DIGEST_KEY="$(openssl rand -hex 32)"  # �
 不代表已经支持跨机器生产部署、服务多副本或高可用。
 
 也可以手动启动。`realm_mesh` 是唯一入口，默认按 `configs/main.config` 的拓扑
-all-in-one 启动全部服务（`dev` 预设的构建目录即 `build/dev`，其他预设用
+all-in-one 启动全部服务（`dev` 预设的构建目录即 `build/dev-ninja`，其他预设用
 `./scripts/build-dir.sh --preset NAME` 查）：
 
 ```bash
-./build/dev/bin/realm_mesh --config configs
-./build/dev/bin/realm_mesh --config configs --service login_verify   # 单服务模式
+./build/dev-ninja/bin/realm_mesh --config configs
+./build/dev-ninja/bin/realm_mesh --config configs --service login_verify   # 单服务模式
 ```
 
 用法：`realm_mesh [--config <dir>] [--service <name>] [--instance-id <id>]

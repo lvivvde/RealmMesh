@@ -90,7 +90,8 @@ last_ctest_args() {
 mkdir -p "${fixture}/cmake" "${fixture}/scripts/lib" "${fixture}/tests/cmake" \
     "${fixture}/tests/fixture/watch"
 cp "${source_root}/CMakePresets.json" "${fixture}/"
-cp "${source_root}/cmake/RealmMeshBuildDirInfo.cmake" "${fixture}/cmake/"
+cp "${source_root}/cmake/RealmMeshBuildDirInfo.cmake" \
+    "${source_root}/cmake/RealmMeshNinja.cmake" "${fixture}/cmake/"
 cp "${source_root}/tests/cmake/test_helpers.cmake" "${fixture}/tests/cmake/"
 for script in build.sh build-dir.sh test-fast.sh test-watch.sh \
     lib/build-dir.sh lib/build-jobs.sh; do
@@ -115,9 +116,12 @@ EOF
 # 与根 CMakeLists.txt 同样的接入方式:注册帮助函数 + 最后写登记清单。
 cat >"${fixture}/CMakeLists.txt" <<'EOF'
 cmake_minimum_required(VERSION 3.20)
+include("${CMAKE_SOURCE_DIR}/cmake/RealmMeshNinja.cmake")
+realmmesh_require_ninja()
 project(TestFastFixture LANGUAGES CXX)
 include("${PROJECT_SOURCE_DIR}/cmake/RealmMeshBuildDirInfo.cmake")
 realmmesh_write_build_dir_info()
+realmmesh_use_ninja_link_pool()
 enable_testing()
 
 option(FIXTURE_BREAK_ALPHA "Make alpha_test fail to compile" OFF)
@@ -318,7 +322,7 @@ budget_case 1 100 1
     fail "unknown memory must budget 1 job"
 
 # --- 首次使用：未配置也能直接启动，默认只构建并运行 Unit 范围 ---
-[[ ! -e build/dev ]] || fail "fixture must start unconfigured"
+[[ ! -e build/dev-ninja ]] || fail "fixture must start unconfigured"
 expect_exit 0 "first test-fast" ./scripts/test-fast.sh
 expect_contains "${last_output}" "all registered Unit targets" "first test-fast"
 expect_contains "${last_output}" "build jobs:" "first test-fast"
@@ -329,20 +333,20 @@ expect_contains "${last_output}" \
 expect_contains "${last_output}" "time configure" "first test-fast"
 expect_not_contains "${last_output}" "PASSED" "skips are not a full pass"
 expect_not_contains "${last_output}" "Integration" "default selection"
-[[ ! -e build/dev/slow_integration_test ]] ||
+[[ ! -e build/dev-ninja/slow_integration_test ]] ||
     fail "the Unit aggregate must not build integration targets"
-[[ -x build/dev/alpha_test && -x build/dev/realm_lua_cli ]] ||
+[[ -x build/dev-ninja/alpha_test && -x build/dev-ninja/realm_lua_cli ]] ||
     fail "the Unit aggregate must build Unit targets and realm_lua_cli"
-[[ "$(readlink compile_commands.json)" == "build/dev/compile_commands.json" ]] ||
+[[ "$(readlink compile_commands.json)" == "build/dev-ninja/compile_commands.json" ]] ||
     fail "test-fast must link compile_commands.json to the selected preset"
 expect_contains "$(last_ctest_args)" "-L ^unit$ -j 4 --no-tests=error" "default ctest arguments"
 
 # 登记清单与标签：分类标签与身份标签是同一个列表里的独立元素。
-registry="$(cat build/dev/realmmesh-unit-targets.txt)"
-expect_contains "${registry}" "alpha_test=${fixture}/build/dev/alpha_test" "registry"
+registry="$(cat build/dev-ninja/realmmesh-unit-targets.txt)"
+expect_contains "${registry}" "alpha_test=${fixture}/build/dev-ninja/alpha_test" "registry"
 expect_contains "${registry}" "realm_lua_cli=" "registry"
 expect_not_contains "${registry}" "slow_integration_test" "registry"
-labels="$("${ctest_real}" --test-dir build/dev -N --print-labels)"
+labels="$("${ctest_real}" --test-dir build/dev-ninja -N --print-labels)"
 expect_contains "${labels}" "target=alpha_test" "labels"
 expect_contains "${labels}" "target=realm_lua_cli" "labels"
 if printf '%s\n' "${labels}" | grep -q ';'; then
@@ -350,7 +354,7 @@ if printf '%s\n' "${labels}" | grep -q ';'; then
     fail "labels must be separate list elements"
 fi
 count_tests() {
-    "${ctest_real}" --test-dir build/dev -N "$@" | sed -n 's/^Total Tests: //p'
+    "${ctest_real}" --test-dir build/dev-ninja -N "$@" | sed -n 's/^Total Tests: //p'
 }
 [[ "$(count_tests -L '^unit$')" == 6 ]] || fail "6 tests must carry the unit label"
 [[ "$(count_tests -L '^target=alpha_test$')" == 2 ]] || fail "alpha_test identity"
@@ -418,7 +422,7 @@ expect_contains "${last_output}" "build failed; tests were not run" "build failu
 "${cmake_bin}" --preset dev -DFIXTURE_BREAK_ALPHA=OFF >/dev/null
 
 "${cmake_bin}" --preset dev -DFIXTURE_REMOVE_BETA_BINARY=ON >/dev/null
-rm -f build/dev/beta.x_test   # 让它重新链接，从而执行删除产物的 POST_BUILD
+rm -f build/dev-ninja/beta.x_test   # 让它重新链接，从而执行删除产物的 POST_BUILD
 expect_exit 1 "missing binary" ./scripts/test-fast.sh --target beta.x_test
 expect_contains "${last_output}" "Missing test binary after the build: beta.x_test" \
     "missing binary"
@@ -443,7 +447,7 @@ expect_exit 0 "focus the new target" ./scripts/test-fast.sh --target gamma_test
 expect_exit 0 "build.sh" env CTEST_PARALLEL_LEVEL=8 ./scripts/build.sh --jobs 2
 expect_contains "$(last_ctest_args)" "--preset dev -j 1" "build.sh"
 expect_contains "${last_output}" "build jobs: 2 (from --jobs" "build.sh"
-[[ -x build/dev/slow_integration_test ]] || fail "build.sh must build ALL"
+[[ -x build/dev-ninja/slow_integration_test ]] || fail "build.sh must build ALL"
 
 # --- 派生用户预设:test-fast 与 watch 走同一预设 ---
 expect_exit 0 "test-fast dev-local" ./scripts/test-fast.sh --preset dev-local --target alpha_test
