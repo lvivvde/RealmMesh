@@ -19,12 +19,12 @@
       "name": "dev",
       "displayName": "Development",
       "inherits": "realmmesh-base",
-      "generator": "Unix Makefiles",
-      "binaryDir": "${sourceDir}/build/dev"
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/dev-ninja"
     },
     {
       "name": "dev-make",
-      "displayName": "Development (Make baseline)",
+      "displayName": "Development (Make fallback)",
       "inherits": "realmmesh-base",
       "generator": "Unix Makefiles",
       "binaryDir": "${sourceDir}/build/dev-make"

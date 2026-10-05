@@ -11,6 +11,14 @@ set(sodium_make
 set(sodium_install_dir "${CMAKE_CURRENT_BINARY_DIR}/install")
 file(MAKE_DIRECTORY "${sodium_install_dir}/include")
 
+# make install 并进构建步，装出的头与静态库作为构建步的 BUILD_BYPRODUCTS(#123):Ninja 由此
+# 知道它们的产出者，删掉任一文件都会重跑这一步补回，下游在同一轮里重编/重链。单独的安装步
+# 声明产物要 INSTALL_BYPRODUCTS(CMake 3.26),最低版本 3.20 用不了。装完按清单核对，
+# 升级 libsodium 时清单漏改即构建失败。
+include("${CMAKE_CURRENT_SOURCE_DIR}/sodium-install-manifest.cmake")
+list(TRANSFORM REALMMESH_SODIUM_INSTALLED_FILES PREPEND "${sodium_install_dir}/"
+    OUTPUT_VARIABLE sodium_byproducts)
+
 ExternalProject_Add(
     sodium_external
     URL https://github.com/jedisct1/libsodium/releases/download/1.0.22-RELEASE/libsodium-1.0.22.tar.gz
@@ -24,9 +32,12 @@ ExternalProject_Add(
         --enable-static
         --with-pic
     BUILD_COMMAND ${sodium_make}
-    INSTALL_COMMAND ${sodium_make} install
+        COMMAND ${sodium_make} install
+        COMMAND "${CMAKE_COMMAND}" "-DREALMMESH_SODIUM_INSTALL_DIR=${sodium_install_dir}"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/sodium-install-manifest.cmake"
+    INSTALL_COMMAND ""
     INSTALL_DIR "${sodium_install_dir}"
-    BUILD_BYPRODUCTS "${sodium_install_dir}/lib/libsodium.a"
+    BUILD_BYPRODUCTS ${sodium_byproducts}
 )
 
 add_library(realm_sodium STATIC IMPORTED GLOBAL)

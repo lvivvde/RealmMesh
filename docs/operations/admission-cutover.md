@@ -63,7 +63,7 @@
    export REALMMESH_IDENTITY_KEY_SEED="<hex seed>"
    export REALMMESH_TLS_CERTIFICATE_FILE="<cert>"
    export REALMMESH_TLS_PRIVATE_KEY_FILE="<key>"
-   ./build/dev/bin/realm_mesh --config configs --service queue
+   ./build/dev-ninja/bin/realm_mesh --config configs --service queue
    ```
    Queue 不提供权威状态降级开关：etcd 不可达、快照或发号映射损坏时启动失败。
    → 判据：进程存活且 `realmmesh_service_ready{service_name="queue"}` 为 1（§4）。**停**。
@@ -73,7 +73,7 @@
    export REALMMESH_ADMISSION_GRANT_PUBLIC_KEY="<与排队服种子配对的公钥 hex>"
    export REALMMESH_IDENTITY_KEY_SEED="<hex seed>"
    export REALMMESH_SESSION_TICKET_KEY="<hex>"
-   ./build/dev/bin/realm_mesh --config configs --service gateway
+   ./build/dev-ninja/bin/realm_mesh --config configs --service gateway
    ```
    缺失或畸形的密钥材料必须在**监听前**抛错退出，不接受“先起来再补”。
    → 判据：`realmmesh_service_ready{service_name="gateway"}` 为 1，且 `edge_credential_result_total{result="store_unavailable"}` 不增长。**停**。
@@ -125,7 +125,7 @@
 
 1. **一次真实登录**（真实四服务 + etcd，走生产 wire）：
    ```bash
-   ./build/dev/bin/realm_mesh_loadgen --phase full \
+   ./build/dev-ninja/bin/realm_mesh_loadgen --phase full \
        --robots 1 --accounts 1 --credential <凭据> \
        --login-verify 127.0.0.1:<port> --queue 127.0.0.1:<port> --gateway 127.0.0.1:<port>
    ```

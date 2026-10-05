@@ -1,5 +1,10 @@
 cmake_minimum_required(VERSION 3.20)
 
+# Ninja 预设缺 Ninja 或版本 < 1.11 时在 project() 之前停下，提示安装或显式改用
+# --preset dev-make;不悄悄换生成器(#123)。
+include("${CMAKE_CURRENT_LIST_DIR}/cmake/RealmMeshNinja.cmake")
+realmmesh_require_ninja()
+
 project(
     RealmMesh
     VERSION 0.1.0
@@ -15,6 +20,10 @@ realmmesh_find_openssl()
 # 记录「预设 → 真实构建目录」,脚本入口按 --preset 读取(#122)。
 include("${PROJECT_SOURCE_DIR}/cmake/RealmMeshBuildDirInfo.cmake")
 realmmesh_write_build_dir_info()
+
+# Ninja 下链接进深度 1 的池，编译仍用满 --jobs(#123);须在第一个目标之前。
+# GTest 可执行文件由 realm_add_gtest 移出池(带用例发现，见 RealmMeshNinja.cmake)。
+realmmesh_use_ninja_link_pool()
 
 add_subdirectory(third_party/lua)
 add_subdirectory(third_party/sol2)

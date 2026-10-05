@@ -58,9 +58,9 @@ python3 tools/build-bench/measure.py export --out "$out/result" --dest docs/rese
 
 - `--cmake-arg=-D...`：每次配置都附加的平台适配参数。R0 在 macOS 上需要 `-DOPENSSL_INCLUDE_DIR=/opt/homebrew/opt/openssl@3/include`；P1（#121）起默认即选 Homebrew `openssl@3` 专用前缀，不再需要。
 - `--env NAME=VALUE`：测量进程的附加环境，例如 Lima 把 `TMPDIR` 指到磁盘目录。
-- `--jobs N`：传给 `cmake --build --parallel`；缺省串行（R0 条件）。`fast-*` 场景传给 `test-fast.sh --jobs`，缺省用脚本的预算。
+- `--jobs N`：传给 `cmake --build --parallel`；缺省传 `--parallel 1`，即串行（R0 条件）。Ninja 不传 `--parallel` 时会按核数并行，所以串行也显式传。`fast-*` 场景传给 `test-fast.sh --jobs`，缺省用脚本的预算。
 - `--samples N --sample-start S --no-warmup`：配对交替测量时，每次调用只跑一个样本，序号接续；对所有短场景（含 `probes`）生效。例如前后各先用 `--samples 0` 预热，再按组交替调用 `--samples 1 --sample-start <组号> --no-warmup`。前后两侧用各自的源码副本与 `--out`。
-- `--preset`、`--build-dir`：改预设与构建目录后用。
+- `--preset`、`--build-dir`：改预设与构建目录后用。`--build-dir` 缺省按源码副本自己的 `CMakePresets.json` / `CMakeUserPresets.json` 解析该预设的 binaryDir（沿 `inherits` 取第一个，展开 `${sourceDir}`、`${presetName}`），`dev` 即 `build/dev-ninja`、`dev-make` 即 `build/dev-make`（#123），副本不需要先配置；binaryDir 含其他宏时显式传 `--build-dir`。
 - `--cache-mode`：只做记录，如 `ccache-AUTO-hot`。
 
 工具会清除 `CMAKE_BUILD_PARALLEL_LEVEL`、`CTEST_PARALLEL_LEVEL`、`MAKEFLAGS` 与外部 launcher 变量，并去掉带 MongoDB URI/口令的变量；测试只用夹具自起的隔离 etcd/MongoDB。

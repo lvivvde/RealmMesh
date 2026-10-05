@@ -18,6 +18,11 @@ concurrency:
 # than left to the generator default; run the full ctest serially (-j 1), the
 # same as ./scripts/build.sh. Only the edit-loop entry ./scripts/test-fast.sh
 # runs Unit tests in parallel.
+#
+# Generator (#123): the dev preset uses Ninja (>= 1.11; libraries and programs
+# link in a depth-1 pool, test executables outside it); both jobs install it
+# explicitly instead of relying on the runner image. The dev-make preset stays
+# the Make fallback for local use.
 env:
   REALMMESH_CI_PRESET: dev
   REALMMESH_CI_BUILD_JOBS: 2
@@ -43,7 +48,7 @@ jobs:
       # `openssl req -addext`.
       - name: Install dependencies
         run: |
-          brew install openssl@3
+          brew install openssl@3 ninja
           echo "OPENSSL_ROOT_DIR=$(brew --prefix openssl@3)" >> "$GITHUB_ENV"
           echo "$(brew --prefix openssl@3)/bin" >> "$GITHUB_PATH"
 
@@ -67,6 +72,7 @@ jobs:
       - name: Show toolchain
         run: |
           cmake --version
+          ninja --version
           c++ --version
 
       - name: Configure
@@ -101,7 +107,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libssl-dev libnuma1
+          sudo apt-get install -y libssl-dev libnuma1 ninja-build
           ./scripts/install-msquic-dev.sh
 
       # 同 macOS:跨进程集成用例要拉起真实 etcd,缺失即失败(不跳过)。
@@ -116,6 +122,7 @@ jobs:
       - name: Show toolchain
         run: |
           cmake --version
+          ninja --version
           c++ --version
 
       - name: Configure

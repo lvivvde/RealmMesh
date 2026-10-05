@@ -64,7 +64,7 @@ Linux CI 在全量 `ctest` 通过后运行验收脚本，并始终尝试上传�
 - `<构建目录>/acceptance/linux-login-chain-m1-m4.md`
 - `<构建目录>/acceptance/linux-login-chain-m1-m4.log`
 
-（构建目录取 `--preset` 所选预设在配置期记录的真实 binaryDir,默认 `dev` 即 `build/dev`;#122。）
+（构建目录取 `--preset` 所选预设在配置期记录的真实 binaryDir,默认 `dev` 即 `build/dev-ninja`;#122、#123。）
 
 任一分组失败、报告缺少度量标记或 Linux 专属 QUIC 测试不存在，脚本返回非零。
 报告中的 PASS 只表示上述 CI 缩减门槛；专用容量目标必须由单独报告声明输入规模、

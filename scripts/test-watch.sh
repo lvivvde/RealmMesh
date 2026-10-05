@@ -117,7 +117,10 @@ cleanup() {
     rm -rf -- "${state_dir}"
 }
 trap cleanup EXIT
-trap 'echo; echo "test-watch stopped."; exit 0' INT TERM
+# 停止提示写到启动时保存的标准输出(fd 3):信号到达时主 shell 可能正处在
+# take_snapshot >快照文件 这类重定向里，陷阱的 echo 会跟着写进快照文件。
+exec 3>&1
+trap 'echo >&3; echo "test-watch stopped." >&3; exit 0' INT TERM
 
 existing_watch_paths() {
     local path
