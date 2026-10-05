@@ -126,12 +126,12 @@ Tier Verify：Users-edwin-Projects-RealmMesh，主体证据generation2026-10-02T
 - `cmake/RealmMeshNinja.cmake` 的 `realmmesh_require_ninja()` 在 `project()` 之前运行：按 CMake 的查找名（`ninja-build`、`ninja`）解析 `CMAKE_MAKE_PROGRAM` 并缓存，版本低于 1.11、解析不出或执行失败都以配置错误停下，提示安装 Ninja 或显式改用 `--preset dev-make`。不自动换生成器，也不自动安装。
 - CI 两个 job 显式安装 Ninja（`brew install ninja`、`apt-get install ninja-build`）并打印版本，构建仍显式 `--parallel 2`。
 - `tools/build-bench/measure.py` 不再由预设名推导目录，改为按副本自己的 `CMakePresets.json`／`CMakeUserPresets.json` 沿 `inherits` 解析 binaryDir（只展开 `${sourceDir}`、`${presetName}`，其他宏要求显式 `--build-dir`）；构建命令总是带 `--parallel N`，缺省 1，因为 Ninja 不传时按核数并行。
-- **与上文“不要自行简化解析 CMake 的继承、宏和用户预设规则”相抵，提请重审。** 测量对象是尚未配置的 `git archive` 副本，冷入口要在配置之前删掉构建目录，此时还没有 #122 的配置期登记可读，CMake 也没有不配置就报告 binaryDir 的命令。这一简化解析只在测量工具内，遇到其他宏即要求显式 `--build-dir`；`scripts/` 下的入口仍只读配置期登记，不受影响。若不接受，替代是测量调用一律显式传 `--build-dir`。
+- **与上文“不要自行简化解析 CMake 的继承、宏和用户预设规则”相抵；2026-10-05 在 [#140](https://github.com/lvivvde/RealmMesh/pull/140) 中确认接受。** 测量对象是尚未配置的 `git archive` 副本，冷入口要在配置之前删掉构建目录，此时还没有 #122 的配置期登记可读，CMake 也没有不配置就报告 binaryDir 的命令。这一简化解析只在测量工具内，遇到其他宏即要求显式 `--build-dir`；`scripts/` 下的入口仍只读配置期登记，不受影响。未采用的替代是测量调用一律显式传 `--build-dir`。
 
 ### 链接池
 
 - Ninja 下根 CMakeLists 在第一个目标之前调用 `realmmesh_use_ninja_link_pool()`：声明 `JOB_POOLS realmmesh_link=1`，并以 `CMAKE_JOB_POOL_LINK` 让此后创建的原生目标（含静态库归档与 FetchContent 依赖）链接进这个池。它是总 jobs 的子集；Make 下不生效。
-- **偏离硬门槛预算“Ninja 链接 1”：GTest 可执行文件不进池，提请确认。** `realm_add_gtest` 对每个测试可执行文件调用 `realmmesh_link_outside_pool()`（`JOB_POOL_LINK` 置空）。原因是 `gtest_discover_tests` 的 POST_BUILD 用例发现与链接同在一条 Ninja 边里，而 macOS 上新链接的二进制首次执行约等 0.5 s（user/sys 为 0），池深 1 把这些等待串成一列：公共头或 `.proto` 改动要重链 43–73 个测试，全部进池时 Ninja 反比 Make 慢 2–2.8 倍（结果节“全部进池”一轮）。按验收约定，这一回归本应回退 Make 或重新决策；放出测试链接是在保留 Ninja 收益的前提下对预算的调整，不只是“修正依赖表达”，因此作为范围决定写进 PR 请人确认，而不是自行认定。
+- **偏离硬门槛预算“Ninja 链接 1”：GTest 可执行文件不进池；2026-10-05 在 [#140](https://github.com/lvivvde/RealmMesh/pull/140) 中确认。** `realm_add_gtest` 对每个测试可执行文件调用 `realmmesh_link_outside_pool()`（`JOB_POOL_LINK` 置空）。原因是 `gtest_discover_tests` 的 POST_BUILD 用例发现与链接同在一条 Ninja 边里，而 macOS 上新链接的二进制首次执行约等 0.5 s（user/sys 为 0），池深 1 把这些等待串成一列：公共头或 `.proto` 改动要重链 43–73 个测试，全部进池时 Ninja 反比 Make 慢 2–2.8 倍（结果节“全部进池”一轮）。按验收约定，这一回归本应回退 Make 或重新决策；放出测试链接是在保留 Ninja 收益的前提下对预算的调整，不只是“修正依赖表达”，因此作为范围决定写进 PR 请人确认，而不是自行认定；已获确认。
 - 放出后的边界：测试链接仍受总 `--jobs` 约束（Mac 8、Linux/CI 2），不会超出编译预算的进程数；Linux/CI 2 路下最多两个链接同时运行。测试链接的单次内存峰值（Mac 最高 263 MiB）与生产链接同量级（`realm_mesh` 239 MiB），放出后两平台的整体压力（进程树峰值、最低可用内存、swap、OOM）见结果节，均在门槛内。库与生产可执行文件仍在池内；`BuildGraphTest` 在 Ninja 构建下检查本工程 `build.ninja` 的池归属，防止回退。
 - 考虑过而未采用：另设一个深度 N 的测试链接池（N 取多少都只是另一个预算值，且仍要人定）；改用 PRE_TEST 用例发现（见下条）；整体回退 Make（短场景在两平台都失去 10–46% 的收益）。
 - 不重写用例发现：GoogleTest 模块在 3.20、3.31、4.x 之间的 POST_BUILD/PRE_TEST 实现不同；改用 PRE_TEST 只是把同样的串行等待移到 ctest 启动时。

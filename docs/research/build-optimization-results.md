@@ -725,7 +725,7 @@ Mac 与 Lima 先后进行：先测 Mac（Lima 空闲），Mac 的完整验证与
 
 P4 把 `dev` 预设切到 Ninja（≥1.11，binaryDir `build/dev-ninja`），新增 `dev-make` 预设（Unix Makefiles，`build/dev-make`）作为回退。Ninja 下库与生产可执行文件的链接进深度 1 的池；libsodium 的外部构建仍是 `make -j1`，安装出的库与全部头都声明为构建步产物，供 Ninja 恢复用。做法与取舍见[工具与缓存决策的实施记录](build-tool-cache-decisions.md#实施记录123)。本阶段门槛是：双平台新目录构建、删除单个生成产物后的恢复、完整测试和编译数据库都有效，之后才切默认；耗时以同 jobs、cache OFF 的 Make/Ninja 配对做生成器归因。没有净收益或出现回归时，回退 Make 或重新决策。
 
-**两项偏离约定，待确认后才算验收完成：**测试可执行文件的链接不进池（偏离“Ninja 链接 1”的预算，见“全部进池的一轮”）；`measure.py` 自行解析预设的 binaryDir（与决策文档“不要自行简化解析”相抵，见实施记录）。默认已在分支上切换，合并以本节结果为依据。
+**两项偏离约定，已于 2026-10-05 在 [#140](https://github.com/lvivvde/RealmMesh/pull/140) 中确认：**测试可执行文件的链接不进池（偏离“Ninja 链接 1”的预算，见“全部进池的一轮”）；`measure.py` 自行解析预设的 binaryDir（与决策文档“不要自行简化解析”相抵，见实施记录）。默认已在分支上切换，合并以本节结果为依据。
 
 ### 条件
 
@@ -802,7 +802,7 @@ libsodium 的三项都会重跑外部构建步并重装，随后重编 8 个源�
 | Lima | configure 约 1.9；build 169.12、170.25、177.04；test 约 296 | configure 约 1.6；build 165.54、165.43、163.63；test 约 300 |
 
 - **短场景：两平台都有净收益。** 四个短场景两平台都是 5/5 组 Ninja 更快。收益来自调度而非工作量（两侧编译、链接次数相同）：无操作时 Ninja 只读一份 `build.ninja` 与 `.ninja_deps`，Make 3.81／4.4 要递归进每个目录重新判定；改动时 Ninja 一边链接一边开始下一个可运行的边，Make 按目录与目标逐层推进。Lima 2 jobs 下改动类的编译与链接本身占大头，可省的只有调度，所以降幅（10–13%）小于 Mac（25–46%）。
-- **Mac 冷入口慢 1.4%，在可解释范围内，不判回归。** 6 s 的差距里，build 步中位数 Make 60.35、Ninja 64.12 s（+3.8 s），test 步 Ninja 高约 3 s，configure 步 Ninja 少约 1.4 s。test 步跑的是同一套 CTest，差异属于桌面负载的波动。build 步剩下的差距来自 libsodium：它的串行 configure＋make 是冷构建的关键路径，Ninja 下这一步比 Make 晚约 2.4 s 开始，configure 在并发编译的争用下又慢约 2 s。池的影响已在放出测试链接时消除：全部进池的一轮里 Ninja 冷构建 build 步为 92.90–94.42 s，放出后为 63.98–65.05 s。Lima 冷入口 3/3 组 Ninja 更快（build 步 −2.8%），因为 2 jobs 下关键路径是编译本身而不是 libsodium。冷构建不是日常反馈路径；把 libsodium 移出关键路径（例如预构建或缓存安装树）不在 P4 范围。
+- **Mac 冷入口慢 1.4%，在可解释范围内，不判回归（[#140](https://github.com/lvivvde/RealmMesh/pull/140) 中确认）。** 6 s 的差距里，build 步中位数 Make 60.35、Ninja 64.12 s（+3.8 s），test 步 Ninja 高约 3 s，configure 步 Ninja 少约 1.4 s。test 步跑的是同一套 CTest，差异属于桌面负载的波动。build 步剩下的差距来自 libsodium：它的串行 configure＋make 是冷构建的关键路径，Ninja 下这一步比 Make 晚约 2.4 s 开始，configure 在并发编译的争用下又慢约 2 s。池的影响已在放出测试链接时消除：全部进池的一轮里 Ninja 冷构建 build 步为 92.90–94.42 s，放出后为 63.98–65.05 s。Lima 冷入口 3/3 组 Ninja 更快（build 步 −2.8%），因为 2 jobs 下关键路径是编译本身而不是 libsodium。冷构建不是日常反馈路径；把 libsodium 移出关键路径（例如预构建或缓存安装树）不在 P4 范围。
 - **完整验证。** 热完整验证没有作为配对场景重跑；同一会话内两预设的完整 CTest 为 Mac 391.39 s（Ninja）对 388.03 s（Make）、Lima 293.07 s 对 295.73 s，CTest 本身与生成器无关。热完整验证按 R0 的门槛在 P6 复测。
 
 ### 全部进池的一轮（`1d96663`，Mac 8 jobs）
@@ -817,7 +817,7 @@ libsodium 的三项都会重跑外部构建步并重装，随后重编 8 个源�
 | `lua-hpp` | 8.27 | 22.82 | −176.1% |
 | `proto` | 14.41 | 29.31 | −103.4% |
 
-原因是 `gtest_discover_tests` 的 POST_BUILD 用例发现与链接同在一条 Ninja 边里：macOS 上新链接的二进制首次执行约等 0.5 s（user/sys 为 0），池深 1 把 43–56 个测试的链接加发现串成一列。Make 不受池约束，8 路并行跑这些 POST_BUILD。只把测试可执行文件放出池后（`ca4b978` 之前在 `1d96663` 上筛查，每场景 3 个样本），Ninja 中位数降为 `fast-cpp-entry` 6.20、`lua-hpp` 4.57、`proto` 10.41 s，与上面正式配对一致。放出后的最大单次链接内存为 263 MiB（`service_host_test`），生产链接 `realm_mesh` 为 239 MiB，同一量级；整体资源见上表。按验收约定，这一回归本应回退 Make 或重新决策；放出测试链接是对“Ninja 链接 1”预算的调整，作为待确认的范围决定记在实施记录与 PR 中。
+原因是 `gtest_discover_tests` 的 POST_BUILD 用例发现与链接同在一条 Ninja 边里：macOS 上新链接的二进制首次执行约等 0.5 s（user/sys 为 0），池深 1 把 43–56 个测试的链接加发现串成一列。Make 不受池约束，8 路并行跑这些 POST_BUILD。只把测试可执行文件放出池后（`ca4b978` 之前在 `1d96663` 上筛查，每场景 3 个样本），Ninja 中位数降为 `fast-cpp-entry` 6.20、`lua-hpp` 4.57、`proto` 10.41 s，与上面正式配对一致。放出后的最大单次链接内存为 263 MiB（`service_host_test`），生产链接 `realm_mesh` 为 239 MiB，同一量级；整体资源见上表。按验收约定，这一回归本应回退 Make 或重新决策；放出测试链接是对“Ninja 链接 1”预算的调整，作为范围决定记在实施记录与 PR 中，已获确认。
 
 这一轮的 Ninja 冷入口第 3 组退出 8：`TestWatchScriptTest` 偶发失败，原因是停止提示被写进快照文件，已由 `fb0e18f` 修复（只改脚本的输出去向）。失败只影响退出码，不影响该样本的构建与计时；正式配对在修复之后，全部退出 0。
 
