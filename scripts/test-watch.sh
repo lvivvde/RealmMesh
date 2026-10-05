@@ -117,10 +117,20 @@ cleanup() {
     rm -rf -- "${state_dir}"
 }
 trap cleanup EXIT
-# 停止提示写到启动时保存的标准输出(fd 3):信号到达时主 shell 可能正处在
-# take_snapshot >快照文件 这类重定向里，陷阱的 echo 会跟着写进快照文件。
-exec 3>&1
-trap 'echo >&3; echo "test-watch stopped." >&3; exit 0' INT TERM
+# INT / TERM 陷阱只记一笔，由主流程在安全点调用 stop_if_requested 退出。陷阱
+# 可能在任意两条命令之间运行:主 shell 正处在 take_snapshot >快照文件 的重定向里
+# 时，陷阱里的 echo 会写进快照文件;bash 3.2 甚至会在管道各段 fork 之间运行它，
+# 这时主 shell 还拿着管道读端，在陷阱里 exit 会让 EXIT 清理等着写满管道的子进程，
+# 互相卡死。
+stop_requested=0
+trap 'stop_requested=1' INT TERM
+stop_if_requested() {
+    if [[ "${stop_requested}" -eq 1 ]]; then
+        echo
+        echo "test-watch stopped."
+        exit 0
+    fi
+}
 
 existing_watch_paths() {
     local path
@@ -183,7 +193,11 @@ changes_pending() {
         ! -path "${build_dir_prune:-/nonexistent}/*" ! -path '*/.git/*' \
         ! -name '*.swp' ! -name '*.swx' ! -name '*~' ! -name '.#*' ! -name '#*#' \
         ! -name '.DS_Store' ! -name '4913' -print 2>/dev/null | head -n 1)"
-    [[ -n "${newer}" ]]
+    [[ -n "${newer}" ]] || return 1
+    # 时间戳命中的文件可能是上面那次快照之后才出现的(两次遍历之间新增):重记
+    # 当前快照，让 describe_changes 列得出它。
+    take_snapshot >"${current_file}"
+    return 0
 }
 
 # 列出相对本轮开始快照的变更(+ 新增、- 删除、~ 修改，最多 5 条),便于看清
@@ -221,26 +235,30 @@ start_watcher() {
     watcher_pid=$!
 }
 
-# 阻塞到快照出现变化。事件工具先启动再检查，检查之后的变更必然唤醒它;
-# 它启动完成前的空档由定时复查兜底。
+# 阻塞到快照出现变化或收到停止请求。事件工具先启动再检查，检查之后的变更
+# 必然唤醒它;它启动完成前的空档由定时复查兜底。
 wait_for_change() {
     if [[ "${watch_tool}" == poll ]]; then
-        until changes_pending; do
+        while :; do
+            stop_if_requested
+            changes_pending && return 0
             sleep "${poll_interval}"
         done
-        return 0
     fi
     while :; do
+        stop_if_requested
         start_watcher
         if changes_pending; then
             stop_watcher
             return 0
         fi
-        (sleep "${recheck_interval}"; kill "${watcher_pid}" 2>/dev/null) &
+        # stop_watcher 杀掉其中的 sleep 时子 shell 会报 Terminated,丢掉它的 stderr。
+        (sleep "${recheck_interval}"; kill "${watcher_pid}") 2>/dev/null &
         timer_pid=$!
+        # 陷阱会让 wait 提前返回，监听进程可能还活着：交给 stop_watcher 收掉。
         wait "${watcher_pid}" 2>/dev/null
-        watcher_pid=""
         stop_watcher
+        stop_if_requested
         if changes_pending; then
             return 0
         fi
@@ -265,6 +283,7 @@ echo "test-watch: each round runs ./scripts/test-fast.sh ${fast_args[*]+"${fast_
 
 status=0
 run_round || status=$?
+stop_if_requested
 if [[ "${once}" -eq 1 ]]; then
     exit "${status}"
 fi
@@ -272,12 +291,15 @@ fi
 [[ "${status}" -eq 64 ]] && exit 64
 
 while :; do
+    stop_if_requested
     if ! changes_pending; then
         echo "test-watch: waiting for changes (Ctrl-C to stop)"
         wait_for_change
     fi
+    stop_if_requested
     echo "test-watch: change detected:"
     describe_changes
     sleep "${debounce_seconds}"
+    stop_if_requested
     run_round || true
 done
