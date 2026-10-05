@@ -76,6 +76,10 @@ function(realm_add_gtest name)
     _realm_test_classification(test_class "${ARG_LABELS}")
 
     add_executable(${name} ${ARG_SOURCES})
+    # 测试可执行文件的链接边带着用例发现(POST_BUILD 运行新产物),不进 Ninja
+    # 链接池:macOS 上新链接的二进制首次执行约等 0.5 s,池深 1 会把它们排成
+    # 一串(#123,见 cmake/RealmMeshNinja.cmake)。
+    realmmesh_link_outside_pool(${name})
     target_link_libraries(${name} PRIVATE GTest::gtest_main ${ARG_LIBS})
     target_compile_features(${name} PRIVATE cxx_std_20)
 

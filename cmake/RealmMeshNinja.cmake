@@ -26,6 +26,16 @@
 #   before the first target is added: CMAKE_JOB_POOL_LINK only initializes
 #   targets created after it is set. A no-op for other generators.
 #
+# realmmesh_link_outside_pool(<target>)
+#
+#   Takes one target's link step back out of that pool. Meant for test
+#   executables only: gtest_discover_tests runs the fresh binary as a POST_BUILD
+#   step inside the same link edge, and on macOS the first exec of a newly
+#   linked binary waits about 0.5 s, so a depth-1 pool serialized those waits
+#   across every relinked test (each edge ~0.5 s, 43-73 edges per header or
+#   proto change; Make overlaps them with compiles). Libraries and production
+#   executables stay pooled. Harmless for other generators.
+#
 # This file has no project dependencies on purpose: tests/cmake exercises
 # every branch with stand-in executables and throwaway projects.
 
@@ -101,4 +111,8 @@ function(realmmesh_use_ninja_link_pool)
     endif()
     set_property(GLOBAL APPEND PROPERTY JOB_POOLS "${REALMMESH_NINJA_LINK_POOL}=1")
     set(CMAKE_JOB_POOL_LINK "${REALMMESH_NINJA_LINK_POOL}" PARENT_SCOPE)
+endfunction()
+
+function(realmmesh_link_outside_pool target)
+    set_property(TARGET "${target}" PROPERTY JOB_POOL_LINK "")
 endfunction()

@@ -5,8 +5,8 @@
 # - realmmesh_require_ninja must stop a Ninja configure before project() with a
 #   hint, so a throwaway project is configured with a stand-in that is too old.
 # - realmmesh_use_ninja_link_pool must put every link edge in a depth-1 pool,
-#   so a throwaway C project is generated with the real Ninja and its
-#   build.ninja is inspected.
+#   except targets released with realmmesh_link_outside_pool, so a throwaway C
+#   project is generated with the real Ninja and its build.ninja is inspected.
 # - The libsodium install manifest check runs in script mode against fixture
 #   install trees.
 cmake_minimum_required(VERSION 3.20)
@@ -119,6 +119,9 @@ realmmesh_use_ninja_link_pool()
 add_subdirectory(sub)
 add_executable(pool_main main.c)
 target_link_libraries(pool_main PRIVATE pool_static pool_shared)
+add_executable(pool_free main.c)
+target_link_libraries(pool_free PRIVATE pool_static)
+realmmesh_link_outside_pool(pool_free)
 ")
 file(MAKE_DIRECTORY "${pool_source}/sub")
 file(WRITE "${pool_source}/sub/CMakeLists.txt"
@@ -149,6 +152,12 @@ foreach(target pool_main pool_static pool_shared)
     endif()
     message(STATUS "ok: ${target} links in pool ${REALMMESH_NINJA_LINK_POOL}")
 endforeach()
+string(REGEX MATCH "# Link the [^\n]*pool_free[^\n]*\n[^#]*" link_edge "${build_ninja}")
+string(FIND "${link_edge}" "pool = " position)
+if(link_edge STREQUAL "" OR NOT position EQUAL -1)
+    message(FATAL_ERROR "the link edge of pool_free must not be in a pool:\n${link_edge}")
+endif()
+message(STATUS "ok: pool_free links outside the pool")
 
 # --- libsodium install manifest ------------------------------------------------
 function(check_sodium_tree label tree out_error)

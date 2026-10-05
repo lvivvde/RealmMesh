@@ -22,6 +22,7 @@ include("${PROJECT_SOURCE_DIR}/cmake/RealmMeshBuildDirInfo.cmake")
 realmmesh_write_build_dir_info()
 
 # Ninja 下链接进深度 1 的池，编译仍用满 --jobs(#123);须在第一个目标之前。
+# GTest 可执行文件由 realm_add_gtest 移出池(带用例发现，见 RealmMeshNinja.cmake)。
 realmmesh_use_ninja_link_pool()
 
 add_subdirectory(third_party/lua)
