@@ -609,3 +609,113 @@ Mac 与 Lima 先后进行：先测 Mac（Lima 空闲），Mac 的完整验证与
 
 - [`p3b-mac-samples.json`](assets/build-optimization-results/p3b-mac-samples.json)、[`p3b-lima-samples.json`](assets/build-optimization-results/p3b-lima-samples.json)：结构同 P3a（`pairs` 逐组配对与降幅，`groups` 为两侧 `measure.py export` 结果），本机路径都替换为 `<bench>`；原始日志与时间线没有提交。
 - 复现：同 P3a，把两侧提交换成上表的 `733d149` / `618f612`。
+
+## P3c：Gateway 轻量事件与启动配置头（[#128](https://github.com/lvivvde/RealmMesh/issues/128)）
+
+P3c 把 `GatewayEvent`/`GatewayEventKind` 移到 `gateway_event.hpp`，把 `GatewayConfig`/`GatewayRuntimeOptions` 移到 `gateway_config.hpp`；`gateway_primary_transport.hpp` 只前置声明 `GatewayRuntime`，配置装载头与 `mesh_host.cpp` 改含配置头，`gateway_runtime.hpp` 只留给真正构造或驱动 runtime 的代码。没有做 runtime PIMPL，也没有新增虚接口。做法与取舍见[接口边界决策的实施记录](interface-boundaries-proposal.md#实施记录128)。本阶段门槛是 `gateway_runtime.hpp` 扰动的编译次数下降与双平台完整验证；P3 至此结束，本节同时以 `4f2a8a9` 对 P3c 做 `lua-hpp` 同条件配对，判定整个 P3 的“快 ≥30%、只用配置结果的消费者 0 次重编”。
+
+### 条件
+
+| 项 | 值 |
+| --- | --- |
+| 版本 | `gateway-hpp`：before `b25f6dc`（main，P3b 之后），after `288e847`（分支 `feat/p3c-gateway-light-headers`，本阶段代码含审查修正；其后的提交只改文档与资产）。`lua-hpp`：before `4f2a8a9`（main，P3a 之前，即 P2b 之后），after 同为 `288e847` |
+| 场景 | `probes --probe gateway-hpp`（改 `game/gateway/include/realmmesh/game/gateway/gateway_runtime.hpp`）与 `probes --probe lua-hpp`（改 `framework/scripting/include/realmmesh/scripting/lua_runtime.hpp`）的 token 变体，只计 build 步；每样本后复位原始字节并重建（`*-reset-N`，不计入）。注释变体不跑（`--comment-samples 0`） |
+| 生成器 / preset | Unix Makefiles，`dev`（Debug），binaryDir `build/dev` |
+| 并行 | 两侧相同：Mac `--jobs 8`，Lima `--jobs 2`，与 P3a、P3b 一致 |
+| 编译缓存 | 无（OFF） |
+| 源码 | 每平台三份 `git archive` 副本（`b25f6dc`、`4f2a8a9`、`288e847`）；Lima 从 `git bundle` 克隆的本地仓库导出，不动 Lima 工作区。`.tools` 以符号链接复用。after 副本先测 `gateway-hpp`，再测 `lua-hpp` |
+| 准备（不计时） | 每平台一次 `measure.py --scenario fetch` 获取依赖；三份副本都以 launcher 与 `FETCHCONTENT_SOURCE_DIR_*` 复用它配置，再以 `unit-entry --samples 0`（配置＋ALL＋Unit）做一次 ALL 构建 |
+| 测量工具 | 与 P3a、P3b 相同：measure.py sha256 `368bd1c7…aac`，launcher.cpp `1374833a…034b`，本机编译（Mac `7c015b5f…`，Lima `19554d55…`） |
+| 采样 | 每个探针每侧预热 1 次后交替 5 组：奇数组 before 先，偶数组 after 先；每次调用 1 个样本（`--samples 1 --sample-start N --no-warmup`） |
+| 工具链 | Mac CMake 4.4.3、GNU Make 3.81、Apple clang 21.0.0；Lima CMake 4.2.3、GNU Make 4.4.1、GCC 15.2.0 |
+
+Mac 与 Lima 先后进行：先测 Mac（Lima 空闲），Mac 的完整验证与重复测试结束后再测 Lima（Mac 不跑构建与测试），计时从未重叠。
+
+### 门槛验收
+
+| 门槛 | Mac | Lima |
+| --- | --- | --- |
+| `gateway_runtime.hpp` 扰动的编译次数下降 | 30 → 14，5 组一致 | 30 → 14，5 组一致 |
+| 链接次数（`gateway-hpp`） | 22 → 23：多出的 1 次是本阶段新增的 `gateway_headers_test`（链接 `realm_gateway_service`），其余 22 个产物名单相同 | 同左 |
+| 轻量头不带完整 runtime | `gateway_headers_test` 与 `config_headers_test` 编译通过（`static_assert(!CompleteType<GatewayRuntime>)`）；在两测试最前面临时加入 `gateway_runtime.hpp` 时都在编译期失败 | 同左 |
+| 完整验证 `./scripts/build.sh`（ALL＋完整 CTest `-j 1`） | 退出 0；`100% tests passed out of 660`（P3b 的 659 加本阶段的 `GatewayHeadersTest`，unit；CTest 392.77 s），`build jobs: 8` | 退出 0；`100% tests passed out of 660`（CTest 300.20 s），`build jobs: 2`（budget 2 = min(8 CPUs, 8, memory 7.73 GiB)） |
+| 指名测试重复 3 次 | 3 次都是 `100% tests passed out of 134` | 3 次都是 `100% tests passed out of 134`（每次约 13.7 s） |
+| QUIC | `realm_network: QUIC transport enabled` | 同左 |
+
+指名测试为 `GatewayHeadersTest`、`ConfigHeadersTest`、`GatewayRuntimePrimaryTransportTest`、`InMemoryGatewayPrimaryTransportTest`、`GatewayRuntimeTest`、`GatewayLoginPipelineTest`、`GatewayAdmissionTest`、`GatewayConfigLoaderTest`（`gateway_server_test`）、`GatewayLoginConfigTest`、`LayeredConfigLoaderTest`、`ConfigsLoadSmokeTest`、`ServiceFrameEdgeBudgetTest`、`ServiceFrameRealmEnterTest`、`RealmSessionsTest`、`WireLoginTransportIntegrationTest`、`ServiceHostTest`、`MeshHostTest`、`MeshHostE2ETest`、`Mode2Test` 十九组，共 134 个用例：覆盖拆出的事件与配置头、主传输两种适配器、仍包含 runtime 的全部源码，以及启停与销毁顺序（`ServiceHostTest`、`MeshHostTest`、`Mode2Test`、`MeshHostE2ETest` 启动并停止真实 runtime）。
+
+### 重编名单（`gateway-hpp`）
+
+两平台名单相同。前版本的 30 次里，下列 16 个源码在后版本不再重编：
+
+- 经 `gateway_config_loader.hpp`、`gateway_config_lua.hpp` 间接引入的（含 `layered_config_loader.hpp`、`mesh_host.hpp` 的包含方）：`layered_config_loader.cpp`、`mesh_host.cpp`、`apps/mesh_host/main.cpp`、`gateway_config_loader.cpp`、`gateway_config_lua.cpp`，以及 `config_headers_test`、`configs_load_smoke_test`、`layered_config_loader_test`、`gateway_login_config_test`、`gateway_server_test`、`loadgen_integration_test`；
+- 经 `gateway_primary_transport.hpp` 间接引入的：`gateway_login_pipeline.cpp`、`gateway_admission.cpp`，以及 `gateway_login_pipeline_test`、`gateway_admission_test`、`gateway_ingress_throttle_test`。
+
+后版本仍重编的 14 个都真实构造或驱动 `GatewayRuntime`，属于“稳定接口变化仍重编真实消费者”：
+
+| 源码 | 说明 |
+| --- | --- |
+| `game/gateway/src/gateway_runtime.cpp`、`gateway_primary_transport.cpp` | runtime 本身与生产主传输适配器 |
+| `framework/service_host/src/service_host.cpp` | 创建并持有 runtime |
+| `framework/service_host/src/service_frame.cpp` | 帧循环 `drain_events`、`try_send`、`try_decline`、`stats` |
+| `game/realm/src/realm_sessions.cpp` | 向会话 `try_send` |
+| `gateway_runtime_test`、`gateway_primary_transport_test`、`wire_login_transport_integration_test` | 构造真实 runtime |
+| `service_frame_edge_budget_test`、`service_frame_realm_enter_test` | 持有 `optional<GatewayRuntime>` |
+| `service_host_test`、`mesh_host_test`、`mode2_test`、`mesh_host_e2e_test` | 经 `ServiceHost::runtime()` 调用 `running()`、`local_port()` |
+
+### 筛查耗时（`gateway-hpp`，不判定）
+
+降幅为 `1 − 中位数(after) ÷ 中位数(before)`，只计 build 步。
+
+| 平台 | before 中位数 s（极差） | after 中位数 s（极差） | 降幅 | after 更快的组数 |
+| --- | ---: | ---: | ---: | ---: |
+| Mac（8 jobs） | 11.45（11.10–11.74） | 9.05（8.91–9.14） | 21.0% | 5/5 |
+| Lima（2 jobs） | 36.13（35.92–38.70） | 22.46（22.35–22.50） | 37.8% | 5/5 |
+
+逐组降幅（奇数组 before 先）：
+
+| 组 | Mac | Lima |
+| ---: | ---: | ---: |
+| 1 | 23.8% | 38.6% |
+| 2 | 22.2% | 37.5% |
+| 3 | 22.2% | 38.0% |
+| 4 | 17.7% | 37.7% |
+| 5 | 19.4% | 42.0% |
+
+### 整个 P3 的判定（`lua-hpp`，`4f2a8a9` → `288e847`）
+
+| 门槛 | Mac | Lima |
+| --- | --- | --- |
+| build 中位耗时下降 ≥30%（同 jobs、cache OFF） | 13.52（13.21–14.17）→ 9.05（8.64–9.22）s，**33.1%**，5/5 组 after 更快 | 45.66（43.40–46.21）→ 19.87（19.33–20.46）s，**56.5%**，5/5 组 after 更快 |
+| 只用配置结果的消费者 0 次重编 | 33 → 10，5 组一致；剩下 10 个都是真实直接 Lua 使用者（见下） | 33 → 10，5 组一致，名单同左 |
+| 链接次数 | 53 → 56：多出的 3 次是 P3 新增的 `config_headers_test`、`load_topology_test`、`gateway_headers_test`，其余 53 个产物名单相同。链接扇出未承诺消除 | 同左 |
+
+逐组降幅（奇数组 before 先）：
+
+| 组 | Mac | Lima |
+| ---: | ---: | ---: |
+| 1 | 35.9% | 56.1% |
+| 2 | 33.4% | 56.9% |
+| 3 | 34.5% | 55.3% |
+| 4 | 36.1% | 57.7% |
+| 5 | 30.2% | 52.8% |
+
+前版本的 33 次里，下列 24 个源码在后版本不再重编：配置与服务实现 `player_data_config.cpp`、`login_verify_config.cpp`、`login_verify_service.cpp`、`queue_config.cpp`、`queue_service.cpp`、`realm_config.cpp`、`mesh_host.cpp`、`service_frame.cpp`、`service_host.cpp`、`realm_sessions.cpp`、`apps/mesh_host/main.cpp`，以及 `layered_config_loader_test`、`gateway_server_test`、`login_verify_service_test`、`queue_service_test`、`realm_sessions_test`、`training_rule_test`、`service_host_test`、`service_frame_realm_enter_test`、`wire_login_transport_integration_test`、`mesh_host_test`、`mesh_host_e2e_test`、`mode2_test`、`loadgen_integration_test`。后版本的 10 个与 P3b 的 after 名单相同：`lua_runtime.cpp`、`startup_topology_lua.cpp`（P3b 新增的拓扑装载入口）、`layered_config_loader.cpp`、`gateway_config_loader.cpp`、`account_store.cpp`、`player_data_store.cpp`、`training_rule.cpp` 与 `lua_runtime_test`、`configs_load_smoke_test`、`gateway_login_config_test`，都创建或驱动 `LuaRuntime`、读取 Lua 文件或调用解析入口，不是“只用配置结果”的消费者。P3c 没有改变这份名单：`gateway_runtime.hpp` 本就不含 Lua 头，P3c 减少的是 Gateway 布局的传播。
+
+- 两平台判定：**通过**。同 jobs、cache OFF 下 `lua-hpp` build 中位耗时 Mac 降 33.1%、Lima 降 56.5%，都不低于 30%，且两平台 5/5 组 after 更快；只用配置结果的消费者在两平台都是 0 次重编。Lima 降幅更大，因为 2 jobs 下被省掉的 23 个编译单元几乎全部串行排队，而 Mac 8 jobs 时它们与剩下的 10 个并行，墙钟收益被压缩。
+- Mac 两侧极差为中位数的 7.1%（before）与 6.4%（after），超出 5% 噪声带；每组 after 都比同组 before 快 4 s 以上，方向不受影响，最低的第 5 组为 30.2%。Lima 两侧极差为 6.2% 与 5.7%，同样略超噪声带；每组 after 都比同组 before 快 23 s 以上，最低的第 5 组为 52.8%。
+- `gateway-hpp` 只作筛查：Lima before 极差 7.7%，来自第 5 组的 38.70 s（其余四组 35.92–36.48 s），after 极差 0.7%；Mac 为 5.6% 与 2.5%。两平台 5/5 组方向一致。
+- 本节 before 的 33 次与 P3a 记录的 `4f2a8a9` 名单一致；after 的 10 次与 P3b after 一致。两次比较组不同，秒数不跨组拼接。
+
+### 异常与限制
+
+- **after 副本 `lua-hpp` 预热多编 14 个（两平台相同）。** after 副本先跑 `gateway-hpp`、再跑 `lua-hpp`。`measure.py` 退出时会再写一次探针文件的原始字节（`edited()` 的收尾），使 `gateway_runtime.hpp` 的 mtime 晚于最后一次复位构建；于是下一次构建（`lua-hpp` 预热）先补编这 14 个 runtime 消费者，记为 24 次。预热不计入统计；随后的预热复位与 5 组正式样本都是 10 次。同一探针连续调用不受影响，因为下一次调用写的正是同一个文件。before 两份副本各只测一个探针，没有这个现象。
+- **资源。** 进程树 RSS 峰值 Mac `gateway-hpp` 为 2239 MiB（before）/ 1685 MiB（after），`lua-hpp` 为 2575 / 1258 MiB；最低可用内存约 17806 MiB，内存压力等级一直为 1，swap 没有增长。Lima `gateway-hpp` 为 1974 / 1283 MiB，`lua-hpp` 为 2009 / 1379 MiB；最低可用内存 1443 MiB，内存压力等级为 0，swap 没有增长，没有 OOM。Lima 的 `/tmp`（tmpfs）测前已用 89%，与 P3b 记录相同，不是本次所致；构建临时文件经 `TMPDIR` 放在磁盘上。 所有工具调用都以 0 退出。
+- **守卫与测试取舍。** 审查后删去 `gateway_headers_test` 中与 `config_headers_test` 重复的配置缺省值用例，以及对 `GatewayEvent::established` 的断言（`established` 在 [CONTEXT.md](../../CONTEXT.md) 是要避免的旧称；字段改名不在本票范围）。两个守卫各写一份 `CompleteType` 概念，没有为一行代码新建测试支持头。
+- **链接扇出未变。** `gateway_runtime.hpp` 扰动仍触发 22 个原有产物重链，`lua_runtime.hpp` 扰动仍触发 53 个原有产物重链；链接等待由 P4 处理。
+- **CMake 3.20 未实跑**；本阶段的 CMake 改动只有新增一个 `realm_add_gtest`，没有用到新于 3.20 的特性。
+
+### 资产
+
+- [`p3c-mac-samples.json`](assets/build-optimization-results/p3c-mac-samples.json)、[`p3c-lima-samples.json`](assets/build-optimization-results/p3c-lima-samples.json)：结构同 P3a、P3b，`pairs` 下分 `gateway-hpp` 与 `lua-hpp` 两组（各带 before/after 提交、逐组配对与降幅），`groups` 为四侧 `measure.py export` 结果（含预热与 reset 样本），本机路径都替换为 `<bench>`；原始日志与时间线没有提交。
+- 复现：同 P3a，`gateway-hpp` 两侧为 `b25f6dc` / `288e847`，`lua-hpp` 两侧为 `4f2a8a9` / `288e847`；after 副本先测 `gateway-hpp` 再测 `lua-hpp` 时，以预热吸收上条所述的补编。
