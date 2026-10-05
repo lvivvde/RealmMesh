@@ -1,6 +1,6 @@
 # 构建工具、并行缓存与依赖复用策略
 
-关联[选择构建工具、并行缓存与第三方依赖复用策略](https://github.com/lvivvde/RealmMesh/issues/112)。用户已通过 Q1–Q6 确认各项选择，并通过 Q7 最终确认完整方案与正式记录。本文是后续实施约束，尚未修改优化代码，也未取得 Ninja/ccache 的项目性能结果。
+关联[选择构建工具、并行缓存与第三方依赖复用策略](https://github.com/lvivvde/RealmMesh/issues/112)。用户已通过 Q1–Q6 确认各项选择，并通过 Q7 最终确认完整方案与正式记录。本文是后续实施约束。Ninja 默认与 Make 回退已由 [#123](https://github.com/lvivvde/RealmMesh/issues/123)（P4）落地，见文末[实施记录（#123）](#实施记录123)；ccache 尚未实施。
 
 ## 首批选择与适用场景
 
@@ -114,3 +114,35 @@ Linux 基线约8GiB、无swap，build位于tmpfs且约2.8GB；编译内存与文
 Tier Verify：Users-edwin-Projects-RealmMesh，主体证据generation2026-10-02T12:27:02Z、recorded12:30:32Z；watch补证generation2026-10-02T12:54:16Z。根CMake/预设/CI/Proto及入口脚本按相关路径核验覆盖；third_party与冻结build为明确排除，相关wrapper、缓存与下载脚本直接读取。dev-services.sh:265–266、Linux验收:224部分解析范围已源码补证；watch入口为scripts/test-watch.sh。
 
 路径迁移事实来自CMakePresets.json、scripts/build.sh、scripts/test-watch.sh、scripts/lib/dev-process.sh、scripts/dev-all-in-one.sh、scripts/dev-services.sh、scripts/run-linux-login-acceptance.sh、scripts/run-macos-login-acceptance.sh与.github/workflows/ci.yml的build/dev字面量。图信号无记录缺口不保证全仓完整性；本票未做全仓缓存可用性或ABI审计。
+
+## 实施记录（#123）
+
+以下是 P4 的实际选择；上文约定未改动的部分不再重复。耗时、恢复与资源数据见[构建优化结果的 P4 节](build-optimization-results.md#p4ninja-默认与-make-回退123)。
+
+### 预设与工具门槛
+
+- `dev` 为 Ninja、binaryDir `build/dev-ninja`；`dev-make` 为 Unix Makefiles、binaryDir `build/dev-make`，显示名改为 “Development (Make fallback)”。两者都有同名 build/test 预设。旧 `build/dev` 不读、不删、不迁移。
+- 入口与验收脚本按 #122 的配置期登记解析目录，本阶段不改它们；仓库根 `compile_commands.json` 随所选预设指向 `build/dev-ninja/` 或 `build/dev-make/`。
+- `cmake/RealmMeshNinja.cmake` 的 `realmmesh_require_ninja()` 在 `project()` 之前运行：按 CMake 的查找名（`ninja-build`、`ninja`）解析 `CMAKE_MAKE_PROGRAM` 并缓存，版本低于 1.11、解析不出或执行失败都以配置错误停下，提示安装 Ninja 或显式改用 `--preset dev-make`。不自动换生成器，也不自动安装。
+- CI 两个 job 显式安装 Ninja（`brew install ninja`、`apt-get install ninja-build`）并打印版本，构建仍显式 `--parallel 2`。
+- `tools/build-bench/measure.py` 不再由预设名推导目录，改为按副本自己的 `CMakePresets.json`／`CMakeUserPresets.json` 沿 `inherits` 解析 binaryDir（只展开 `${sourceDir}`、`${presetName}`，其他宏要求显式 `--build-dir`）；构建命令总是带 `--parallel N`，缺省 1，因为 Ninja 不传时按核数并行。
+- **与上文“不要自行简化解析 CMake 的继承、宏和用户预设规则”相抵，提请重审。** 测量对象是尚未配置的 `git archive` 副本，冷入口要在配置之前删掉构建目录，此时还没有 #122 的配置期登记可读，CMake 也没有不配置就报告 binaryDir 的命令。这一简化解析只在测量工具内，遇到其他宏即要求显式 `--build-dir`；`scripts/` 下的入口仍只读配置期登记，不受影响。若不接受，替代是测量调用一律显式传 `--build-dir`。
+
+### 链接池
+
+- Ninja 下根 CMakeLists 在第一个目标之前调用 `realmmesh_use_ninja_link_pool()`：声明 `JOB_POOLS realmmesh_link=1`，并以 `CMAKE_JOB_POOL_LINK` 让此后创建的原生目标（含静态库归档与 FetchContent 依赖）链接进这个池。它是总 jobs 的子集；Make 下不生效。
+- **偏离硬门槛预算“Ninja 链接 1”：GTest 可执行文件不进池，提请确认。** `realm_add_gtest` 对每个测试可执行文件调用 `realmmesh_link_outside_pool()`（`JOB_POOL_LINK` 置空）。原因是 `gtest_discover_tests` 的 POST_BUILD 用例发现与链接同在一条 Ninja 边里，而 macOS 上新链接的二进制首次执行约等 0.5 s（user/sys 为 0），池深 1 把这些等待串成一列：公共头或 `.proto` 改动要重链 43–73 个测试，全部进池时 Ninja 反比 Make 慢 2–2.8 倍（结果节“全部进池”一轮）。按验收约定，这一回归本应回退 Make 或重新决策；放出测试链接是在保留 Ninja 收益的前提下对预算的调整，不只是“修正依赖表达”，因此作为范围决定写进 PR 请人确认，而不是自行认定。
+- 放出后的边界：测试链接仍受总 `--jobs` 约束（Mac 8、Linux/CI 2），不会超出编译预算的进程数；Linux/CI 2 路下最多两个链接同时运行。测试链接的单次内存峰值（Mac 最高 263 MiB）与生产链接同量级（`realm_mesh` 239 MiB），放出后两平台的整体压力（进程树峰值、最低可用内存、swap、OOM）见结果节，均在门槛内。库与生产可执行文件仍在池内；`BuildGraphTest` 在 Ninja 构建下检查本工程 `build.ninja` 的池归属，防止回退。
+- 考虑过而未采用：另设一个深度 N 的测试链接池（N 取多少都只是另一个预算值，且仍要人定）；改用 PRE_TEST 用例发现（见下条）；整体回退 Make（短场景在两平台都失去 10–46% 的收益）。
+- 不重写用例发现：GoogleTest 模块在 3.20、3.31、4.x 之间的 POST_BUILD/PRE_TEST 实现不同；改用 PRE_TEST 只是把同样的串行等待移到 ctest 启动时。
+
+### libsodium 与生成文件
+
+- `make install` 并入 ExternalProject 的构建步，安装步置空；装出的全部头与 `lib/libsodium.a` 都列为该步的 `BUILD_BYPRODUCTS`。Ninja 由此知道这些文件的产出者，删除任一文件都会重跑这一步并在同一轮重编、重链下游。单独安装步的产物声明要 3.26 的 `INSTALL_BYPRODUCTS`，最低 3.20 不可用，所以采用并步。
+- 安装文件清单写在 `third_party/sodium/sodium-install-manifest.cmake`，构建步末尾按清单核对安装树：多出未声明的头或缺少声明的文件都使构建失败，升级 libsodium 时漏改清单不会悄悄让 Ninja 不认识新头。`.la` 与 pkg-config 文件不被消费，不在清单内。
+- 外部构建仍是 `make -j1` 并断开顶层 jobserver（#125），Ninja 池不覆盖它。
+- protobuf 生成规则未改：现有 `add_custom_command` 的 OUTPUT/DEPENDS 在 Ninja 下已能从删除的 `.pb.h`／`.pb.cc` 恢复，`ninja -t missingdeps` 未报缺失。
+
+### 测试覆盖
+
+`BuildGraphTest`（integration）覆盖：版本门槛对各种 `ninja --version` 输出与执行失败的判定；`project()` 之前停下并给出提示；用真实 Ninja 生成的临时工程里库与可执行文件的链接边在深度 1 的池内、用 `realmmesh_link_outside_pool` 放出的不在池内；Ninja 构建下本工程 `build.ninja` 里库与 `realm_mesh` 在池内、`realm_add_gtest` 注册的测试可执行文件不在池内；libsodium 清单核对对多出与缺少文件报错。

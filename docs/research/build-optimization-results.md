@@ -719,3 +719,142 @@ Mac 与 Lima 先后进行：先测 Mac（Lima 空闲），Mac 的完整验证与
 
 - [`p3c-mac-samples.json`](assets/build-optimization-results/p3c-mac-samples.json)、[`p3c-lima-samples.json`](assets/build-optimization-results/p3c-lima-samples.json)：结构同 P3a、P3b，`pairs` 下分 `gateway-hpp` 与 `lua-hpp` 两组（各带 before/after 提交、逐组配对与降幅），`groups` 为四侧 `measure.py export` 结果（含预热与 reset 样本），本机路径都替换为 `<bench>`；原始日志与时间线没有提交。
 - 复现：同 P3a，`gateway-hpp` 两侧为 `b25f6dc` / `288e847`，`lua-hpp` 两侧为 `4f2a8a9` / `288e847`；after 副本先测 `gateway-hpp` 再测 `lua-hpp` 时，以预热吸收上条所述的补编。
+
+
+## P4：Ninja 默认与 Make 回退（[#123](https://github.com/lvivvde/RealmMesh/issues/123)）
+
+P4 把 `dev` 预设切到 Ninja（≥1.11，binaryDir `build/dev-ninja`），新增 `dev-make` 预设（Unix Makefiles，`build/dev-make`）作为回退。Ninja 下库与生产可执行文件的链接进深度 1 的池；libsodium 的外部构建仍是 `make -j1`，安装出的库与全部头都声明为构建步产物，供 Ninja 恢复用。做法与取舍见[工具与缓存决策的实施记录](build-tool-cache-decisions.md#实施记录123)。本阶段门槛是：双平台新目录构建、删除单个生成产物后的恢复、完整测试和编译数据库都有效，之后才切默认；耗时以同 jobs、cache OFF 的 Make/Ninja 配对做生成器归因。没有净收益或出现回归时，回退 Make 或重新决策。
+
+**两项偏离约定，待确认后才算验收完成：**测试可执行文件的链接不进池（偏离“Ninja 链接 1”的预算，见“全部进池的一轮”）；`measure.py` 自行解析预设的 binaryDir（与决策文档“不要自行简化解析”相抵，见实施记录）。默认已在分支上切换，合并以本节结果为依据。
+
+### 条件
+
+| 项 | 值 |
+| --- | --- |
+| 版本 | 正式配对与验证：`ca4b978`（分支 `feat/p4-ninja-default`，测试链接放出池外）。“全部进池”一轮：`1d96663`（同分支，所有链接进池）。两轮都只比较同一提交的两个预设，不与其他阶段跨组拼接 |
+| 两侧 | Make：`--preset dev-make`（Unix Makefiles，`build/dev-make`）；Ninja：`--preset dev`（Ninja，`build/dev-ninja`）。同一提交、同一份依赖、同一 launcher |
+| 场景 | `cold-entry`（删除构建目录后配置＋ALL＋完整 CTest `-j 1`）、`fast-entry`（`scripts/test-fast.sh` 无改动）、`fast-cpp-entry`（`test-fast.sh`，改 `lua_runtime.cpp` 的 token）、`probes --probe lua-hpp`、`probes --probe proto`（改 `edge.proto`），后两者只计 build 步。改动类每样本后复位原始字节并重建（不计入）；注释变体不跑 |
+| 并行 | 两侧相同：Mac `--jobs 8`，Lima `--jobs 2`，即当前预算（CI 同为 2）。`fast-entry` 与 `fast-cpp-entry` 由 `test-fast.sh` 按预算取编译 jobs（Mac 8、Lima 2），Unit 用例 4 路并行 |
+| 编译缓存 | 无（OFF） |
+| 源码 | 每平台两份不带 `.git` 的源码副本（`make`、`ninja`），内容为上表提交；Lima 的副本由本机打包传入，不动 Lima 工作区。`.tools` 以符号链接复用 |
+| 准备（不计时） | 每平台一次 `measure.py --scenario fetch` 获取依赖；两份副本都以 launcher 与 `FETCHCONTENT_SOURCE_DIR_*` 复用它配置 |
+| 测量工具 | 本分支的 measure.py（sha256 `bd54f4b5…27b6`，`ca4b978` 与工作树相同），launcher.cpp `1374833a…034b`，本机编译（Mac `7c015b5f…`，Lima `19554d55…`）。本分支对 measure.py 的改动：构建命令总是带 `--parallel N`（缺省 1，因为 Ninja 不传时按核数并行，Make 不传即串行）；`--build-dir` 缺省按副本自己的预设文件解析 binaryDir，不再由预设名推导。两项都不改计时与计数口径 |
+| 采样 | `cold-entry` 交替 3 组，短场景每侧预热 1 次后交替 5 组：奇数组 Make 先，偶数组 Ninja 先；每次调用 1 个样本（`--samples 1 --sample-start N --no-warmup`） |
+| 工具链 | Mac CMake 4.4.3、GNU Make 3.81、Ninja 1.13.2、Apple clang 21.0.0（15 CPU，48 GiB）；Lima CMake 4.2.3、GNU Make 4.4.1、Ninja 1.13.2、GCC 15.2.0（8 vCPU，7.73 GiB） |
+
+Mac 与 Lima 先后进行：先测 Mac（Lima 空闲），Mac 的验证结束后再测 Lima（Mac 不跑构建与测试），计时从未重叠。测量期间 Mac 以 `caffeinate` 阻止空闲睡眠。
+
+### 门槛验收
+
+| 门槛 | Mac | Lima |
+| --- | --- | --- |
+| 新目录高并行构建 | `--parallel 16` 从空目录配置并构建 ALL，57.85 s，退出 0；`ninja -t missingdeps` 检查 1379 个节点，无缺失 | `--parallel 4`，86.34 s，退出 0；`missingdeps` 1375 个节点，无缺失 |
+| 删除单个产物后恢复（Ninja，一次构建内） | 见下表，全部在下一次构建中重建并退出 0；再构建一次为 0 编译 0 链接 | 同 Mac，计数一致；删除 `sodium.h` 后的再构建有 56 次多余重链（见“异常与限制”） |
+| 完整验证 `./scripts/build.sh`（ALL＋完整 CTest `-j 1`） | `--preset dev`：退出 0，`100% tests passed out of 661`，CTest 391.39 s，`build jobs: 8`，之后 `missingdeps` 无缺失；`--preset dev-make`：退出 0，`100% tests passed out of 661`，CTest 388.03 s | `--preset dev`：退出 0，`100% tests passed out of 661`，CTest 293.07 s，`build jobs: 2`；`--preset dev-make`：退出 0，`100% tests passed out of 661`，CTest 295.73 s，`build jobs: 2` |
+| QUIC | `realm_network: QUIC transport enabled`（本机装有 `libmsquic`） | 同左 |
+| 编译数据库 | `build/dev-ninja` 与 `build/dev-make` 的 `compile_commands.json` 都是 1094 条，所列源码全部存在；以库中命令对 8 个依赖生成 protobuf 头或 libsodium 头的项目源码做 `-fsyntax-only`，全部通过。仓库根的链接随 `build.sh`／`test-fast.sh` 改指向所选预设 | 同一套检查只在 Mac 做；Lima 的入口与 Mac 相同 |
+| 无改动零工作 | 正式样本两侧 `fast-entry` 都是 0 编译 0 链接（各 12 次，含预热与准备） | 正式样本 0 编译 0 链接；每侧紧接冷入口后的那次预热重链 42 个 Unit 测试（见“异常与限制”） |
+| 资源 | 进程树 RSS 峰值 2178 MiB；最低可用内存 17022 MiB；内存压力等级一直为 1；swap 3.8 MiB，测量前后不变 | 进程树 RSS 峰值 1782 MiB；最低可用内存 1635 MiB（≥1 GiB）；swap 0；`oom_kill` 计数测前测后都是 22（测前已有），无新增 OOM |
+
+删除恢复（Mac 与 Lima 计数相同，编译/链接次数）：
+
+| 删除的文件 | 产出者 | 恢复构建 | 再构建 |
+| --- | --- | ---: | ---: |
+| `third_party/sodium/install/lib/libsodium.a` | libsodium 外部构建步 | 8 / 72 | 0 / 0 |
+| `third_party/sodium/install/include/sodium.h` | 同上 | 8 / 72 | 0 / 0（Lima 0 / 56，复测 3 次为 0 / 0） |
+| `third_party/sodium/install/include/sodium/crypto_box.h` | 同上 | 8 / 72 | 0 / 0 |
+| `proto/generated/realmmesh/edge/v1/edge.pb.h` | `protoc` 自定义命令 | 44 / 61 | 0 / 0 |
+| `proto/generated/realmmesh/edge/v1/edge.pb.cc` | 同上 | 44 / 61 | 0 / 0 |
+| `proto/librealm_protocol.a` | 静态库归档 | 0 / 56 | 0 / 0 |
+| `framework/cluster/CMakeFiles/realm_cluster.dir/src/budget_publisher.cpp.o` | 编译 | 1 / 36 | 0 / 0 |
+
+libsodium 的三项都会重跑外部构建步并重装，随后重编 8 个源码、重链全部下游；protobuf 的两项重跑 `edge.proto` 的 `protoc` 命令，重编 44 个源码。
+
+### 同 jobs 配对（`ca4b978`，cache OFF）
+
+降幅为 `1 − 中位数(Ninja) ÷ 中位数(Make)`；`cold-entry` 计整次调用（配置＋构建＋完整 CTest），`fast-entry`、`fast-cpp-entry` 计整次 `test-fast.sh`，探针只计 build 步。两侧每组的编译/链接次数相同（Mac 冷入口 777/77，Lima 776/76；`fast-cpp-entry` 1/43；`lua-hpp` 10/56；`proto` 44/55）。
+
+**Mac（8 jobs）**
+
+| 场景 | Make 中位数 s（极差） | Ninja 中位数 s（极差） | 降幅 | Ninja 更快的组数 | 逐组降幅（奇数组 Make 先） |
+| --- | ---: | ---: | ---: | ---: | --- |
+| `cold-entry` | 453.69（452.77–455.60） | 459.85（458.39–460.60） | −1.4% | 0/3 | −1.2%、−1.1%、−1.4% |
+| `fast-entry` | 6.30（6.22–6.32） | 3.40（3.36–3.42） | 46.1% | 5/5 | 46.0%、46.1%、46.3%、45.8%、45.8% |
+| `fast-cpp-entry` | 8.38（8.21–8.83） | 6.29（6.23–7.24） | 24.9% | 5/5 | 23.8%、24.0%、25.6%、27.0%、14.4% |
+| `lua-hpp` | 8.62（8.47–9.12） | 4.69（4.63–5.47） | 45.5% | 5/5 | 40.0%、47.2%、38.1%、44.6%、45.4% |
+| `proto` | 14.83（14.39–15.28） | 10.40（10.31–10.84） | 29.9% | 5/5 | 30.4%、27.6%、32.1%、26.9%、28.4% |
+
+**Lima（2 jobs）**
+
+| 场景 | Make 中位数 s（极差） | Ninja 中位数 s（极差） | 降幅 | Ninja 更快的组数 | 逐组降幅（奇数组 Make 先） |
+| --- | ---: | ---: | ---: | ---: | --- |
+| `cold-entry` | 469.35（468.57–473.87） | 465.77（465.14–467.12） | 0.8% | 3/3 | 0.5%、0.7%、1.7% |
+| `fast-entry` | 3.03（2.99–3.22） | 1.81（1.80–1.83） | 40.2% | 5/5 | 40.5%、39.6%、44.1%、39.6%、39.6% |
+| `fast-cpp-entry` | 8.85（8.80–9.14） | 7.74（7.66–8.11） | 12.5% | 5/5 | 14.5%、12.9%、12.5%、11.3%、12.2% |
+| `lua-hpp` | 19.33（19.32–20.55） | 17.31（16.86–17.79） | 10.5% | 5/5 | 17.2%、11.6%、8.8%、8.0%、12.7% |
+| `proto` | 52.89（48.96–54.63） | 46.88（45.19–47.70） | 11.4% | 5/5 | 3.7%、4.9%、15.5%、11.4%、15.9% |
+
+冷入口分步（三组的 configure / build / test，s）：
+
+| 平台 | Make | Ninja |
+| --- | --- | --- |
+| Mac | configure 6.38、6.00、5.64；build 64.54、59.82、60.35；test 381.84、389.78、387.68 | configure 约 4.7；build 63.98、65.05、64.12；test 389.73、390.86、391.00 |
+| Lima | configure 约 1.9；build 169.12、170.25、177.04；test 约 296 | configure 约 1.6；build 165.54、165.43、163.63；test 约 300 |
+
+- **短场景：两平台都有净收益。** 四个短场景两平台都是 5/5 组 Ninja 更快。收益来自调度而非工作量（两侧编译、链接次数相同）：无操作时 Ninja 只读一份 `build.ninja` 与 `.ninja_deps`，Make 3.81／4.4 要递归进每个目录重新判定；改动时 Ninja 一边链接一边开始下一个可运行的边，Make 按目录与目标逐层推进。Lima 2 jobs 下改动类的编译与链接本身占大头，可省的只有调度，所以降幅（10–13%）小于 Mac（25–46%）。
+- **Mac 冷入口慢 1.4%，在可解释范围内，不判回归。** 6 s 的差距里，build 步中位数 Make 60.35、Ninja 64.12 s（+3.8 s），test 步 Ninja 高约 3 s，configure 步 Ninja 少约 1.4 s。test 步跑的是同一套 CTest，差异属于桌面负载的波动。build 步剩下的差距来自 libsodium：它的串行 configure＋make 是冷构建的关键路径，Ninja 下这一步比 Make 晚约 2.4 s 开始，configure 在并发编译的争用下又慢约 2 s。池的影响已在放出测试链接时消除：全部进池的一轮里 Ninja 冷构建 build 步为 92.90–94.42 s，放出后为 63.98–65.05 s。Lima 冷入口 3/3 组 Ninja 更快（build 步 −2.8%），因为 2 jobs 下关键路径是编译本身而不是 libsodium。冷构建不是日常反馈路径；把 libsodium 移出关键路径（例如预构建或缓存安装树）不在 P4 范围。
+- **完整验证。** 热完整验证没有作为配对场景重跑；同一会话内两预设的完整 CTest 为 Mac 391.39 s（Ninja）对 388.03 s（Make）、Lima 293.07 s 对 295.73 s，CTest 本身与生成器无关。热完整验证按 R0 的门槛在 P6 复测。
+
+### 全部进池的一轮（`1d96663`，Mac 8 jobs）
+
+最初的实现让所有链接（含测试可执行文件）进深度 1 的池。同条件配对显示短改动场景大幅回归：
+
+| 场景 | Make 中位数 s | Ninja 中位数 s | 降幅 |
+| --- | ---: | ---: | ---: |
+| `cold-entry` | 460.77 | 488.51 | −6.0%（build 步 64.66 → 93.12） |
+| `fast-entry` | 6.37 | 3.45 | 45.8% |
+| `fast-cpp-entry` | 8.22 | 19.67 | −139.4% |
+| `lua-hpp` | 8.27 | 22.82 | −176.1% |
+| `proto` | 14.41 | 29.31 | −103.4% |
+
+原因是 `gtest_discover_tests` 的 POST_BUILD 用例发现与链接同在一条 Ninja 边里：macOS 上新链接的二进制首次执行约等 0.5 s（user/sys 为 0），池深 1 把 43–56 个测试的链接加发现串成一列。Make 不受池约束，8 路并行跑这些 POST_BUILD。只把测试可执行文件放出池后（`ca4b978` 之前在 `1d96663` 上筛查，每场景 3 个样本），Ninja 中位数降为 `fast-cpp-entry` 6.20、`lua-hpp` 4.57、`proto` 10.41 s，与上面正式配对一致。放出后的最大单次链接内存为 263 MiB（`service_host_test`），生产链接 `realm_mesh` 为 239 MiB，同一量级；整体资源见上表。按验收约定，这一回归本应回退 Make 或重新决策；放出测试链接是对“Ninja 链接 1”预算的调整，作为待确认的范围决定记在实施记录与 PR 中。
+
+这一轮的 Ninja 冷入口第 3 组退出 8：`TestWatchScriptTest` 偶发失败，原因是停止提示被写进快照文件，已由 `fb0e18f` 修复（只改脚本的输出去向）。失败只影响退出码，不影响该样本的构建与计时；正式配对在修复之后，全部退出 0。
+
+### 相对 R0 的累计变化（仅供参考）
+
+R0 是串行构建（`4ffb58d`，Make），这里把它与 P4 后的 Ninja 默认配置放在一起，展示 P1–P4 合计后的日常体验；并行预算、目标选择、接口拆分与生成器的贡献混在其中，不能归因给 Ninja，也不作为 R0 门槛的判定（判定在 P6 按验收约定复测）。
+
+| 指标 | Mac R0 → P4 Ninja | Mac 降幅 | Lima R0 → P4 Ninja | Lima 降幅 |
+| --- | --- | ---: | --- | ---: |
+| 冷入口 build 步 | 305.71 → 64.12 | 79.0% | 359.20 → 165.43 | 53.9% |
+| 默认 Unit 无改动（总） | 17.78 → 3.40 | 80.9% | 7.32 → 1.81 | 75.3% |
+| 默认 Unit `.cpp` 改动（总） | 43.25 → 6.29 | 85.5% | 24.26 → 7.74 | 68.1% |
+| `lua-hpp` token（build 步） | 72.71 → 4.69 | 93.5% | 73.79 → 17.31 | 76.5% |
+
+### 回退
+
+```bash
+./scripts/build.sh --preset dev-make
+```
+
+`test-fast.sh`、`test-watch.sh` 与 `build-dir.sh` 同样接受 `--preset dev-make`；两个预设的构建目录互不干扰，切换后仓库根的 `compile_commands.json` 随入口改指向。Ninja 缺失或低于 1.11 时，`dev` 在 `project()` 之前停下并提示改用这个预设，不会悄悄换生成器。
+
+### 旧路径 `build/dev` 的复查
+
+P2a 把文档里 `build/dev` 的复查留给 P4（见 P2a“异常与限制”）。本阶段已把运行手册中的启动命令改为 `build/dev-ninja`（`admission-cutover.md`、`shared-mongodb.md`、M1–M4 规格）。余下的出现都不改：`linux-arm64-development.md` 第 52 行与 `docs/plans` 下两份计划记录的是当时的日志位置与步骤；`admission-cutover.md` 的“旧 `build/dev` 产物不构成证据”本就指旧目录，仍然成立；`docs/research` 下的调研、决策文档与历史资产记录的是当时的路径；README 提到 `build/dev` 只是说明旧目录不再读写。
+
+### 异常与限制
+
+- **Lima 上的多余重链（两侧相同，不影响正式样本）。** 每侧冷入口之后的第一次 `fast-entry` 预热都重链了同样 42 个 Unit 测试（0 编译），正式样本与准备样本全是 0/0；Mac 没有出现。Ninja 侧的 `.ninja_log` 显示，那次构建里只重跑了 3 个 absl 静态库的归档边（`libabsl_int128.a`、`libabsl_string_view.a`、`libabsl_decode_rust_punycode.a`），没有编译，42 个测试经 protobuf 依赖它们而重链。命令未变时 Ninja 只在产物比输入旧时重跑一条边；归档紧跟最后一个目标文件之后几毫秒内完成，Lima 的时钟若在两者之间向后步进约 335 ms（见下条），归档的 mtime 就早于目标文件。Make 侧没有留下逐边记录，它同样按 mtime 判定，重链的也是这 42 个经 protobuf 依赖 absl 的测试。恢复验证里删 `sodium.h` 那一例的第二次构建重链 56 个（0 编译），也符合这一机制：第一次构建重编并重新归档了 `librealm_game_common.a`，而它下游恰好是 56 条链接边（另行 touch 其一个目标文件实测）；当时的第二次构建日志已被后续用例覆盖，无法逐边确认。之后在同一目录重做 3 次删 `sodium.h`，第二次构建均为 0/0。预热不计入统计，这一现象不影响配对结果；Lima 上的日常构建同样可能偶发一次这样的多余归档与重链，这不是依赖表达错误。
+- **Lima 时钟步进。** Lima 的 guest agent 每约 10 s 按宿主时间步进一次系统时钟（约 335 ms），与 chronyd 互相拉扯。墙钟样本由单调时钟计时，不受影响；但文件 mtime 跟着步进，是 Lima 上偶发多余重编、重链的候选来源之一。测量期间没有修改 VM 的时间设置。
+- **Mac 空闲睡眠。** 第一次尝试的 Mac 测量被系统空闲睡眠打断，作废重测；正式数据全部在 `caffeinate` 下取得。
+- **负载与环境。** Mac 测量期间桌面应用照常运行。Lima 上有一个与本项目无关的空闲 qemu 进程（CPU 约 1%），`/tmp`（tmpfs）测前已用 89%，构建临时文件经 `TMPDIR` 放在磁盘上。
+- **编译数据库的不存在目录。** 两预设的编译数据库都带有 `_deps/protobuf-build/src` 这一 `-I` 目录，它来自 protobuf 上游目标的接口包含路径，目录不存在，编译器忽略；与生成器无关。
+- **CMake 3.20 未实跑**；两平台本机与 CI 的 CMake 都更高。`JOB_POOLS`、`CMAKE_JOB_POOL_LINK`、`JOB_POOL_LINK` 与 `BUILD_BYPRODUCTS` 在 3.20 都已可用；不用 3.26 的 `INSTALL_BYPRODUCTS`（见实施记录）。
+- **macOS 不带 QUIC 的组合**本机未测，由 CI 的 macOS job 覆盖构建与测试；CI 两个 job 都改用 Ninja。
+
+### 资产
+
+- [`p4-mac-samples.json`](assets/build-optimization-results/p4-mac-samples.json)、[`p4-lima-samples.json`](assets/build-optimization-results/p4-lima-samples.json)：`pairs` 下 `final`（`ca4b978`）为逐场景的逐组配对、两侧耗时、降幅、工作量与退出码，Mac 另有 `pool-all`（`1d96663`）；`groups` 为各侧 `measure.py export` 结果（含预热、准备与复位样本，以及每个样本的编译源码与链接产物名单）。本机路径都替换为 `<bench>`；原始日志、时间线与验证日志没有提交。
+- 复现：按上表提交做两份源码副本并链接 `.tools`，准备一次 `--scenario fetch`。每侧以 `--preset dev-make`（Make）或 `--preset dev`（Ninja）调用 `measure.py run`，加 `--cache-mode OFF` 与平台 jobs（Mac `--jobs 8`，Lima `--jobs 2 --env TMPDIR=<磁盘目录>`）。冷入口按奇偶顺序交替 `--scenario cold-entry --long-samples 1` 三组；短场景每侧先 `--samples 0` 预热，再按奇偶顺序交替 `--samples 1 --sample-start N --no-warmup` 五组（见 [tools/build-bench](../../tools/build-bench/README.md)）。删除恢复：在 Ninja 构建目录里删除上表的单个文件，构建两次并统计编译与链接行。
