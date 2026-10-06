@@ -4,7 +4,7 @@
 
 | 文件 | 作用 |
 | --- | --- |
-| `launcher.cpp` | 作为 `CMAKE_<LANG>_{COMPILER,LINKER}_LAUNCHER` 包住每次真实编译/链接；设置 `REALMMESH_BUILD_BENCH_EVENTS` 时写一条事件 JSON：argv、cwd、墙钟、退出码、user/sys 时间、`maxrss_kib`（macOS 字节已换算为 KiB） |
+| `launcher.cpp` | 编译通过 `RULE_LAUNCH_COMPILE` 在缓存外观测请求，链接通过 `CMAKE_<LANG>_LINKER_LAUNCHER` 观测（不含静态归档）；设置 `REALMMESH_BUILD_BENCH_EVENTS` 时写一条事件 JSON：argv、cwd、墙钟、退出码、user/sys 时间、`maxrss_kib`（macOS 字节已换算为 KiB） |
 | `measure.py` | 按场景驱动 `cmake`/`ctest`，整体计时并分步记录，统计实际编译/链接名单与次数，每秒采样内存；`summarize` 按场景汇总，`export` 导出可提交的样本资产 |
 | `test_measure.py` | `measure.py` 纯函数的单元测试。不按 [tests/README.md](../../tests/README.md) 进 `tests/` 与 CTest：测量工具不属于被测产品，注册进 CTest 会改变各阶段要比较的测试合集；改动本目录时手动运行，见“自测” |
 
@@ -12,7 +12,7 @@
 
 ## 场景
 
-`--scenario` 可重复，`all` 按下表顺序全跑。短场景（`unit-entry`、`cpp-entry`、`fast-entry`、`fast-cpp-entry`、`probes`）先跑 1 次预热（阶段名带 `-warmup`，`summarize` 不计入），再跑 `--samples` 次（默认 5）；长场景（`cold-entry`、`hot-full`）跑 `--long-samples` 次（默认 3）。一个阶段里的多条命令整体计时，`steps` 另记每步墙钟；总耗时不由各步中位数相加。
+`--scenario` 可重复，`all` 按下表顺序全跑。短场景（`unit-entry`、`cpp-entry`、`fast-entry`、`fast-cpp-entry`、`probes`）先跑 1 次预热（阶段名带 `-warmup`，`summarize` 不计入），再跑 `--samples` 次（默认 5）；长场景（`cold-build`、`cold-entry`、`hot-full`）跑 `--long-samples` 次（默认 3）。一个阶段里的多条命令整体计时，`steps` 另记每步墙钟；总耗时不由各步中位数相加。
 
 | 场景 | 阶段名 | 步骤 | 内容 |
 | --- | --- | --- | --- |
@@ -61,7 +61,8 @@ python3 tools/build-bench/measure.py export --out "$out/result" --dest docs/rese
 - `--jobs N`：传给 `cmake --build --parallel`；缺省传 `--parallel 1`，即串行（R0 条件）。Ninja 不传 `--parallel` 时会按核数并行，所以串行也显式传。`fast-*` 场景传给 `test-fast.sh --jobs`，缺省用脚本的预算。
 - `--samples N --sample-start S --no-warmup`：配对交替测量时，每次调用只跑一个样本，序号接续；对所有短场景（含 `probes`）生效。例如前后各先用 `--samples 0` 预热，再按组交替调用 `--samples 1 --sample-start <组号> --no-warmup`。前后两侧用各自的源码副本与 `--out`。
 - `--preset`、`--build-dir`：改预设与构建目录后用。`--build-dir` 缺省按源码副本自己的 `CMakePresets.json` / `CMakeUserPresets.json` 解析该预设的 binaryDir（沿 `inherits` 取第一个，展开 `${sourceDir}`、`${presetName}`），`dev` 即 `build/dev-ninja`、`dev-make` 即 `build/dev-make`（#123），副本不需要先配置；binaryDir 含其他宏时显式传 `--build-dir`。
-- `--cache-mode`：只做记录，如 `ccache-AUTO-hot`。
+- `--cache-mode OFF|ON|AUTO`：实际传给 `REALMMESH_CCACHE`，缺省 OFF。编译观测改用项目配置 hook 的 `RULE_LAUNCH_COMPILE` 包在缓存外，避免覆盖原生 launcher；`compile_count` 是原生编译请求数，不再意味着真实 compiler 次数，必须结合逐样本 `ccache_before/after` 的 hit/miss/不可缓存差值解读。
+- `--scenario cold-build`：仅配置＋ALL，按 `--sample-start`／`--long-samples` 编号；每轮删除整个 build（含 libsodium 外部产物），复用已备源码。用于至少三组交替 OFF/兼容 ON 净重建；首次填充独立记录。完整正确性另跑 `hot-full` 或 `scripts/build.sh`，CI 的恢复/保存成本另计。
 
 工具会清除 `CMAKE_BUILD_PARALLEL_LEVEL`、`CTEST_PARALLEL_LEVEL`、`MAKEFLAGS` 与外部 launcher 变量，并去掉带 MongoDB URI/口令的变量；测试只用夹具自起的隔离 etcd/MongoDB。
 
@@ -85,6 +86,20 @@ python3 tools/build-bench/measure.py export --out "$out/result" --dest docs/rese
 - Linux：可用内存取 `/proc/meminfo` 的 MemAvailable 与本进程 cgroup v2 祖先链中最紧 `memory.max` 余量的较小者；swap 取 `/proc/meminfo`，OOM 取 `/proc/vmstat` 的 `oom_kill` 增量。VM 本身的限额即 `MemTotal`。
 
 ## 自测
+
+CI 三组实测由已存在的 `CI` 工作流手动触发，两个平台分别在同一 runner 上执行，不需先合并分支：
+
+```bash
+gh workflow run ci.yml --ref codex/124-native-ccache -f ccache_acceptance=true
+```
+
+该维护入口保持正常 PR 只恢复、成功 main 才发布生产桶的规则。实验只保存独立的 `ccache-acceptance-<兼容桶>-<run_id>-<attempt>-seed/pair-N`，由维护者在保留证据后按准确 key/ID 删除，不能批量删除生产快照。每轮原生缓存上限仍是 2GiB，最多四份快照/平台；上传日志记录实际压缩大小。
+
+`.github/actions/ccache-acceptance` 先固定来源、工具链和观测路径，删除整个 build（含未缓存的 libsodium 外部产物），用故意不存在的 key 触发一次真实 restore action 失败，再正常空缓存构建和完整串行 CTest；Linux 同时通过 QUIC 与 M1–M4，才保存隔离 seed。这个夹具证明恢复失败后的正常构建/测试继续，不声称模拟了网络或缓存服务宕机。
+
+正式顺序为 OFF1/ON1、ON2/OFF2、OFF3/ON3，每轮重新删除完整 build，ON 还清空本地缓存并实际远端恢复 seed。`ci_cache.py` 从键检查之前计时到实际保存与远端 lookup 验证之后，包含 action 交接成本；首次填充/上传单列。完整 OFF、最终热 ON 的 CTest（Linux 最终 ON 再跑 M1–M4）放在构建计时外，并与 seed 核对测试数量且禁止跳过。配对要求所有原生编译请求、链接产物、未缓存 libsodium 工作量一致；所有热 ON 原生请求必须 hit，三组中至少多数变快且净等待中位数下降至少 20%。
+
+资源采样覆盖本 job 的 `Runner.Worker` 进程树，包括 cache action 的 tar/压缩与传输子进程；后台采样器本身可能被重挂到系统进程，极短进程也可能落在一秒采样之间。保留整机压力、可用内存、swap 与 Linux OOM 增量；压力、swap 或至少 1GiB 余量门槛失败时不能仅因耗时改善通过。原始环境/来源/脚本 SHA、逐次日志/事件/资源、完整测试与 JSON 摘要保存在 `ccache-acceptance-Linux/macOS-<attempt>` artifact。失败/不完整样本同样保留，不自动重试隐藏错误。
 
 ```bash
 python3 -m unittest discover tools/build-bench

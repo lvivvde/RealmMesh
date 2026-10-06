@@ -12,6 +12,9 @@ project(
     LANGUAGES C CXX
 )
 
+include("${PROJECT_SOURCE_DIR}/cmake/RealmMeshCCache.cmake")
+realmmesh_configure_ccache()
+
 # OpenSSL is resolved once, before any dependency that looks for it, so every
 # consumer shares one validated installation (#121).
 include("${PROJECT_SOURCE_DIR}/cmake/RealmMeshOpenSSL.cmake")

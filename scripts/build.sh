@@ -16,6 +16,7 @@ source "${project_root}/scripts/lib/build-dir.sh"
 source "${project_root}/scripts/lib/build-jobs.sh"
 
 usage() {
+    echo "  Compiler cache: AUTO; override REALMMESH_CCACHE=AUTO/ON/OFF in a user preset. Consult README for cache paths and limits."
     echo "Usage: $0 [--preset NAME] [--jobs N]"
     echo "Configures, builds ALL and runs the full CTest suite serially (ctest -j 1)"
     echo "with one preset (default: ${realmmesh_default_preset}); user presets derived"

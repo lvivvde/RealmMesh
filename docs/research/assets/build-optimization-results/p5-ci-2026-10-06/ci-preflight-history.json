@@ -1,0 +1,22 @@
+[
+  {
+    "run_id": 37450284316,
+    "event": "workflow_dispatch",
+    "revision": "3dd0c5178063ba452d2b2831ed93e661099e9bc2",
+    "conclusion": "cancelled",
+    "reason": "新 CompilerCacheCISummaryTest 注册后，旧精确注册集合断言尚未更新；主动取消，修正后用全新运行复测，不计任何成功样本。",
+    "log": "ci-acceptance-preflight-cancelled.log",
+    "log_sha256": "f149dc011e182f8f11940447e8ebf0474e21b3f83ad268741ca60a374e4c98f4",
+    "url": "https://github.com/lvivvde/RealmMesh/actions/runs/37450284316"
+  },
+  {
+    "run_id": 37450276976,
+    "event": "pull_request",
+    "revision": "3dd0c5178063ba452d2b2831ed93e661099e9bc2",
+    "conclusion": "cancelled",
+    "reason": "新 CompilerCacheCISummaryTest 注册后，旧精确注册集合断言尚未更新；主动取消，修正后用全新运行复测，不计任何成功样本。",
+    "log": "pr-registration-preflight-cancelled.log",
+    "log_sha256": "50c8dfc0f9a97c00e7204cd247846ffa90708de1a4d05adb35586b6b632539dc",
+    "url": "https://github.com/lvivvde/RealmMesh/actions/runs/37450276976"
+  }
+]

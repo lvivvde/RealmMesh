@@ -1,0 +1,490 @@
+[
+  {
+    "recorded_at": "2026-10-06T10:34:09+0000",
+    "label": null,
+    "commit": "40b75b69ac1f4ad1018a37be9a1caae3b401a95f",
+    "scenarios": [
+      "fetch"
+    ],
+    "platform": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+    "machine": "arm64",
+    "logical_cpus": 3,
+    "memory_total_gib": 7.0,
+    "memory_limit": {
+      "cgroup": null,
+      "cgroup_memory_max_gib": null
+    },
+    "tool_sha256": {
+      "measure.py": "924611eccdf8a4b1383500af7308d744a2faeae6a66b550a68d7a820292421d0",
+      "launcher.cpp": "1374833a6c5e20d9d72f04055694ba4930c2066bc2147aa85116bf96d8f4034b",
+      "launcher": "1e4ab6e21f3ef25ca73d3323fda961610ef0aa80e22af83ee0dc3ab04ca513de"
+    },
+    "sodium": {
+      "url": "https://github.com/jedisct1/libsodium/releases/download/1.0.22-RELEASE/libsodium-1.0.22.tar.gz",
+      "sha256": "adbdd8f16149e81ac6078a03aca6fc03b592b89ef7b5ed83841c086191be3349"
+    },
+    "samples": {
+      "short": 5,
+      "short_warmup": 1,
+      "long": 1,
+      "comment_probe": 3
+    },
+    "jobs": 2,
+    "cache_mode": "ON",
+    "quic_transport_enabled": false,
+    "preset": "dev",
+    "build_dir": "/Users/runner/work/RealmMesh/RealmMesh/build/dev-ninja",
+    "deps_dir": "/Users/runner/work/_temp/realmmesh-ccache-acceptance/deps-src",
+    "cmake_args": [
+      "-DREALMMESH_CCACHE_DIR=/Users/runner/work/RealmMesh/RealmMesh/.cache/ccache",
+      "-DREALMMESH_CCACHE_MAX_SIZE=2GiB"
+    ],
+    "env_overrides": [],
+    "tools": {
+      "cmake": "cmake version 4.4.3",
+      "ctest": "ctest version 4.4.3",
+      "make": "GNU Make 3.81",
+      "ninja": "1.13.2",
+      "ccache": "ccache version 4.14",
+      "python": "3.14.7",
+      "cxx": "Apple clang version 21.0.0 (clang-2100.1.1.101)"
+    },
+    "cmake_cache": {
+      "CMAKE_BUILD_TYPE": "Debug",
+      "CMAKE_CXX_COMPILER": "/usr/bin/c++",
+      "CMAKE_CXX_COMPILER_LAUNCHER": "/opt/homebrew/bin/cmake;-E;env;CCACHE_CONFIGPATH=/Users/runner/work/RealmMesh/RealmMesh/build/dev-ninja/realmmesh-ccache.conf;/opt/homebrew/bin/ccache;cache_dir=/Users/runner/work/RealmMesh/RealmMesh/.cache/ccache;max_size=2GiB;compiler_check=content;sloppiness=;hash_dir=true;hard_link=false;base_dir=;ignore_headers_in_manifest=;ignore_options=;compiler=;prefix_command=;prefix_command_cpp=;remote_storage=;compression=true;disable=false;depend_mode=false;direct_mode=true;read_only=false;read_only_direct=false;recache=false",
+      "CMAKE_C_COMPILER": "/usr/bin/cc",
+      "MSQUIC_LIBRARY": "MSQUIC_LIBRARY-NOTFOUND",
+      "OPENSSL_INCLUDE_DIR": "/opt/homebrew/opt/openssl@3/include",
+      "REALMMESH_PROTOC_EXECUTABLE": "",
+      "CMAKE_GENERATOR": "Ninja"
+    }
+  },
+  {
+    "recorded_at": "2026-10-06T10:42:01+0000",
+    "label": null,
+    "commit": "40b75b69ac1f4ad1018a37be9a1caae3b401a95f",
+    "scenarios": [
+      "cold-build"
+    ],
+    "platform": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+    "machine": "arm64",
+    "logical_cpus": 3,
+    "memory_total_gib": 7.0,
+    "memory_limit": {
+      "cgroup": null,
+      "cgroup_memory_max_gib": null
+    },
+    "tool_sha256": {
+      "measure.py": "924611eccdf8a4b1383500af7308d744a2faeae6a66b550a68d7a820292421d0",
+      "launcher.cpp": "1374833a6c5e20d9d72f04055694ba4930c2066bc2147aa85116bf96d8f4034b",
+      "launcher": "1e4ab6e21f3ef25ca73d3323fda961610ef0aa80e22af83ee0dc3ab04ca513de"
+    },
+    "sodium": {
+      "url": "https://github.com/jedisct1/libsodium/releases/download/1.0.22-RELEASE/libsodium-1.0.22.tar.gz",
+      "sha256": "adbdd8f16149e81ac6078a03aca6fc03b592b89ef7b5ed83841c086191be3349"
+    },
+    "samples": {
+      "short": 5,
+      "short_warmup": 1,
+      "long": 1,
+      "comment_probe": 3
+    },
+    "jobs": 2,
+    "cache_mode": "ON",
+    "quic_transport_enabled": false,
+    "preset": "dev",
+    "build_dir": "/Users/runner/work/RealmMesh/RealmMesh/build/dev-ninja",
+    "deps_dir": "/Users/runner/work/_temp/realmmesh-ccache-acceptance/deps-src",
+    "cmake_args": [
+      "-DREALMMESH_CCACHE_DIR=/Users/runner/work/RealmMesh/RealmMesh/.cache/ccache",
+      "-DREALMMESH_CCACHE_MAX_SIZE=2GiB"
+    ],
+    "env_overrides": [],
+    "tools": {
+      "cmake": "cmake version 4.4.3",
+      "ctest": "ctest version 4.4.3",
+      "make": "GNU Make 3.81",
+      "ninja": "1.13.2",
+      "ccache": "ccache version 4.14",
+      "python": "3.14.7",
+      "cxx": "Apple clang version 21.0.0 (clang-2100.1.1.101)"
+    },
+    "cmake_cache": {
+      "CMAKE_BUILD_TYPE": "Debug",
+      "CMAKE_CXX_COMPILER": "/usr/bin/c++",
+      "CMAKE_CXX_COMPILER_LAUNCHER": "/opt/homebrew/bin/cmake;-E;env;CCACHE_CONFIGPATH=/Users/runner/work/RealmMesh/RealmMesh/build/dev-ninja/realmmesh-ccache.conf;/opt/homebrew/bin/ccache;cache_dir=/Users/runner/work/RealmMesh/RealmMesh/.cache/ccache;max_size=2GiB;compiler_check=content;sloppiness=;hash_dir=true;hard_link=false;base_dir=;ignore_headers_in_manifest=;ignore_options=;compiler=;prefix_command=;prefix_command_cpp=;remote_storage=;compression=true;disable=false;depend_mode=false;direct_mode=true;read_only=false;read_only_direct=false;recache=false",
+      "CMAKE_C_COMPILER": "/usr/bin/cc",
+      "MSQUIC_LIBRARY": "MSQUIC_LIBRARY-NOTFOUND",
+      "OPENSSL_INCLUDE_DIR": "/opt/homebrew/opt/openssl@3/include",
+      "REALMMESH_PROTOC_EXECUTABLE": "",
+      "CMAKE_GENERATOR": "Ninja"
+    }
+  },
+  {
+    "recorded_at": "2026-10-06T10:56:33+0000",
+    "label": null,
+    "commit": "40b75b69ac1f4ad1018a37be9a1caae3b401a95f",
+    "scenarios": [
+      "cold-build"
+    ],
+    "platform": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+    "machine": "arm64",
+    "logical_cpus": 3,
+    "memory_total_gib": 7.0,
+    "memory_limit": {
+      "cgroup": null,
+      "cgroup_memory_max_gib": null
+    },
+    "tool_sha256": {
+      "measure.py": "924611eccdf8a4b1383500af7308d744a2faeae6a66b550a68d7a820292421d0",
+      "launcher.cpp": "1374833a6c5e20d9d72f04055694ba4930c2066bc2147aa85116bf96d8f4034b",
+      "launcher": "1e4ab6e21f3ef25ca73d3323fda961610ef0aa80e22af83ee0dc3ab04ca513de"
+    },
+    "sodium": {
+      "url": "https://github.com/jedisct1/libsodium/releases/download/1.0.22-RELEASE/libsodium-1.0.22.tar.gz",
+      "sha256": "adbdd8f16149e81ac6078a03aca6fc03b592b89ef7b5ed83841c086191be3349"
+    },
+    "samples": {
+      "short": 5,
+      "short_warmup": 1,
+      "long": 1,
+      "comment_probe": 3
+    },
+    "jobs": 2,
+    "cache_mode": "OFF",
+    "quic_transport_enabled": false,
+    "preset": "dev",
+    "build_dir": "/Users/runner/work/RealmMesh/RealmMesh/build/dev-ninja",
+    "deps_dir": "/Users/runner/work/_temp/realmmesh-ccache-acceptance/deps-src",
+    "cmake_args": [
+      "-DREALMMESH_CCACHE_DIR=/Users/runner/work/RealmMesh/RealmMesh/.cache/ccache",
+      "-DREALMMESH_CCACHE_MAX_SIZE=2GiB"
+    ],
+    "env_overrides": [],
+    "tools": {
+      "cmake": "cmake version 4.4.3",
+      "ctest": "ctest version 4.4.3",
+      "make": "GNU Make 3.81",
+      "ninja": "1.13.2",
+      "ccache": "ccache version 4.14",
+      "python": "3.14.7",
+      "cxx": "Apple clang version 21.0.0 (clang-2100.1.1.101)"
+    },
+    "cmake_cache": {
+      "CMAKE_BUILD_TYPE": "Debug",
+      "CMAKE_CXX_COMPILER": "/usr/bin/c++",
+      "CMAKE_CXX_COMPILER_LAUNCHER": "",
+      "CMAKE_C_COMPILER": "/usr/bin/cc",
+      "MSQUIC_LIBRARY": "MSQUIC_LIBRARY-NOTFOUND",
+      "OPENSSL_INCLUDE_DIR": "/opt/homebrew/opt/openssl@3/include",
+      "REALMMESH_PROTOC_EXECUTABLE": "",
+      "CMAKE_GENERATOR": "Ninja"
+    }
+  },
+  {
+    "recorded_at": "2026-10-06T10:58:17+0000",
+    "label": null,
+    "commit": "40b75b69ac1f4ad1018a37be9a1caae3b401a95f",
+    "scenarios": [
+      "cold-build"
+    ],
+    "platform": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+    "machine": "arm64",
+    "logical_cpus": 3,
+    "memory_total_gib": 7.0,
+    "memory_limit": {
+      "cgroup": null,
+      "cgroup_memory_max_gib": null
+    },
+    "tool_sha256": {
+      "measure.py": "924611eccdf8a4b1383500af7308d744a2faeae6a66b550a68d7a820292421d0",
+      "launcher.cpp": "1374833a6c5e20d9d72f04055694ba4930c2066bc2147aa85116bf96d8f4034b",
+      "launcher": "1e4ab6e21f3ef25ca73d3323fda961610ef0aa80e22af83ee0dc3ab04ca513de"
+    },
+    "sodium": {
+      "url": "https://github.com/jedisct1/libsodium/releases/download/1.0.22-RELEASE/libsodium-1.0.22.tar.gz",
+      "sha256": "adbdd8f16149e81ac6078a03aca6fc03b592b89ef7b5ed83841c086191be3349"
+    },
+    "samples": {
+      "short": 5,
+      "short_warmup": 1,
+      "long": 1,
+      "comment_probe": 3
+    },
+    "jobs": 2,
+    "cache_mode": "ON",
+    "quic_transport_enabled": false,
+    "preset": "dev",
+    "build_dir": "/Users/runner/work/RealmMesh/RealmMesh/build/dev-ninja",
+    "deps_dir": "/Users/runner/work/_temp/realmmesh-ccache-acceptance/deps-src",
+    "cmake_args": [
+      "-DREALMMESH_CCACHE_DIR=/Users/runner/work/RealmMesh/RealmMesh/.cache/ccache",
+      "-DREALMMESH_CCACHE_MAX_SIZE=2GiB"
+    ],
+    "env_overrides": [],
+    "tools": {
+      "cmake": "cmake version 4.4.3",
+      "ctest": "ctest version 4.4.3",
+      "make": "GNU Make 3.81",
+      "ninja": "1.13.2",
+      "ccache": "ccache version 4.14",
+      "python": "3.14.7",
+      "cxx": "Apple clang version 21.0.0 (clang-2100.1.1.101)"
+    },
+    "cmake_cache": {
+      "CMAKE_BUILD_TYPE": "Debug",
+      "CMAKE_CXX_COMPILER": "/usr/bin/c++",
+      "CMAKE_CXX_COMPILER_LAUNCHER": "/opt/homebrew/bin/cmake;-E;env;CCACHE_CONFIGPATH=/Users/runner/work/RealmMesh/RealmMesh/build/dev-ninja/realmmesh-ccache.conf;/opt/homebrew/bin/ccache;cache_dir=/Users/runner/work/RealmMesh/RealmMesh/.cache/ccache;max_size=2GiB;compiler_check=content;sloppiness=;hash_dir=true;hard_link=false;base_dir=;ignore_headers_in_manifest=;ignore_options=;compiler=;prefix_command=;prefix_command_cpp=;remote_storage=;compression=true;disable=false;depend_mode=false;direct_mode=true;read_only=false;read_only_direct=false;recache=false",
+      "CMAKE_C_COMPILER": "/usr/bin/cc",
+      "MSQUIC_LIBRARY": "MSQUIC_LIBRARY-NOTFOUND",
+      "OPENSSL_INCLUDE_DIR": "/opt/homebrew/opt/openssl@3/include",
+      "REALMMESH_PROTOC_EXECUTABLE": "",
+      "CMAKE_GENERATOR": "Ninja"
+    }
+  },
+  {
+    "recorded_at": "2026-10-06T11:00:02+0000",
+    "label": null,
+    "commit": "40b75b69ac1f4ad1018a37be9a1caae3b401a95f",
+    "scenarios": [
+      "cold-build"
+    ],
+    "platform": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+    "machine": "arm64",
+    "logical_cpus": 3,
+    "memory_total_gib": 7.0,
+    "memory_limit": {
+      "cgroup": null,
+      "cgroup_memory_max_gib": null
+    },
+    "tool_sha256": {
+      "measure.py": "924611eccdf8a4b1383500af7308d744a2faeae6a66b550a68d7a820292421d0",
+      "launcher.cpp": "1374833a6c5e20d9d72f04055694ba4930c2066bc2147aa85116bf96d8f4034b",
+      "launcher": "1e4ab6e21f3ef25ca73d3323fda961610ef0aa80e22af83ee0dc3ab04ca513de"
+    },
+    "sodium": {
+      "url": "https://github.com/jedisct1/libsodium/releases/download/1.0.22-RELEASE/libsodium-1.0.22.tar.gz",
+      "sha256": "adbdd8f16149e81ac6078a03aca6fc03b592b89ef7b5ed83841c086191be3349"
+    },
+    "samples": {
+      "short": 5,
+      "short_warmup": 1,
+      "long": 1,
+      "comment_probe": 3
+    },
+    "jobs": 2,
+    "cache_mode": "ON",
+    "quic_transport_enabled": false,
+    "preset": "dev",
+    "build_dir": "/Users/runner/work/RealmMesh/RealmMesh/build/dev-ninja",
+    "deps_dir": "/Users/runner/work/_temp/realmmesh-ccache-acceptance/deps-src",
+    "cmake_args": [
+      "-DREALMMESH_CCACHE_DIR=/Users/runner/work/RealmMesh/RealmMesh/.cache/ccache",
+      "-DREALMMESH_CCACHE_MAX_SIZE=2GiB"
+    ],
+    "env_overrides": [],
+    "tools": {
+      "cmake": "cmake version 4.4.3",
+      "ctest": "ctest version 4.4.3",
+      "make": "GNU Make 3.81",
+      "ninja": "1.13.2",
+      "ccache": "ccache version 4.14",
+      "python": "3.14.7",
+      "cxx": "Apple clang version 21.0.0 (clang-2100.1.1.101)"
+    },
+    "cmake_cache": {
+      "CMAKE_BUILD_TYPE": "Debug",
+      "CMAKE_CXX_COMPILER": "/usr/bin/c++",
+      "CMAKE_CXX_COMPILER_LAUNCHER": "/opt/homebrew/bin/cmake;-E;env;CCACHE_CONFIGPATH=/Users/runner/work/RealmMesh/RealmMesh/build/dev-ninja/realmmesh-ccache.conf;/opt/homebrew/bin/ccache;cache_dir=/Users/runner/work/RealmMesh/RealmMesh/.cache/ccache;max_size=2GiB;compiler_check=content;sloppiness=;hash_dir=true;hard_link=false;base_dir=;ignore_headers_in_manifest=;ignore_options=;compiler=;prefix_command=;prefix_command_cpp=;remote_storage=;compression=true;disable=false;depend_mode=false;direct_mode=true;read_only=false;read_only_direct=false;recache=false",
+      "CMAKE_C_COMPILER": "/usr/bin/cc",
+      "MSQUIC_LIBRARY": "MSQUIC_LIBRARY-NOTFOUND",
+      "OPENSSL_INCLUDE_DIR": "/opt/homebrew/opt/openssl@3/include",
+      "REALMMESH_PROTOC_EXECUTABLE": "",
+      "CMAKE_GENERATOR": "Ninja"
+    }
+  },
+  {
+    "recorded_at": "2026-10-06T11:06:37+0000",
+    "label": null,
+    "commit": "40b75b69ac1f4ad1018a37be9a1caae3b401a95f",
+    "scenarios": [
+      "cold-build"
+    ],
+    "platform": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+    "machine": "arm64",
+    "logical_cpus": 3,
+    "memory_total_gib": 7.0,
+    "memory_limit": {
+      "cgroup": null,
+      "cgroup_memory_max_gib": null
+    },
+    "tool_sha256": {
+      "measure.py": "924611eccdf8a4b1383500af7308d744a2faeae6a66b550a68d7a820292421d0",
+      "launcher.cpp": "1374833a6c5e20d9d72f04055694ba4930c2066bc2147aa85116bf96d8f4034b",
+      "launcher": "1e4ab6e21f3ef25ca73d3323fda961610ef0aa80e22af83ee0dc3ab04ca513de"
+    },
+    "sodium": {
+      "url": "https://github.com/jedisct1/libsodium/releases/download/1.0.22-RELEASE/libsodium-1.0.22.tar.gz",
+      "sha256": "adbdd8f16149e81ac6078a03aca6fc03b592b89ef7b5ed83841c086191be3349"
+    },
+    "samples": {
+      "short": 5,
+      "short_warmup": 1,
+      "long": 1,
+      "comment_probe": 3
+    },
+    "jobs": 2,
+    "cache_mode": "OFF",
+    "quic_transport_enabled": false,
+    "preset": "dev",
+    "build_dir": "/Users/runner/work/RealmMesh/RealmMesh/build/dev-ninja",
+    "deps_dir": "/Users/runner/work/_temp/realmmesh-ccache-acceptance/deps-src",
+    "cmake_args": [
+      "-DREALMMESH_CCACHE_DIR=/Users/runner/work/RealmMesh/RealmMesh/.cache/ccache",
+      "-DREALMMESH_CCACHE_MAX_SIZE=2GiB"
+    ],
+    "env_overrides": [],
+    "tools": {
+      "cmake": "cmake version 4.4.3",
+      "ctest": "ctest version 4.4.3",
+      "make": "GNU Make 3.81",
+      "ninja": "1.13.2",
+      "ccache": "ccache version 4.14",
+      "python": "3.14.7",
+      "cxx": "Apple clang version 21.0.0 (clang-2100.1.1.101)"
+    },
+    "cmake_cache": {
+      "CMAKE_BUILD_TYPE": "Debug",
+      "CMAKE_CXX_COMPILER": "/usr/bin/c++",
+      "CMAKE_CXX_COMPILER_LAUNCHER": "",
+      "CMAKE_C_COMPILER": "/usr/bin/cc",
+      "MSQUIC_LIBRARY": "MSQUIC_LIBRARY-NOTFOUND",
+      "OPENSSL_INCLUDE_DIR": "/opt/homebrew/opt/openssl@3/include",
+      "REALMMESH_PROTOC_EXECUTABLE": "",
+      "CMAKE_GENERATOR": "Ninja"
+    }
+  },
+  {
+    "recorded_at": "2026-10-06T11:20:26+0000",
+    "label": null,
+    "commit": "40b75b69ac1f4ad1018a37be9a1caae3b401a95f",
+    "scenarios": [
+      "cold-build"
+    ],
+    "platform": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+    "machine": "arm64",
+    "logical_cpus": 3,
+    "memory_total_gib": 7.0,
+    "memory_limit": {
+      "cgroup": null,
+      "cgroup_memory_max_gib": null
+    },
+    "tool_sha256": {
+      "measure.py": "924611eccdf8a4b1383500af7308d744a2faeae6a66b550a68d7a820292421d0",
+      "launcher.cpp": "1374833a6c5e20d9d72f04055694ba4930c2066bc2147aa85116bf96d8f4034b",
+      "launcher": "1e4ab6e21f3ef25ca73d3323fda961610ef0aa80e22af83ee0dc3ab04ca513de"
+    },
+    "sodium": {
+      "url": "https://github.com/jedisct1/libsodium/releases/download/1.0.22-RELEASE/libsodium-1.0.22.tar.gz",
+      "sha256": "adbdd8f16149e81ac6078a03aca6fc03b592b89ef7b5ed83841c086191be3349"
+    },
+    "samples": {
+      "short": 5,
+      "short_warmup": 1,
+      "long": 1,
+      "comment_probe": 3
+    },
+    "jobs": 2,
+    "cache_mode": "OFF",
+    "quic_transport_enabled": false,
+    "preset": "dev",
+    "build_dir": "/Users/runner/work/RealmMesh/RealmMesh/build/dev-ninja",
+    "deps_dir": "/Users/runner/work/_temp/realmmesh-ccache-acceptance/deps-src",
+    "cmake_args": [
+      "-DREALMMESH_CCACHE_DIR=/Users/runner/work/RealmMesh/RealmMesh/.cache/ccache",
+      "-DREALMMESH_CCACHE_MAX_SIZE=2GiB"
+    ],
+    "env_overrides": [],
+    "tools": {
+      "cmake": "cmake version 4.4.3",
+      "ctest": "ctest version 4.4.3",
+      "make": "GNU Make 3.81",
+      "ninja": "1.13.2",
+      "ccache": "ccache version 4.14",
+      "python": "3.14.7",
+      "cxx": "Apple clang version 21.0.0 (clang-2100.1.1.101)"
+    },
+    "cmake_cache": {
+      "CMAKE_BUILD_TYPE": "Debug",
+      "CMAKE_CXX_COMPILER": "/usr/bin/c++",
+      "CMAKE_CXX_COMPILER_LAUNCHER": "",
+      "CMAKE_C_COMPILER": "/usr/bin/cc",
+      "MSQUIC_LIBRARY": "MSQUIC_LIBRARY-NOTFOUND",
+      "OPENSSL_INCLUDE_DIR": "/opt/homebrew/opt/openssl@3/include",
+      "REALMMESH_PROTOC_EXECUTABLE": "",
+      "CMAKE_GENERATOR": "Ninja"
+    }
+  },
+  {
+    "recorded_at": "2026-10-06T11:22:16+0000",
+    "label": null,
+    "commit": "40b75b69ac1f4ad1018a37be9a1caae3b401a95f",
+    "scenarios": [
+      "cold-build"
+    ],
+    "platform": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+    "machine": "arm64",
+    "logical_cpus": 3,
+    "memory_total_gib": 7.0,
+    "memory_limit": {
+      "cgroup": null,
+      "cgroup_memory_max_gib": null
+    },
+    "tool_sha256": {
+      "measure.py": "924611eccdf8a4b1383500af7308d744a2faeae6a66b550a68d7a820292421d0",
+      "launcher.cpp": "1374833a6c5e20d9d72f04055694ba4930c2066bc2147aa85116bf96d8f4034b",
+      "launcher": "1e4ab6e21f3ef25ca73d3323fda961610ef0aa80e22af83ee0dc3ab04ca513de"
+    },
+    "sodium": {
+      "url": "https://github.com/jedisct1/libsodium/releases/download/1.0.22-RELEASE/libsodium-1.0.22.tar.gz",
+      "sha256": "adbdd8f16149e81ac6078a03aca6fc03b592b89ef7b5ed83841c086191be3349"
+    },
+    "samples": {
+      "short": 5,
+      "short_warmup": 1,
+      "long": 1,
+      "comment_probe": 3
+    },
+    "jobs": 2,
+    "cache_mode": "ON",
+    "quic_transport_enabled": false,
+    "preset": "dev",
+    "build_dir": "/Users/runner/work/RealmMesh/RealmMesh/build/dev-ninja",
+    "deps_dir": "/Users/runner/work/_temp/realmmesh-ccache-acceptance/deps-src",
+    "cmake_args": [
+      "-DREALMMESH_CCACHE_DIR=/Users/runner/work/RealmMesh/RealmMesh/.cache/ccache",
+      "-DREALMMESH_CCACHE_MAX_SIZE=2GiB"
+    ],
+    "env_overrides": [],
+    "tools": {
+      "cmake": "cmake version 4.4.3",
+      "ctest": "ctest version 4.4.3",
+      "make": "GNU Make 3.81",
+      "ninja": "1.13.2",
+      "ccache": "ccache version 4.14",
+      "python": "3.14.7",
+      "cxx": "Apple clang version 21.0.0 (clang-2100.1.1.101)"
+    },
+    "cmake_cache": {
+      "CMAKE_BUILD_TYPE": "Debug",
+      "CMAKE_CXX_COMPILER": "/usr/bin/c++",
+      "CMAKE_CXX_COMPILER_LAUNCHER": "/opt/homebrew/bin/cmake;-E;env;CCACHE_CONFIGPATH=/Users/runner/work/RealmMesh/RealmMesh/build/dev-ninja/realmmesh-ccache.conf;/opt/homebrew/bin/ccache;cache_dir=/Users/runner/work/RealmMesh/RealmMesh/.cache/ccache;max_size=2GiB;compiler_check=content;sloppiness=;hash_dir=true;hard_link=false;base_dir=;ignore_headers_in_manifest=;ignore_options=;compiler=;prefix_command=;prefix_command_cpp=;remote_storage=;compression=true;disable=false;depend_mode=false;direct_mode=true;read_only=false;read_only_direct=false;recache=false",
+      "CMAKE_C_COMPILER": "/usr/bin/cc",
+      "MSQUIC_LIBRARY": "MSQUIC_LIBRARY-NOTFOUND",
+      "OPENSSL_INCLUDE_DIR": "/opt/homebrew/opt/openssl@3/include",
+      "REALMMESH_PROTOC_EXECUTABLE": "",
+      "CMAKE_GENERATOR": "Ninja"
+    }
+  }
+]

@@ -9,7 +9,10 @@
       "cacheVariables": {
         "OPENSSL_ROOT_DIR": "/path/to/openssl-3-prefix",
         "REALMMESH_PROTOC_EXECUTABLE": "/path/to/protoc-35.0/bin/protoc",
-        "MSQUIC_ROOT": "/path/to/msquic-2.6-prefix"
+        "MSQUIC_ROOT": "/path/to/msquic-2.6-prefix",
+        "REALMMESH_CCACHE": "AUTO",
+        "REALMMESH_CCACHE_DIR": "/path/to/realmmesh-ccache",
+        "REALMMESH_CCACHE_MAX_SIZE": "5GiB"
       }
     }
   ],

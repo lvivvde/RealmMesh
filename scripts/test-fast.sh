@@ -36,6 +36,8 @@ runs its unit tests. This is the edit-loop entry, not full verification
   --test-jobs N       CTest parallelism (default: ${default_test_jobs}; 1 runs serially)
   --jobs N            compile jobs (default: CMAKE_BUILD_PARALLEL_LEVEL if set,
                       else the CPU/memory budget)
+Compiler cache defaults to AUTO; set REALMMESH_CCACHE=AUTO/ON/OFF in a user
+preset (see README for directory/size overrides).
 Exit: 0 passed, 1 configure/build failure or missing binary, 2 test failure
 or no tests selected, 64 usage error or a target that is not a registered Unit
 target.

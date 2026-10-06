@@ -858,3 +858,155 @@ P2a 把文档里 `build/dev` 的复查留给 P4（见 P2a“异常与限制”�
 
 - [`p4-mac-samples.json`](assets/build-optimization-results/p4-mac-samples.json)、[`p4-lima-samples.json`](assets/build-optimization-results/p4-lima-samples.json)：`pairs` 下 `final`（`ca4b978`）为逐场景的逐组配对、两侧耗时、降幅、工作量与退出码，Mac 另有 `pool-all`（`1d96663`）；`groups` 为各侧 `measure.py export` 结果（含预热、准备与复位样本，以及每个样本的编译源码与链接产物名单）。本机路径都替换为 `<bench>`；原始日志、时间线与验证日志没有提交。
 - 复现：按上表提交做两份源码副本并链接 `.tools`，准备一次 `--scenario fetch`。每侧以 `--preset dev-make`（Make）或 `--preset dev`（Ninja）调用 `measure.py run`，加 `--cache-mode OFF` 与平台 jobs（Mac `--jobs 8`，Lima `--jobs 2 --env TMPDIR=<磁盘目录>`）。冷入口按奇偶顺序交替 `--scenario cold-entry --long-samples 1` 三组；短场景每侧先 `--samples 0` 预热，再按奇偶顺序交替 `--samples 1 --sample-start N --no-warmup` 五组（见 [tools/build-bench](../../tools/build-bench/README.md)）。删除恢复：在 Ninja 构建目录里删除上表的单个文件，构建两次并统计编译与链接行。
+
+## P5：原生 ccache 与 CI 可信快照（#124）
+
+审查起点 `73a6de0f6cc2406291101c48af9cd0f88ee14cb7`；发现并经用户确认纳入 M3 帧尾指标读取竞争后，先独立提交测试修复 `cf567594e6064ac88fca420f3720e3527b697bfc`，作为最终采样父版本；阶段代码是该版本加本票缓存补丁。下列 OFF/ON 对照都在同一阶段源码上，新增两个 integration 契约不参与构建等待计时。逐文件 SHA 清单、测量工具 SHA、逐次结果与日志 SHA 保存在本节资产；提交号由 Git 历史定位。**本机兼容缓存与 CI 净成本分别判定；2026-10-06 的真实 CI 三组补充验收已通过，含恢复/保存成本的结果见本节后文。** P6 的 R0 累计比较不在本节替代。
+
+### 环境与采样
+
+| 项目 | Mac | Lima Ubuntu |
+| --- | --- | --- |
+| 架构 / 内存 / CPU | arm64 / 48 GiB / 15 核 | aarch64 / 7.73 GiB / 8 核 |
+| 编译器 | Apple clang 21.0.0 | GCC 15.2.0 |
+| CMake / Ninja / ccache | 4.4.3 / 1.13.2 / 4.14.1 | 4.2.3 / 1.13.2 / 4.12.3 |
+| preset / binaryDir | `dev` / `<bench>/source/build/dev-ninja` | 同左 |
+| 构建预算 / 链接池 / 外部 Make | 8 / 1（GTest 链接沿用 P4 放出）/ 1 | 2 / 1（同左）/ 1 |
+| QUIC | Homebrew libmsquic，开启 | 开启 |
+| 缓存 | `<bench>/source/.cache/ccache`，5GiB | 同左 |
+
+两平台分别在拥有的隔离源码副本运行，同一宿主不同时测量；不改 VM 配置。依赖源码预先备齐、复用版本一致的 `.tools`；libsodium 1.0.22 的已校验原包 SHA256 `adbdd8f16149e81ac6078a03aca6fc03b592b89ef7b5ed83841c086191be3349` 在计时前准备。每个 `cold-build` 删除整个 binaryDir 再配置与构建 ALL，libsodium 的 configure/build/install 和全部外部编译产物都重做。ON 的兼容缓存仅由同路径同 flags 的构建预热，不使用路径映射或宽松校验。两边各三组，奇数组 OFF→ON、偶数组 ON→OFF；主计时包含来源定位、标准 configure、ALL build，不包含 CTest、依赖下载或工具首次安装。OS 页缓存没有清空。
+
+Linux 构建与隔离 fixture 使用磁盘 `TMPDIR`，避开 tmpfs；开测前可用磁盘约 58 GiB，满足源码、产物、日志与 5GiB 缓存余量。Mac 用 `caffeinate`，桌面应用照常运行。宏观压力来自采样中的整个测量进程树与平台数据，不以单个 compiler 峰值乘 jobs。
+
+### 三组兼容缓存重建
+
+| 平台 / 模式 | 三次总等待 s | 中位 s | build 三次 s | 总等待降幅 |
+| --- | --- | ---: | --- | ---: |
+| Mac OFF | 68.56 / 68.36 / 68.04 | 68.36 | 64.02 / 63.89 / 63.63 | — |
+| Mac ON 热兼容缓存 | 41.13 / 41.05 / 41.40 | 41.13 | 36.67 / 36.59 / 36.94 | **39.8%** |
+| Lima OFF | 174.54 / 173.56 / 182.40 | 174.54 | 172.96 / 172.07 / 180.73 | — |
+| Lima ON 热兼容缓存 | 29.27 / 28.40 / 30.18 | 29.27 | 27.71 / 26.90 / 28.45 | **83.2%** |
+
+Mac 六个正式样本均退出 0，每个都是 **777 次原生编译请求、77 次观测链接、137 次未缓存 libsodium C 编译**；ON 三轮各 777 次 direct hit、0 miss，与 OFF 相同源码及链接产物名单。配对降幅 40.0% / 39.9% / 39.2%，3/3 同向。请求数是缓存外 observer 的调用数，不能称为真实 compiler 执行数；hit/miss 取实际项目工具、目录与配置的计数差。链接计数来自 C/CXX linker launcher，静态归档不经过它；ALL 中的归档及外部 Make 步骤仍执行，原始构建日志另存。
+
+Mac 正式六轮进程树 RSS 峰值 1910.19 MiB，最低可用内存 16891.52 MiB；压力等级最高 1（正常），swap 3.75 MiB 且零增长，未观察到持续换页或内存异常。缓存上限 5GiB，最终 cache 约 121 MiB（测量前清空自有缓存，不保留旧 flags 版本）。
+
+Lima 六轮均退出 0，每轮 **776 次原生编译请求、76 次观测链接**，ON 每轮 776 direct hit、0 miss；配对降幅 83.2% / 83.6% / 83.5%，3/3 同向。本机两平台各自超过 20% 的兼容缓存净重建目标。Lima 的 libsodium 每轮编译同样 137 个独立源码；编译请求为 137–139 次，多出的一至两次发生在 `make install` 的重检查中并伴随归档，未接缓存，ON/OFF 两侧都出现。该波动原样计时、名单与重复项保留，未剔除或省掉外部产物；具体 mtime 原因本轮未诊断。
+
+Lima 正式样本整个进程树 RSS 峰值 1522.03 MiB，最低可用内存 1757.87 MiB（高于 1GiB）；swap 增长为 0、OOM kill 增量为 0。VM 可用内存按 7.73GiB 实际内存及 cgroup 无限额核实，没有借宿主 48GiB 推断；缓存约 146MiB，上限 5GiB。
+
+### 首次填充与异常保留
+
+修复前的 Mac 最初沙箱运行的 build 成功（79.35 s，775 miss + 2 preprocessing hit），但工具在读取 `sysctl hw.memsize`/进程资源时被沙箱拒绝，驱动最终退出 1；该环境还漏掉 `-arch arm64`。之后解除沙箱的第一组 ON 因 flags 不兼容重新填充（78.01 s，775 miss + 2 preprocessing hit；同组 OFF 68.12 s）。这些是首次填充/失败的筛查记录，不能算热兼容缓存收益。修正环境并确认相同 flags 后重新取得完整三组正式对照；所有筛查样本与失败原因保留在资产的 `previous_snapshot`，最终空缓存填充另列于 `pilot_rows`，没有挑最快的三次拼组。空缓存有额外哈希/存储开销，收益只针对已兼容预热的缓存。
+
+最终冻结后的 Mac 首次填充为 77.95 s（build 73.12 s，775 miss + 2 preprocessing hit）；Lima 首次填充单列为 203.19 s（build 201.45 s，774 miss + 2 preprocessing hit），成功退出 0；不计入三组热缓存统计。它与正式组使用同一源码、工具链和完整空产物复位条件，不包含来源首次获取或真实 CI 首次上传。
+
+Linux 首轮完整 CTest 为 662/663，唯一失败是新增损坏夹具按十六进制文件名找不到 ccache 4.12 的 base32 条目；该轮失败日志保留。修复只把条目识别改为公开 `ccache --inspect` 接口，损坏后的实际重编译、程序结果和诊断断言未降低；两平台原生六项均通过后，重新运行完整验证。它不改变测量场景、compiler、flags 或缓存配置；修复前的 Linux 采样清单完整保留于 `previous_snapshot`；最终冻结后的组包含该修复。
+
+Mac 最后一次复测出现 M3 指标断言失败：5000 个取号机器人和 1000 个轮询机器人全部完成，立即读取的 `tickets_issued_total` 为 4985（原门槛 4995）。该轮完整 CTest 为 662/663，日志保留；此前同一阶段完整 ON/OFF 各 663/663，失败后二进制不变的独立 M3 为通过（50.83 s）。源码证据显示 QueueService 在 `tick()` 帧尾发布指标，现有测试在 `run_loadgen` 请求完成后立即读取，读取时机竞争与指标的帧尾发布顺序相符。用户确认后，现有用例改为最多等待 2 秒、每 5ms 读取该公开指标，再执行原门槛断言；机器人、成功率、运行时代码未改。修复后连续三轮 M3 全通过（47.53 / 46.99 / 46.13 s，遇失败即停），独立提交 `cf56759` 冻结，再重新取得全部三组配对。修复前的正式样本（Mac 40.4%、Lima 82.7%）完整保存在资产的 `previous_snapshot`，不拼进最终组；测试修复本身不计入缓存收益。
+
+随后 Mac OFF 全量在 L1 的同一公开指标读取边界失败（662/663，402.51 s）：300 次请求全部成功，帧尾 `tickets_issued_total` 立即读取为 253 而非原等式要求的 300。L1 沿用已确认的指标等待边界，最多等 2 秒，每 5ms 读取，最终仍 `EXPECT_EQ(..., 300)`；300 次请求、全部成功、验签与 30 秒吞吐断言原样保留，吞吐计时在等待前结束。最初重复验证前八轮通过，第九轮遭系统空闲睡眠 594 秒并超时（电源日志对应），失败原样保留；补回防睡眠包装后连续十轮通过（40.04 s，遇失败即停）。这一后续同步补丁单独提交 `675d5c7`；上表性能样本仍冻结在 `cf56759` 加缓存补丁，没有把 L1 修复并入缓存收益。最终正确性验证按下表区分版本与范围。
+
+### 正确性、关闭与恢复
+
+`CompilerCacheConfigTest` 通过公共 CMake 配置/CTest 注册与 CI 键 CLI 覆盖 AUTO/ON/OFF、工具缺失/错误版本/无效显式路径、已有 launcher 冲突、ON→OFF 仅清项目 launcher、自动发现工具移除后的重新检测、显式工具路径下 ON/OFF 测试一致、目录/容量约束，以及固定依赖元数据/ccache 版本改变兼容桶。`CompilerCacheNativeTest` 使用独立 C/C++ 小工程和真实程序输出对照冷/热/OFF；源码、普通头、宏、flags、compiler 内容、生成头改变或删除均正确失效；损坏条目回到真实编译、1KiB 容量淘汰后重建仍得到同一结果；故意编译错误原样失败，未做无条件重试。个人宽松环境配置不能覆盖逐调用的严格设置；测量统计也不会误读个人缓存或另一个 PATH 工具。测试只操作隔离目录。
+
+Linux L1 定向复测一度未继承原磁盘 `TMPDIR`，默认 tmpfs 仅余 142888960 字节，低于 MongoDB 的 524288000 字节启动门槛，故服务未启动；该失败与指标修复无关。恢复原验证目录后，ON/OFF 各连续三轮通过（7.91 / 7.00 s），不修改 MongoDB 门槛或测试规模。该环境失败的日志与校验值也保留于最终验证资产。
+
+配置契约 7 个、原生契约 6 个均通过；开发机工具都可用，因此完整 CTest 的 ON/OFF 两种模式都包含这两个 integration target，没有以关闭缓存缩小合集。测量工具既有 58 个测试通过，Python 编译检查通过。自动化均使用隔离 etcd/MongoDB，没有访问共享开发库。
+
+| 平台 / preset / 缓存 | 全量 CTest | CTest 总时间 | 源码范围 |
+| --- | --- | ---: | --- |
+| Mac `dev` / ON | 663/663，0 跳过 | 396.35 s | `cf56759` 加缓存补丁；L1 后续同步变更另复测 |
+| Mac `dev-make` / OFF | 663/663，0 跳过 | 382.26 s | 含 `675d5c7` 的最终源码，失败后完整重跑 |
+| Lima `dev` / ON | 663/663，0 跳过 | 322.55 s | `cf56759` 加缓存补丁；L1 后续同步变更另复测 |
+| Lima `dev-make` / OFF | 663/663，0 跳过 | 321.22 s | 同上 |
+
+`675d5c7` 之后唯一变化的 L1 用例在四种组合均重建验证：Mac ON 三轮（12.65 s）、OFF 十轮（40.04 s），Lima ON/OFF 各三轮（7.91 / 7.00 s），遇失败即停且全部通过。没有把另三种组合在该补丁前完成的 663 个测试写成补丁后完整重跑。两平台 ON 各连续三轮配置后 `ninja: no work to do.`，8 个版本头的内容及时间戳均不变。最终材料代码与性能冻结清单逐文件校验，仅该测试文件因 L1 同步补丁不同，运行时及缓存代码相同。Mac 主检出恢复 `dev` AUTO。
+
+Lima ON 的 Linux 登录链验收使用真实 QUIC，报告版本 `cf56759` 加缓存补丁；M1/M2 与传输各三轮，M3/M4 各一轮，结果如下。M2 中包含的 L1 后续补丁已另做上述定向复测；不声称专用宿主的生产容量门槛已覆盖。
+
+| 验收组 | 轮数 | 时间 | 结果 |
+| --- | ---: | ---: | --- |
+| QUIC 传输与拓扑 | 3 | 13 s | PASS |
+| M1 定向水位/浸泡 | 3 | 66 s | PASS |
+| M2 准入与持久取号 | 3 | 35 s | PASS |
+| M3 取号与进度负载 | 1 | 59 s | PASS |
+| M4 故障与恢复 | 1 | 62 s | PASS |
+
+全量、稳定配置、L1 定向验证、失败和 M1–M4 报告的校验值保存在资产的 `final_validation`；它与性能 `rows` 独立，保留各自源码范围。
+
+### CI 与验收结论的边界
+
+CI 两平台显式安装 ccache、ON/2GiB，以 OS/架构、工作路径、compiler 内容/版本/目标、SDK/sysroot/标准库宏、工具版本、Debug 及固定依赖元数据分桶；restore 不跨桶，weekly key 限制不可变快照增长。成功 main push/手动维护运行在全部测试（Linux 含 M1–M4）之后保存，PR 只恢复；恢复/保存允许缓存服务失败，正常源码编译与同一测试流程继续。日志分别记录键计算＋检查＋restore、save 的秒数，以及命中、未命中、大小、清理和 action 结果。YAML 语法与配置键 CLI 测试已通过，发布条件也经代码审查。
+
+**2026-10-06 已补足实际 GitHub runner 的空/热缓存、首次上传、受控恢复失败与三组净等待证据，两个平台分别通过 20% 缓存门槛。** 每个平台在同一 runner、工具链与路径上交替 OFF/兼容 ON，完整删除产物并包含键检查、恢复、构建、实际保存及远端回读；三个配对方向均一致，无需扩展至五组。P6 的 R0 累计比较与热完整入口性能验收仍按独立阶段执行。
+
+本机测试均开启 QUIC；补充 CI 已测 macOS arm64 TLS/TCP-only 与 Linux x86_64 QUIC，见下文。CMake 3.20 与最低允许 ccache 4.8 未实跑，已测版本见环境表；版本/配置契约覆盖最低版本判定，但不代替真实最低版本构建。本机最终采样包含 AUTO 重新发现、显式 OFF 测试登记、公开缓存条目识别、统计工具解析、CI 元数据/计时与独立 M3 测试修复。两平台隔离副本的 Git 元数据均指向固定父版本 `cf56759`（缓存补丁为 dirty），避免验收脚本把无 `.git` 副本或另一检出的 HEAD 当阶段版本；最初无 Git 的验收入口失败也保留于日志。两平台资源和收益分别判定，不混合秒数。
+
+### 回退与复现
+
+```bash
+cmake --preset dev -DREALMMESH_CCACHE=OFF
+./scripts/build.sh --preset dev
+# 同时使用 P4 的生成器回退：
+cmake --preset dev-make -DREALMMESH_CCACHE=OFF
+./scripts/build.sh --preset dev-make
+```
+
+OFF 不删专用 cache，ON/AUTO 可重新开启；空的 `REALMMESH_CCACHE_EXECUTABLE` 表示自动查找。用户自定义 launcher 用 OFF 保留。缓存删除、损坏、淘汰或 CI 恢复缺失只增加重新编译工作；真实 compiler 错误不重试。
+
+隔离副本链接相同 `.tools`，一次准备 `*-src` 与已校验 sodium 原包；编译 `tools/build-bench/launcher.cpp`。先以 ON 执行一次 `--scenario cold-build` 填充兼容缓存，再交替 OFF/ON，每侧 `--long-samples 1 --sample-start N` 三组，Mac `--jobs 8`、Lima `--jobs 2 --env TMPDIR=<磁盘目录>`，其余 tool/preset/source/deps/路径不变。每次命令都由 `measure.py` 保存于样本的 `steps`。
+
+### 资产
+
+[`p5-mac-samples.json`](assets/build-optimization-results/p5-mac-samples.json)、[`p5-lima-samples.json`](assets/build-optimization-results/p5-lima-samples.json) 保留逐次原始结果、前后计数、编译源码/链接产物名单、外部 sodium 请求数、资源与环境、工具及采样源码 SHA、日志 SHA、总等待中位数/min/max 与配对差值；失败/初次填充另列，`previous_snapshot` 保存 M3 修复前的完整组。路径归一为 `<bench>`/`<checkout>`；完整原始日志和资源时间线留在本机拥有的隔离测量目录，不提交。
+
+
+### 2026-10-06：实际 CI 三组补充验收
+
+冻结源码 `40b75b69ac1f4ad1018a37be9a1caae3b401a95f`，前一提交 `3dd0c51` 增加手动验收入口，随后同步配置契约的精确注册名单。[三组运行 37450446313](https://github.com/lvivvde/RealmMesh/actions/runs/37450446313) 两平台全部成功；同源码的[正常 PR CI 37450440174](https://github.com/lvivvde/RealmMesh/actions/runs/37450440174) 也全部通过。源码、依赖、脚本与 launcher SHA、preset/flags、工作目录、runner job ID 和能力保留在本节资产，不将本机/Lima/两个 CI runner 的秒数拼接。
+
+| 环境 | Linux CI | macOS CI |
+| --- | --- | --- |
+| 架构／能力 | x86_64，QUIC + TLS/TCP | arm64，仅 TLS/TCP，沿用 ADR-0012 |
+| 工具 | GCC 13.3.0，CMake 3.31.6，ccache 4.9.1 | Apple clang 21.0.0，CMake 4.4.3，ccache 4.14 |
+| preset／预算 | Debug `dev`，编译 2、库/程序链接池 1（测试可执行文件出池）、外部 Make 1、测试 1 | 相同预算；Ninja 1.13.2 |
+| 来源／产物 | 一次准备固定 FetchContent 来源与已验 SHA 的 libsodium 包；每次删除整个 build（含外部库） | 相同协议 |
+| 兼容缓存 | 2GiB 上限；ON 前清本地对象缓存再真实恢复远端 seed | 相同协议 |
+
+seed 在一次完整串行 CTest 与 Linux QUIC/M1–M4 全部通过后才上传。实验用独立 `ccache-acceptance-<兼容桶>-37450446313-1-seed/pair-N`，普通 PR 只恢复、成功 main 才发布生产快照的规则保持不变。正式顺序为 OFF1/ON1、ON2/OFF2、OFF3/ON3；ON 主计时从兼容桶键检查之前直到实际保存与远端 lookup 验证之后，含步骤交接、压缩及传输；首次填充、首次上传和测试段另列。
+
+| 组 | Linux OFF 净等待 | Linux ON 净等待 | macOS OFF 净等待 | macOS ON 净等待 |
+| --- | ---: | ---: | ---: | ---: |
+| 1 | 257.16 s | 48.14 s | 395.51 s | 107.43 s |
+| 2 | 257.65 s | 48.42 s | 389.28 s | 102.13 s |
+| 3 | 257.20 s | 48.70 s | 366.04 s | 113.51 s |
+| 中位数 | 257.20 s | 48.42 s | 389.28 s | 107.43 s |
+| 最小–最大 | 257.16–257.65 s | 48.14–48.70 s | 366.04–395.51 s | 102.13–113.51 s |
+
+**净等待下降 Linux 81.17%、macOS 72.40%，各 3/3 配对变快，分别超过 20% 门槛。** Linux 配对下降 81.28%/81.21%/81.07%，macOS 为 72.84%/73.76%/68.99%。主下降率独立从逐次总计时复算，未相加阶段中位数，也未取单次最快值。
+
+Linux 每次 ON 的真实恢复为 1.55–1.77 s、保存 1.78–1.82 s、远端保存检查约 0.25 s；macOS 为恢复 2.09–2.75 s、保存 3.59–4.32 s、检查 0.35–0.47 s。总等待还包含键计算与其他交接成本，完整明细在逐次 `cost_s`。首次空缓存填充单列：Linux 296.65 s（774 miss、2 preprocessing hit），macOS 465.48 s（773 miss、2 preprocessing hit）；首次上传为 2.30/4.48 s，分别约 140/116 MiB，不计入三组兼容 ON。
+
+每次 Linux 都请求 776 次原生编译、76 次链接与 139 次未缓存 libsodium CC；macOS 为 775/76/137，外部 CC 没有重复。六次原生源码／链接产物完整名单及外部源码名单分别一致。所有 ON 为 direct hit 776/775、miss 0；每次 restore action 确认精确 seed 命中，每次 save 后远端 lookup 成功。这里是 GitHub archive 恢复后的本地 ccache 命中，未新增 ccache 的远端存储服务。
+
+| 正确性门槛 | Linux CI | macOS CI |
+| --- | --- | --- |
+| seed 完整 CTest | 664/664，304.35 s | 663/663，469.62 s |
+| OFF 完整 CTest | 664/664，304.06 s | 663/663，461.64 s |
+| 最终恢复 ON 完整 CTest | 664/664，304.72 s | 663/663，509.01 s |
+| QUIC／M1–M4 | seed 与最终 ON 的五个验收组全部 PASS | 沿既有政策由 Linux gate 覆盖 |
+
+全部 CTest 无跳过；Config、Native 与新增 `CompilerCacheCISummaryTest` 都实际运行。新增 summary 契约经 `tests/cmake/compiler-cache-contract.cmake` 注册为 integration，13 个 JSON/CLI 判定用例和原测量工具 58 项自测通过。上述测试段各为单次正确性门槛：macOS 最终 ON 测试时间高于 OFF，热完整入口的性能判断需按 P6 取得受控配对样本，本文仅给兼容缓存净重建结论。
+
+资源按整 job 的 Runner.Worker 树采样，覆盖 seed 构建／完整测试／首次上传与六个正式构建／传输区间；末尾 OFF/ON 的独立完整测试不在性能计时和这组资源区间内。Linux 1747 个采样点：树 RSS 峰值 1730.45 MiB、可用内存最低 13016.94 MiB，VM 总内存 15.61GiB、无更紧 cgroup 限额；macOS 2121 点：峰值 985.03 MiB、可用最低 2520.20 MiB、压力等级始终 1。跨区间相对 seed 起点核对 swap 增长均为 0，Linux OOM 增量 0；macOS 沿原采样器政策不报告 OOM 计数。采样间的极短进程与被重挂的后台采样器自身仍是 RSS 口径限制。全部构建与测试退出 0，无磁盘耗尽。
+
+恢复不可用夹具使用唯一从未发布的 key 和 `fail-on-cache-miss=true`，两平台实际 restore action 都失败，随后正常空缓存构建和同一全测试通过；未声称模拟缓存服务宕机或网络故障。预检运行 37450284316/37450276976 因精确注册名单未同步而主动取消，修正后使用全新运行；取消日志与校验和保留，不计成功样本。本机 Native 契约也保留一次沙箱禁读 sysctl 的失败，具备读取权限的同一命令重跑通过。
+
+验收后发现 summary 契约的子进程会向真实 `GITHUB_STEP_SUMMARY` 写合成小样本，已仅在测试夹具移除该变量，并用独立 sentinel 文件核对 13 项执行后真实摘要不变。实际验收 artifact 的 JSON、原始工作量和计时器均不受影响，结果的冻结版本仍为 `40b75b6`。
+
+两个 artifact 的 6026/6015 个原始文件已下载并逐一校验 SHA；repo 保留完整逐次 JSON、环境、源码 hash、全测试日志、M1–M4 报告、原始文件校验清单与运行身份。完整构建事件／资源时间线／job 日志在拥有的本机目录和 GitHub artifact 留存，artifact ID、摘要与有效期在元数据中。8 个准确实验 cache ID（共 1,076,783,377 bytes）已全部删除并回查为空，清理命令结果与前后 key 清单保留；仅操作本次实验快照。
+
+[CI 逐次结果与独立复算](assets/build-optimization-results/p5-ci-2026-10-06/ci-results.json)、[运行与日志来源](assets/build-optimization-results/p5-ci-2026-10-06/provenance.json)、[资产校验清单](assets/build-optimization-results/p5-ci-2026-10-06/manifest.json)、[取消历史](assets/build-optimization-results/p5-ci-2026-10-06/ci-preflight-history.json)。CMake 3.20、ccache 4.8 的真实最低版本与未运行平台组合继续按前文限制披露。P5 的本机／CI 兼容缓存门槛现已通过，P6 和首批累计验收另行执行。

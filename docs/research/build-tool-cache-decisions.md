@@ -1,6 +1,6 @@
 # 构建工具、并行缓存与依赖复用策略
 
-关联[选择构建工具、并行缓存与第三方依赖复用策略](https://github.com/lvivvde/RealmMesh/issues/112)。用户已通过 Q1–Q6 确认各项选择，并通过 Q7 最终确认完整方案与正式记录。本文是后续实施约束。Ninja 默认与 Make 回退已由 [#123](https://github.com/lvivvde/RealmMesh/issues/123)（P4）落地，见文末[实施记录（#123）](#实施记录123)；ccache 尚未实施。
+关联[选择构建工具、并行缓存与第三方依赖复用策略](https://github.com/lvivvde/RealmMesh/issues/112)。用户已通过 Q1–Q6 确认各项选择，并通过 Q7 最终确认完整方案与正式记录。本文是后续实施约束。Ninja 默认与 Make 回退已由 [#123](https://github.com/lvivvde/RealmMesh/issues/123)（P4）落地，见文末[实施记录（#123）](#实施记录123)；ccache 由 #124（P5）接入，验证与限制见文末实施记录及阶段报告。
 
 ## 首批选择与适用场景
 
@@ -146,3 +146,17 @@ Tier Verify：Users-edwin-Projects-RealmMesh，主体证据generation2026-10-02T
 ### 测试覆盖
 
 `BuildGraphTest`（integration）覆盖：版本门槛对各种 `ninja --version` 输出与执行失败的判定；`project()` 之前停下并给出提示；用真实 Ninja 生成的临时工程里库与可执行文件的链接边在深度 1 的池内、用 `realmmesh_link_outside_pool` 放出的不在池内；Ninja 构建下本工程 `build.ninja` 里库与 `realm_mesh` 在池内、`realm_add_gtest` 注册的测试可执行文件不在池内；libsodium 清单核对对多出与缺少文件报错。
+
+## 实施记录（#124）
+
+P5 接入 `cmake/RealmMeshCCache.cmake`，在任何原生 target 创建前配置 C/CXX launcher。`REALMMESH_CCACHE` 缺省 AUTO；ON 要求可执行的 ccache 4.x（≥4.8），AUTO 仅在没有找到工具时关闭，显式无效路径/版本/config 不静默回退。4.8 下限用于逐调用 `KEY=VALUE` 配置；最低 CMake 仍为 3.20。OFF 按内部登记的完整 launcher 字节只移除项目所有的配置，保留用户自定义 launcher；启用时遇到自定义 launcher 明确报冲突，不暗中拼接。
+
+`REALMMESH_CCACHE_EXECUTABLE` 缺省为空，表示每次配置重新查找；自动发现的工具被移除后，AUTO 可以关闭而不沿用失效路径。显式路径仍严格校验，ON/OFF 的原生测试均使用该有效路径。测量读取本次实际解析出的工具、目录和配置文件，不误读 PATH 上的另一工具或个人 `CCACHE_DIR`。
+
+缓存缺省位于 `${PROJECT_SOURCE_DIR}/.cache/ccache`，不在任何默认 build 里，上限 5GiB；可由用户预设显式覆盖绝对目录与容量。每次调用隔离系统/个人配置，固定 `compiler_check=content`、空 sloppiness、`hash_dir=true`、禁止硬链接、空 base_dir、不忽略头/编译选项、不额外包装编译器、禁用远程缓存；保持压缩与正常容量淘汰。libsodium 外部 Make 首批仍不接缓存。编译错误原样失败，没有绕过缓存的无条件重试。
+
+CI 显式安装并启用 ccache，专用目录上限 2GiB。`scripts/ci-ccache-key.py` 计算保守兼容前缀：OS/架构、稳定工作路径、C/CXX 编译器内容/版本/目标、SDK/sysroot/标准库预定义宏、ccache/CMake/Ninja 版本、Debug 配置及固定依赖 CMake/补丁/proto/安装脚本元数据。restore 前缀只在同桶内；只保存 ccache 目录。键追加 ISO 周作为不可变快照版本，每桶每周最多首次成功的一次发布，不按每提交无限产生快照。PR 只恢复并在 job 内更新；成功完成完整 CTest（Linux 含 M1–M4 接入）的 main push 或 main 手动维护运行才 save。恢复/保存步骤允许服务失败，源码构建和相同测试继续；命中状态、错误、统计和传输秒数留在日志。
+
+测量工具的 `--cache-mode` 从历史纯备注改为实际 OFF/ON/AUTO 参数（默认 OFF）；观测 compiler 的 wrapper 移到缓存外的 CMake `RULE_LAUNCH_COMPILE`，不与项目 launcher 冲突。请求计数与真实 compiler 次数分开，逐样本保存 ccache 前后计数。新增 `cold-build` 每次清空完整 build，包含未缓存外部产物，复用预先准备的依赖源码和已校验 libsodium 原包；采样与结果见[阶段结果](build-optimization-results.md)。冷构建不替代完整验证，CI 净收益必须包含真实 restore/save 成本，不能从本机磁盘命中推断。
+
+逐调用配置优先于环境变量，依据 [ccache 4.8.2 手册](https://ccache.dev/manual/4.8.2.html)；缓存的 restore/save 和作用域依据 [GitHub 官方说明](https://docs.github.com/en/actions/reference/workflows-and-actions/dependency-caching)。这些来源说明机制，性能与行为以阶段样本为准。
