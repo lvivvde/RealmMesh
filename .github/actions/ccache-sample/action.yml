@@ -1,0 +1,65 @@
+name: One compiler cache sample
+description: Complete empty-product OFF or remotely restored ON build
+inputs:
+  mode:
+    required: true
+    description: OFF or ON
+  pair:
+    required: true
+    description: Pair number
+runs:
+  using: composite
+  steps:
+    - name: Begin sample and compatibility check
+      id: begin
+      shell: bash
+      run: python3 tools/build-bench/ci_cache.py start --out "$CI_CCACHE_OUT" --mode '${{ inputs.mode }}' --pair '${{ inputs.pair }}'
+    - name: Restore compatible seed
+      if: inputs.mode == 'ON'
+      id: restore
+      uses: actions/cache/restore@v4
+      continue-on-error: true
+      with:
+        path: ${{ env.CCACHE_DIR }}
+        key: ${{ steps.begin.outputs.seed_key }}
+        fail-on-cache-miss: true
+    - name: Record actual restore result
+      if: inputs.mode == 'ON'
+      shell: bash
+      run: python3 tools/build-bench/ci_cache.py mark --out "$CI_CCACHE_OUT" --label restore_done --outcome '${{ steps.restore.outcome }}' --hit '${{ steps.restore.outputs.cache-hit }}'
+    - name: Configure and build ALL
+      shell: bash
+      run: python3 tools/build-bench/ci_cache.py build --out "$CI_CCACHE_OUT"
+    - name: Start save timer
+      if: inputs.mode == 'ON'
+      shell: bash
+      run: python3 tools/build-bench/ci_cache.py mark --out "$CI_CCACHE_OUT" --label save_start
+    - name: Save a fresh measurement snapshot
+      if: inputs.mode == 'ON'
+      id: save
+      uses: actions/cache/save@v4
+      continue-on-error: true
+      with:
+        path: ${{ env.CCACHE_DIR }}
+        key: ${{ steps.begin.outputs.save_key }}
+    - name: Record actual save result
+      if: inputs.mode == 'ON'
+      shell: bash
+      run: python3 tools/build-bench/ci_cache.py mark --out "$CI_CCACHE_OUT" --label save_done --outcome '${{ steps.save.outcome }}'
+    - name: Verify the saved entry remotely
+      if: inputs.mode == 'ON'
+      id: lookup
+      uses: actions/cache/restore@v4
+      continue-on-error: true
+      with:
+        path: ${{ env.CCACHE_DIR }}
+        key: ${{ steps.begin.outputs.save_key }}
+        lookup-only: true
+        fail-on-cache-miss: true
+    - name: Record remote save verification
+      if: inputs.mode == 'ON'
+      shell: bash
+      run: python3 tools/build-bench/ci_cache.py mark --out "$CI_CCACHE_OUT" --label lookup_done --outcome '${{ steps.lookup.outcome }}' --hit '${{ steps.lookup.outputs.cache-hit }}'
+    - name: Finish complete net-wait sample
+      shell: bash
+      run: python3 tools/build-bench/ci_cache.py finish --out "$CI_CCACHE_OUT"

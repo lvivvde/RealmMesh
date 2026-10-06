@@ -1,0 +1,129 @@
+name: Compiler cache acceptance
+description: Three real remote-cache pairs after complete source and correctness preparation
+inputs:
+  preset:
+    required: true
+    description: Configure/build/test preset
+  jobs:
+    required: true
+    description: Compile budget
+runs:
+  using: composite
+  steps:
+    - name: Prepare fixed sources, observer and owned disk directories
+      id: prepare
+      shell: bash
+      run: python3 tools/build-bench/ci_cache.py setup --source "$GITHUB_WORKSPACE" --out "$RUNNER_TEMP/realmmesh-ccache-acceptance" --preset '${{ inputs.preset }}' --jobs '${{ inputs.jobs }}'
+    # A deliberately absent key causes a real restore-action failure. The
+    # subsequent cold source build and unchanged full suite verify continuation.
+    - name: Controlled unavailable-restore fixture
+      id: unavailable
+      uses: actions/cache/restore@v4
+      continue-on-error: true
+      with:
+        path: ${{ env.CCACHE_DIR }}
+        key: ${{ steps.prepare.outputs.unavailable_key }}
+        fail-on-cache-miss: true
+    - name: Record unavailable restore
+      shell: bash
+      run: python3 tools/build-bench/ci_cache.py mark --out "$CI_CCACHE_OUT" --label unavailable_restore --outcome '${{ steps.unavailable.outcome }}'
+    - name: Empty-cache fill from complete empty products
+      shell: bash
+      run: python3 tools/build-bench/ci_cache.py seed --out "$CI_CCACHE_OUT"
+    - name: Complete serial correctness gate
+      shell: bash
+      run: ctest --preset '${{ inputs.preset }}' -j 1 --output-on-failure | tee "$CI_CCACHE_OUT/seed-tests.log"
+    - name: Linux QUIC and M1-M4 gate
+      if: runner.os == 'Linux'
+      shell: bash
+      env:
+        REALMMESH_LINUX_ACCEPTANCE_SKIP_BUILD: '1'
+      run: ./scripts/run-linux-login-acceptance.sh --preset '${{ inputs.preset }}' | tee "$CI_CCACHE_OUT/seed-m1-m4.log"
+    - name: Verify correctness before maintenance publication
+      id: verified
+      shell: bash
+      run: python3 tools/build-bench/ci_cache.py verified --out "$CI_CCACHE_OUT"
+    - name: Start first-upload timer
+      shell: bash
+      run: python3 tools/build-bench/ci_cache.py mark --out "$CI_CCACHE_OUT" --label seed_save_start
+    - name: Publish isolated tested seed
+      id: seed_save
+      uses: actions/cache/save@v4
+      continue-on-error: true
+      with:
+        path: ${{ env.CCACHE_DIR }}
+        key: ${{ steps.verified.outputs.seed_key }}
+    - name: Record first-upload result
+      shell: bash
+      run: python3 tools/build-bench/ci_cache.py mark --out "$CI_CCACHE_OUT" --label seed_save_done --outcome '${{ steps.seed_save.outcome }}'
+    - name: Verify first-upload entry remotely
+      id: seed_lookup
+      uses: actions/cache/restore@v4
+      with:
+        path: ${{ env.CCACHE_DIR }}
+        key: ${{ steps.verified.outputs.seed_key }}
+        lookup-only: true
+        fail-on-cache-miss: true
+    - name: Record seed verification and resource baseline
+      shell: bash
+      run: python3 tools/build-bench/ci_cache.py mark --out "$CI_CCACHE_OUT" --label seed_remote_check --outcome '${{ steps.seed_lookup.outcome }}' --hit '${{ steps.seed_lookup.outputs.cache-hit }}'
+    - name: Pair 1 OFF
+      uses: ./.github/actions/ccache-sample
+      with:
+        mode: 'OFF'
+        pair: '1'
+    - name: Pair 1 ON
+      uses: ./.github/actions/ccache-sample
+      with:
+        mode: 'ON'
+        pair: '1'
+    - name: Pair 2 ON
+      uses: ./.github/actions/ccache-sample
+      with:
+        mode: 'ON'
+        pair: '2'
+    - name: Pair 2 OFF
+      uses: ./.github/actions/ccache-sample
+      with:
+        mode: 'OFF'
+        pair: '2'
+    - name: Complete OFF correctness gate outside the build timer
+      shell: bash
+      run: ctest --preset '${{ inputs.preset }}' -j 1 --output-on-failure | tee "$CI_CCACHE_OUT/off-tests.log"
+    - name: Pair 3 OFF
+      uses: ./.github/actions/ccache-sample
+      with:
+        mode: 'OFF'
+        pair: '3'
+    - name: Pair 3 ON
+      uses: ./.github/actions/ccache-sample
+      with:
+        mode: 'ON'
+        pair: '3'
+    - name: Complete restored-ON correctness gate outside the build timer
+      shell: bash
+      run: ctest --preset '${{ inputs.preset }}' -j 1 --output-on-failure | tee "$CI_CCACHE_OUT/on-tests.log"
+    - name: Restored-ON Linux QUIC and M1-M4 gate
+      if: runner.os == 'Linux'
+      shell: bash
+      env:
+        REALMMESH_LINUX_ACCEPTANCE_SKIP_BUILD: '1'
+      run: |
+        ./scripts/run-linux-login-acceptance.sh --preset '${{ inputs.preset }}' | tee "$CI_CCACHE_OUT/on-m1-m4.log"
+        cp "$REALMMESH_BUILD_DIR/acceptance/linux-login-chain-m1-m4.md" "$CI_CCACHE_OUT/on-linux-login-chain-m1-m4.md"
+    - name: Evaluate complete raw pairs including transfer and resource costs
+      if: always() && env.CI_CCACHE_OUT != ''
+      shell: bash
+      run: python3 tools/build-bench/ci_cache.py summarize --out "$CI_CCACHE_OUT"
+    - name: Preserve all raw acceptance evidence
+      if: always() && env.CI_CCACHE_OUT != ''
+      uses: actions/upload-artifact@v4
+      with:
+        name: ccache-acceptance-${{ runner.os }}-${{ github.run_attempt }}
+        path: |
+          ${{ env.CI_CCACHE_OUT }}/*.json
+          ${{ env.CI_CCACHE_OUT }}/*.jsonl
+          ${{ env.CI_CCACHE_OUT }}/*.log
+          ${{ env.CI_CCACHE_OUT }}/*.md
+          ${{ env.CI_CCACHE_OUT }}/*-events/*.json
+        if-no-files-found: warn

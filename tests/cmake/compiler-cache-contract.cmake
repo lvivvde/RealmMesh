@@ -1,6 +1,10 @@
 # Configuration branches work without ccache; real native behavior is gated by
 # the same tool availability as AUTO, and always present in both CI jobs.
 find_program(REALMMESH_TEST_PYTHON NAMES python3 REQUIRED)
+
+add_test(NAME CompilerCacheCISummaryTest
+    COMMAND "${REALMMESH_TEST_PYTHON}" "${PROJECT_SOURCE_DIR}/tests/scripts/ci_cache_summary_test.py")
+set_tests_properties(CompilerCacheCISummaryTest PROPERTIES LABELS integration TIMEOUT 60)
 if(REALMMESH_CCACHE_EXECUTABLE AND EXISTS "${REALMMESH_CCACHE_EXECUTABLE}"
     AND NOT IS_DIRECTORY "${REALMMESH_CCACHE_EXECUTABLE}")
     set(REALMMESH_TEST_CCACHE "${REALMMESH_CCACHE_EXECUTABLE}")

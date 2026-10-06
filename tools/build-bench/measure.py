@@ -505,10 +505,11 @@ class MemorySampler(threading.Thread):
     """每秒采样测量进程树 RSS 合计、整机可用内存（Linux 计入 cgroup 限额）、swap、
     macOS 内存压力等级（1 正常/2 警告/4 严重）与 Linux OOM 计数。"""
 
-    def __init__(self, path, cgroup):
+    def __init__(self, path, cgroup, tree_root=None):
         super().__init__(daemon=True)
         self.path = path
         self.cgroup = cgroup
+        self.tree_root = tree_root or os.getpid()
         self.samples = []
         self._stop_event = threading.Event()
         self._start = time.perf_counter()
@@ -517,7 +518,7 @@ class MemorySampler(threading.Thread):
         reading = read_memory(self.cgroup)
         if reading is None:
             return
-        reading['tree_rss_mib'] = read_tree_rss_mib(os.getpid())
+        reading['tree_rss_mib'] = read_tree_rss_mib(self.tree_root)
         reading['elapsed_s'] = time.perf_counter() - self._start
         self.samples.append(reading)
         with self.path.open('a') as stream:

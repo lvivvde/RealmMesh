@@ -5,6 +5,11 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+    inputs:
+      ccache_acceptance:
+        description: Run three isolated remote-cache acceptance pairs after full correctness
+        type: boolean
+        default: false
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -79,14 +84,17 @@ jobs:
           c++ --version
 
       - name: Start cache restore timer
+        if: inputs.ccache_acceptance != true
         id: ccache-restore-time
         run: echo "start=$(date +%s)" >> "$GITHUB_OUTPUT"
 
       - name: Compiler cache compatibility bucket
+        if: inputs.ccache_acceptance != true
         id: ccache-key
         run: python3 scripts/ci-ccache-key.py
 
       - name: Restore compiler cache
+        if: inputs.ccache_acceptance != true
         id: ccache-restore
         continue-on-error: true
         uses: actions/cache/restore@v4
@@ -96,22 +104,33 @@ jobs:
           restore-keys: ${{ steps.ccache-key.outputs.bucket }}-
 
       - name: Cache restore result
+        if: inputs.ccache_acceptance != true
         run: |
           echo "cache check+restore: outcome=${{ steps.ccache-restore.outcome }}, hit=${{ steps.ccache-restore.outputs.cache-hit }}, seconds=$(( $(date +%s) - ${{ steps.ccache-restore-time.outputs.start }} ))"
           mkdir -p "$CCACHE_DIR"
           ccache --zero-stats
 
       - name: Configure
+        if: inputs.ccache_acceptance != true
         run: |
           cmake --preset "$REALMMESH_CI_PRESET" -DREALMMESH_CCACHE=ON -DREALMMESH_CCACHE_DIR="$CCACHE_DIR" -DREALMMESH_CCACHE_MAX_SIZE=2GiB
           build_dir="$(./scripts/build-dir.sh --preset "$REALMMESH_CI_PRESET")"
           echo "REALMMESH_BUILD_DIR=${build_dir}" >> "$GITHUB_ENV"
           echo "CCACHE_CONFIGPATH=${build_dir}/realmmesh-ccache.conf" >> "$GITHUB_ENV"
 
+      - name: Compiler cache acceptance (three pairs)
+        if: github.event_name == 'workflow_dispatch' && inputs.ccache_acceptance == true
+        uses: ./.github/actions/ccache-acceptance
+        with:
+          preset: ${{ env.REALMMESH_CI_PRESET }}
+          jobs: ${{ env.REALMMESH_CI_BUILD_JOBS }}
+
       - name: Build
+        if: inputs.ccache_acceptance != true
         run: cmake --build --preset "$REALMMESH_CI_PRESET" --parallel "$REALMMESH_CI_BUILD_JOBS"
 
       - name: Test
+        if: inputs.ccache_acceptance != true
         run: ctest --preset "$REALMMESH_CI_PRESET" -j 1
 
 
@@ -125,7 +144,7 @@ jobs:
       # keys limit archive churn; restore cannot cross the compatibility prefix.
       - name: Start cache save timer
         id: ccache-save-time
-        if: success() && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && steps.ccache-restore.outputs.cache-hit != 'true'
+        if: success() && inputs.ccache_acceptance != true && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && steps.ccache-restore.outputs.cache-hit != 'true'
         run: echo "start=$(date +%s)" >> "$GITHUB_OUTPUT"
 
       - name: Save compiler cache
@@ -183,14 +202,17 @@ jobs:
           c++ --version
 
       - name: Start cache restore timer
+        if: inputs.ccache_acceptance != true
         id: ccache-restore-time
         run: echo "start=$(date +%s)" >> "$GITHUB_OUTPUT"
 
       - name: Compiler cache compatibility bucket
+        if: inputs.ccache_acceptance != true
         id: ccache-key
         run: python3 scripts/ci-ccache-key.py
 
       - name: Restore compiler cache
+        if: inputs.ccache_acceptance != true
         id: ccache-restore
         continue-on-error: true
         uses: actions/cache/restore@v4
@@ -200,25 +222,37 @@ jobs:
           restore-keys: ${{ steps.ccache-key.outputs.bucket }}-
 
       - name: Cache restore result
+        if: inputs.ccache_acceptance != true
         run: |
           echo "cache check+restore: outcome=${{ steps.ccache-restore.outcome }}, hit=${{ steps.ccache-restore.outputs.cache-hit }}, seconds=$(( $(date +%s) - ${{ steps.ccache-restore-time.outputs.start }} ))"
           mkdir -p "$CCACHE_DIR"
           ccache --zero-stats
 
       - name: Configure
+        if: inputs.ccache_acceptance != true
         run: |
           cmake --preset "$REALMMESH_CI_PRESET" -DREALMMESH_CCACHE=ON -DREALMMESH_CCACHE_DIR="$CCACHE_DIR" -DREALMMESH_CCACHE_MAX_SIZE=2GiB
           build_dir="$(./scripts/build-dir.sh --preset "$REALMMESH_CI_PRESET")"
           echo "REALMMESH_BUILD_DIR=${build_dir}" >> "$GITHUB_ENV"
           echo "CCACHE_CONFIGPATH=${build_dir}/realmmesh-ccache.conf" >> "$GITHUB_ENV"
 
+      - name: Compiler cache acceptance (three pairs)
+        if: github.event_name == 'workflow_dispatch' && inputs.ccache_acceptance == true
+        uses: ./.github/actions/ccache-acceptance
+        with:
+          preset: ${{ env.REALMMESH_CI_PRESET }}
+          jobs: ${{ env.REALMMESH_CI_BUILD_JOBS }}
+
       - name: Build
+        if: inputs.ccache_acceptance != true
         run: cmake --build --preset "$REALMMESH_CI_PRESET" --parallel "$REALMMESH_CI_BUILD_JOBS"
 
       - name: Test
+        if: inputs.ccache_acceptance != true
         run: ctest --preset "$REALMMESH_CI_PRESET" -j 1
 
       - name: Linux M1-M4 acceptance
+        if: inputs.ccache_acceptance != true
         env:
           REALMMESH_LINUX_ACCEPTANCE_SKIP_BUILD: "1"
         run: ./scripts/run-linux-login-acceptance.sh --preset "$REALMMESH_CI_PRESET"
@@ -243,7 +277,7 @@ jobs:
       # keys limit archive churn; restore cannot cross the compatibility prefix.
       - name: Start cache save timer
         id: ccache-save-time
-        if: success() && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && steps.ccache-restore.outputs.cache-hit != 'true'
+        if: success() && inputs.ccache_acceptance != true && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && steps.ccache-restore.outputs.cache-hit != 'true'
         run: echo "start=$(date +%s)" >> "$GITHUB_OUTPUT"
 
       - name: Save compiler cache

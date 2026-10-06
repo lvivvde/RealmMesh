@@ -87,6 +87,20 @@ python3 tools/build-bench/measure.py export --out "$out/result" --dest docs/rese
 
 ## 自测
 
+CI 三组实测由已存在的 `CI` 工作流手动触发，两个平台分别在同一 runner 上执行，不需先合并分支：
+
+```bash
+gh workflow run ci.yml --ref codex/124-native-ccache -f ccache_acceptance=true
+```
+
+该维护入口保持正常 PR 只恢复、成功 main 才发布生产桶的规则。实验只保存独立的 `ccache-acceptance-<兼容桶>-<run_id>-<attempt>-seed/pair-N`，由维护者在保留证据后按准确 key/ID 删除，不能批量删除生产快照。每轮原生缓存上限仍是 2GiB，最多四份快照/平台；上传日志记录实际压缩大小。
+
+`.github/actions/ccache-acceptance` 先固定来源、工具链和观测路径，删除整个 build（含未缓存的 libsodium 外部产物），用故意不存在的 key 触发一次真实 restore action 失败，再正常空缓存构建和完整串行 CTest；Linux 同时通过 QUIC 与 M1–M4，才保存隔离 seed。这个夹具证明恢复失败后的正常构建/测试继续，不声称模拟了网络或缓存服务宕机。
+
+正式顺序为 OFF1/ON1、ON2/OFF2、OFF3/ON3，每轮重新删除完整 build，ON 还清空本地缓存并实际远端恢复 seed。`ci_cache.py` 从键检查之前计时到实际保存与远端 lookup 验证之后，包含 action 交接成本；首次填充/上传单列。完整 OFF、最终热 ON 的 CTest（Linux 最终 ON 再跑 M1–M4）放在构建计时外，并与 seed 核对测试数量且禁止跳过。配对要求所有原生编译请求、链接产物、未缓存 libsodium 工作量一致；所有热 ON 原生请求必须 hit，三组中至少多数变快且净等待中位数下降至少 20%。
+
+资源采样覆盖本 job 的 `Runner.Worker` 进程树，包括 cache action 的 tar/压缩与传输子进程；后台采样器本身可能被重挂到系统进程，极短进程也可能落在一秒采样之间。保留整机压力、可用内存、swap 与 Linux OOM 增量；压力、swap 或至少 1GiB 余量门槛失败时不能仅因耗时改善通过。原始环境/来源/脚本 SHA、逐次日志/事件/资源、完整测试与 JSON 摘要保存在 `ccache-acceptance-Linux/macOS-<attempt>` artifact。失败/不完整样本同样保留，不自动重试隐藏错误。
+
 ```bash
 python3 -m unittest discover tools/build-bench
 ```
