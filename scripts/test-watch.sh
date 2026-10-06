@@ -34,6 +34,7 @@ recheck_interval="${REALMMESH_WATCH_RECHECK_INTERVAL:-5}"
 debounce_seconds="${REALMMESH_WATCH_DEBOUNCE:-1}"
 
 usage() {
+    echo "  Compiler cache: AUTO; override REALMMESH_CCACHE=AUTO/ON/OFF in a user preset. Consult README for cache paths and limits."
     echo "Usage: $0 [--once] [--preset NAME] [--jobs N] [--target TARGET] [--test-regex REGEX] [--test-jobs N]"
     echo "Runs ./scripts/test-fast.sh now and again after every change; --once runs one round"
     echo "and exits with its status. Options other than --once go to test-fast.sh."

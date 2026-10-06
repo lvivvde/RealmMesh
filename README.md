@@ -74,6 +74,7 @@ flowchart LR
 | Realm 最小业务闭环：票据不再带角色、Realm Session 选角/游戏中阶段、角色列表/创建/选择、Lua 训练规则与序号幂等、同账号新会话顶替旧会话、客户端 Realm API（#93） | 已实现 |
 | 共享临时开发库：TLS/认证、SSH 隧道与仓库外私有配置 | 已实现，见[连接说明](docs/operations/shared-mongodb.md) |
 | Linux ARM64 开发环境：依赖安装、QUIC 与原生构建 | 已验证构建及四进程登录链；首次集成测试 142/143 通过，fd 断言有一次偶发失败，见[验证记录](docs/operations/linux-arm64-development.md) |
+| 构建优化 P5：原生 ccache AUTO/ON/OFF 与 CI 可信缓存（#124） | 已接入；配对结果、完整验证与待验收项见[阶段报告](docs/research/build-optimization-results.md) |
 
 旧 `Login → Realm 选角 → Gateway 入场` 链路已整体退役：`login` 服务身份、7000 端口与
 旧入场消息编号都已删除，线名 `login` 永不复用（见[架构文档](docs/architecture.md)）。
@@ -273,6 +274,12 @@ Make 回退）。两者都继承隐藏的 `realmmesh-base`，后者把缓存变�
 Ninja 下库与生产程序的链接进深度 1 的原生池，编译仍用满 `--jobs`；GTest 可执行文件不进池（链接边里带着用例
 发现，见[实施记录](docs/research/build-tool-cache-decisions.md#实施记录123)）；libsodium 照旧是单独的 `make -j1`。旧的 `build/dev`
 （`dev` 曾用 Make 时的目录）不会被删除、搬移或换生成器，确认不再需要后自行删除即可。
+
+原生 C/C++ 编译缓存（#124）：`REALMMESH_CCACHE` 缺省 `AUTO`，PATH 有 ccache 4.x（≥4.8）即启用，缺失时打印关闭；`ON` 缺工具或显式工具路径无效会配置失败。macOS 可 `brew install ccache`，Ubuntu 可 `sudo apt install ccache`，入口不自动安装。`cmake --preset dev -DREALMMESH_CCACHE=OFF` 关闭并移除项目管理的 launcher，之后 `./scripts/build.sh` 保持该缓存选择；`AUTO` 可重新开启。已有自定义 compiler launcher 与开启缓存冲突时明确报错，OFF 保留用户 launcher。
+
+专用缓存缺省 `${sourceDir}/.cache/ccache`（在 build 外，git 忽略），上限 5GiB；构建目录清理不会删除它。用户预设可覆盖 `REALMMESH_CCACHE_DIR`（绝对路径）、`REALMMESH_CCACHE_MAX_SIZE` 和 `REALMMESH_CCACHE_EXECUTABLE`。配置隔离个人/系统 ccache 设置并在每次调用固定 content 编译器校验、空 sloppiness、调试目录哈希、系统头检查、压缩及禁止硬链接；不强设路径映射，也不缓存 libsodium 的外部 Make 编译。`CCACHE_DIR=<专用目录> ccache --show-stats --verbose` 查看命中/未命中/大小/淘汰，未命中正常源码编译，编译错误不重试。
+
+CI 两平台显式 ON，专用目录上限 2GiB，仅恢复 ccache 对象。兼容键包括 OS/架构、编译器内容/版本/目标、SDK/sysroot/标准库宏、工具版本、Debug 配置、固定依赖元数据及补丁；每桶每周最多发布一个不可变快照。PR 只恢复，成功完成全部验证的 main push 或 main 手动维护运行才发布；恢复/保存失败允许继续，统计和传输秒数留在日志。实际收益与尚未覆盖的 CI 运行见[阶段报告](docs/research/build-optimization-results.md)。
 
 配置时 `cmake/RealmMeshBuildDirInfo.cmake` 记下「预设 → 真实构建目录」：`build/.build-dirs/<预设>.txt`
 是登记，`<构建目录>/realmmesh-build-dir.txt` 是该目录自带的身份。脚本入口都接受 `--preset NAME`

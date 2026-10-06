@@ -41,3 +41,6 @@ CMakeUserPresets.json
 
 # Python bytecode (tools/build-bench)
 __pycache__/
+
+# Dedicated native compiler cache (#124), independent of build trees.
+/.cache/

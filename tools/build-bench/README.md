@@ -4,7 +4,7 @@
 
 | 文件 | 作用 |
 | --- | --- |
-| `launcher.cpp` | 作为 `CMAKE_<LANG>_{COMPILER,LINKER}_LAUNCHER` 包住每次真实编译/链接；设置 `REALMMESH_BUILD_BENCH_EVENTS` 时写一条事件 JSON：argv、cwd、墙钟、退出码、user/sys 时间、`maxrss_kib`（macOS 字节已换算为 KiB） |
+| `launcher.cpp` | 编译通过 `RULE_LAUNCH_COMPILE` 在缓存外观测请求，链接通过 `CMAKE_<LANG>_LINKER_LAUNCHER` 观测（不含静态归档）；设置 `REALMMESH_BUILD_BENCH_EVENTS` 时写一条事件 JSON：argv、cwd、墙钟、退出码、user/sys 时间、`maxrss_kib`（macOS 字节已换算为 KiB） |
 | `measure.py` | 按场景驱动 `cmake`/`ctest`，整体计时并分步记录，统计实际编译/链接名单与次数，每秒采样内存；`summarize` 按场景汇总，`export` 导出可提交的样本资产 |
 | `test_measure.py` | `measure.py` 纯函数的单元测试。不按 [tests/README.md](../../tests/README.md) 进 `tests/` 与 CTest：测量工具不属于被测产品，注册进 CTest 会改变各阶段要比较的测试合集；改动本目录时手动运行，见“自测” |
 
@@ -12,7 +12,7 @@
 
 ## 场景
 
-`--scenario` 可重复，`all` 按下表顺序全跑。短场景（`unit-entry`、`cpp-entry`、`fast-entry`、`fast-cpp-entry`、`probes`）先跑 1 次预热（阶段名带 `-warmup`，`summarize` 不计入），再跑 `--samples` 次（默认 5）；长场景（`cold-entry`、`hot-full`）跑 `--long-samples` 次（默认 3）。一个阶段里的多条命令整体计时，`steps` 另记每步墙钟；总耗时不由各步中位数相加。
+`--scenario` 可重复，`all` 按下表顺序全跑。短场景（`unit-entry`、`cpp-entry`、`fast-entry`、`fast-cpp-entry`、`probes`）先跑 1 次预热（阶段名带 `-warmup`，`summarize` 不计入），再跑 `--samples` 次（默认 5）；长场景（`cold-build`、`cold-entry`、`hot-full`）跑 `--long-samples` 次（默认 3）。一个阶段里的多条命令整体计时，`steps` 另记每步墙钟；总耗时不由各步中位数相加。
 
 | 场景 | 阶段名 | 步骤 | 内容 |
 | --- | --- | --- | --- |
@@ -61,7 +61,8 @@ python3 tools/build-bench/measure.py export --out "$out/result" --dest docs/rese
 - `--jobs N`：传给 `cmake --build --parallel`；缺省传 `--parallel 1`，即串行（R0 条件）。Ninja 不传 `--parallel` 时会按核数并行，所以串行也显式传。`fast-*` 场景传给 `test-fast.sh --jobs`，缺省用脚本的预算。
 - `--samples N --sample-start S --no-warmup`：配对交替测量时，每次调用只跑一个样本，序号接续；对所有短场景（含 `probes`）生效。例如前后各先用 `--samples 0` 预热，再按组交替调用 `--samples 1 --sample-start <组号> --no-warmup`。前后两侧用各自的源码副本与 `--out`。
 - `--preset`、`--build-dir`：改预设与构建目录后用。`--build-dir` 缺省按源码副本自己的 `CMakePresets.json` / `CMakeUserPresets.json` 解析该预设的 binaryDir（沿 `inherits` 取第一个，展开 `${sourceDir}`、`${presetName}`），`dev` 即 `build/dev-ninja`、`dev-make` 即 `build/dev-make`（#123），副本不需要先配置；binaryDir 含其他宏时显式传 `--build-dir`。
-- `--cache-mode`：只做记录，如 `ccache-AUTO-hot`。
+- `--cache-mode OFF|ON|AUTO`：实际传给 `REALMMESH_CCACHE`，缺省 OFF。编译观测改用项目配置 hook 的 `RULE_LAUNCH_COMPILE` 包在缓存外，避免覆盖原生 launcher；`compile_count` 是原生编译请求数，不再意味着真实 compiler 次数，必须结合逐样本 `ccache_before/after` 的 hit/miss/不可缓存差值解读。
+- `--scenario cold-build`：仅配置＋ALL，按 `--sample-start`／`--long-samples` 编号；每轮删除整个 build（含 libsodium 外部产物），复用已备源码。用于至少三组交替 OFF/兼容 ON 净重建；首次填充独立记录。完整正确性另跑 `hot-full` 或 `scripts/build.sh`，CI 的恢复/保存成本另计。
 
 工具会清除 `CMAKE_BUILD_PARALLEL_LEVEL`、`CTEST_PARALLEL_LEVEL`、`MAKEFLAGS` 与外部 launcher 变量，并去掉带 MongoDB URI/口令的变量；测试只用夹具自起的隔离 etcd/MongoDB。
 

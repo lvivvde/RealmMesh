@@ -36,7 +36,7 @@ PROBES = {
     'proto': 'proto/realmmesh/common/v1/envelope.proto',
     'private-hpp': 'game/common/src/envelope_codec.hpp',
 }
-SCENARIOS = ['fetch', 'cold-entry', 'repro', 'hot-full', 'unit-entry', 'cpp-entry', 'fast-entry', 'fast-cpp-entry',
+SCENARIOS = ['fetch', 'cold-build', 'cold-entry', 'repro', 'hot-full', 'unit-entry', 'cpp-entry', 'fast-entry', 'fast-cpp-entry',
              'probes']
 # libsodium 是 ExternalProject：下载包放进其默认 DOWNLOAD_DIR 且 hash 相符时，构建跳过下载。
 SODIUM_CMAKE = 'third_party/sodium/CMakeLists.txt'
@@ -591,8 +591,16 @@ class Bench:
                 for p in sorted(self.deps_dir.iterdir()) if p.is_dir() and p.name.endswith('-src')]
 
     def configure_cmd(self, reuse_deps=True):
-        launchers = [f'-DCMAKE_{lang}_{kind}_LAUNCHER={self.launcher}' for lang in ('C', 'CXX') for kind in ('COMPILER', 'LINKER')]
-        return ['cmake', '--preset', self.args.preset] + launchers + (self.deps_overrides() if reuse_deps else []) + self.args.cmake_arg
+        # Observe outside the cache launcher: compile_count counts requested
+        # native compilations, not cache misses. ccache counters distinguish them.
+        observer = self.out / 'compile-observer.cmake'
+        quoted = self.launcher.replace('\\', '\\\\').replace('"', '\\"')
+        observer.write_text('set_property(GLOBAL PROPERTY RULE_LAUNCH_COMPILE "\\"' + quoted + '\\"")\n')
+        launchers = [f'-DCMAKE_{lang}_LINKER_LAUNCHER={self.launcher}' for lang in ('C', 'CXX')]
+        launchers += [f'-DCMAKE_{lang}_COMPILER_LAUNCHER=' for lang in ('C', 'CXX')]
+        return (['cmake', '--preset', self.args.preset, f'-DREALMMESH_CCACHE={self.args.cache_mode}',
+                 f'-DCMAKE_PROJECT_RealmMesh_INCLUDE={observer}'] + launchers
+                + (self.deps_overrides() if reuse_deps else []) + self.args.cmake_arg)
 
     def build_cmd(self):
         # 缺省串行要显式 --parallel 1：Ninja 不传时按核数并行（Make 不传即串行，R0 的条件）。
@@ -624,6 +632,7 @@ class Bench:
         memory_path.unlink(missing_ok=True)
         sampler = MemorySampler(memory_path, self.cgroup)
         print('START ' + name, flush=True)
+        cache_before = None
         loadavg_start = os.getloadavg()
         start = time.perf_counter()
         sampler.start()
@@ -631,6 +640,8 @@ class Bench:
         step_rows = []
         with log.open('w', buffering=1) as stream, timeline.open('w', buffering=1) as marks:
             for label, command in steps:
+                if label in ('build', 'test-fast'):
+                    cache_before = self.cache_stats()
                 stream.write('$ ' + ' '.join(command) + '\n')
                 step_start = time.perf_counter()
                 proc = subprocess.Popen(command, cwd=self.source, env=env, stdout=subprocess.PIPE,
@@ -660,6 +671,7 @@ class Bench:
             'name': name, 'warmup': warmup, 'steps': step_rows, 'wall_s': elapsed, 'exit': result,
             'loadavg_start': loadavg_start, 'loadavg_end': os.getloadavg(),
             'compile_count': len(compiled), 'link_count': len(linked),
+            'ccache_before': cache_before, 'ccache_after': self.cache_stats(),
             'dependency_compile_count': sum(1 for e in compiled if e['dependency']),
             'project_compile_count': sum(1 for e in compiled if not e['dependency']),
             'compile_wall_sum_s': sum(e['wall_s'] for e in compiled),
@@ -689,6 +701,44 @@ class Bench:
         for step in row['steps']:
             if step['label'] in labels and step['exit']:
                 raise SystemExit(f"{row['name']}: {step['label']} failed with exit {step['exit']}")
+
+    def cache_stats(self):
+        if self.args.cache_mode == 'OFF':
+            return {}
+        # The managed launcher overrides personal CCACHE_DIR/PATH. Use the
+        # effective CMake cache, not the caller's independent ccache defaults.
+        settings = {}
+        cache_file = self.build_dir / 'CMakeCache.txt'
+        if cache_file.exists():
+            for line in cache_file.read_text().splitlines():
+                match = re.match(r'(REALMMESH_CCACHE_(?:DIR|EXECUTABLE|RESOLVED_EXECUTABLE)):[^=]*=(.*)', line)
+                if match:
+                    settings[match[1]] = match[2]
+        # Before initial configure there may be no cache yet. Explicit command
+        # arguments are authoritative over both presets and previous cache data.
+        for arg in self.args.cmake_arg:
+            match = re.match(r'-D(REALMMESH_CCACHE_(?:DIR|EXECUTABLE|RESOLVED_EXECUTABLE))(?::[^=]*)?=(.*)', arg)
+            if match:
+                settings[match[1]] = match[2]
+        if 'REALMMESH_CCACHE_RESOLVED_EXECUTABLE' in settings:
+            tool = settings['REALMMESH_CCACHE_RESOLVED_EXECUTABLE']
+        else:
+            tool = settings.get('REALMMESH_CCACHE_EXECUTABLE') or shutil.which('ccache', path=self.env.get('PATH'))
+        if not tool or tool.endswith('-NOTFOUND'):
+            return {}
+        directory = settings.get('REALMMESH_CCACHE_DIR', str(self.source / '.cache/ccache'))
+        command = [tool, '-d', directory, '--print-stats']
+        config = self.build_dir / 'realmmesh-ccache.conf'
+        if config.exists():
+            command += ['--config-path', str(config)]
+        try:
+            result = subprocess.run(command, env=self.env, capture_output=True, text=True)
+        except OSError as error:
+            return {'error': str(error)}
+        if result.returncode:
+            return {'error': result.stderr, 'exit': result.returncode}
+        return {key: int(value) for key, value in
+                (line.split() for line in result.stdout.splitlines())}
 
     def fresh_build_dir(self):
         if self.build_dir.exists():
@@ -777,6 +827,18 @@ class Bench:
         if not self.deps_overrides() or not tarball.is_file():
             raise SystemExit(f'no prepared sources in {self.deps_dir}; run the fetch scenario first or pass --deps-dir')
         return ('prepare', ['cmake', '-E', 'copy', str(tarball), str(self.build_dir / SODIUM_DOWNLOAD_DIR / tarball.name)])
+
+    def scenario_cold_build(self):
+        """Prepared sources, all products removed, including uncached sodium.
+
+        Identical paths/inputs for OFF, empty and compatible cache; no network
+        or retained external objects can inflate the measured cache benefit.
+        """
+        for i in range(self.args.sample_start, self.args.sample_start + self.args.long_samples):
+            self.fresh_build_dir()
+            row = self.run(f'cold-build-{i}', [self.prepare_step(), ('configure', self.configure_cmd()),
+                                               ('build', self.build_cmd())])
+            self.require(row, 'prepare', 'configure', 'build')
 
     def scenario_cold_entry(self):
         """完整冷入口：产物为空、来源已备齐（含 libsodium 包）、无编译缓存：来源准备 + 配置 + 全量构建 + 完整 CTest。
@@ -977,7 +1039,7 @@ def main(argv=None):
     run_parser.add_argument('--build-dir', help='相对 --source 的构建目录，默认按副本的 CMakePresets.json 解析该预设的 binaryDir（dev 为 build/dev-ninja）')
     run_parser.add_argument('--deps-dir', help='复用的依赖源码目录，默认 <out>/deps-src（由 fetch 场景填充）')
     run_parser.add_argument('--jobs', type=int, help='传给 cmake --build --parallel；缺省 1（串行）')
-    run_parser.add_argument('--cache-mode', default='none', help='记录用的编译缓存模式说明')
+    run_parser.add_argument('--cache-mode', choices=['OFF', 'ON', 'AUTO'], default='OFF', help='实际原生缓存模式；缺省OFF，避免污染阶段对照')
     run_parser.add_argument('--cmake-arg', action='append', default=[], help='每次配置附加的 CMake 参数（平台适配）')
     run_parser.add_argument('--env', action='append', default=[], metavar='NAME=VALUE', help='测量进程附加的环境变量')
     run_parser.add_argument('--name-prefix', default='')
