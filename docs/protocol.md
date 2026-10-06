@@ -178,6 +178,10 @@ Login Verifier 的 HTTPS 错误体为 `{code, message, retry_after_seconds?}`：
 
 ## 演进规则
 
+开发服务组的停止协调使用本地 `.runtime/supervisor.shutdown` 文件；它属于
+[开发 Supervisor 的进程控制](architecture.md#开发服务组的监督与停止143)，
+不作为客户端消息、HTTP 接口或服务发现字段发布。
+
 MongoDB 共享开发连接使用仓库外私有配置、TLS、账号认证及 SSH 隧道；这仅改变
 Player Data Store 的部署连接，不改变上述客户端消息、HTTP 契约或凭据线格式。
 

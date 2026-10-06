@@ -177,7 +177,7 @@ _Avoid_: realm login(兑换是凭据消费,不是再登录一次)、handoff(hand
 _Avoid_: 快速子集(那是运行时选择的名字,不是测试类别)
 
 **Integration Test**:
-驱动真实二进制、真实端口或跨进程协作的测试(e2e、bash 脚本驱动、RUN_SERIAL 性质);CTest 标签 `integration`,不进快速子集,全量与 CI 覆盖。
+驱动真实二进制、真实端口或跨进程协作的测试(e2e、bash 脚本驱动、RUN_SERIAL 性质);CTest 标签 `integration`,不进快速子集,全量与 CI 覆盖。服务组生命周期验证包含停止信号、逆序回收与管理、服务及夹具进程退出。
 _Avoid_: e2e(e2e 只是其中驱动完整二进制拓扑的形态,不是整类的别名)
 
 **Lua 业务模块测试**:

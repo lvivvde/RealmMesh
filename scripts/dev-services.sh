@@ -50,6 +50,7 @@ realmmesh_bin_dir=""
 realmmesh_config_root="${realmmesh_root}/configs"
 realmmesh_supervisor_pid_file="${realmmesh_pid_dir}/supervisor.pid"
 realmmesh_supervisor_state_file="${realmmesh_runtime_dir}/supervisor.state"
+realmmesh_supervisor_shutdown_file="${realmmesh_runtime_dir}/supervisor.shutdown"
 realmmesh_supervisor_log_file="${realmmesh_runtime_dir}/logs/supervisor/console.log"
 realmmesh_startup_timeout_seconds="${REALMMESH_STARTUP_TIMEOUT_SECONDS:-10}"
 
@@ -171,7 +172,7 @@ wait_for_service_ready() {
     realmmesh_url="$(service_metrics_url "${realmmesh_service}")"
     local realmmesh_deadline=$((SECONDS + realmmesh_startup_timeout_seconds))
     while [[ "${SECONDS}" -lt "${realmmesh_deadline}" ]]; do
-        if [[ "${realmmesh_shutdown_requested:-0}" -ne 0 ]]; then
+        if [[ -f "${realmmesh_supervisor_shutdown_file}" ]]; then
             return 1
         fi
         if ! is_expected_service_process \
@@ -241,8 +242,34 @@ stop_services() {
 
 supervise_services() {
     local realmmesh_shutdown_requested=0
-    local realmmesh_child_failed=0
+    local realmmesh_worker_status=0
+    local realmmesh_worker_pid
+    rm -f -- "${realmmesh_supervisor_shutdown_file}"
+    # Bash 5.2 会在解析命令替换时执行信号 trap,破坏尚未完成的解析。
+    # 管理进程装好 trap 后只等待工作进程,不执行任何命令替换。
+    # 工作进程没有信号 trap,通过停止文件在启动/巡检的安全点收尾。
     trap 'realmmesh_shutdown_requested=1' INT TERM
+    (
+        trap - INT TERM
+        supervise_service_group
+    ) &
+    realmmesh_worker_pid=$!
+    if [[ "${realmmesh_shutdown_requested}" -eq 0 ]]; then
+        wait "${realmmesh_worker_pid}" || realmmesh_worker_status=$?
+    fi
+    if [[ "${realmmesh_shutdown_requested}" -ne 0 ]]; then
+        # wait 被信号打断并不代表子进程退出;只发布一次停止请求,然后真回收。
+        trap '' INT TERM
+        : > "${realmmesh_supervisor_shutdown_file}"
+        realmmesh_worker_status=0
+        wait "${realmmesh_worker_pid}" || realmmesh_worker_status=$?
+    fi
+    rm -f -- "${realmmesh_supervisor_shutdown_file}"
+    return "${realmmesh_worker_status}"
+}
+
+supervise_service_group() {
+    local realmmesh_child_failed=0
     printf 'Starting RealmMesh services with a %s second per-service timeout.\n' \
         "${realmmesh_startup_timeout_seconds}"
 
@@ -253,7 +280,7 @@ supervise_services() {
     fi
     printf '%s\n' running > "${realmmesh_supervisor_state_file}"
 
-    while [[ "${realmmesh_shutdown_requested}" -eq 0 ]]; do
+    while [[ ! -f "${realmmesh_supervisor_shutdown_file}" ]]; do
         if ! all_services_running; then
             printf 'A RealmMesh service exited; stopping the service group.\n' >&2
             realmmesh_child_failed=1

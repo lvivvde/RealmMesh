@@ -75,6 +75,7 @@ flowchart LR
 | 共享临时开发库：TLS/认证、SSH 隧道与仓库外私有配置 | 已实现，见[连接说明](docs/operations/shared-mongodb.md) |
 | Linux ARM64 开发环境：依赖安装、QUIC 与原生构建 | 已验证构建及四进程登录链；首次集成测试 142/143 通过，fd 断言有一次偶发失败，见[验证记录](docs/operations/linux-arm64-development.md) |
 | 构建优化 P5：原生 ccache AUTO/ON/OFF 与 CI 可信缓存（#124） | 已接入；配对结果、完整验证与待验收项见[阶段报告](docs/research/build-optimization-results.md) |
+| 开发 Supervisor 停止信号解析竞态（#143） | 已修复；Bash 5.2 复现、逆序停止与进程回收验证见[诊断记录](docs/research/dev-services-signal-stop.md) |
 
 旧 `Login → Realm 选角 → Gateway 入场` 链路已整体退役：`login` 服务身份、7000 端口与
 旧入场消息编号都已删除，线名 `login` 永不复用（见[架构文档](docs/architecture.md)）。
@@ -377,6 +378,8 @@ export REALMMESH_ADMISSION_CONSUMPTION_DIGEST_KEY="$(openssl rand -hex 32)"  # �
 `realmmesh_service_ready` 指标变为 `1` 后才启动下一个服务。默认每项最多等待
 10 秒，可用 `REALMMESH_STARTUP_TIMEOUT_SECONDS` 调整。任一服务启动失败或运行中
 退出时，supervisor 会按 `Gateway → Realm` 回收整组进程。
+Supervisor 管理进程在 `wait` 边界接收停止信号，工作进程通过本地停止文件在安全点收尾；
+管理进程回收工作进程后清理该文件，避免 Bash 5.2 的信号 trap 重入命令替换解析器。
 
 这里的“多进程”只表示同一开发机上的独立服务进程，仍使用 Lua 中的环回地址，
 不代表已经支持跨机器生产部署、服务多副本或高可用。

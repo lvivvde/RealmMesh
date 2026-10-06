@@ -1,0 +1,17 @@
+Run: https://github.com/lvivvde/RealmMesh/actions/runs/37473072687
+Head: fd55a80a92185a80b8a64f9b0126a735ece8272c
+Conclusion: success (both platform jobs; Linux M1-M4 acceptance included)
+
+macOS (clang, kqueue backend)	Test	2026-10-06T13:51:03.1731500Z  10/665 Test  #10: DevServicesScriptTest.StopIsReverseOrdered .............................................................   Passed    4.21 sec
+macOS (clang, kqueue backend)	Test	2026-10-06T13:51:10.2793330Z  11/665 Test  #11: DevServicesScriptTest.StopDuringProcessChecks ..........................................................   Passed    7.09 sec
+macOS (clang, kqueue backend)	Test	2026-10-06T13:51:13.3772210Z  12/665 Test  #12: DevServicesScriptTest.StopDuringStartup ................................................................   Passed    3.08 sec
+macOS (clang, kqueue backend)	Test	2026-10-06T13:58:21.5763060Z 100% tests passed out of 665
+Linux (gcc, epoll backend, QUIC)	Test	2026-10-06T13:54:24.5683125Z  10/666 Test  #10: DevServicesScriptTest.StopIsReverseOrdered .............................................................   Passed    2.34 sec
+Linux (gcc, epoll backend, QUIC)	Test	2026-10-06T13:54:27.0273436Z  11/666 Test  #11: DevServicesScriptTest.StopDuringProcessChecks ..........................................................   Passed    2.46 sec
+Linux (gcc, epoll backend, QUIC)	Test	2026-10-06T13:54:29.2974268Z  12/666 Test  #12: DevServicesScriptTest.StopDuringStartup ................................................................   Passed    2.27 sec
+Linux (gcc, epoll backend, QUIC)	Test	2026-10-06T13:59:47.0476004Z 100% tests passed, 0 tests failed out of 666
+Linux (gcc, epoll backend, QUIC)	Linux M1-M4 acceptance	2026-10-06T14:00:02.4136585Z 100% tests passed, 0 tests failed out of 6
+Linux (gcc, epoll backend, QUIC)	Linux M1-M4 acceptance	2026-10-06T14:01:13.1604763Z 100% tests passed, 0 tests failed out of 4
+Linux (gcc, epoll backend, QUIC)	Linux M1-M4 acceptance	2026-10-06T14:01:52.0980649Z 100% tests passed, 0 tests failed out of 2
+Linux (gcc, epoll backend, QUIC)	Linux M1-M4 acceptance	2026-10-06T14:02:54.9498357Z 100% tests passed, 0 tests failed out of 1
+Linux (gcc, epoll backend, QUIC)	Linux M1-M4 acceptance	2026-10-06T14:04:00.3841761Z 100% tests passed, 0 tests failed out of 8

@@ -46,6 +46,10 @@
 - **Python 3**:编译缓存配置/原生契约与 CI 兼容键使用标准库脚本；构建入口不自动安装。macOS 的 Xcode 工具链、Linux 开发环境及 CI 都应提供 `python3`。
 - **Ninja 1.11+**:构建图用例(`BuildGraphTest`、`BuildDirScriptTest.*`、`TestFastScriptTest.*`)会在临时目录里用 `dev` 预设配置小工程，验证 Ninja 门槛、原生链接池(含测试可执行文件出池)与 libsodium 安装产物(#123),因此即使主构建用 `--preset dev-make` 回退，全量 ctest 仍需要 PATH 上有真实的 `ninja`。macOS `brew install ninja`,Ubuntu `sudo apt-get install ninja-build`;缺失即用例失败，不跳过。
 - 快速子集(`test-fast.sh`、`ctest -L '^unit$'`)不拉起任何进程,无此前置条件。
+- `DevServicesScriptTest.StopIsReverseOrdered`、`StopDuringProcessChecks` 与
+  `StopDuringStartup` 分别验证正常逆序停止、连续 TERM 压力与就绪等待中的停止；
+  同时检查 Supervisor 日志没有 trap 解析错误，管理、工作及服务进程退出，PID 与状态文件清理。
+  定向压测使用 `ctest --preset dev -j 1 --repeat until-fail:20 -R '^DevServicesScriptTest\.(StopIsReverseOrdered|StopDuringProcessChecks|StopDuringStartup)$'`。
 - Linux 依赖安装脚本同时支持 x86_64 与 ARM64（aarch64），下载本机架构的固定版本
   并校验 SHA-256；无需模拟运行 x86_64 二进制。MsQuic 与 MongoDB 使用 Ubuntu 24.04
   上游构建，其他发行版版本需本机验证；CI 的 Linux 门槛仍为 Ubuntu 24.04 x86_64。

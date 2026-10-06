@@ -29,6 +29,8 @@ add_dev_services_test(
     UnreadyRealmBlocksDependents unready_realm_blocks_dependents 20)
 add_dev_services_test(ChildFailureStopsGroup child_failure_stops_group 20)
 add_dev_services_test(StopIsReverseOrdered stop_is_reverse_ordered 20)
+add_dev_services_test(StopDuringProcessChecks stop_during_process_checks 20)
+add_dev_services_test(StopDuringStartup stop_during_startup 20)
 add_dev_services_test(CommandsManageServiceGroup commands_manage_service_group 30)
 add_dev_services_test(
     NewChainFlowUsesServiceGroup
