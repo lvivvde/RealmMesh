@@ -104,7 +104,13 @@ printf 'STOPPED\n'
 macOS 进程表里另有 10 月 2 日启动的旧夹具，未将它们计入本次运行或修改。
 
 Linux 使用已有依赖源码与工具，在独立目录构建当前分支快照；测试文件为本次最终版本，
-系统仓库和系统 Bash 均未替换。这里的 Linux 结果是本地 ARM64 验证；
-GitHub 的 Ubuntu 24.04 x86_64 全量 CI 需按本次修复提交另行核验。
+系统仓库和系统 Bash 均未替换。这里的 Linux 结果是本地 ARM64 验证。
+
+同日，修复提交 `fd55a80a92185a80b8a64f9b0126a735ece8272c` 的
+[GitHub CI](https://github.com/lvivvde/RealmMesh/actions/runs/37473072687) 全部通过：
+Ubuntu 24.04 x86_64 Linux 完整 CTest 666/666，包含 QUIC；macOS 完整 CTest 665/665，
+按 CI 平台约定未编入 QUIC。三条停止回归在两端均通过，Linux 后续 M1–M4 登录链验收也成功。
+[CI 原始输出摘录](assets/dev-services-signal-stop/ci-validation.txt) 保存测试数量与停止回归结果。
+验收记录的后续提交只补文档与日志摘录；以上 CI 对应的是实际修复提交。
 
 Standards 与 Spec 两路代码审查均为 0 项发现。语法检查与 `git diff --check` 通过。
