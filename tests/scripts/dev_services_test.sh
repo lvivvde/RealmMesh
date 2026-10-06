@@ -59,6 +59,10 @@ cleanup() {
     if [[ -f "${realmmesh_script}" ]]; then
         bash "${realmmesh_script}" stop >/dev/null 2>&1 || true
     fi
+    if [[ -n "${realmmesh_starter_pid:-}" ]]; then
+        kill -TERM "${realmmesh_starter_pid}" 2>/dev/null || true
+        wait "${realmmesh_starter_pid}" 2>/dev/null || true
+    fi
     # 用例自带的 etcd:必须在 pid 文件清理之前收掉,否则下一条用例会看到
     # 上一轮残留的准入消费记录(重放断言会因此误判)。
     if [[ -n "${realmmesh_etcd_pid:-}" ]]; then
@@ -602,13 +606,83 @@ case "${realmmesh_case}" in
         printf 'service group survived a Realm process failure\n' >&2
         exit 1
         ;;
-    stop_is_reverse_ordered)
-        bash "${realmmesh_script}" start
+    stop_is_reverse_ordered|stop_during_process_checks|stop_during_startup)
+        if [[ "${realmmesh_case}" == stop_during_startup ]]; then
+            # Realm 已启动但就绪永远不可达时,停止仍须及时回收,不能再拉 Gateway。
+            export REALMMESH_REALM_METRICS_URL="http://127.0.0.1:1/metrics"
+            export REALMMESH_STARTUP_TIMEOUT_SECONDS=10
+            bash "${realmmesh_script}" start > "${realmmesh_scratch}/start.log" 2>&1 &
+            realmmesh_starter_pid=$!
+            for realmmesh_attempt in {1..50}; do
+                [[ -s "${realmmesh_test_root}/.runtime/pids/realm.pid" ]] && break
+                sleep 0.1
+            done
+        else
+            bash "${realmmesh_script}" start
+        fi
+        realmmesh_supervisor_pid="$(<"${realmmesh_test_root}/.runtime/pids/supervisor.pid")"
+        realmmesh_realm_pid="$(<"${realmmesh_test_root}/.runtime/pids/realm.pid")"
+        realmmesh_gateway_pid=""
+        if [[ "${realmmesh_case}" != stop_during_startup ]]; then
+            realmmesh_gateway_pid="$(<"${realmmesh_test_root}/.runtime/pids/gateway.pid")"
+        fi
+        # 保存监督进程的直接子进程,停止后也必须已退出。
+        realmmesh_worker_pids="$(ps -axo pid=,ppid= | awk -v parent="${realmmesh_supervisor_pid}" '$2 == parent {print $1}')"
+        if [[ "${realmmesh_case}" == stop_during_process_checks ]]; then
+            # 在真实进程检查和收尾期间持续发信号,放大 Bash 5.2 的解析竞态。
+            # 这是停止压力,不重试 start/stop,也不接受日志中的解析错误。
+            python3 - "${realmmesh_supervisor_pid}" <<'PY'
+import os
+import signal
+import sys
+import time
+
+pid = int(sys.argv[1])
+deadline = time.monotonic() + 2
+while time.monotonic() < deadline:
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except ProcessLookupError:
+        break
+    time.sleep(0.0001)
+PY
+        fi
         bash "${realmmesh_script}" stop >/dev/null
         realmmesh_supervisor_log="${realmmesh_test_root}/.runtime/logs/supervisor/console.log"
-        realmmesh_gateway_line="$(grep -n '^Stopping gateway$' "${realmmesh_supervisor_log}" | tail -1 | cut -d: -f1)"
-        realmmesh_realm_line="$(grep -n '^Stopping realm$' "${realmmesh_supervisor_log}" | tail -1 | cut -d: -f1)"
-        [[ "${realmmesh_gateway_line}" -lt "${realmmesh_realm_line}" ]]
+        if [[ "${realmmesh_case}" == stop_during_startup ]]; then
+            if wait "${realmmesh_starter_pid}"; then
+                printf 'start unexpectedly succeeded after cancellation\n' >&2
+                exit 1
+            fi
+            realmmesh_starter_pid=""
+            grep -q '^Stopping realm$' "${realmmesh_supervisor_log}"
+            if grep -q '^Stopping gateway$' "${realmmesh_supervisor_log}"; then
+                printf 'Gateway started while Realm was unready\n' >&2
+                exit 1
+            fi
+        else
+            realmmesh_gateway_line="$(grep -n '^Stopping gateway$' "${realmmesh_supervisor_log}" | tail -1 | cut -d: -f1)"
+            realmmesh_realm_line="$(grep -n '^Stopping realm$' "${realmmesh_supervisor_log}" | tail -1 | cut -d: -f1)"
+            [[ "${realmmesh_gateway_line}" -lt "${realmmesh_realm_line}" ]]
+        fi
+        if grep -Eq 'trap:|unexpected EOF' "${realmmesh_supervisor_log}"; then
+            printf 'Supervisor logged a signal trap parsing error\n' >&2
+            exit 1
+        fi
+        for realmmesh_pid in "${realmmesh_supervisor_pid}" \
+            "${realmmesh_gateway_pid}" "${realmmesh_realm_pid}" \
+            ${realmmesh_worker_pids}; do
+            [[ -n "${realmmesh_pid}" ]] || continue
+            if kill -0 "${realmmesh_pid}" 2>/dev/null; then
+                printf 'process %s survived stop\n' "${realmmesh_pid}" >&2
+                exit 1
+            fi
+        done
+        [[ ! -f "${realmmesh_test_root}/.runtime/supervisor.state" ]]
+        [[ ! -f "${realmmesh_test_root}/.runtime/supervisor.shutdown" ]]
+        [[ ! -f "${realmmesh_test_root}/.runtime/pids/supervisor.pid" ]]
+        [[ ! -f "${realmmesh_test_root}/.runtime/pids/gateway.pid" ]]
+        [[ ! -f "${realmmesh_test_root}/.runtime/pids/realm.pid" ]]
         ;;
     commands_manage_service_group)
         bash "${realmmesh_script}" start

@@ -1,0 +1,13 @@
+RealmMesh development services started.
+manager running (pid 2434112)
+gateway running (pid 2434242)
+realm   running (pid 2434152)
+Refusing to stop stale supervisor PID 2434112.
+--- supervisor log ---
+Starting RealmMesh services with a 10 second per-service timeout.
+RealmMesh development services started.
+manager running (pid 2434112)
+gateway running (pid 2434242)
+realm   running (pid 2434152)
+Stopping gateway
+/dev/shm/tmp.RAS0Hk6xGY/RealmMesh/scripts/dev-services.sh: trap: line 2: unexpected EOF while looking for matching `)'

@@ -210,6 +210,21 @@ MsQuic 自有调度不会直接调用业务逻辑。回调只完成长度帧组�
 - Gateway 头分三层（[#128](https://github.com/lvivvde/RealmMesh/issues/128)）：`gateway_event.hpp` 声明 `GatewayEvent`/`GatewayEventKind`，`gateway_config.hpp` 声明启动配置 `GatewayConfig` 与 `GatewayRuntimeOptions`，二者都不带 runtime 的私有队列、线程与锁布局；`gateway_runtime.hpp` 只留 `GatewayRuntime` 本身（及 `QueueResult`、`GatewayRuntimeStats`），由真正构造或驱动 runtime 的代码包含。`gateway_primary_transport.hpp` 只包含事件头并前置声明 `GatewayRuntime`，完整定义留在 `gateway_primary_transport.cpp`；登录管线与准入经它同样不带 runtime。`gateway_config_loader.hpp` 改含 `gateway_config.hpp`，经 `LayeredConfigLoader` 只消费配置值的服务与测试不再随 runtime 布局重编。未做 runtime PIMPL，未新增虚接口；`GatewayRuntime::stop()`（IO 线程 request_stop 后 join）与 ServiceHost 的销毁顺序不变。`gateway_headers_test` 与 `config_headers_test` 在编译期断言这些头拿不到完整的 `GatewayRuntime`。
 - `apps/mesh_host`：`realm_mesh` 单一入口，以 `--service` 区分服务与信号处理；拓扑经 `load_topology` 取得，入口本身不链接 Lua。
 
+## 开发服务组的监督与停止（#143）
+
+`scripts/dev-services.sh` 的后台 Supervisor 按 `Realm → Gateway` 启动并等待就绪，
+启动失败或运行中任一服务退出时按 `Gateway → Realm` 收尾。
+Supervisor 的管理进程仅接收 INT/TERM、记录停止请求并等待工作进程；启动、就绪探测、
+进程巡检和服务回收由无信号 trap 的工作进程执行。停止请求经本地
+`.runtime/supervisor.shutdown` 文件在就绪等待或巡检的安全点生效，管理进程回收工作进程后
+删除停止文件。重复停止信号在收尾期间被忽略。
+
+这避免了 Bash 5.2 在命令替换解析期间运行 trap 所触发的解析器重入；
+就绪等待中停止也会回收已经启动的服务。
+脚本集成测试核对停止顺序、解析错误、管理与工作进程退出及 PID/状态文件清理，
+夹具自带的 etcd 与 MongoDB 由测试回收。复现与平台验证见
+[诊断记录](research/dev-services-signal-stop.md)。
+
 ## 未实现的服务与模块
 
 目录树只反映已实现代码:规划中的服务与模块不预先创建空目录(理由见
