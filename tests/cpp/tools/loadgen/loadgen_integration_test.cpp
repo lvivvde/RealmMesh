@@ -1414,8 +1414,18 @@ TEST(LoadgenIntegrationTest, M3SmokeTenThousandTicketsAndConcurrentPolls) {
     }
 
     EXPECT_GE(tickets_report.completed, tickets_min_completed);
-    const auto queue_metrics = parse_metrics_text(
+    auto queue_metrics = parse_metrics_text(
         mesh.service("queue").prometheus_metrics());
+    // HTTP 响应先于 tick 帧尾的指标发布。等发布完成再核对原门槛，
+    // 不把客户端完成与指标刷新之间的短暂竞争算成取号丢失。
+    const auto metrics_deadline = std::chrono::steady_clock::now() +
+                                  std::chrono::seconds{2};
+    while (queue_metrics.total("tickets_issued_total") < tickets_min_completed &&
+           std::chrono::steady_clock::now() < metrics_deadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds{5});
+        queue_metrics = parse_metrics_text(
+            mesh.service("queue").prometheus_metrics());
+    }
     EXPECT_GE(queue_metrics.total("tickets_issued_total"),
               tickets_min_completed);
 
