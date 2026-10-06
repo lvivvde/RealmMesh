@@ -1,5 +1,6 @@
 """CI 缓存验收的公开 JSON/CLI 契约。"""
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -43,8 +44,11 @@ class CICacheSummaryTest(unittest.TestCase):
                     continue
                 (root / f'{mode}-tests.log').write_text('100% tests passed, 0 tests failed out of 2\n')
             script = Path(__file__).resolve().parents[2] / 'tools/build-bench/ci_cache.py'
+            env = dict(os.environ)
+            # 合成判定样本只写隔离目录，不混入真实 job 的验收摘要。
+            env.pop('GITHUB_STEP_SUMMARY', None)
             result = subprocess.run([sys.executable, str(script),
-                                     'summarize', '--out', str(root)], capture_output=True, text=True)
+                                     'summarize', '--out', str(root)], capture_output=True, text=True, env=env)
             summary = json.loads((root / 'ci-summary.json').read_text())
             return result, summary
 

@@ -1,0 +1,28 @@
+{
+  "recorded_at": "2026-10-06T11:37:15.057916+00:00",
+  "revision": "40b75b69ac1f4ad1018a37be9a1caae3b401a95f",
+  "run_id": 37450446313,
+  "source_run": "https://github.com/lvivvde/RealmMesh/actions/runs/37450446313",
+  "normal_pr_ci": "https://github.com/lvivvde/RealmMesh/actions/runs/37450440174",
+  "logs": {
+    "ci-37450446313-linux.log": {
+      "bytes": 17488386,
+      "sha256": "105c2ae1fb91c0dcf09ad5cc049bac8adcc9327f62f5eb3b373883ec569e1899"
+    },
+    "ci-37450446313-macos.log": {
+      "bytes": 711998,
+      "sha256": "838e46c15b3cf58c887a71d8c183993546cfcb6850bd03fc94bc96afdac5d098"
+    },
+    "pr-144-40b75b6-full.log": {
+      "bytes": 10288668,
+      "sha256": "c4d3baece20c9704ff4912afd8543661a6075a949fdadabdd94ae0c6929b126f"
+    }
+  },
+  "cleanup": {
+    "owned_snapshots": 8,
+    "bytes": 1076783377,
+    "all_deleted": true
+  },
+  "raw_directory": "/private/tmp/realmmesh-p5/ci-37450446313",
+  "fixture_summary_isolation": "正式实验提交之后仅隔离测试夹具的 GITHUB_STEP_SUMMARY，编译输入和计时器均未改变；实际验收 JSON/artifact 完整，未用合成测试摘要作为结果。"
+}

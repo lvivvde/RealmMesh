@@ -1,0 +1,460 @@
+[
+  {
+    "resources": {
+      "samples": 1747,
+      "max_tree_rss_mib": 1730.4453125,
+      "min_available_mib": 13016.94140625,
+      "swap_growth_from_seed_mib": 0.0,
+      "max_pressure_level": null,
+      "oom_growth_from_seed": 0
+    },
+    "platform": "Linux",
+    "revision": "40b75b69ac1f4ad1018a37be9a1caae3b401a95f",
+    "accepted": true,
+    "errors": [],
+    "median_s": {
+      "OFF": 257.197096436,
+      "ON": 48.418168071
+    },
+    "reduction": 0.8117468325189736,
+    "first_upload_s": 2.296886169,
+    "first_fill_s": 296.65151691899996,
+    "test_count": 664,
+    "raw_files": 6026,
+    "samples": [
+      {
+        "pair": 1,
+        "mode": "OFF",
+        "net_wait_s": 257.157414719,
+        "build_s": 254.3166506429999,
+        "compile_count": 776,
+        "link_count": 76,
+        "sodium_unique": 139,
+        "cache_delta": {},
+        "cost_s": {
+          "key_and_monitor": 0.050757915,
+          "configure_build": 256.604074403,
+          "other_overhead": 0.5533403159999466
+        },
+        "memory": {
+          "samples": 257,
+          "max_tree_rss_mib": 1668.14453125,
+          "min_available_mib": 13405.25,
+          "swap_used_start_mib": 0.0,
+          "swap_used_max_mib": 0.0,
+          "swap_growth_mib": 0.0,
+          "max_pressure_level": null,
+          "oom_kills": 0
+        }
+      },
+      {
+        "pair": 1,
+        "mode": "ON",
+        "net_wait_s": 48.136579305,
+        "build_s": 41.7861645989999,
+        "compile_count": 776,
+        "link_count": 76,
+        "sodium_unique": 139,
+        "cache_delta": {
+          "missing_cache_file": 0,
+          "local_storage_hit": 776,
+          "direct_cache_miss": 0,
+          "preprocessed_cache_miss": 0,
+          "preprocessed_cache_hit": 0,
+          "local_storage_miss": 0,
+          "local_storage_read_hit": 1552,
+          "remote_storage_read_hit": 0,
+          "local_storage_read_miss": 0,
+          "remote_storage_miss": 0,
+          "remote_storage_read_miss": 0,
+          "remote_storage_hit": 0,
+          "cache_miss": 0,
+          "direct_cache_hit": 776
+        },
+        "cost_s": {
+          "key_and_monitor": 0.107006612,
+          "configure_build": 44.15459895500021,
+          "other_overhead": 3.9819803499997874,
+          "restore": 1.598181208,
+          "save": 1.800180699,
+          "saved_check": 0.253093059
+        },
+        "memory": {
+          "samples": 49,
+          "max_tree_rss_mib": 1129.921875,
+          "min_available_mib": 13560.3671875,
+          "swap_used_start_mib": 0.0,
+          "swap_used_max_mib": 0.0,
+          "swap_growth_mib": 0.0,
+          "max_pressure_level": null,
+          "oom_kills": 0
+        }
+      },
+      {
+        "pair": 2,
+        "mode": "ON",
+        "net_wait_s": 48.418168071,
+        "build_s": 42.163601695000125,
+        "compile_count": 776,
+        "link_count": 76,
+        "sodium_unique": 139,
+        "cache_delta": {
+          "preprocessed_cache_miss": 0,
+          "preprocessed_cache_hit": 0,
+          "direct_cache_miss": 0,
+          "remote_storage_hit": 0,
+          "local_storage_miss": 0,
+          "remote_storage_miss": 0,
+          "local_storage_hit": 776,
+          "remote_storage_read_miss": 0,
+          "local_storage_read_miss": 0,
+          "cache_miss": 0,
+          "missing_cache_file": 0,
+          "direct_cache_hit": 776,
+          "remote_storage_read_hit": 0,
+          "local_storage_read_hit": 1552
+        },
+        "cost_s": {
+          "key_and_monitor": 0.107353024,
+          "configure_build": 44.459545185000025,
+          "other_overhead": 3.958622885999972,
+          "restore": 1.550427469,
+          "save": 1.816003948,
+          "saved_check": 0.254160883
+        },
+        "memory": {
+          "samples": 50,
+          "max_tree_rss_mib": 1262.79296875,
+          "min_available_mib": 13351.828125,
+          "swap_used_start_mib": 0.0,
+          "swap_used_max_mib": 0.0,
+          "swap_growth_mib": 0.0,
+          "max_pressure_level": null,
+          "oom_kills": 0
+        }
+      },
+      {
+        "pair": 2,
+        "mode": "OFF",
+        "net_wait_s": 257.650618269,
+        "build_s": 254.7112695820001,
+        "compile_count": 776,
+        "link_count": 76,
+        "sodium_unique": 139,
+        "cache_delta": {},
+        "cost_s": {
+          "key_and_monitor": 0.050789085,
+          "configure_build": 257.0184175469999,
+          "other_overhead": 0.6322007220001069
+        },
+        "memory": {
+          "samples": 257,
+          "max_tree_rss_mib": 1553.84765625,
+          "min_available_mib": 13400.83203125,
+          "swap_used_start_mib": 0.0,
+          "swap_used_max_mib": 0.0,
+          "swap_growth_mib": 0.0,
+          "max_pressure_level": null,
+          "oom_kills": 0
+        }
+      },
+      {
+        "pair": 3,
+        "mode": "OFF",
+        "net_wait_s": 257.197096436,
+        "build_s": 254.16532309800004,
+        "compile_count": 776,
+        "link_count": 76,
+        "sodium_unique": 139,
+        "cache_delta": {},
+        "cost_s": {
+          "key_and_monitor": 0.050745066,
+          "configure_build": 256.476463446,
+          "other_overhead": 0.720632989999956
+        },
+        "memory": {
+          "samples": 257,
+          "max_tree_rss_mib": 1730.4453125,
+          "min_available_mib": 13016.94140625,
+          "swap_used_start_mib": 0.0,
+          "swap_used_max_mib": 0.0,
+          "swap_growth_mib": 0.0,
+          "max_pressure_level": null,
+          "oom_kills": 0
+        }
+      },
+      {
+        "pair": 3,
+        "mode": "ON",
+        "net_wait_s": 48.695428271,
+        "build_s": 42.07597568199981,
+        "compile_count": 776,
+        "link_count": 76,
+        "sodium_unique": 139,
+        "cache_delta": {
+          "remote_storage_read_miss": 0,
+          "local_storage_miss": 0,
+          "remote_storage_miss": 0,
+          "local_storage_hit": 776,
+          "remote_storage_hit": 0,
+          "preprocessed_cache_hit": 0,
+          "direct_cache_hit": 776,
+          "local_storage_read_hit": 1552,
+          "remote_storage_read_hit": 0,
+          "local_storage_read_miss": 0,
+          "cache_miss": 0,
+          "preprocessed_cache_miss": 0,
+          "missing_cache_file": 0,
+          "direct_cache_miss": 0
+        },
+        "cost_s": {
+          "key_and_monitor": 0.107818545,
+          "configure_build": 44.398416071000156,
+          "other_overhead": 4.297012199999841,
+          "restore": 1.768776371,
+          "save": 1.784542037,
+          "saved_check": 0.2543033
+        },
+        "memory": {
+          "samples": 50,
+          "max_tree_rss_mib": 1227.0,
+          "min_available_mib": 13381.96875,
+          "swap_used_start_mib": 0.0,
+          "swap_used_max_mib": 0.0,
+          "swap_growth_mib": 0.0,
+          "max_pressure_level": null,
+          "oom_kills": 0
+        }
+      }
+    ]
+  },
+  {
+    "resources": {
+      "samples": 2121,
+      "max_tree_rss_mib": 985.03125,
+      "min_available_mib": 2520.203125,
+      "swap_growth_from_seed_mib": 0.0,
+      "max_pressure_level": 1,
+      "oom_growth_from_seed": null
+    },
+    "platform": "Darwin",
+    "revision": "40b75b69ac1f4ad1018a37be9a1caae3b401a95f",
+    "accepted": true,
+    "errors": [],
+    "median_s": {
+      "OFF": 389.280147958,
+      "ON": 107.431177
+    },
+    "reduction": 0.7240260579340128,
+    "first_upload_s": 4.477467542,
+    "first_fill_s": 465.47794454200005,
+    "test_count": 663,
+    "raw_files": 6015,
+    "samples": [
+      {
+        "pair": 1,
+        "mode": "OFF",
+        "net_wait_s": 395.513431458,
+        "build_s": 382.855765709,
+        "compile_count": 775,
+        "link_count": 76,
+        "sodium_unique": 137,
+        "cache_delta": {},
+        "cost_s": {
+          "key_and_monitor": 0.189546458,
+          "configure_build": 394.298031625,
+          "other_overhead": 1.2153998329999922
+        },
+        "memory": {
+          "samples": 346,
+          "max_tree_rss_mib": 911.0625,
+          "min_available_mib": 2520.203125,
+          "swap_used_start_mib": 0.0,
+          "swap_used_max_mib": 0.0,
+          "swap_growth_mib": 0.0,
+          "max_pressure_level": 1,
+          "oom_kills": null
+        }
+      },
+      {
+        "pair": 1,
+        "mode": "ON",
+        "net_wait_s": 107.431177,
+        "build_s": 86.99880433299995,
+        "compile_count": 775,
+        "link_count": 76,
+        "sodium_unique": 137,
+        "cache_delta": {
+          "missing_cache_file": 0,
+          "preprocessed_cache_miss": 0,
+          "local_storage_read_miss": 0,
+          "local_storage_read_hit": 1550,
+          "preprocessed_cache_hit": 0,
+          "remote_storage_read_hit": 0,
+          "remote_storage_read_miss": 0,
+          "cache_miss": 0,
+          "local_storage_hit": 775,
+          "local_storage_miss": 0,
+          "direct_cache_hit": 775,
+          "remote_storage_miss": 0,
+          "direct_cache_miss": 0,
+          "remote_storage_hit": 0
+        },
+        "cost_s": {
+          "key_and_monitor": 0.9415075,
+          "configure_build": 97.71519254199984,
+          "other_overhead": 9.715984458000165,
+          "restore": 2.752206875,
+          "save": 4.254743417,
+          "saved_check": 0.37231425
+        },
+        "memory": {
+          "samples": 97,
+          "max_tree_rss_mib": 507.296875,
+          "min_available_mib": 2602.328125,
+          "swap_used_start_mib": 0.0,
+          "swap_used_max_mib": 0.0,
+          "swap_growth_mib": 0.0,
+          "max_pressure_level": 1,
+          "oom_kills": null
+        }
+      },
+      {
+        "pair": 2,
+        "mode": "ON",
+        "net_wait_s": 102.129926166,
+        "build_s": 83.84954220899999,
+        "compile_count": 775,
+        "link_count": 76,
+        "sodium_unique": 137,
+        "cache_delta": {
+          "cache_miss": 0,
+          "direct_cache_miss": 0,
+          "preprocessed_cache_miss": 0,
+          "local_storage_read_hit": 1550,
+          "missing_cache_file": 0,
+          "remote_storage_hit": 0,
+          "remote_storage_miss": 0,
+          "local_storage_miss": 0,
+          "remote_storage_read_miss": 0,
+          "preprocessed_cache_hit": 0,
+          "local_storage_read_miss": 0,
+          "remote_storage_read_hit": 0,
+          "direct_cache_hit": 775,
+          "local_storage_hit": 775
+        },
+        "cost_s": {
+          "key_and_monitor": 0.987617125,
+          "configure_build": 93.44336766700008,
+          "other_overhead": 8.68655849899993,
+          "restore": 2.336042625,
+          "save": 3.593929459,
+          "saved_check": 0.349587833
+        },
+        "memory": {
+          "samples": 91,
+          "max_tree_rss_mib": 550.03125,
+          "min_available_mib": 2572.578125,
+          "swap_used_start_mib": 0.0,
+          "swap_used_max_mib": 0.0,
+          "swap_growth_mib": 0.0,
+          "max_pressure_level": 1,
+          "oom_kills": null
+        }
+      },
+      {
+        "pair": 2,
+        "mode": "OFF",
+        "net_wait_s": 389.280147958,
+        "build_s": 378.24216108300016,
+        "compile_count": 775,
+        "link_count": 76,
+        "sodium_unique": 137,
+        "cache_delta": {},
+        "cost_s": {
+          "key_and_monitor": 0.15924875,
+          "configure_build": 388.09784375000004,
+          "other_overhead": 1.1823042079999482
+        },
+        "memory": {
+          "samples": 342,
+          "max_tree_rss_mib": 940.78125,
+          "min_available_mib": 2571.265625,
+          "swap_used_start_mib": 0.0,
+          "swap_used_max_mib": 0.0,
+          "swap_growth_mib": 0.0,
+          "max_pressure_level": 1,
+          "oom_kills": null
+        }
+      },
+      {
+        "pair": 3,
+        "mode": "OFF",
+        "net_wait_s": 366.043910208,
+        "build_s": 355.861946042,
+        "compile_count": 775,
+        "link_count": 76,
+        "sodium_unique": 137,
+        "cache_delta": {},
+        "cost_s": {
+          "key_and_monitor": 0.181943875,
+          "configure_build": 364.94040087500025,
+          "other_overhead": 1.1035093329997494
+        },
+        "memory": {
+          "samples": 324,
+          "max_tree_rss_mib": 985.03125,
+          "min_available_mib": 2567.953125,
+          "swap_used_start_mib": 0.0,
+          "swap_used_max_mib": 0.0,
+          "swap_growth_mib": 0.0,
+          "max_pressure_level": 1,
+          "oom_kills": null
+        }
+      },
+      {
+        "pair": 3,
+        "mode": "ON",
+        "net_wait_s": 113.508130917,
+        "build_s": 93.05253187500011,
+        "compile_count": 775,
+        "link_count": 76,
+        "sodium_unique": 137,
+        "cache_delta": {
+          "preprocessed_cache_miss": 0,
+          "direct_cache_hit": 775,
+          "remote_storage_hit": 0,
+          "local_storage_read_miss": 0,
+          "remote_storage_miss": 0,
+          "local_storage_miss": 0,
+          "remote_storage_read_hit": 0,
+          "local_storage_hit": 775,
+          "remote_storage_read_miss": 0,
+          "cache_miss": 0,
+          "direct_cache_miss": 0,
+          "local_storage_read_hit": 1550,
+          "preprocessed_cache_hit": 0,
+          "missing_cache_file": 0
+        },
+        "cost_s": {
+          "key_and_monitor": 1.267364667,
+          "configure_build": 103.85882266699991,
+          "other_overhead": 9.64930825000009,
+          "restore": 2.086026625,
+          "save": 4.321430375,
+          "saved_check": 0.471222167
+        },
+        "memory": {
+          "samples": 100,
+          "max_tree_rss_mib": 543.984375,
+          "min_available_mib": 2559.109375,
+          "swap_used_start_mib": 0.0,
+          "swap_used_max_mib": 0.0,
+          "swap_growth_mib": 0.0,
+          "max_pressure_level": 1,
+          "oom_kills": null
+        }
+      }
+    ]
+  }
+]
