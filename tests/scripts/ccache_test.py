@@ -117,7 +117,8 @@ class CacheContract(CacheFixture):
                                               '--test-dir', str(self.build), '--show-only=json-v1'],
                                              env=self.env, text=True)
             names = {test['name'] for test in json.loads(output)['tests']}
-            self.assertEqual(names, {'CompilerCacheConfigTest', 'CompilerCacheNativeTest'})
+            self.assertEqual(names, {'CompilerCacheConfigTest', 'CompilerCacheNativeTest',
+                                     'CompilerCacheCISummaryTest'})
 
     def test_on_to_off_clears_only_managed_launchers(self):
         tool = self.fake_tool('ccache version 4.8.2')
