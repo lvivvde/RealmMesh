@@ -1,0 +1,319 @@
+{
+  "scope": "explicitly wrapped tool calls; diagnostic samples, not performance acceptance",
+  "platforms": {
+    "mac": {
+      "suites": {
+        "config": {
+          "groups": {
+            "cmake-configure": {
+              "calls": 28,
+              "wall_s": 2.1681265028892085
+            },
+            "ctest-discovery": {
+              "calls": 2,
+              "wall_s": 0.014050376019440591
+            }
+          },
+          "repeated_binary_dir_requests": 22,
+          "repeated_binary_dir_wall_s": 1.282881542982068
+        },
+        "fast": {
+          "groups": {
+            "cmake-configure": {
+              "calls": 35,
+              "wall_s": 2.3299085840117186
+            },
+            "cmake-build": {
+              "calls": 25,
+              "wall_s": 3.0182905859546736
+            },
+            "ctest-test": {
+              "calls": 23,
+              "wall_s": 0.6571615400025621
+            },
+            "ctest-discovery": {
+              "calls": 5,
+              "wall_s": 0.03450266702566296
+            }
+          },
+          "repeated_binary_dir_requests": 33,
+          "repeated_binary_dir_wall_s": 1.8419322510017082
+        },
+        "native": {
+          "groups": {
+            "cmake-configure": {
+              "calls": 12,
+              "wall_s": 2.4479414590168744
+            },
+            "cmake-build": {
+              "calls": 29,
+              "wall_s": 1.783219457080122
+            }
+          },
+          "repeated_binary_dir_requests": 7,
+          "repeated_binary_dir_wall_s": 0.4093039180152118
+        },
+        "build-dir": {
+          "groups": {
+            "cmake-configure": {
+              "calls": 8,
+              "wall_s": 0.8769771670922637
+            },
+            "cmake-build": {
+              "calls": 3,
+              "wall_s": 0.22518849902553484
+            },
+            "ctest-test": {
+              "calls": 3,
+              "wall_s": 0.03581091796513647
+            }
+          },
+          "repeated_binary_dir_requests": 3,
+          "repeated_binary_dir_wall_s": 0.1507415000232868
+        },
+        "build-graph": {
+          "groups": {
+            "cmake-configure": {
+              "calls": 2,
+              "wall_s": 0.2648944589891471
+            },
+            "cmake-script": {
+              "calls": 3,
+              "wall_s": 0.02129725005943328
+            }
+          },
+          "repeated_binary_dir_requests": 0,
+          "repeated_binary_dir_wall_s": 0
+        },
+        "dependency-isolation": {
+          "groups": {
+            "cmake-configure": {
+              "calls": 8,
+              "wall_s": 0.40449837502092123
+            }
+          },
+          "repeated_binary_dir_requests": 4,
+          "repeated_binary_dir_wall_s": 0.2011781670153141
+        }
+      },
+      "totals": {
+        "cmake-configure": {
+          "calls": 93,
+          "wall_s": 8.492346547020134
+        },
+        "ctest-discovery": {
+          "calls": 7,
+          "wall_s": 0.04855304304510355
+        },
+        "cmake-build": {
+          "calls": 57,
+          "wall_s": 5.0266985420603305
+        },
+        "ctest-test": {
+          "calls": 26,
+          "wall_s": 0.6929724579676986
+        },
+        "cmake-script": {
+          "calls": 3,
+          "wall_s": 0.02129725005943328
+        }
+      },
+      "repeated_binary_dir_requests": 69,
+      "repeated_binary_dir_wall_s": 3.886037379037589,
+      "native_python": {
+        "wall_s": 17.26402845798293,
+        "groups": {
+          "cmake-configure": {
+            "calls": 12,
+            "wall_s": 2.475735415064264
+          },
+          "safety-wait": {
+            "calls": 9,
+            "wall_s": 7.370948708849028
+          },
+          "cmake-build": {
+            "calls": 29,
+            "wall_s": 2.014415751269553
+          },
+          "probe": {
+            "calls": 20,
+            "wall_s": 3.894384456856642
+          },
+          "ccache-stats": {
+            "calls": 18,
+            "wall_s": 0.24542454088805243
+          },
+          "ccache-inspect": {
+            "calls": 16,
+            "wall_s": 0.11182612593984231
+          },
+          "ccache-maintenance": {
+            "calls": 1,
+            "wall_s": 0.10996075003640726
+          },
+          "unwrapped-measure-cli": {
+            "calls": 1,
+            "wall_s": 0.9508947920403443
+          }
+        }
+      }
+    },
+    "linux": {
+      "suites": {
+        "config": {
+          "groups": {
+            "cmake-configure": {
+              "calls": 28,
+              "wall_s": 0.25437224784400314
+            },
+            "ctest-discovery": {
+              "calls": 2,
+              "wall_s": 0.00912341702496633
+            }
+          },
+          "repeated_binary_dir_requests": 22,
+          "repeated_binary_dir_wall_s": 0.18060699698980898
+        },
+        "fast": {
+          "groups": {
+            "cmake-configure": {
+              "calls": 35,
+              "wall_s": 0.6324310409836471
+            },
+            "cmake-build": {
+              "calls": 25,
+              "wall_s": 0.5757208321010694
+            },
+            "ctest-test": {
+              "calls": 23,
+              "wall_s": 0.15497087594121695
+            },
+            "ctest-discovery": {
+              "calls": 5,
+              "wall_s": 0.0233647910063155
+            }
+          },
+          "repeated_binary_dir_requests": 33,
+          "repeated_binary_dir_wall_s": 0.46655599895166233
+        },
+        "native": {
+          "groups": {
+            "cmake-configure": {
+              "calls": 12,
+              "wall_s": 0.7837580829509534
+            },
+            "cmake-build": {
+              "calls": 29,
+              "wall_s": 0.9323340861010365
+            }
+          },
+          "repeated_binary_dir_requests": 7,
+          "repeated_binary_dir_wall_s": 0.09534445800818503
+        },
+        "build-dir": {
+          "groups": {
+            "cmake-configure": {
+              "calls": 8,
+              "wall_s": 0.24260033306200057
+            },
+            "cmake-build": {
+              "calls": 3,
+              "wall_s": 0.07887733296956867
+            },
+            "ctest-test": {
+              "calls": 3,
+              "wall_s": 0.023340207990258932
+            }
+          },
+          "repeated_binary_dir_requests": 3,
+          "repeated_binary_dir_wall_s": 0.025213667016942054
+        },
+        "build-graph": {
+          "groups": {
+            "cmake-configure": {
+              "calls": 2,
+              "wall_s": 0.07413704099599272
+            },
+            "cmake-script": {
+              "calls": 3,
+              "wall_s": 0.013345291023142636
+            }
+          },
+          "repeated_binary_dir_requests": 0,
+          "repeated_binary_dir_wall_s": 0
+        },
+        "dependency-isolation": {
+          "groups": {
+            "cmake-configure": {
+              "calls": 8,
+              "wall_s": 0.06265487585915253
+            }
+          },
+          "repeated_binary_dir_requests": 4,
+          "repeated_binary_dir_wall_s": 0.026644250960089266
+        }
+      },
+      "totals": {
+        "cmake-configure": {
+          "calls": 93,
+          "wall_s": 2.0499536216957495
+        },
+        "ctest-discovery": {
+          "calls": 7,
+          "wall_s": 0.03248820803128183
+        },
+        "cmake-build": {
+          "calls": 57,
+          "wall_s": 1.5869322511716746
+        },
+        "ctest-test": {
+          "calls": 26,
+          "wall_s": 0.17831108393147588
+        },
+        "cmake-script": {
+          "calls": 3,
+          "wall_s": 0.013345291023142636
+        }
+      },
+      "repeated_binary_dir_requests": 69,
+      "repeated_binary_dir_wall_s": 0.7943653719266877,
+      "native_python": {
+        "wall_s": 10.846967671997845,
+        "groups": {
+          "cmake-configure": {
+            "calls": 12,
+            "wall_s": 0.7576910860370845
+          },
+          "safety-wait": {
+            "calls": 9,
+            "wall_s": 8.764713463024236
+          },
+          "cmake-build": {
+            "calls": 29,
+            "wall_s": 1.0182168344617821
+          },
+          "probe": {
+            "calls": 20,
+            "wall_s": 0.006489539111498743
+          },
+          "ccache-stats": {
+            "calls": 18,
+            "wall_s": 0.03198103996692225
+          },
+          "ccache-inspect": {
+            "calls": 14,
+            "wall_s": 0.011287706904113293
+          },
+          "ccache-maintenance": {
+            "calls": 1,
+            "wall_s": 0.018937875051051378
+          },
+          "unwrapped-measure-cli": {
+            "calls": 1,
+            "wall_s": 0.215000250027515
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "command": [
+    "./scripts/build.sh",
+    "--jobs",
+    "8"
+  ],
+  "exit": 0,
+  "ctest_wall_s": 395.13,
+  "tests": 667,
+  "failed": 0,
+  "source_commit": "216979de85719b445a1d92c0052de503012d87fc",
+  "source_match_manifest": "product-source-manifest.json",
+  "note": "单次正确性运行，未计量完整入口总墙钟；不是性能配对。"
+}

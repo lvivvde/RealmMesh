@@ -1,0 +1,13 @@
+{
+  "source_commit": "216979de85719b445a1d92c0052de503012d87fc",
+  "time_utc": "2026-10-07T16:19:04.983940+00:00",
+  "platform": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+  "tools": {
+    "cmake": "cmake version 4.4.3\n\nCMake suite maintained and supported by Kitware (kitware.com/cmake).",
+    "ctest": "ctest version 4.4.3\n\nCMake suite maintained and supported by Kitware (kitware.com/cmake).",
+    "ninja": "1.13.2",
+    "ccache": "ccache version 4.14.1\nFeatures: crsh-storage file-storage http-storage redis+unix-storage redis-storage remote-storage\n\nCopyright (C) 2002-2007 Andrew Tridgell\nCopyright (C) 2009-2026 Joel Rosdahl and other contributors\n\nSee <https://ccache.dev/credits.html> for a complete list of contributors.\n\nThis program is free software; you can redistribute it and/or modify it under\nthe terms of the GNU General Public License as published by the Free Software\nFoundation; either version 3 of the License, or (at your option) any later\nversion.",
+    "compiler": "Apple clang version 21.0.0 (clang-2100.3.34.2)\nTarget: arm64-apple-darwin27.0.0\nThread model: posix\nInstalledDir: /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin",
+    "python": "Python 3.13.15"
+  }
+}
