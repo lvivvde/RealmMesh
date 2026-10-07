@@ -1,0 +1,5 @@
+START recover-1
+DONE {"name": "recover-1", "wall_s": 11.370120766980108, "exit": 0, "compile_count": 8, "link_count": 68}
+START recover-1-noop
+DONE {"name": "recover-1-noop", "wall_s": 7.747841483011143, "exit": 0, "compile_count": 0, "link_count": 33}
+recovery not stable: third_party/sodium/install/lib/libsodium.a

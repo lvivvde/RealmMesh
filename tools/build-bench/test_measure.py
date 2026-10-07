@@ -1,6 +1,7 @@
 """measure.py 纯函数的单元测试：python3 -m unittest discover tools/build-bench"""
 
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -158,6 +159,18 @@ class EditedTest(unittest.TestCase):
     def write(self, path, content):
         path.write_bytes(content)
 
+    def test_keeps_mtime_when_body_already_restored_source(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / 'a.cpp'
+            path.write_bytes(b'int a;\n')
+            with measure.edited(path, self.write) as original:
+                self.write(path, b'int b;\n')
+                self.write(path, original)
+                # A completed reset build has consumed this file timestamp.
+                os.utime(path, ns=(1_000_000_000, 1_000_000_000))
+            self.assertEqual(path.read_bytes(), b'int a;\n')
+            self.assertEqual(path.stat().st_mtime_ns, 1_000_000_000)
+
     def test_variants_derive_from_original_and_restore(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / 'a.cpp'
@@ -176,6 +189,16 @@ class EditedTest(unittest.TestCase):
                 with measure.edited(path, self.write):
                     self.write(path, b'broken')
                     raise RuntimeError
+            self.assertEqual(path.read_bytes(), b'int a;\n')
+
+    def test_restores_missing_source_on_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / 'a.cpp'
+            path.write_bytes(b'int a;\n')
+            with self.assertRaisesRegex(RuntimeError, 'interrupted'):
+                with measure.edited(path, self.write):
+                    path.unlink()
+                    raise RuntimeError('interrupted')
             self.assertEqual(path.read_bytes(), b'int a;\n')
 
     def test_restores_on_sigterm(self):

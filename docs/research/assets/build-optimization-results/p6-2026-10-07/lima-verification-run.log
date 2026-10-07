@@ -1,0 +1,42 @@
+START stable-1
+DONE {"name": "stable-1", "wall_s": 0.5711301249975804, "exit": 0, "compile_count": 0, "link_count": 0}
+START stable-2
+DONE {"name": "stable-2", "wall_s": 0.5483664589992259, "exit": 0, "compile_count": 0, "link_count": 0}
+START stable-3
+DONE {"name": "stable-3", "wall_s": 0.5473226670001168, "exit": 0, "compile_count": 0, "link_count": 0}
+START recover-1
+DONE {"name": "recover-1", "wall_s": 11.557387921988266, "exit": 0, "compile_count": 8, "link_count": 68}
+START recover-1-noop
+DONE {"name": "recover-1-noop", "wall_s": 0.04059295801562257, "exit": 0, "compile_count": 0, "link_count": 0}
+START recover-2
+DONE {"name": "recover-2", "wall_s": 11.152034380007535, "exit": 0, "compile_count": 8, "link_count": 68}
+START recover-2-noop
+DONE {"name": "recover-2-noop", "wall_s": 0.03983366600004956, "exit": 0, "compile_count": 0, "link_count": 0}
+START recover-3
+DONE {"name": "recover-3", "wall_s": 11.635314005019609, "exit": 0, "compile_count": 8, "link_count": 68}
+START recover-3-noop
+DONE {"name": "recover-3-noop", "wall_s": 0.04160224998486228, "exit": 0, "compile_count": 0, "link_count": 0}
+START recover-4
+DONE {"name": "recover-4", "wall_s": 10.347719462995883, "exit": 0, "compile_count": 44, "link_count": 55}
+START recover-4-noop
+DONE {"name": "recover-4-noop", "wall_s": 0.039881792006781325, "exit": 0, "compile_count": 0, "link_count": 0}
+START recover-5
+DONE {"name": "recover-5", "wall_s": 10.418699547008146, "exit": 0, "compile_count": 44, "link_count": 55}
+START recover-5-noop
+DONE {"name": "recover-5-noop", "wall_s": 0.041284583014203236, "exit": 0, "compile_count": 0, "link_count": 0}
+START recover-6
+DONE {"name": "recover-6", "wall_s": 9.976947254996048, "exit": 0, "compile_count": 0, "link_count": 55}
+START recover-6-noop
+DONE {"name": "recover-6-noop", "wall_s": 0.040059166989522055, "exit": 0, "compile_count": 0, "link_count": 0}
+START recover-7
+DONE {"name": "recover-7", "wall_s": 8.173737920995336, "exit": 0, "compile_count": 1, "link_count": 35}
+START recover-7-noop
+DONE {"name": "recover-7-noop", "wall_s": 0.04290283299633302, "exit": 0, "compile_count": 0, "link_count": 0}
+START missingdeps
+DONE {"name": "missingdeps", "wall_s": 0.02072374999988824, "exit": 0, "compile_count": 0, "link_count": 0}
+START syntax
+DONE {"name": "syntax", "wall_s": 6.476883169991197, "exit": 0, "compile_count": 0, "link_count": 0}
+START final-full
+DONE {"name": "final-full", "wall_s": 316.19457444301224, "exit": 0, "compile_count": 0, "link_count": 0}
+START fallback-full
+DONE {"name": "fallback-full", "wall_s": 486.91557431500405, "exit": 0, "compile_count": 776, "link_count": 76}

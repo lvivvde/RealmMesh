@@ -1,0 +1,12 @@
+START cold-complete-1
+DONE {"name": "cold-complete-1", "wall_s": 594.4871226169926, "exit": 0, "compile_count": 770, "link_count": 73}
+START cold-complete-1
+DONE {"name": "cold-complete-1", "wall_s": 484.0349879389978, "exit": 0, "compile_count": 776, "link_count": 76}
+START cold-complete-2
+DONE {"name": "cold-complete-2", "wall_s": 477.42986972798826, "exit": 0, "compile_count": 776, "link_count": 76}
+START cold-complete-2
+DONE {"name": "cold-complete-2", "wall_s": 597.7810993269959, "exit": 0, "compile_count": 770, "link_count": 73}
+START cold-complete-3
+DONE {"name": "cold-complete-3", "wall_s": 601.2684070779942, "exit": 0, "compile_count": 770, "link_count": 73}
+START cold-complete-3
+DONE {"name": "cold-complete-3", "wall_s": 481.06615543802036, "exit": 0, "compile_count": 776, "link_count": 76}

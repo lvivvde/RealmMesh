@@ -1,0 +1,12 @@
+{
+  "sha256": {
+    "collect.py": "c4031a32265736f2db64af7c4bb4ebf0be2522f73240ae81d903509895dac72b",
+    "run.py": "43faeaa72c8d966c3203428dda2680dec1ff3302d7e6eaccceab74c13db02e0d",
+    "checks.py": "62b6ce542f2b0d2213e3b0b7974435ed0000b2a43e91252f03005d5bb0fa7ca9",
+    "export-clock-invalid.py": "17e7c8cd95c215e051c59ecb971409c63862164931b68358e35bbeb428582b8c",
+    "continue-after-clock-failure.py": "b320dd79740b32809c2b3013dd9ba5e9aeedf2c98f9842777bed7b69530b76b0"
+  },
+  "formal_run_complete": false,
+  "excluded_from_final_pairs": true,
+  "initial_export_preserved": true
+}

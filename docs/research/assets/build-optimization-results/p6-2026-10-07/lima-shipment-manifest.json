@@ -1,0 +1,122 @@
+{
+  "lima-samples.json": {
+    "sha256": "86c4bc7f4da9119ad11a353a276264fda5f74e6ff55a4af4a030402c826496df",
+    "bytes": 7117653
+  },
+  "lima-r0-hot-full-1.log": {
+    "sha256": "651ab8b83a60e1ec45a1641fb51a5a0638f30390b8ed13aac885427a4fb80477",
+    "bytes": 155339
+  },
+  "lima-r0-cold-complete-1.log": {
+    "sha256": "95adcda07f05225f131de11395cff8d6a81b8f264f3d5944dbd7d3225484abf3",
+    "bytes": 374409
+  },
+  "lima-r0-hot-full-2.log": {
+    "sha256": "f73ac3c169ee61619d06ef4e2852fdaaadff17fedc7f434fd56a417b29110e27",
+    "bytes": 155339
+  },
+  "lima-r0-cold-complete-2.log": {
+    "sha256": "d67c9d76cbb2b487abeea7aa6a31226a527ef5a945c0da94bf34fa60e0967496",
+    "bytes": 374409
+  },
+  "lima-r0-hot-full-3.log": {
+    "sha256": "b3838cc320dad9fbcedf47b74f548dde238201767b881fbd0de5053012ededb4",
+    "bytes": 155339
+  },
+  "lima-r0-cold-complete-3.log": {
+    "sha256": "7bfcb40b42da226a5d80a0deba06ab10e8ee101b5a5242886f8a8cc5254d3405",
+    "bytes": 374409
+  },
+  "lima-final-hot-full-1.log": {
+    "sha256": "042bfe20bb3393007062afe90aa28ebb608b6349568db32b114cd67f2d234478",
+    "bytes": 157250
+  },
+  "lima-final-cold-complete-1.log": {
+    "sha256": "de089602d6a665838cfe054fdd0fd5d49f76b430e0bb871d1f2981309774f03d",
+    "bytes": 399176
+  },
+  "lima-final-hot-full-2.log": {
+    "sha256": "fc83d810145b0c586b4ee327288a3a67177b7c5932a838d212600c490e2c9813",
+    "bytes": 157250
+  },
+  "lima-final-cold-complete-2.log": {
+    "sha256": "74ee7c89e8adb872fd176f27759783a244d8c6a496080b9bd3c151f6fe927715",
+    "bytes": 399176
+  },
+  "lima-final-hot-full-3.log": {
+    "sha256": "51cff92b5c538bc75921eae17ea047f6ec284611e30a5ddd709d059a66afe87a",
+    "bytes": 157250
+  },
+  "lima-final-cold-complete-3.log": {
+    "sha256": "0940c5508e9b529257dacfe44560bd7d2c67a828df708784472975ed72b82433",
+    "bytes": 399176
+  },
+  "lima-final-full.log": {
+    "sha256": "14b1b7f1674cf5948fd7883b2bc5588bf6445bcaaff3d76a4631f13b66621c82",
+    "bytes": 155661
+  },
+  "lima-fallback-full.log": {
+    "sha256": "255506d5c3934386491e7b357fa0940c0979b57852b0498eba5d333c11813098",
+    "bytes": 401848
+  },
+  "lima-missingdeps.log": {
+    "sha256": "a99e8cc26b8105cb65fc2db1dc7968a681a4c786757bfade1318ac3ce79eb501",
+    "bytes": 174
+  },
+  "linux-login-chain-m1-m4.md": {
+    "sha256": "81b64f1c0a9497f2f4f2e1e9a5ead692a7a8a6cf942f8d91cba331cbb5489041",
+    "bytes": 17066
+  },
+  "linux-login-chain-m1-m4.log": {
+    "sha256": "d4e8b79a07963f7c05546da8e24dca9cde0fbc3e8d8f245f0f69a6e174b3de43",
+    "bytes": 8286263
+  },
+  "lima-audit-run.log": {
+    "sha256": "b88d3e918872052aea0af36e0ce952bb0f268afe47885c94ca32e7c6af3c6968",
+    "bytes": 307
+  },
+  "lima-acceptance-git-status.txt": {
+    "sha256": "2ac7f9bc904c4d006d5bb2a2cfc3a2aba69f0203c414443d8b12c8ebf09b31b3",
+    "bytes": 10
+  },
+  "lima-completed.json": {
+    "sha256": "c955a8110f8a3a70194846b7f84f984fe8f5453673a931e7f3654e4473a7e7a2",
+    "bytes": 138
+  },
+  "lima-verification-run.log": {
+    "sha256": "05a93cae7003fc2b549df74ffb6814588e7d78befb2c8126dd2e02a7bb8b3f4b",
+    "bytes": 2633
+  },
+  "lima-cold-complete-run.log": {
+    "sha256": "63beb06a7a530cf60dae32eb6a9f63cd148c116c23e3a1d795095c17a9603ff9",
+    "bytes": 812
+  },
+  "lima-stable-1.log": {
+    "sha256": "83cc985636a90379c74086807641eef11d9a81e1d2394570e41c7844a9f62dec",
+    "bytes": 4285
+  },
+  "lima-recover-1-noop.log": {
+    "sha256": "6f2093eb8b99a65078f101bb2a6252f512ca48ff23b7e68ebb3d2934f1820ef6",
+    "bytes": 105
+  },
+  "lima-clock-preflight-summary.json": {
+    "sha256": "dd20666af47b1a61f36c58586165b6ac7bf724f2daee0fd150c9ab6421292a54",
+    "bytes": 528
+  },
+  "lima-clock-monitor-summary.json": {
+    "sha256": "809e092ab9df2f689047375236722e433d5b0b2dbf09e8c590833a8bd19138a6",
+    "bytes": 23589
+  },
+  "lima-clock-preflight-run.log": {
+    "sha256": "dd20666af47b1a61f36c58586165b6ac7bf724f2daee0fd150c9ab6421292a54",
+    "bytes": 528
+  },
+  "lima-clock-monitor-run.log": {
+    "sha256": "809e092ab9df2f689047375236722e433d5b0b2dbf09e8c590833a8bd19138a6",
+    "bytes": 23589
+  },
+  "lima-audit-final.txt": {
+    "sha256": "165988135a2e8d45133992803fc6487b2ff9ce79baa2dd902ca59e72fc69ebc0",
+    "bytes": 307
+  }
+}

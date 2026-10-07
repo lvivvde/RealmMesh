@@ -1,0 +1,12 @@
+{
+  "exported_after_finisher_exit": true,
+  "raw_files_checked": 21233,
+  "sample_sha256": "86c4bc7f4da9119ad11a353a276264fda5f74e6ff55a4af4a030402c826496df",
+  "collector_sha256": "1ab47d089df150aaedf23082e2cfd7ddf7e131894ca6c2a815cceb481310d91f",
+  "audit_sha256": "7f057f19fd2442c37125654ea43f4107d602360f17febd25dbe007844ad7ae0b",
+  "stability_gate_passed": true,
+  "clock_environment_gate_passed": true,
+  "current_correctness_gate_passed": true,
+  "evidence_integrity_checks": "passed",
+  "note": "收尾及观察器结束后再导出；stdout 不计入原始 run-log 集合；最终审计逐个核验 raw_manifest。"
+}

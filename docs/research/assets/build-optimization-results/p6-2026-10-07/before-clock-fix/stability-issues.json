@@ -1,0 +1,19 @@
+{
+  "gate_passed": false,
+  "issues": [
+    {
+      "sample": "stable-1",
+      "compile_count": 0,
+      "link_count": 55,
+      "generated_version_headers_changed": []
+    },
+    {
+      "sample": "recover-1-noop",
+      "compile_count": 0,
+      "link_count": 33,
+      "generated_version_headers_changed": []
+    }
+  ],
+  "clock_diagnostic": "clock-diagnostic/clock-samples.json",
+  "note": "VM clock steps backwards; failures retained without normalizing file timestamps or changing global time services."
+}

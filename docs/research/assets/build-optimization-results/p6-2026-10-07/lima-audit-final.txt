@@ -1,0 +1,1 @@
+{"raw_files_checked": 21233, "platform": "lima", "evidence_integrity_checks": "passed", "clock_environment_gate_passed": true, "stability_gate_passed": true, "stability_failure_samples": [], "strict_full_collection_comparable": false, "first_batch_accepted": false, "current_correctness_gate_passed": true}

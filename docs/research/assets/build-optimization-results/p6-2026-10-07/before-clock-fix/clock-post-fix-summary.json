@@ -1,0 +1,9 @@
+{
+  "samples": 450,
+  "monotonic_elapsed_s": 46.520716689,
+  "wall_elapsed_s": 46.302594778,
+  "backward_steps": 1,
+  "chrony_active": "inactive",
+  "chrony_enabled": "disabled",
+  "guestagent_active": "active"
+}

@@ -1,0 +1,14 @@
+{"trial": 30, "exit": 143, "worker_stopped": false, "log": ""}
+{"trial": 95, "exit": 143, "worker_stopped": false, "log": "/home/edwin.guest/code/.bench/p6-20261006/tmp/p6-supervisor-probe-2ndc_p74/probe.sh: line 3: warning: run_pending_traps: bad value in trap_list[15]: 0x1\n"}
+{"trial": 181, "exit": 143, "worker_stopped": false, "log": ""}
+{"trial": 229, "exit": 143, "worker_stopped": false, "log": ""}
+{"trial": 324, "exit": 143, "worker_stopped": false, "log": ""}
+{"trial": 400, "exit": 143, "worker_stopped": false, "log": ""}
+{"trial": 556, "exit": 143, "worker_stopped": false, "log": ""}
+{"trial": 557, "exit": 143, "worker_stopped": false, "log": ""}
+{"trial": 777, "exit": 143, "worker_stopped": false, "log": ""}
+{"trial": 880, "exit": 143, "worker_stopped": false, "log": ""}
+{"trial": 908, "exit": 143, "worker_stopped": false, "log": ""}
+{"trial": 924, "exit": 143, "worker_stopped": false, "log": ""}
+{"trial": 954, "exit": 143, "worker_stopped": false, "log": ""}
+{"trials": 1000, "failures": 13, "results": [{"trial": 30, "exit": 143, "worker_stopped": false, "log": ""}, {"trial": 95, "exit": 143, "worker_stopped": false, "log": "/home/edwin.guest/code/.bench/p6-20261006/tmp/p6-supervisor-probe-2ndc_p74/probe.sh: line 3: warning: run_pending_traps: bad value in trap_list[15]: 0x1\n"}, {"trial": 181, "exit": 143, "worker_stopped": false, "log": ""}, {"trial": 229, "exit": 143, "worker_stopped": false, "log": ""}, {"trial": 324, "exit": 143, "worker_stopped": false, "log": ""}, {"trial": 400, "exit": 143, "worker_stopped": false, "log": ""}, {"trial": 556, "exit": 143, "worker_stopped": false, "log": ""}, {"trial": 557, "exit": 143, "worker_stopped": false, "log": ""}, {"trial": 777, "exit": 143, "worker_stopped": false, "log": ""}, {"trial": 880, "exit": 143, "worker_stopped": false, "log": ""}, {"trial": 908, "exit": 143, "worker_stopped": false, "log": ""}, {"trial": 924, "exit": 143, "worker_stopped": false, "log": ""}, {"trial": 954, "exit": 143, "worker_stopped": false, "log": ""}]}

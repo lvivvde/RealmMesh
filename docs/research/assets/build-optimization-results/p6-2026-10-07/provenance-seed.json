@@ -1,0 +1,90 @@
+{
+  "initial_revision": "51ad054bcb172f8e66995d9a450a1a03c6ea3085",
+  "refrozen_product_revision": "7858a925e10a85f6d190e34356cf8bfeb02ff12b",
+  "measurement_tool_revision": "ee44ff80c78a0cc6e362e15f52c67e722ac6c849",
+  "reason": "用户选择本票修复第二次 wait 中断并重新冻结；旧组独立保留，不混入新正式样本",
+  "r0_correctness_patch_sha256": "e85bd84a2c93341b6e71a84aba9cf15827a9968ba7c805d400c34fae165408ac",
+  "stop_seam": "真实停止、管理/worker/服务回收和文件清理；用户确认",
+  "stop_cases_per_platform": 80,
+  "tool_tests_per_platform": 60,
+  "review_base": "51ad054bcb172f8e66995d9a450a1a03c6ea3085",
+  "cache_ci_evidence": {
+    "source_revision": "40b75b69ac1f4ad1018a37be9a1caae3b401a95f",
+    "run_id": "37450446313",
+    "rerun_for_refrozen_revision": false,
+    "unchanged_paths": [
+      ".github",
+      "CMakeLists.txt",
+      "cmake",
+      "scripts/ci-ccache-key.py",
+      "tools/build-bench/ci_cache.py"
+    ],
+    "verified_with": "git diff 40b75b69ac1f4ad1018a37be9a1caae3b401a95f 7858a925e10a85f6d190e34356cf8bfeb02ff12b -- <unchanged_paths>"
+  },
+  "measurement_order": "Mac primary → checks → acceptance → complete-cold; then Linux same phases; no overlapping timed runs",
+  "prepared_sources_sha256": "adbdd8f16149e81ac6078a03aca6fc03b592b89ef7b5ed83841c086191be3349",
+  "tool_measure_sha256": "8c0f79c965b550599af2a705c0a582a1867d59d3395fc0be9875f0fd2c0cbcd5",
+  "bundle_sha256": "1eb8380769f3785b176e50b718c507e154dc28c81e90d7b9266fe0b6f5c2cfe3",
+  "linux_formal_root": "/home/edwin.guest/code/.bench/p6-clock-fixed-20261007",
+  "linux_excluded_clock_root": "/home/edwin.guest/code/.bench/p6-fixed-20261007",
+  "linux_clock_user_decision": "修正 VM 时间同步并重跑 Linux 全部组",
+  "clock_correction": {
+    "chrony_before": "enabled/active",
+    "chrony_after": "disabled/inactive",
+    "guestagent": "active",
+    "coarse_tick_before_us": 10428,
+    "coarse_tick_after_us": 10000,
+    "fine_frequency_before_ppm": 15.542495728,
+    "fine_frequency_after_ppm": 0,
+    "preflight_elapsed_s": 45.02274818898877,
+    "preflight_natural_writes": 434,
+    "preflight_backward_steps": 0,
+    "initial_residual_step_preserved": true
+  },
+  "linux_excluded_group": {
+    "raw_files_verified": 15363,
+    "formal_run_complete": false,
+    "pooled_in_formal_comparisons": false
+  },
+  "driver_sha256": {
+    "run.py": "43faeaa72c8d966c3203428dda2680dec1ff3302d7e6eaccceab74c13db02e0d",
+    "checks.py": "62b6ce542f2b0d2213e3b0b7974435ed0000b2a43e91252f03005d5bb0fa7ca9",
+    "cold-complete.py": "585cc6a500bf2e1886ec3ce612b79b159407faa225790747df4857f315d956c3",
+    "collect.py": "1ab47d089df150aaedf23082e2cfd7ddf7e131894ca6c2a815cceb481310d91f",
+    "audit.py": "7f057f19fd2442c37125654ea43f4107d602360f17febd25dbe007844ad7ae0b",
+    "finish-bench.py": "a67dec6c7979fcef8fc0e64c07a840e6f3519f434c516695561bd2d1663f1065",
+    "package-evidence.py": "cb092ddd0f79cbd1567b797d4c3a2e706174b03815c990e24817c6f8f7e63596",
+    "all-linux-after-clock-fix.py": "70c5b14a23e2534446f8b279b216a99fb0c5b2975fad8a6baf866da1bc515b70",
+    "clock-monitor.py": "b8442ccf3342009e42eaf0af857156b71c8ae4d64d00aca6be2ad0f4d25bc1f2",
+    "clock-frequency.c": "68c3bed8125525fad6fc7bffea26321cb47bc937773c28bcc1e56ed3b0f3af27",
+    "compose-report.py": "da1bd66d6764081dffdde7331ec4e42dc8ac922d87d05b347b5a3abde9343189"
+  },
+  "platform_driver_provenance": {
+    "mac": "mac-driver-provenance.json",
+    "lima": "lima-driver-provenance.json"
+  },
+  "final_audits": {
+    "mac": {
+      "raw_files_checked": 21264,
+      "platform": "mac",
+      "evidence_integrity_checks": "passed",
+      "clock_environment_gate_passed": null,
+      "stability_gate_passed": true,
+      "stability_failure_samples": [],
+      "strict_full_collection_comparable": false,
+      "first_batch_accepted": false,
+      "current_correctness_gate_passed": true
+    },
+    "lima": {
+      "raw_files_checked": 21233,
+      "platform": "lima",
+      "evidence_integrity_checks": "passed",
+      "clock_environment_gate_passed": true,
+      "stability_gate_passed": true,
+      "stability_failure_samples": [],
+      "strict_full_collection_comparable": false,
+      "first_batch_accepted": false,
+      "current_correctness_gate_passed": true
+    }
+  }
+}

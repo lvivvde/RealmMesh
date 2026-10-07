@@ -261,8 +261,13 @@ supervise_services() {
         # wait 被信号打断并不代表子进程退出;只发布一次停止请求,然后真回收。
         trap '' INT TERM
         : > "${realmmesh_supervisor_shutdown_file}"
-        realmmesh_worker_status=0
-        wait "${realmmesh_worker_pid}" || realmmesh_worker_status=$?
+        # 已排队的 TERM 仍可能让下一次 wait 返回 143;worker 存活时继续等,
+        # 保留停止请求,直到其真正退出并被回收。
+        while :; do
+            realmmesh_worker_status=0
+            wait "${realmmesh_worker_pid}" || realmmesh_worker_status=$?
+            kill -0 "${realmmesh_worker_pid}" 2>/dev/null || break
+        done
     fi
     rm -f -- "${realmmesh_supervisor_shutdown_file}"
     return "${realmmesh_worker_status}"

@@ -167,12 +167,13 @@ def edit_plan(prefix, samples, comment_samples, start=1, warmup=True):
 
 @contextlib.contextmanager
 def edited(path, write):
-    """只读取一次原始字节；with 块内的各样本都由它派生变体，退出（含异常）时用 write 恢复原始字节。"""
+    """各样本由原始字节派生；退出（含异常）时恢复，已复位则保留构建消费过的 mtime。"""
     original = path.read_bytes()
     try:
         yield original
     finally:
-        write(path, original)
+        if not path.exists() or path.read_bytes() != original:
+            write(path, original)
 
 
 def exit_on_sigterm():

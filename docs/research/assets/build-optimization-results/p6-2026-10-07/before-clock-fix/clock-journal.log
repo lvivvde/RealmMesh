@@ -1,0 +1,75 @@
+Oct 07 17:48:04 lima-ubuntu systemd-resolved[18368]: Clock change detected. Flushing caches.
+Oct 07 17:48:04 lima-ubuntu lima-guestagent[2183]: time="2026-10-07T17:48:04+08:00" level=info msg="SyncTime: system time synchronized with host (drift was 428.086068ms)"
+Oct 07 17:48:14 lima-ubuntu lima-guestagent[2183]: time="2026-10-07T17:48:14+08:00" level=info msg="SyncTime: system time synchronized with host (drift was 428.001038ms)"
+Oct 07 17:48:14 lima-ubuntu systemd-resolved[18368]: Clock change detected. Flushing caches.
+Oct 07 17:48:24 lima-ubuntu lima-guestagent[2183]: time="2026-10-07T17:48:24+08:00" level=info msg="SyncTime: system time synchronized with host (drift was 428.091304ms)"
+Oct 07 17:48:24 lima-ubuntu systemd-resolved[18368]: Clock change detected. Flushing caches.
+Oct 07 17:48:34 lima-ubuntu lima-guestagent[2183]: time="2026-10-07T17:48:34+08:00" level=info msg="SyncTime: system time synchronized with host (drift was 427.967603ms)"
+Oct 07 17:48:34 lima-ubuntu systemd-resolved[18368]: Clock change detected. Flushing caches.
+Oct 07 17:48:44 lima-ubuntu lima-guestagent[2183]: time="2026-10-07T17:48:44+08:00" level=info msg="SyncTime: system time synchronized with host (drift was 428.009561ms)"
+Oct 07 17:48:44 lima-ubuntu systemd-resolved[18368]: Clock change detected. Flushing caches.
+Oct 07 17:48:54 lima-ubuntu lima-guestagent[2183]: time="2026-10-07T17:48:54+08:00" level=info msg="SyncTime: system time synchronized with host (drift was 428.032875ms)"
+Oct 07 17:48:54 lima-ubuntu systemd-resolved[18368]: Clock change detected. Flushing caches.
+Oct 07 17:49:04 lima-ubuntu lima-guestagent[2183]: time="2026-10-07T17:49:04+08:00" level=info msg="SyncTime: system time synchronized with host (drift was 428.041874ms)"
+Oct 07 17:49:04 lima-ubuntu systemd-resolved[18368]: Clock change detected. Flushing caches.
+Oct 07 17:49:14 lima-ubuntu lima-guestagent[2183]: time="2026-10-07T17:49:14+08:00" level=info msg="SyncTime: system time synchronized with host (drift was 427.975317ms)"
+Oct 07 17:49:14 lima-ubuntu systemd-resolved[18368]: Clock change detected. Flushing caches.
+Oct 07 17:49:24 lima-ubuntu lima-guestagent[2183]: time="2026-10-07T17:49:24+08:00" level=info msg="SyncTime: system time synchronized with host (drift was 428.062407ms)"
+Oct 07 17:49:24 lima-ubuntu systemd-resolved[18368]: Clock change detected. Flushing caches.
+Oct 07 17:49:34 lima-ubuntu lima-guestagent[2183]: time="2026-10-07T17:49:34+08:00" level=info msg="SyncTime: system time synchronized with host (drift was 427.987686ms)"
+Oct 07 17:49:34 lima-ubuntu systemd-resolved[18368]: Clock change detected. Flushing caches.
+Oct 07 17:49:44 lima-ubuntu lima-guestagent[2183]: time="2026-10-07T17:49:44+08:00" level=info msg="SyncTime: system time synchronized with host (drift was 427.966816ms)"
+Oct 07 17:49:44 lima-ubuntu systemd-resolved[18368]: Clock change detected. Flushing caches.
+Oct 07 17:49:54 lima-ubuntu lima-guestagent[2183]: time="2026-10-07T17:49:54+08:00" level=info msg="SyncTime: system time synchronized with host (drift was 428.075922ms)"
+Oct 07 17:49:54 lima-ubuntu systemd-resolved[18368]: Clock change detected. Flushing caches.
+Oct 07 17:50:04 lima-ubuntu lima-guestagent[2183]: time="2026-10-07T17:50:04+08:00" level=info msg="SyncTime: system time synchronized with host (drift was 427.959254ms)"
+Oct 07 17:50:04 lima-ubuntu systemd-resolved[18368]: Clock change detected. Flushing caches.
+Oct 07 17:50:04 lima-ubuntu systemd[1]: Starting sysstat-collect.service - system activity accounting tool...
+Oct 07 17:50:05 lima-ubuntu systemd[1]: sysstat-collect.service: Deactivated successfully.
+Oct 07 17:50:05 lima-ubuntu systemd[1]: Finished sysstat-collect.service - system activity accounting tool.
+Oct 07 17:50:14 lima-ubuntu lima-guestagent[2183]: time="2026-10-07T17:50:14+08:00" level=info msg="SyncTime: system time synchronized with host (drift was 428.046923ms)"
+Oct 07 17:50:14 lima-ubuntu systemd-resolved[18368]: Clock change detected. Flushing caches.
+Oct 07 17:50:24 lima-ubuntu lima-guestagent[2183]: time="2026-10-07T17:50:24+08:00" level=info msg="SyncTime: system time synchronized with host (drift was 428.038388ms)"
+Oct 07 17:50:24 lima-ubuntu systemd-resolved[18368]: Clock change detected. Flushing caches.
+Oct 07 17:50:34 lima-ubuntu lima-guestagent[2183]: time="2026-10-07T17:50:34+08:00" level=info msg="SyncTime: system time synchronized with host (drift was 428.009698ms)"
+Oct 07 17:50:34 lima-ubuntu systemd-resolved[18368]: Clock change detected. Flushing caches.
+Oct 07 17:50:44 lima-ubuntu lima-guestagent[2183]: time="2026-10-07T17:50:44+08:00" level=info msg="SyncTime: system time synchronized with host (drift was 428.032462ms)"
+Oct 07 17:50:44 lima-ubuntu systemd-resolved[18368]: Clock change detected. Flushing caches.
+Oct 07 17:50:54 lima-ubuntu lima-guestagent[2183]: time="2026-10-07T17:50:54+08:00" level=info msg="SyncTime: system time synchronized with host (drift was 427.995919ms)"
+Oct 07 17:50:54 lima-ubuntu systemd-resolved[18368]: Clock change detected. Flushing caches.
+Oct 07 17:51:04 lima-ubuntu lima-guestagent[2183]: time="2026-10-07T17:51:04+08:00" level=info msg="SyncTime: system time synchronized with host (drift was 428.021189ms)"
+Oct 07 17:51:04 lima-ubuntu systemd-resolved[18368]: Clock change detected. Flushing caches.
+Oct 07 17:51:14 lima-ubuntu lima-guestagent[2183]: time="2026-10-07T17:51:14+08:00" level=info msg="SyncTime: system time synchronized with host (drift was 428.052643ms)"
+Oct 07 17:51:14 lima-ubuntu systemd-resolved[18368]: Clock change detected. Flushing caches.
+Oct 07 17:51:24 lima-ubuntu lima-guestagent[2183]: time="2026-10-07T17:51:24+08:00" level=info msg="SyncTime: system time synchronized with host (drift was 427.999982ms)"
+Oct 07 17:51:24 lima-ubuntu systemd-resolved[18368]: Clock change detected. Flushing caches.
+Oct 07 17:51:34 lima-ubuntu lima-guestagent[2183]: time="2026-10-07T17:51:34+08:00" level=info msg="SyncTime: system time synchronized with host (drift was 428.045167ms)"
+Oct 07 17:51:34 lima-ubuntu systemd-resolved[18368]: Clock change detected. Flushing caches.
+Oct 07 17:51:44 lima-ubuntu lima-guestagent[2183]: time="2026-10-07T17:51:44+08:00" level=info msg="SyncTime: system time synchronized with host (drift was 427.992776ms)"
+Oct 07 17:51:44 lima-ubuntu systemd-resolved[18368]: Clock change detected. Flushing caches.
+Oct 07 17:51:54 lima-ubuntu lima-guestagent[2183]: time="2026-10-07T17:51:54+08:00" level=info msg="SyncTime: system time synchronized with host (drift was 428.03655ms)"
+Oct 07 17:51:54 lima-ubuntu systemd-resolved[18368]: Clock change detected. Flushing caches.
+Oct 07 17:52:04 lima-ubuntu lima-guestagent[2183]: time="2026-10-07T17:52:04+08:00" level=info msg="SyncTime: system time synchronized with host (drift was 428.039743ms)"
+Oct 07 17:52:04 lima-ubuntu systemd-resolved[18368]: Clock change detected. Flushing caches.
+Oct 07 17:52:14 lima-ubuntu lima-guestagent[2183]: time="2026-10-07T17:52:14+08:00" level=info msg="SyncTime: system time synchronized with host (drift was 428.027696ms)"
+Oct 07 17:52:14 lima-ubuntu systemd-resolved[18368]: Clock change detected. Flushing caches.
+Oct 07 17:52:24 lima-ubuntu lima-guestagent[2183]: time="2026-10-07T17:52:24+08:00" level=info msg="SyncTime: system time synchronized with host (drift was 427.954787ms)"
+Oct 07 17:52:24 lima-ubuntu systemd-resolved[18368]: Clock change detected. Flushing caches.
+Oct 07 17:52:34 lima-ubuntu lima-guestagent[2183]: time="2026-10-07T17:52:34+08:00" level=info msg="SyncTime: system time synchronized with host (drift was 428.071786ms)"
+Oct 07 17:52:34 lima-ubuntu systemd-resolved[18368]: Clock change detected. Flushing caches.
+Oct 07 17:52:44 lima-ubuntu lima-guestagent[2183]: time="2026-10-07T17:52:44+08:00" level=info msg="SyncTime: system time synchronized with host (drift was 428.020735ms)"
+Oct 07 17:52:44 lima-ubuntu systemd-resolved[18368]: Clock change detected. Flushing caches.
+Oct 07 17:52:54 lima-ubuntu lima-guestagent[2183]: time="2026-10-07T17:52:54+08:00" level=info msg="SyncTime: system time synchronized with host (drift was 428.206521ms)"
+Oct 07 17:52:54 lima-ubuntu systemd-resolved[18368]: Clock change detected. Flushing caches.
+Oct 07 17:53:04 lima-ubuntu lima-guestagent[2183]: time="2026-10-07T17:53:04+08:00" level=info msg="SyncTime: system time synchronized with host (drift was 428.18849ms)"
+Oct 07 17:53:04 lima-ubuntu systemd-resolved[18368]: Clock change detected. Flushing caches.
+Oct 07 17:53:14 lima-ubuntu lima-guestagent[2183]: time="2026-10-07T17:53:14+08:00" level=info msg="SyncTime: system time synchronized with host (drift was 428.057295ms)"
+Oct 07 17:53:14 lima-ubuntu systemd-resolved[18368]: Clock change detected. Flushing caches.
+Oct 07 17:53:24 lima-ubuntu lima-guestagent[2183]: time="2026-10-07T17:53:24+08:00" level=info msg="SyncTime: system time synchronized with host (drift was 427.775447ms)"
+Oct 07 17:53:24 lima-ubuntu systemd-resolved[18368]: Clock change detected. Flushing caches.
+Oct 07 17:53:34 lima-ubuntu lima-guestagent[2183]: time="2026-10-07T17:53:34+08:00" level=info msg="SyncTime: system time synchronized with host (drift was 428.264837ms)"
+Oct 07 17:53:34 lima-ubuntu systemd-resolved[18368]: Clock change detected. Flushing caches.
+Oct 07 17:53:44 lima-ubuntu lima-guestagent[2183]: time="2026-10-07T17:53:44+08:00" level=info msg="SyncTime: system time synchronized with host (drift was 427.675973ms)"
+Oct 07 17:53:44 lima-ubuntu systemd-resolved[18368]: Clock change detected. Flushing caches.
+Oct 07 17:53:54 lima-ubuntu lima-guestagent[2183]: time="2026-10-07T17:53:54+08:00" level=info msg="SyncTime: system time synchronized with host (drift was 428.04029ms)"
+Oct 07 17:53:54 lima-ubuntu systemd-resolved[18368]: Clock change detected. Flushing caches.

@@ -1,0 +1,4 @@
+Synchronizing state of chrony.service with SysV service script with /usr/lib/systemd/systemd-sysv-install.
+Executing: /usr/lib/systemd/systemd-sysv-install disable chrony
+Removed '/etc/systemd/system/chronyd.service'.
+Removed '/etc/systemd/system/multi-user.target.wants/chrony.service'.

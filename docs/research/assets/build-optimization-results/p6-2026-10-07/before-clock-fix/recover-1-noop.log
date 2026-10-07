@@ -1,0 +1,38 @@
+$ cmake --build --preset dev --parallel 2
+[0/2] Re-checking globbed directories...
+[1/37] Linking CXX static library game/gateway/librealm_gateway_service.a
+[2/37] Linking CXX static library game/login_verify/librealm_login_verify_service.a
+[3/37] Linking CXX static library game/queue/librealm_queue_service.a
+[4/37] Linking CXX executable tests/cpp/game/gateway/gateway_runtime_test
+[5/37] Linking CXX executable bin/realm_mesh
+[6/37] Linking CXX executable tests/cpp/framework/service_host/config_headers_test
+[7/37] Linking CXX executable tests/cpp/framework/service_host/service_host_test
+[8/37] Linking CXX executable tests/cpp/framework/service_host/configs_load_smoke_test
+[9/37] Linking CXX executable tests/cpp/framework/service_host/load_topology_test
+[10/37] Linking CXX executable tests/cpp/game/common/new_chain_flow_test
+[11/37] Linking CXX executable tests/cpp/framework/client/wire_login_transport_integration_test
+[12/37] Linking CXX executable tests/cpp/game/gateway/edge_session_table_test
+[13/37] Linking CXX executable tests/cpp/game/gateway/gateway_server_test
+[14/37] Linking CXX executable tests/cpp/game/gateway/gateway_primary_transport_test
+[15/37] Linking CXX executable tests/cpp/game/gateway/account_fetch_port_test
+[16/37] Linking CXX executable tests/cpp/game/gateway/gateway_headers_test
+[17/37] Linking CXX executable tests/cpp/game/gateway/admission_consumption_store_test
+[18/37] Linking CXX executable tests/cpp/game/gateway/gateway_admission_test
+[19/37] Linking CXX executable tests/cpp/game/gateway/gateway_ingress_test
+[20/37] Linking CXX executable tests/cpp/game/gateway/gateway_login_config_test
+[21/37] Linking CXX executable tests/cpp/game/gateway/gateway_login_pipeline_test
+[22/37] Linking CXX executable tests/cpp/game/gateway/gateway_ingress_throttle_test
+[23/37] Linking CXX executable tests/cpp/game/login_verify/login_verify_handler_test
+[24/37] Linking CXX executable tests/cpp/game/login_verify/login_verify_dispatcher_test
+[25/37] Linking CXX executable tests/cpp/game/queue/queue_handler_test
+[26/37] Linking CXX executable tests/cpp/game/queue/queue_core_test
+[27/37] Linking CXX executable tests/cpp/game/queue/queue_store_test
+[28/37] Linking CXX executable tests/cpp/game/login_verify/login_verify_service_test
+[29/37] Linking CXX executable tests/cpp/game/queue/queue_store_etcd_integration_test
+[30/37] Linking CXX executable tests/cpp/game/queue/queue_ticketing_test
+[31/37] Linking CXX executable tests/cpp/game/queue/queue_process_restart_test
+[32/37] Linking CXX executable tests/cpp/game/realm/character_name_test
+[33/37] Linking CXX executable tests/cpp/game/realm/training_rule_test
+[34/37] Linking CXX executable tests/cpp/game/queue/queue_service_test
+[35/37] Linking CXX executable tests/cpp/game/realm/realm_sessions_test
+[36/37] Linking CXX executable tests/cpp/tools/loadgen/loadgen_integration_test

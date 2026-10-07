@@ -1,0 +1,11 @@
+{
+  "initial_revision": "51ad054bcb172f8e66995d9a450a1a03c6ea3085",
+  "measurement_tool_revision": "ee44ff80c78a0cc6e362e15f52c67e722ac6c849",
+  "source_restore_fix_user_seam": "同字节恢复保持mtime；异常和SIGTERM仍恢复原始源码",
+  "manual_tool_tests": 60,
+  "r0_correctness_patch_sha256": "4c149aa586ba7cf7601ba9ad146ce14671e02c387e3791e851b7ce5fe9601017",
+  "driver_sha256": "43faeaa72c8d966c3203428dda2680dec1ff3302d7e6eaccceab74c13db02e0d",
+  "checks_driver_sha256": "5ac2ba2a15a4cbc702f9f8c42c8187b36d3a4d7b180d66c85ac859a5719b0536",
+  "measure_sha256": "8c0f79c965b550599af2a705c0a582a1867d59d3395fc0be9875f0fd2c0cbcd5",
+  "pilot_note": "工具修复前试测与SIGTERM切换中断全部保留，不计正式样本。正式阶段重新从同一工具版本取完整配对。"
+}

@@ -1,0 +1,8 @@
+{
+  "collector_sha256": "7c8f95f9ce46fae1e8defbe6f0a03cd2e57544b96869f14c84da2c246d805f8f",
+  "note": "两个旧冻结 JSON 的最终导出使用此 collector；初期导出保留为 collect-initial.py。性能驱动和检查驱动均与初始 seed SHA 相符。",
+  "exports": {
+    "lima-samples.json": "c7fb662d76407cb4a70b25ec70396bc6d051883ab5a5692bf0c9b42468eda5e4",
+    "mac-samples.json": "6cb7519b4c2cd8c03f5b78a605d3b6d06880142a377c6dc5652cddb5c6ed8eb0"
+  }
+}

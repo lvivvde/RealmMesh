@@ -1,0 +1,1 @@
+etcd is required by the gateway admission store; run ./scripts/install-etcd.sh first (looked at /home/edwin.guest/code/.bench/p6-20261006/fix-validation/.tools/etcd-v3.6.14/etcd)

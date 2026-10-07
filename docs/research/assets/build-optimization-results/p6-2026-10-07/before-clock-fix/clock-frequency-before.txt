@@ -1,0 +1,1 @@
+frequency_before_ppm=16.497619629 status=64

@@ -1,0 +1,19 @@
+{
+  "samples": 434,
+  "elapsed_s": 45.02274818898877,
+  "backward_steps": [],
+  "wall_steps_over_50ms": [],
+  "frequency_readings": [
+    {
+      "monotonic_elapsed_s": 0.0005430000019259751,
+      "reading": "frequency_before_ppm=0.000000000 tick_before_us=10000 status=64"
+    },
+    {
+      "monotonic_elapsed_s": 45.021335397002986,
+      "reading": "frequency_before_ppm=0.000000000 tick_before_us=10000 status=64"
+    }
+  ],
+  "chrony_active": "inactive",
+  "chrony_enabled": "disabled",
+  "guestagent_active": "active"
+}
