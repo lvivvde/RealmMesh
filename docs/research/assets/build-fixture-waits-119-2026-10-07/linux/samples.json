@@ -1,0 +1,129 @@
+{
+  "platform": "Linux-7.0.0-34-generic-aarch64-with-glibc2.43",
+  "python": "3.14.4 (main, Aug 20 2026, 10:41:58) [GCC 15.2.0]",
+  "source": "/home/edwin.guest/code/.bench/issue119-fixture-20261007/source",
+  "scripts": {
+    "before": "0361a69702ffe56c40117397443f3e736e129c913b22f6894c4da131e796371a",
+    "after": "1c0cc65375fd98338ea5c653500c6272ea5305d56f3467a07e8cdbe7a21cda7e"
+  },
+  "versions": {
+    "ccache": "ccache version 4.12.3\nFeatures: file-storage http-storage redis+unix-storage redis-storage\n\nCopyright (C) 2002-2007 Andrew Tridgell\nCopyright (C) 2009-2026 Joel Rosdahl and other contributors\n\nSee <https://ccache.dev/credits.html> for a complete list of contributors.\n\nThis program is free software; you can redistribute it and/or modify it under\nthe terms of the GNU General Public License as published by the Free Software\nFoundation; either version 3 of the License, or (at your option) any later\nversion.",
+    "cmake": "cmake version 4.2.3\n\nCMake suite maintained and supported by Kitware (kitware.com/cmake).",
+    "ninja": "1.13.2",
+    "compiler": "cc (Ubuntu 15.2.0-16ubuntu1) 15.2.0\nCopyright (C) 2025 Free Software Foundation, Inc.\nThis is free software; see the source for copying conditions.  There is NO\nwarranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE."
+  },
+  "samples": [
+    {
+      "pair": 0,
+      "side": "before",
+      "warmup": true,
+      "wall_s": 13.706758048007032,
+      "exit": 0,
+      "log": "0-before.log"
+    },
+    {
+      "pair": 0,
+      "side": "after",
+      "warmup": true,
+      "wall_s": 10.86598213002435,
+      "exit": 0,
+      "log": "0-after.log"
+    },
+    {
+      "pair": 1,
+      "side": "after",
+      "warmup": false,
+      "wall_s": 10.867835464014206,
+      "exit": 0,
+      "log": "1-after.log"
+    },
+    {
+      "pair": 1,
+      "side": "before",
+      "warmup": false,
+      "wall_s": 13.756499215000076,
+      "exit": 0,
+      "log": "1-before.log"
+    },
+    {
+      "pair": 2,
+      "side": "before",
+      "warmup": false,
+      "wall_s": 13.742586298001697,
+      "exit": 0,
+      "log": "2-before.log"
+    },
+    {
+      "pair": 2,
+      "side": "after",
+      "warmup": false,
+      "wall_s": 10.855228504980914,
+      "exit": 0,
+      "log": "2-after.log"
+    },
+    {
+      "pair": 3,
+      "side": "after",
+      "warmup": false,
+      "wall_s": 10.858638922014507,
+      "exit": 0,
+      "log": "3-after.log"
+    },
+    {
+      "pair": 3,
+      "side": "before",
+      "warmup": false,
+      "wall_s": 13.68752538098488,
+      "exit": 0,
+      "log": "3-before.log"
+    },
+    {
+      "pair": 4,
+      "side": "before",
+      "warmup": false,
+      "wall_s": 13.748489880992565,
+      "exit": 0,
+      "log": "4-before.log"
+    },
+    {
+      "pair": 4,
+      "side": "after",
+      "warmup": false,
+      "wall_s": 10.846601172001101,
+      "exit": 0,
+      "log": "4-after.log"
+    },
+    {
+      "pair": 5,
+      "side": "after",
+      "warmup": false,
+      "wall_s": 10.860634047014173,
+      "exit": 0,
+      "log": "5-after.log"
+    },
+    {
+      "pair": 5,
+      "side": "before",
+      "warmup": false,
+      "wall_s": 13.670870797999669,
+      "exit": 0,
+      "log": "5-before.log"
+    }
+  ],
+  "summary": {
+    "before": {
+      "n": 5,
+      "median": 13.742586298001697,
+      "min": 13.670870797999669,
+      "max": 13.756499215000076
+    },
+    "after": {
+      "n": 5,
+      "median": 10.858638922014507,
+      "min": 10.846601172001101,
+      "max": 10.867835464014206
+    },
+    "seconds_saved": 2.8839473759871908,
+    "faster_pairs": 5
+  }
+}

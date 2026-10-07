@@ -1,0 +1,35 @@
+[
+  {
+    "name": "configure",
+    "exit": 0,
+    "wall_s": 1.4537687499832828,
+    "command": [
+      "cmake",
+      "--preset",
+      "dev",
+      "-DREALMMESH_CCACHE=OFF",
+      "-DFETCHCONTENT_SOURCE_DIR_ABSL=/home/edwin.guest/code/.bench/p5-20261006/deps-src/absl-src",
+      "-DFETCHCONTENT_SOURCE_DIR_CPP_HTTPLIB_SOURCE=/home/edwin.guest/code/.bench/p5-20261006/deps-src/cpp_httplib_source-src",
+      "-DFETCHCONTENT_SOURCE_DIR_GOOGLETEST=/home/edwin.guest/code/.bench/p5-20261006/deps-src/googletest-src",
+      "-DFETCHCONTENT_SOURCE_DIR_LUA_SOURCE=/home/edwin.guest/code/.bench/p5-20261006/deps-src/lua_source-src",
+      "-DFETCHCONTENT_SOURCE_DIR_LUAUNIT=/home/edwin.guest/code/.bench/p5-20261006/deps-src/luaunit-src",
+      "-DFETCHCONTENT_SOURCE_DIR_MONGO-C-DRIVER=/home/edwin.guest/code/.bench/p5-20261006/deps-src/mongo-c-driver-src",
+      "-DFETCHCONTENT_SOURCE_DIR_MONGO-CXX-DRIVER=/home/edwin.guest/code/.bench/p5-20261006/deps-src/mongo-cxx-driver-src",
+      "-DFETCHCONTENT_SOURCE_DIR_NLOHMANN_JSON_SOURCE=/home/edwin.guest/code/.bench/p5-20261006/deps-src/nlohmann_json_source-src",
+      "-DFETCHCONTENT_SOURCE_DIR_PROTOBUF=/home/edwin.guest/code/.bench/p5-20261006/deps-src/protobuf-src",
+      "-DFETCHCONTENT_SOURCE_DIR_REALMMESH_PROTOC=/home/edwin.guest/code/.bench/p5-20261006/deps-src/realmmesh_protoc-src",
+      "-DFETCHCONTENT_SOURCE_DIR_SOL2_SOURCE=/home/edwin.guest/code/.bench/p5-20261006/deps-src/sol2_source-src",
+      "-DFETCHCONTENT_SOURCE_DIR_SPDLOG=/home/edwin.guest/code/.bench/p5-20261006/deps-src/spdlog-src"
+    ]
+  },
+  {
+    "name": "full",
+    "exit": 0,
+    "wall_s": 482.25320560499677,
+    "command": [
+      "./scripts/build.sh",
+      "--jobs",
+      "2"
+    ]
+  }
+]

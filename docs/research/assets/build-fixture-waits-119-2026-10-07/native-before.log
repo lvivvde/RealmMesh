@@ -1,0 +1,36 @@
+test_cold_hot_and_off_run_same_program (__main__.NativeCacheContract.test_cold_hot_and_off_run_same_program) ... ok
+test_compiler_content_and_generated_header_invalidate (__main__.NativeCacheContract.test_compiler_content_and_generated_header_invalidate) ... ok
+test_corruption_eviction_and_compile_error (__main__.NativeCacheContract.test_corruption_eviction_and_compile_error) ... ok
+test_measurement_stats_use_configured_directory_and_tool (__main__.NativeCacheContract.test_measurement_stats_use_configured_directory_and_tool) ... FAIL
+test_source_headers_defines_and_flags_invalidate (__main__.NativeCacheContract.test_source_headers_defines_and_flags_invalidate) ... ok
+test_unsafe_environment_does_not_relax_launcher (__main__.NativeCacheContract.test_unsafe_environment_does_not_relax_launcher) ... ok
+
+======================================================================
+FAIL: test_measurement_stats_use_configured_directory_and_tool (__main__.NativeCacheContract.test_measurement_stats_use_configured_directory_and_tool)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "tests/scripts/ccache_test.py", line 349, in test_measurement_stats_use_configured_directory_and_tool
+    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 1 != 0 : START cold-build-1
+DONE {"name": "cold-build-1", "wall_s": 0.6498006659676321, "exit": 0, "compile_count": 0, "link_count": 0}
+Traceback (most recent call last):
+  File "/Users/edwin/Projects/RealmMesh/tools/build-bench/measure.py", line 1065, in <module>
+    main()
+    ~~~~^^
+  File "/Users/edwin/Projects/RealmMesh/tools/build-bench/measure.py", line 1061, in main
+    args.func(args)
+    ~~~~~~~~~^^^^^^
+  File "/Users/edwin/Projects/RealmMesh/tools/build-bench/measure.py", line 986, in cmd_run
+    history.append(bench.environment(scenarios))
+                   ~~~~~~~~~~~~~~~~~^^^^^^^^^^^
+  File "/Users/edwin/Projects/RealmMesh/tools/build-bench/measure.py", line 941, in environment
+    memory_total = int(subprocess.run(['sysctl', '-n', 'hw.memsize'], capture_output=True, text=True).stdout) / 1073741824
+                   ~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ValueError: invalid literal for int() with base 10: ''
+
+
+----------------------------------------------------------------------
+Ran 6 tests in 22.709s
+
+FAILED (failures=1)

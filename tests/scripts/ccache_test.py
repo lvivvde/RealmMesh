@@ -6,6 +6,7 @@ import shutil
 import re
 import subprocess
 import tempfile
+import time
 import unittest
 
 parser = argparse.ArgumentParser()
@@ -217,9 +218,17 @@ class NativeCacheContract(CacheFixture):
 
     def enable(self, *args):
         self.configure('-DREALMMESH_CCACHE=ON', f'-DREALMMESH_CCACHE_EXECUTABLE={self.tool}', *args)
-        # Header timestamp safety is intentional; do not relax sloppiness.
-        import time
-        time.sleep(1.05)
+        # Keep the original safety margin for both mtime and ctime, measured
+        # from the actual compiler inputs. Configuration already ages them;
+        # reconfiguring unchanged inputs need not restart a full-second wait.
+        inputs = [self.src / name for name in ('main.cpp', 'value.c', 'value.h')]
+        generated = self.build / 'generated.h'
+        if generated.exists():
+            inputs.append(generated)
+        newest = max(max(info.st_mtime, info.st_ctime) for info in
+                     (path.stat() for path in inputs))
+        while (remaining := newest + 1.05 - time.time()) > 0:
+            time.sleep(remaining)
 
     def test_cold_hot_and_off_run_same_program(self):
         self.enable()
@@ -231,6 +240,8 @@ class NativeCacheContract(CacheFixture):
         after = self.stats()
         self.assertGreater(after['direct_cache_hit'] + after['preprocessed_cache_hit'],
                            before['direct_cache_hit'] + before['preprocessed_cache_hit'])
+        self.assertEqual(after['direct_cache_hit'] - before['direct_cache_hit'], 2)
+        self.assertEqual(after['cache_miss'], before['cache_miss'])
         self.configure('-DREALMMESH_CCACHE=OFF')
         self.clean()
         self.build_probe('12')
@@ -304,13 +315,20 @@ class NativeCacheContract(CacheFixture):
         (self.src / 'value.c').write_text('#include "generated.h"\nint value(void) { return GENERATED_VALUE; }\n')
         self.enable()
         self.build_probe('3')
+        before = self.stats()
+        self.clean()
+        self.build_probe('3')
+        self.assertEqual(self.stats()['direct_cache_hit'] - before['direct_cache_hit'], 2)
         (self.src / 'input.h.in').write_text('#define GENERATED_VALUE 9\n')
         self.enable()
         self.build_probe('9')
+        self.assertGreater(self.stats()['cache_miss'], before['cache_miss'])
         (self.build / 'generated.h').unlink()
         self.enable()
+        before = self.stats()
         self.clean()
         self.build_probe('9')
+        self.assertEqual(self.stats()['direct_cache_hit'] - before['direct_cache_hit'], 2)
 
     def test_measurement_stats_use_configured_directory_and_tool(self):
         # Exercise the public measurement CLI with an unrelated personal cache

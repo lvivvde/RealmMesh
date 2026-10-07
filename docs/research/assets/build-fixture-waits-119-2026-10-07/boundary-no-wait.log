@@ -1,0 +1,15 @@
+runTest (__main__.TimestampBoundary.runTest) ... FAIL
+
+======================================================================
+FAIL: runTest (__main__.TimestampBoundary.runTest)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/tmp/realmmesh-119-fixture-assessment/timestamp-boundary.py", line 29, in runTest
+    self.assertEqual(after['direct_cache_hit'] - before['direct_cache_hit'], 2)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 1 != 2
+
+----------------------------------------------------------------------
+Ran 1 test in 1.278s
+
+FAILED (failures=1)
