@@ -8,6 +8,7 @@ C++20 distributed game server framework (CMake, Lua config, protobuf wire). Proj
 - **Login chain** (verify → queue → gateway pipeline → direct Realm connect): design in `docs/specs/`, implemented structure in `docs/architecture.md`, wire format in `docs/protocol.md`.
 - **Services**: `game/login_verify` and `game/queue` are HTTPS/JSON services; `gateway` and `realm` both run on `game::gateway::GatewayRuntime` from `game/gateway/`; Realm business logic (Realm Session phases, characters, Lua training rule) lives in `game/realm`. Shared code lives in `game/common`. `apps/mesh_host` builds the single `realm_mesh` binary (`--service <name>` runs one service). The retired `login` wire name stays unused.
 - **Lean tree** (ADR-0003): a directory appears in the same change as the code that fills it.
+- **构建性能**：新增或修改 C++ 代码、CMake/构建脚本、生成文件规则或测试夹具前，先读[构建性能约束与检查清单](docs/agents/build-performance.md)。
 
 ## Platforms
 
