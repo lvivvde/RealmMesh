@@ -1,0 +1,16 @@
+--- a/ccache-paired-before.py
++++ b/ccache-paired-before.py
+@@ -221,11 +221,2 @@
+-        # Keep the original safety margin for both mtime and ctime, measured
+-        # from the actual compiler inputs. Configuration already ages them;
+-        # reconfiguring unchanged inputs need not restart a full-second wait.
+-        inputs = [self.src / name for name in ('main.cpp', 'value.c', 'value.h')]
+-        generated = self.build / 'generated.h'
+-        if generated.exists():
+-            inputs.append(generated)
+-        newest = max(max(info.st_mtime, info.st_ctime) for info in
+-                     (path.stat() for path in inputs))
+-        while (remaining := newest + 1.05 - time.time()) > 0:
+-            time.sleep(remaining)
++        # Original fixed wait; all assertions match the after suite.
++        time.sleep(1.05)

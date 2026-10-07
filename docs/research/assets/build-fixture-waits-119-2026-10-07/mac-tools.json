@@ -1,0 +1,7 @@
+{
+  "platform": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+  "watch_tools": {
+    "fswatch": null,
+    "inotifywait": null
+  }
+}

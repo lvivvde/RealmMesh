@@ -72,3 +72,9 @@
 `CompilerCacheConfigTest` 使用 Python 3 与真实 Ninja，覆盖配置、关闭和 CI 兼容键；不要求本机安装 ccache。有效 ccache ≥4.8 可用时另注册 `CompilerCacheNativeTest`，即使主构建 OFF 也运行同一套原生缓存对照；显式工具路径会传入夹具。无有效工具时配置日志明确说明未注册，不能称为缓存行为验收通过。Native 测试验证源码/头/宏/flags/编译器内容/生成头、损坏回退、淘汰后重编、错误传播与实际测量统计目录；使用隔离目录和真实可执行结果。
 
 CI 的可选手动参数 `ccache_acceptance=true` 在同一 runner 上完成三组 OFF/远端热 ON 空完整产物配对；首次填充、OFF 与热 ON 分别跑同一完整串行 CTest，Linux 保留 QUIC 与 M1–M4。性能计时含检查/恢复/保存，正确性测试计时另列；原始证据、失败与维护快照清理流程见 [build-bench](../tools/build-bench/README.md)。普通 PR 不发布共享缓存。判定 CLI 的自测为 `CompilerCacheCISummaryTest`，单独运行 `python3 tests/scripts/ci_cache_summary_test.py`，不能代替 C++ 全集或真实 CI 配对。
+
+Native 夹具按实际编译输入（两个源码、普通头与存在时的生成头）的最新 mtime/ctime
+计算剩余安全等待，保持原有 1.05 秒余量；配置已经消耗的时间计入文件年龄，未改输入的
+重新配置不重复完整等待。夹具不改文件时间、不放宽 sloppiness，每例仍独立配置目录与
+缓存；冷/热及生成头重建另外断言两个编译请求的 direct hit。[#119 后续评估](../docs/research/build-fixture-waits-119.md)
+记录局部收益与完整入口门槛的区别。

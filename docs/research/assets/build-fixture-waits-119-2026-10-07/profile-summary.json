@@ -1,0 +1,17 @@
+{
+  "native-before": {
+    "total_s": 22.736674833999913,
+    "sleep_calls": 11,
+    "sleep_s": 11.586072083000001
+  },
+  "native-unsandboxed": {
+    "total_s": 21.384562581999973,
+    "sleep_calls": 11,
+    "sleep_s": 11.599167875000001
+  },
+  "native-after": {
+    "total_s": 16.522547875999983,
+    "sleep_calls": 9,
+    "sleep_s": 7.403971501000001
+  }
+}

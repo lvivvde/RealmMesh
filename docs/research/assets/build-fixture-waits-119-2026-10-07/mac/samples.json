@@ -1,0 +1,129 @@
+{
+  "platform": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+  "python": "3.13.15 (main, Aug  5 2026, 12:25:43) [Clang 21.0.0 (clang-2100.1.1.101)]",
+  "source": "/Users/edwin/Projects/RealmMesh",
+  "scripts": {
+    "before": "0361a69702ffe56c40117397443f3e736e129c913b22f6894c4da131e796371a",
+    "after": "1c0cc65375fd98338ea5c653500c6272ea5305d56f3467a07e8cdbe7a21cda7e"
+  },
+  "versions": {
+    "ccache": "ccache version 4.14.1\nFeatures: crsh-storage file-storage http-storage redis+unix-storage redis-storage remote-storage\n\nCopyright (C) 2002-2007 Andrew Tridgell\nCopyright (C) 2009-2026 Joel Rosdahl and other contributors\n\nSee <https://ccache.dev/credits.html> for a complete list of contributors.\n\nThis program is free software; you can redistribute it and/or modify it under\nthe terms of the GNU General Public License as published by the Free Software\nFoundation; either version 3 of the License, or (at your option) any later\nversion.",
+    "cmake": "cmake version 4.4.3\n\nCMake suite maintained and supported by Kitware (kitware.com/cmake).",
+    "ninja": "1.13.2",
+    "compiler": "Apple clang version 21.0.0 (clang-2100.3.34.2)\nTarget: arm64-apple-darwin27.0.0\nThread model: posix\nInstalledDir: /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin"
+  },
+  "samples": [
+    {
+      "pair": 0,
+      "side": "before",
+      "warmup": true,
+      "wall_s": 23.119285083026625,
+      "exit": 0,
+      "log": "0-before.log"
+    },
+    {
+      "pair": 0,
+      "side": "after",
+      "warmup": true,
+      "wall_s": 16.685488792019896,
+      "exit": 0,
+      "log": "0-after.log"
+    },
+    {
+      "pair": 1,
+      "side": "after",
+      "warmup": false,
+      "wall_s": 17.104431958985515,
+      "exit": 0,
+      "log": "1-after.log"
+    },
+    {
+      "pair": 1,
+      "side": "before",
+      "warmup": false,
+      "wall_s": 20.782348291017115,
+      "exit": 0,
+      "log": "1-before.log"
+    },
+    {
+      "pair": 2,
+      "side": "before",
+      "warmup": false,
+      "wall_s": 21.218544790986925,
+      "exit": 0,
+      "log": "2-before.log"
+    },
+    {
+      "pair": 2,
+      "side": "after",
+      "warmup": false,
+      "wall_s": 16.62007587502012,
+      "exit": 0,
+      "log": "2-after.log"
+    },
+    {
+      "pair": 3,
+      "side": "after",
+      "warmup": false,
+      "wall_s": 17.029510458000004,
+      "exit": 0,
+      "log": "3-after.log"
+    },
+    {
+      "pair": 3,
+      "side": "before",
+      "warmup": false,
+      "wall_s": 21.677923375042155,
+      "exit": 0,
+      "log": "3-before.log"
+    },
+    {
+      "pair": 4,
+      "side": "before",
+      "warmup": false,
+      "wall_s": 20.67919554200489,
+      "exit": 0,
+      "log": "4-before.log"
+    },
+    {
+      "pair": 4,
+      "side": "after",
+      "warmup": false,
+      "wall_s": 16.746055750001688,
+      "exit": 0,
+      "log": "4-after.log"
+    },
+    {
+      "pair": 5,
+      "side": "after",
+      "warmup": false,
+      "wall_s": 17.141533499991056,
+      "exit": 0,
+      "log": "5-after.log"
+    },
+    {
+      "pair": 5,
+      "side": "before",
+      "warmup": false,
+      "wall_s": 21.181462374981493,
+      "exit": 0,
+      "log": "5-before.log"
+    }
+  ],
+  "summary": {
+    "before": {
+      "n": 5,
+      "median": 21.181462374981493,
+      "min": 20.67919554200489,
+      "max": 21.677923375042155
+    },
+    "after": {
+      "n": 5,
+      "median": 17.029510458000004,
+      "min": 16.62007587502012,
+      "max": 17.141533499991056
+    },
+    "seconds_saved": 4.1519519169814885,
+    "faster_pairs": 5
+  }
+}

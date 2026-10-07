@@ -1,0 +1,11 @@
+test_cold_hot_and_off_run_same_program (__main__.NativeCacheContract.test_cold_hot_and_off_run_same_program) ... ok
+test_compiler_content_and_generated_header_invalidate (__main__.NativeCacheContract.test_compiler_content_and_generated_header_invalidate) ... ok
+test_corruption_eviction_and_compile_error (__main__.NativeCacheContract.test_corruption_eviction_and_compile_error) ... ok
+test_measurement_stats_use_configured_directory_and_tool (__main__.NativeCacheContract.test_measurement_stats_use_configured_directory_and_tool) ... ok
+test_source_headers_defines_and_flags_invalidate (__main__.NativeCacheContract.test_source_headers_defines_and_flags_invalidate) ... ok
+test_unsafe_environment_does_not_relax_launcher (__main__.NativeCacheContract.test_unsafe_environment_does_not_relax_launcher) ... ok
+
+----------------------------------------------------------------------
+Ran 6 tests in 10.802s
+
+OK

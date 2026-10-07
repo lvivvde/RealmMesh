@@ -1,0 +1,23 @@
+{
+  "mac": {
+    "tests_total": 667,
+    "tests_failed": 0,
+    "failed_tests": [],
+    "ctest_real_s": 399.31,
+    "quic_enabled": true,
+    "cache_mode": "AUTO",
+    "jobs": 8,
+    "performance_acceptance": false
+  },
+  "linux": {
+    "tests_total": 667,
+    "tests_failed": 0,
+    "failed_tests": [],
+    "ctest_real_s": 316.02,
+    "quic_enabled": true,
+    "cache_mode": "OFF",
+    "jobs": 2,
+    "performance_acceptance": false,
+    "full_entry_wall_s": 482.25320560499677
+  }
+}
