@@ -1,0 +1,11 @@
+{
+  "command": [
+    "./scripts/build.sh",
+    "--jobs",
+    "2"
+  ],
+  "root": "/home/edwin.guest/code/.bench/issue119-fixture-20261007/source",
+  "wall_s": 314.5185942330281,
+  "exit": 130,
+  "source_matches_main_416_files": true
+}

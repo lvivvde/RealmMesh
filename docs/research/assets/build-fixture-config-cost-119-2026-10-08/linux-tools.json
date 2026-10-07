@@ -1,0 +1,11 @@
+{
+  "platform": "Linux-7.0.0-34-generic-aarch64-with-glibc2.43",
+  "tools": {
+    "cmake": "cmake version 4.2.3\n\nCMake suite maintained and supported by Kitware (kitware.com/cmake).",
+    "ctest": "ctest version 4.2.3\n\nCMake suite maintained and supported by Kitware (kitware.com/cmake).",
+    "ccache": "ccache version 4.12.3\nFeatures: file-storage http-storage redis+unix-storage redis-storage\n\nCopyright (C) 2002-2007 Andrew Tridgell\nCopyright (C) 2009-2026 Joel Rosdahl and other contributors\n\nSee <https://ccache.dev/credits.html> for a complete list of contributors.\n\nThis program is free software; you can redistribute it and/or modify it under\nthe terms of the GNU General Public License as published by the Free Software\nFoundation; either version 3 of the License, or (at your option) any later\nversion.",
+    "ninja": "1.13.2",
+    "compiler": "cc (Ubuntu 15.2.0-16ubuntu1) 15.2.0\nCopyright (C) 2025 Free Software Foundation, Inc.\nThis is free software; see the source for copying conditions.  There is NO\nwarranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.",
+    "python": "Python 3.14.4"
+  }
+}

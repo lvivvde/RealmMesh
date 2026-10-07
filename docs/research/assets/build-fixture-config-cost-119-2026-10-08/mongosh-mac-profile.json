@@ -1,0 +1,53 @@
+[
+  {
+    "sample": 0,
+    "wall_s": 3.09122316603316,
+    "exit": 0,
+    "events": [
+      {
+        "kind": "initiate",
+        "wall_s": 0.5288367080502212,
+        "exit": 0
+      },
+      {
+        "kind": "primary",
+        "wall_s": 0.3170226670335978,
+        "exit": 0
+      }
+    ]
+  },
+  {
+    "sample": 1,
+    "wall_s": 3.38791254197713,
+    "exit": 0,
+    "events": [
+      {
+        "kind": "initiate",
+        "wall_s": 0.5179339579772204,
+        "exit": 0
+      },
+      {
+        "kind": "primary",
+        "wall_s": 0.32131629198556766,
+        "exit": 0
+      }
+    ]
+  },
+  {
+    "sample": 2,
+    "wall_s": 2.355503458995372,
+    "exit": 0,
+    "events": [
+      {
+        "kind": "initiate",
+        "wall_s": 0.5169134169700556,
+        "exit": 0
+      },
+      {
+        "kind": "primary",
+        "wall_s": 0.3057899579871446,
+        "exit": 0
+      }
+    ]
+  }
+]

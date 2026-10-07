@@ -1,0 +1,11 @@
+{
+  "command": [
+    "./scripts/build.sh",
+    "--jobs",
+    "2"
+  ],
+  "root": "/home/edwin.guest/code/.bench/issue119-fixture-20261007/source",
+  "tmpdir": "/home/edwin.guest/code/119-config-cost-20261008/tmp-disk",
+  "wall_s": 310.5539367310121,
+  "exit": 0
+}
