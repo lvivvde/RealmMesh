@@ -1,0 +1,3 @@
+START stable-1
+DONE {"name": "stable-1", "wall_s": 11.86770139701548, "exit": 0, "compile_count": 0, "link_count": 55}
+non-stable input: stable-1

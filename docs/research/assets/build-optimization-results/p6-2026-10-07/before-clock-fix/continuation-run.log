@@ -1,0 +1,44 @@
+START stable-2
+DONE {"name": "stable-2", "wall_s": 0.6032735329936258, "exit": 0, "compile_count": 0, "link_count": 0}
+START stable-3
+DONE {"name": "stable-3", "wall_s": 0.556502797990106, "exit": 0, "compile_count": 0, "link_count": 0}
+START recover-2
+DONE {"name": "recover-2", "wall_s": 11.376630789978663, "exit": 0, "compile_count": 8, "link_count": 68}
+START recover-2-noop
+DONE {"name": "recover-2-noop", "wall_s": 0.040436078008497134, "exit": 0, "compile_count": 0, "link_count": 0}
+START recover-3
+DONE {"name": "recover-3", "wall_s": 11.595700514997588, "exit": 0, "compile_count": 8, "link_count": 68}
+START recover-3-noop
+DONE {"name": "recover-3-noop", "wall_s": 0.04125876500620507, "exit": 0, "compile_count": 0, "link_count": 0}
+START recover-4
+DONE {"name": "recover-4", "wall_s": 10.42864022401045, "exit": 0, "compile_count": 44, "link_count": 55}
+START recover-4-noop
+DONE {"name": "recover-4-noop", "wall_s": 0.04127544999937527, "exit": 0, "compile_count": 0, "link_count": 0}
+START recover-5
+DONE {"name": "recover-5", "wall_s": 11.030126779020065, "exit": 0, "compile_count": 44, "link_count": 55}
+START recover-5-noop
+DONE {"name": "recover-5-noop", "wall_s": 0.04141140598221682, "exit": 0, "compile_count": 0, "link_count": 0}
+START recover-6
+DONE {"name": "recover-6", "wall_s": 10.19885479399818, "exit": 0, "compile_count": 0, "link_count": 55}
+START recover-6-noop
+DONE {"name": "recover-6-noop", "wall_s": 0.04210352501831949, "exit": 0, "compile_count": 0, "link_count": 0}
+START recover-7
+DONE {"name": "recover-7", "wall_s": 8.375892661017133, "exit": 0, "compile_count": 1, "link_count": 35}
+START recover-7-noop
+DONE {"name": "recover-7-noop", "wall_s": 0.04142400700948201, "exit": 0, "compile_count": 0, "link_count": 0}
+START missingdeps
+DONE {"name": "missingdeps", "wall_s": 0.021523698000237346, "exit": 0, "compile_count": 0, "link_count": 0}
+START syntax
+DONE {"name": "syntax", "wall_s": 6.441403339005774, "exit": 0, "compile_count": 0, "link_count": 0}
+START final-full
+Traceback (most recent call last):
+  File "/home/edwin.guest/code/.bench/p6-fixed-20261007/continue-after-clock-failure.py", line 39, in <module>
+    checks.syntax();checks.full();checks.fallback()
+                    ~~~~~~~~~~~^^
+  File "/home/edwin.guest/code/.bench/p6-fixed-20261007/checks.py", line 69, in full
+    row=b.run('final-full',[('full',['scripts/build.sh','--preset','dev','--jobs',str(run.JOBS)])]);require(row)
+  File "/home/edwin.guest/code/.bench/p6-fixed-20261007/tool/measure.py", line 651, in run
+    for line in proc.stdout:
+                ^^^^^^^^^^^
+  File "<frozen codecs>", line 322, in decode
+KeyboardInterrupt

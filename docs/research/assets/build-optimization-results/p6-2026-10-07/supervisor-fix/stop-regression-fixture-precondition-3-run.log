@@ -1,0 +1,2 @@
+/home/edwin.guest/code/.bench/p6-20261006/test-stop-regression.sh: line 261: /home/edwin.guest/code/.bench/p6-20261006/fix-validation/scripts/mongodb-init-replset.sh: No such file or directory
+mongod did not become the rs0 primary; see /home/edwin.guest/code/.bench/p6-20261006/tmp/tmp.UtWEY1xAtu/mongod.log

@@ -36,6 +36,7 @@
 - 都接受 `--preset NAME`(默认 `dev`)与 `--jobs N`。编译 jobs 缺省取非空的 `CMAKE_BUILD_PARALLEL_LEVEL`,再缺省取 CPU/内存预算(开发 Mac 8 路、Lima 2 路),每次打印 `build jobs: …`。
 - 测试并行与编译并行分开。`test-fast.sh` 默认 `--test-jobs 4`,可退回 1;`build.sh` 与 CI 显式 `-j 1`,不继承 `CTEST_PARALLEL_LEVEL`。
 - `test-fast.sh` 不是完整验证。阶段完成，或改了公共头、跨模块、网络、协议、存储行为时，跑 `./scripts/build.sh`。
+- P6 重新冻结后的 R0/最终完整合集为 649/667 项，Unit 为 496/504 项，旧项无删除；扩展合集的计时不代表严格同合集验收。双平台配对、恢复检查与完整回退证据见[阶段报告](../docs/research/build-optimization-results.md#p6双平台最终复测与有界后续决策129)。
 - `test-fast.sh` 的退出码:0 通过(有跳过时另行说明，跳过的用例不算验证);1 配置、构建失败或缺二进制，此时不运行旧二进制;2 用例失败或范围内无用例;64 用法错误或非 Unit 目标。
 - CTest 的 `-L` 是子串匹配的正则，手工筛选要加锚点:不加锚点时，`-L unit` 会命中名字里含 unit 的身份标签，`-L target=foo` 会命中 `target=foo_bar`。
 
@@ -46,10 +47,11 @@
 - **Python 3**:编译缓存配置/原生契约与 CI 兼容键使用标准库脚本；构建入口不自动安装。macOS 的 Xcode 工具链、Linux 开发环境及 CI 都应提供 `python3`。
 - **Ninja 1.11+**:构建图用例(`BuildGraphTest`、`BuildDirScriptTest.*`、`TestFastScriptTest.*`)会在临时目录里用 `dev` 预设配置小工程，验证 Ninja 门槛、原生链接池(含测试可执行文件出池)与 libsodium 安装产物(#123),因此即使主构建用 `--preset dev-make` 回退，全量 ctest 仍需要 PATH 上有真实的 `ninja`。macOS `brew install ninja`,Ubuntu `sudo apt-get install ninja-build`;缺失即用例失败，不跳过。
 - 快速子集(`test-fast.sh`、`ctest -L '^unit$'`)不拉起任何进程,无此前置条件。
-- `DevServicesScriptTest.StopIsReverseOrdered`、`StopDuringProcessChecks` 与
-  `StopDuringStartup` 分别验证正常逆序停止、连续 TERM 压力与就绪等待中的停止；
+- `DevServicesScriptTest.StopIsReverseOrdered`、`StopDuringProcessChecks`、
+  `StopAfterInterruptedWorkerWait` 与 `StopDuringStartup` 分别验证正常逆序停止、
+  连续 TERM 压力、wait 再次中断后的真实回收与就绪等待中的停止；
   同时检查 Supervisor 日志没有 trap 解析错误，管理、工作及服务进程退出，PID 与状态文件清理。
-  定向压测使用 `ctest --preset dev -j 1 --repeat until-fail:20 -R '^DevServicesScriptTest\.(StopIsReverseOrdered|StopDuringProcessChecks|StopDuringStartup)$'`。
+  定向压测使用 `ctest --preset dev -j 1 --repeat until-fail:20 -R '^DevServicesScriptTest\.(StopIsReverseOrdered|StopDuringProcessChecks|StopAfterInterruptedWorkerWait|StopDuringStartup)$'`。
 - Linux 依赖安装脚本同时支持 x86_64 与 ARM64（aarch64），下载本机架构的固定版本
   并校验 SHA-256；无需模拟运行 x86_64 二进制。MsQuic 与 MongoDB 使用 Ubuntu 24.04
   上游构建，其他发行版版本需本机验证；CI 的 Linux 门槛仍为 Ubuntu 24.04 x86_64。

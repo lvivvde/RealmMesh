@@ -1,0 +1,31 @@
+{
+  "evidence_integrity_checks": "passed",
+  "raw_files_checked": 15363,
+  "stage_counts": {
+    "r0": 42,
+    "final": 42,
+    "cache": 7,
+    "checks": 19
+  },
+  "formal_run_complete": false,
+  "stability_gate_passed": false,
+  "current_correctness_gate_passed": false,
+  "excluded_from_final_pairs": true,
+  "reason": "User requested VM time synchronization correction and every Linux group rerun; original partial group and failures preserved",
+  "stability_failures": [
+    {
+      "group": "checks",
+      "sample": "stable-1",
+      "compile_count": 0,
+      "link_count": 55,
+      "generated_version_headers_changed": []
+    },
+    {
+      "group": "checks",
+      "sample": "recover-1-noop",
+      "compile_count": 0,
+      "link_count": 33,
+      "generated_version_headers_changed": []
+    }
+  ]
+}

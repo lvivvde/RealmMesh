@@ -75,7 +75,8 @@ flowchart LR
 | 共享临时开发库：TLS/认证、SSH 隧道与仓库外私有配置 | 已实现，见[连接说明](docs/operations/shared-mongodb.md) |
 | Linux ARM64 开发环境：依赖安装、QUIC 与原生构建 | 已验证构建及四进程登录链；首次集成测试 142/143 通过，fd 断言有一次偶发失败，见[验证记录](docs/operations/linux-arm64-development.md) |
 | 构建优化 P5：原生 ccache AUTO/ON/OFF 与 CI 可信缓存（#124） | 已接入；配对结果、完整验证与待验收项见[阶段报告](docs/research/build-optimization-results.md) |
-| 开发 Supervisor 停止信号解析竞态（#143） | 已修复；Bash 5.2 复现、逆序停止与进程回收验证见[诊断记录](docs/research/dev-services-signal-stop.md) |
+| 构建优化 P6：双平台最终复测与有界后续（#129） | 已复测；首批未验收通过，热完整入口超过回退上限，Linux VM 时钟异常已定位并按完整组重跑；测试合集变化与后续范围见[阶段报告](docs/research/build-optimization-results.md#p6双平台最终复测与有界后续决策129) |
+| 开发 Supervisor 停止信号与进程回收（#143/#129） | 已修复解析竞态及 wait 再次中断后的提前清理；逆序停止与真实进程回收证据见[诊断记录](docs/research/dev-services-signal-stop.md) |
 
 旧 `Login → Realm 选角 → Gateway 入场` 链路已整体退役：`login` 服务身份、7000 端口与
 旧入场消息编号都已删除，线名 `login` 永不复用（见[架构文档](docs/architecture.md)）。

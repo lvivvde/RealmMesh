@@ -1,0 +1,2 @@
+frequency_before_ppm=15.542495728 status=0
+frequency_after_ppm=0.000000000 status=0

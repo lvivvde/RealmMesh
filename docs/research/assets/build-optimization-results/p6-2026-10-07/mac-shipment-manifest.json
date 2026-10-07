@@ -1,0 +1,94 @@
+{
+  "mac-samples.json": {
+    "sha256": "03a7aa7682f6215b7304970c7d3164fb86b47a75ffca26b86ad17f6d59b6da40",
+    "bytes": 7080474
+  },
+  "mac-r0-hot-full-1.log": {
+    "sha256": "f5bfef6f99af68ebfbeaf2ac8899c904cb4aa53ec48c06a2ea01a30819110f7e",
+    "bytes": 155056
+  },
+  "mac-r0-cold-complete-1.log": {
+    "sha256": "d0fe3a36a07b17f55208f3d14eacbc497b47fcfa3b96b58c2e63a6c13e784570",
+    "bytes": 332008
+  },
+  "mac-r0-hot-full-2.log": {
+    "sha256": "e397209c97ff67648ac09739402830672a1e524185a4e888996fce0bd9643d1e",
+    "bytes": 155056
+  },
+  "mac-r0-cold-complete-2.log": {
+    "sha256": "fca762584e9f5ac54224268c64ad00248d7533d3fa880305449dfa0c945d7ecc",
+    "bytes": 332008
+  },
+  "mac-r0-hot-full-3.log": {
+    "sha256": "70a6c6396ed849b8878ec65130b66da7fbae880736fc6de18cddd91285b789ac",
+    "bytes": 155056
+  },
+  "mac-r0-cold-complete-3.log": {
+    "sha256": "9473f57ff1ff8df140fc31f1c7cfc094a80e4146f423b31afbe4ccffa43041f3",
+    "bytes": 332008
+  },
+  "mac-final-hot-full-1.log": {
+    "sha256": "076bafe3bfdb7b44cb56af0d0867686af5d68695db0eb9fbae3f78ab6b61848e",
+    "bytes": 157011
+  },
+  "mac-final-cold-complete-1.log": {
+    "sha256": "d98e13ebc9b90de6ce1d657ded5d01530b40ebd96c60e8ed975f84e12947df1b",
+    "bytes": 344520
+  },
+  "mac-final-hot-full-2.log": {
+    "sha256": "41932d3cd4e0d08965f84d37b1fcb6ca5ba2aa6b765d31e2801147bdaac32533",
+    "bytes": 157011
+  },
+  "mac-final-cold-complete-2.log": {
+    "sha256": "eee93dbac93e7d9e4399fef0b0b421ac1d4f161d0e8fd02041957cc4579f5838",
+    "bytes": 344520
+  },
+  "mac-final-hot-full-3.log": {
+    "sha256": "d6f06b492345ee293dbf5662f6a0089485b2ea9f7148d782bebf3f783284d2ac",
+    "bytes": 157011
+  },
+  "mac-final-cold-complete-3.log": {
+    "sha256": "b3d5fb39c0d9a4132c9ff5bc2b85c968c90072a2a0e844bdc24f74f301807e5e",
+    "bytes": 344520
+  },
+  "mac-final-full.log": {
+    "sha256": "d2c1f27be0d5f698ad6d4e8506d58df0c8495c96aaeaebd1a437ac1d7295bcc7",
+    "bytes": 155611
+  },
+  "mac-fallback-full.log": {
+    "sha256": "139f0df62f5197dee7966c24652146842fa01a72d0be372a7eae7ada13e04eb5",
+    "bytes": 347366
+  },
+  "mac-missingdeps.log": {
+    "sha256": "5cf2fa4cba8b8db46ba6a424784f46bcad5e17b5b2e8ecab2cb628829ff9cd36",
+    "bytes": 152
+  },
+  "macos-login-chain.log": {
+    "sha256": "d7a8b595a6aa923643b346f310a5360e1cad9b116fef965cf3ab3b8da1662927",
+    "bytes": 79485
+  },
+  "macos-login-chain.md": {
+    "sha256": "b731468911953d6027a4021e4b9ebcb51baebad04e687fe496d143123165172b",
+    "bytes": 6407
+  },
+  "mac-audit-run.log": {
+    "sha256": "4b1f3281baf34c4e841956e7e0c92d8604e5ea2a5ca5fb9c20cee22c693cc7ad",
+    "bytes": 165
+  },
+  "mac-acceptance-git-status.txt": {
+    "sha256": "2ac7f9bc904c4d006d5bb2a2cfc3a2aba69f0203c414443d8b12c8ebf09b31b3",
+    "bytes": 10
+  },
+  "mac-completed.json": {
+    "sha256": "5e387e4516591142fe415434e213ab8f53a4b128e2be1f9bd8d7c2240556eba4",
+    "bytes": 137
+  },
+  "mac-verification-run.log": {
+    "sha256": "ff6da8a0fc3a1fc21d83f1c13c804b1df7908b4541e40f55b5cfe98a765d3737",
+    "bytes": 2625
+  },
+  "mac-cold-complete-run.log": {
+    "sha256": "42e44bc66e9f6e7fe3c2cf8ec7a7391080334134fab7d30723a349e88bfa97df",
+    "bytes": 810
+  }
+}

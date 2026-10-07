@@ -1,0 +1,397 @@
+## Configure
+-- RealmMesh ccache: ON, /opt/homebrew/bin/ccache 4.14.1; native C/CXX targets; dir=/private/tmp/realmmesh-p6/final/.cache/ccache, max=5GiB; libsodium excluded
+-- Found OpenSSL: /opt/homebrew/opt/openssl@3/lib/libcrypto.dylib (found suitable version "3.6.5", minimum required is "3.0") found components: SSL Crypto
+-- RealmMesh: OpenSSL 3.6.5 from /opt/homebrew/Cellar/openssl@3/3.6.5 (root /opt/homebrew/opt/openssl@3, macOS default (Homebrew openssl@3))
+-- realm_build_dir: preset dev -> /private/tmp/realmmesh-p6/final/build/dev-ninja
+-- Using the multi-header code from /private/tmp/realmmesh-p5/deps-src/nlohmann_json_source-src/include/
+-- MsQuic: 2.6.2 (/opt/homebrew/Cellar/libmsquic/2.6.2/lib/libmsquic.2.6.2.dylib)
+-- realm_protocol: protoc 35.0 from the pinned release download
+-- protobuf version: 35.0.0
+-- Build spdlog: 1.17.0
+-- Build type: Debug
+-- Using bundled libbson
+-- libmongoc version (from VERSION_CURRENT file): 2.5.5
+-- Disabling zlib compression
+-- Found OpenSSL: /opt/homebrew/opt/openssl@3/lib/libcrypto.dylib (found version "3.6.5")
+-- libmongoc TLS : OpenSSL
+-- Using SASL backend : OFF
+-- Detected parameters: accept (int, struct sockaddr *, socklen_t *)
+-- SASL disabled
+-- Enabling utf8proc (bundled)
+-- Adding -fPIC to compilation of mongoc_static components
+-- Build files generated for:
+-- 	build system: Ninja
+-- The following features have been enabled:
+
+ * TLS, for secure network communication (OpenSSL)
+ * Cryptography, cryptographic primitives (OpenSSL)
+
+-- The following features have been disabled:
+
+ * AWS Authentication, authenticate with MongoDB servers using credentials from AWS instance metadata. (Manually disabled)
+ * SASL Authentication, authenticate with MongoDB servers using SASL: “Simple Authentication and Security Layer” (OFF)
+
+-- bsoncxx version: 4.6.0
+-- bsoncxx soversion: 1
+-- Auto-configuring bsoncxx to use its own polyfill implementations since C++17 is inactive
+-- Using bson targets imported via add_subdirectory() without version checks
+-- mongocxx version: 4.6.0
+-- mongocxx soversion: 1
+-- Using mongoc targets imported via add_subdirectory() without version checks
+-- Build files generated for:
+-- 	build system: Ninja
+-- realm_network: QUIC transport enabled (MsQuic found)
+-- realm_network Event Loop backend: kqueue (REALMMESH_NET_BACKEND=auto)
+-- Configuring done (0.5s)
+-- Generating done (0.4s)
+-- Build files have been written to: /private/tmp/realmmesh-p6/final/build/dev-ninja
+build jobs: 8 (from --jobs; budget 8 = min(15 CPUs, 8, memory 48.00 GiB))
+## Build
+[0/2] Re-checking globbed directories...
+ninja: no work to do.
+## Four-process Full Login Chain
+UpdateCTestConfiguration  from :/private/tmp/realmmesh-p6/final/build/dev-ninja/DartConfiguration.tcl
+Parse Config file:/private/tmp/realmmesh-p6/final/build/dev-ninja/DartConfiguration.tcl
+Test project /private/tmp/realmmesh-p6/final/build/dev-ninja
+Constructing a list of tests
+Done constructing a list of tests
+Updating test list for fixtures
+Added 0 tests to meet fixture requirements
+Checking test dependency graph...
+Checking test dependency graph end
+test 15
+    Start 15: DevServicesScriptTest.FourProcessFullRepeats
+
+15: Test command: /bin/bash "/private/tmp/realmmesh-p6/final/tests/scripts/dev_services_test.sh" "four_process_full_repeats" "/private/tmp/realmmesh-p6/final" "/private/tmp/realmmesh-p6/final/build/dev-ninja/bin/realm_mesh" "/private/tmp/realmmesh-p6/final/build/dev-ninja/tests/cpp/test-tls/certificate.pem" "/private/tmp/realmmesh-p6/final/build/dev-ninja/tests/cpp/test-tls/private-key.pem" "/private/tmp/realmmesh-p6/final/build/dev-ninja/tests/cpp/game/common/new_chain_flow_test" "/private/tmp/realmmesh-p6/final/build/dev-ninja/bin/realm_mesh_loadgen"
+15: Working Directory: /private/tmp/realmmesh-p6/final/build/dev-ninja/tests/cpp
+15: Test timeout computed to be: 90
+15: acceptance_runtime login_verify=127.0.0.1:21154 queue=127.0.0.1:24696 gateway=127.0.0.1:27367 realm=127.0.0.1:23286 etcd=http://127.0.0.1:20024 mongodb=127.0.0.1:21997
+15: acceptance_runtime_config badf4cc0e32b5da4a7c84da777978704f2a37ff71b021332ae2f16b3e94bcfbb  configs/main.config
+15: acceptance_runtime_config ece37203f23d3f14f068e5de9f80dc23ccc3189de0182a8b7abf596668891f9b  configs/common/discovery.lua
+15: acceptance_runtime_config 69b5c275f09cbca512ae487c308a2b07accc71404e48b11c3dd5973212203b63  configs/common/accounts.lua
+15: acceptance_runtime_config b0eb4383a1818a3f0dc9b6da02833c130bd0fefe385e34f53d89b3c74a53c6d7  configs/common/player_data.lua
+15: acceptance_runtime_config a35147651948b3d485aeb3cf3a62a967f1e3df8f3aa23f85228bca6bd00f3487  configs/services/login_verify.lua
+15: acceptance_runtime_config 376cea2c10018ddbe9eec27afc3b8d0af1206f2444af01dafc2a6aed3526fa4d  configs/services/queue.lua
+15: acceptance_runtime_config 5fac1f55a5cc640592d6eee70bf37b5e5266558b9843a955159a09b918e52868  configs/services/gateway.lua
+15: acceptance_runtime_config 2851ea864917d5ec96fb660089d7379c0ce540fb243545f58540bba1e1b2f5a8  configs/services/realm.lua
+15: loadgen report
+15: robots: 1  completed: 1
+15: verify: attempts=1 failures=0 p50_ms=174.466666 p99_ms=174.466666 max_ms=174.466666
+15: tickets: attempts=1 failures=0 p50_ms=127.282375 p99_ms=127.282375 max_ms=127.282375
+15: poll: attempts=17 failures=0 p50_ms=41.669834 p99_ms=51.782250 max_ms=51.782250
+15: attach: attempts=1 failures=0 p50_ms=53.014292 p99_ms=53.014292 max_ms=53.014292
+15: handoff: attempts=1 failures=0 p50_ms=89.891750 p99_ms=89.891750 max_ms=89.891750
+15: realm: attempts=1 failures=0 p50_ms=7.409084 p99_ms=7.409084 max_ms=7.409084
+15: loadgen report
+15: robots: 1  completed: 1
+15: verify: attempts=1 failures=0 p50_ms=249.738583 p99_ms=249.738583 max_ms=249.738583
+15: tickets: attempts=1 failures=0 p50_ms=132.451292 p99_ms=132.451292 max_ms=132.451292
+15: poll: attempts=17 failures=0 p50_ms=37.954167 p99_ms=59.501583 max_ms=59.501583
+15: attach: attempts=1 failures=0 p50_ms=50.176083 p99_ms=50.176083 max_ms=50.176083
+15: handoff: attempts=1 failures=0 p50_ms=81.146708 p99_ms=81.146708 max_ms=81.146708
+15: realm: attempts=1 failures=0 p50_ms=11.515208 p99_ms=11.515208 max_ms=11.515208
+15: loadgen report
+15: robots: 1  completed: 1
+15: verify: attempts=1 failures=0 p50_ms=163.322333 p99_ms=163.322333 max_ms=163.322333
+15: tickets: attempts=1 failures=0 p50_ms=133.794667 p99_ms=133.794667 max_ms=133.794667
+15: poll: attempts=17 failures=0 p50_ms=43.351958 p99_ms=57.365917 max_ms=57.365917
+15: attach: attempts=1 failures=0 p50_ms=51.237583 p99_ms=51.237583 max_ms=51.237583
+15: handoff: attempts=1 failures=0 p50_ms=80.328916 p99_ms=80.328916 max_ms=80.328916
+15: realm: attempts=1 failures=0 p50_ms=12.447750 p99_ms=12.447750 max_ms=12.447750
+1/1 Test #15: DevServicesScriptTest.FourProcessFullRepeats ...   Passed    9.27 sec
+
+The following tests passed:
+	DevServicesScriptTest.FourProcessFullRepeats
+
+100% tests passed out of 1
+
+Label Time Summary:
+integration    =   9.27 sec*proc (1 test)
+
+Total Test time (real) =   9.29 sec
+## Repeated full success
+UpdateCTestConfiguration  from :/private/tmp/realmmesh-p6/final/build/dev-ninja/DartConfiguration.tcl
+Parse Config file:/private/tmp/realmmesh-p6/final/build/dev-ninja/DartConfiguration.tcl
+Test project /private/tmp/realmmesh-p6/final/build/dev-ninja
+Constructing a list of tests
+Done constructing a list of tests
+Updating test list for fixtures
+Added 0 tests to meet fixture requirements
+Checking test dependency graph...
+Checking test dependency graph end
+test 209
+    Start 209: WireLoginTransportIntegrationTest.DrivesLoginChainOverRealTls
+
+209: Test command: /private/tmp/realmmesh-p6/final/build/dev-ninja/tests/cpp/framework/client/wire_login_transport_integration_test "--gtest_filter=WireLoginTransportIntegrationTest.DrivesLoginChainOverRealTls" "--gtest_also_run_disabled_tests"
+209: Working Directory: /private/tmp/realmmesh-p6/final/build/dev-ninja/tests/cpp
+209: Test timeout computed to be: 1500
+209: Running main() from /private/tmp/realmmesh-p5/deps-src/googletest-src/googletest/src/gtest_main.cc
+209: Note: Google Test filter = WireLoginTransportIntegrationTest.DrivesLoginChainOverRealTls
+209: [==========] Running 1 test from 1 test suite.
+209: [----------] Global test environment set-up.
+209: [----------] 1 test from WireLoginTransportIntegrationTest
+209: [ RUN      ] WireLoginTransportIntegrationTest.DrivesLoginChainOverRealTls
+209: [       OK ] WireLoginTransportIntegrationTest.DrivesLoginChainOverRealTls (83 ms)
+209: [----------] 1 test from WireLoginTransportIntegrationTest (83 ms total)
+209: 
+209: [----------] Global test environment tear-down
+209: [==========] 1 test from 1 test suite ran. (83 ms total)
+209: [  PASSED  ] 1 test.
+    Test #209: WireLoginTransportIntegrationTest.DrivesLoginChainOverRealTls ...   Passed    0.12 sec
+    Start 209: WireLoginTransportIntegrationTest.DrivesLoginChainOverRealTls
+
+209: Test command: /private/tmp/realmmesh-p6/final/build/dev-ninja/tests/cpp/framework/client/wire_login_transport_integration_test "--gtest_filter=WireLoginTransportIntegrationTest.DrivesLoginChainOverRealTls" "--gtest_also_run_disabled_tests"
+209: Working Directory: /private/tmp/realmmesh-p6/final/build/dev-ninja/tests/cpp
+209: Test timeout computed to be: 1500
+209: Running main() from /private/tmp/realmmesh-p5/deps-src/googletest-src/googletest/src/gtest_main.cc
+209: Note: Google Test filter = WireLoginTransportIntegrationTest.DrivesLoginChainOverRealTls
+209: [==========] Running 1 test from 1 test suite.
+209: [----------] Global test environment set-up.
+209: [----------] 1 test from WireLoginTransportIntegrationTest
+209: [ RUN      ] WireLoginTransportIntegrationTest.DrivesLoginChainOverRealTls
+209: [       OK ] WireLoginTransportIntegrationTest.DrivesLoginChainOverRealTls (78 ms)
+209: [----------] 1 test from WireLoginTransportIntegrationTest (78 ms total)
+209: 
+209: [----------] Global test environment tear-down
+209: [==========] 1 test from 1 test suite ran. (78 ms total)
+209: [  PASSED  ] 1 test.
+    Test #209: WireLoginTransportIntegrationTest.DrivesLoginChainOverRealTls ...   Passed    0.11 sec
+    Start 209: WireLoginTransportIntegrationTest.DrivesLoginChainOverRealTls
+
+209: Test command: /private/tmp/realmmesh-p6/final/build/dev-ninja/tests/cpp/framework/client/wire_login_transport_integration_test "--gtest_filter=WireLoginTransportIntegrationTest.DrivesLoginChainOverRealTls" "--gtest_also_run_disabled_tests"
+209: Working Directory: /private/tmp/realmmesh-p6/final/build/dev-ninja/tests/cpp
+209: Test timeout computed to be: 1500
+209: Running main() from /private/tmp/realmmesh-p5/deps-src/googletest-src/googletest/src/gtest_main.cc
+209: Note: Google Test filter = WireLoginTransportIntegrationTest.DrivesLoginChainOverRealTls
+209: [==========] Running 1 test from 1 test suite.
+209: [----------] Global test environment set-up.
+209: [----------] 1 test from WireLoginTransportIntegrationTest
+209: [ RUN      ] WireLoginTransportIntegrationTest.DrivesLoginChainOverRealTls
+209: [       OK ] WireLoginTransportIntegrationTest.DrivesLoginChainOverRealTls (83 ms)
+209: [----------] 1 test from WireLoginTransportIntegrationTest (83 ms total)
+209: 
+209: [----------] Global test environment tear-down
+209: [==========] 1 test from 1 test suite ran. (83 ms total)
+209: [  PASSED  ] 1 test.
+1/2 Test #209: WireLoginTransportIntegrationTest.DrivesLoginChainOverRealTls ...   Passed    0.11 sec
+test 659
+    Start 659: LoadgenIntegrationTest.FullTargetRedeemsRealmSession
+
+659: Test command: /private/tmp/realmmesh-p6/final/build/dev-ninja/tests/cpp/tools/loadgen/loadgen_integration_test "--gtest_filter=LoadgenIntegrationTest.FullTargetRedeemsRealmSession" "--gtest_also_run_disabled_tests"
+659: Working Directory: /private/tmp/realmmesh-p6/final/build/dev-ninja/tests/cpp
+659: Test timeout computed to be: 1500
+659: Running main() from /private/tmp/realmmesh-p5/deps-src/googletest-src/googletest/src/gtest_main.cc
+659: Note: Google Test filter = LoadgenIntegrationTest.FullTargetRedeemsRealmSession
+659: [==========] Running 1 test from 1 test suite.
+659: [----------] Global test environment set-up.
+659: [----------] 1 test from LoadgenIntegrationTest
+659: [ RUN      ] LoadgenIntegrationTest.FullTargetRedeemsRealmSession
+659: {"t":{"$date":"2026-10-07T01:19:00.132+08:00"},"s":"I",  "c":"-",        "id":8991200, "ctx":"thread1","msg":"Shuffling initializers","attr":{"seed":3042967767}}
+659: {"attribute_data_classes":{"listen_address":"internal","listen_port":"internal","transport":"internal","transport_name":"internal"},"attributes":{"listen_address":"127.0.0.1","listen_port":61563,"transport":"tls_tcp","transport_name":"https"},"cluster":"local","environment":"development","event_name":"listener_started","kind":"diagnostic","message":"login_verify listener started","module":"game.login_verify","node_id":"development-node","process_id":31320,"process_start_id":"74dccf74ea28f2d6bbcefd3c74cef91c","region":"local","schema_version":1,"sequence":1,"service_instance":"login-verify-dev-01","service_name":"login_verify","severity":"INFO","source_file":"/private/tmp/realmmesh-p6/final/game/login_verify/src/login_verify_service.cpp","source_line":57,"thread_id":9810675905446315910,"timestamp":"2026-10-06T17:19:01.349754000Z","zone":"development"}
+659: {"attribute_data_classes":{},"attributes":{},"cluster":"local","environment":"development","event_name":"service_started","kind":"diagnostic","message":"login_verify service started","module":"game.login_verify","node_id":"development-node","process_id":31320,"process_start_id":"74dccf74ea28f2d6bbcefd3c74cef91c","region":"local","schema_version":1,"sequence":2,"service_instance":"login-verify-dev-01","service_name":"login_verify","severity":"INFO","source_file":"/private/tmp/realmmesh-p6/final/game/login_verify/src/login_verify_service.cpp","source_line":66,"thread_id":9810675905446315910,"timestamp":"2026-10-06T17:19:01.350707000Z","zone":"development"}
+659: {"attribute_data_classes":{"listen_address":"internal","listen_port":"internal","transport":"internal","transport_name":"internal"},"attributes":{"listen_address":"127.0.0.1","listen_port":61564,"transport":"tls_tcp","transport_name":"https"},"cluster":"local","environment":"development","event_name":"listener_started","kind":"diagnostic","message":"queue listener started","module":"game.queue","node_id":"development-node","process_id":31320,"process_start_id":"139ffa8d824dd6cdb3eeeca9e4b3b5a8","region":"local","schema_version":1,"sequence":1,"service_instance":"queue-dev-01","service_name":"queue","severity":"INFO","source_file":"/private/tmp/realmmesh-p6/final/game/queue/src/queue_service.cpp","source_line":120,"thread_id":9810675905446315910,"timestamp":"2026-10-06T17:19:01.353728000Z","zone":"development"}
+659: {"attribute_data_classes":{},"attributes":{},"cluster":"local","environment":"development","event_name":"service_started","kind":"diagnostic","message":"queue service started","module":"game.queue","node_id":"development-node","process_id":31320,"process_start_id":"139ffa8d824dd6cdb3eeeca9e4b3b5a8","region":"local","schema_version":1,"sequence":2,"service_instance":"queue-dev-01","service_name":"queue","severity":"INFO","source_file":"/private/tmp/realmmesh-p6/final/game/queue/src/queue_service.cpp","source_line":129,"thread_id":9810675905446315910,"timestamp":"2026-10-06T17:19:01.353817000Z","zone":"development"}
+659: {"attribute_data_classes":{"listen_address":"internal","listen_port":"internal"},"attributes":{"listen_address":"0.0.0.0","listen_port":61566},"cluster":"local","environment":"development","event_name":"service_started","kind":"diagnostic","message":"realm service started","module":"framework.service_host","node_id":"development-node","process_id":31320,"process_start_id":"e9aea8939226df13f86ddf1c3e406621","region":"local","schema_version":1,"sequence":1,"service_instance":"realm-dev-01","service_name":"realm","severity":"INFO","source_file":"/private/tmp/realmmesh-p6/final/framework/service_host/src/service_frame.cpp","source_line":165,"thread_id":9810675905446315910,"timestamp":"2026-10-06T17:19:01.357705000Z","zone":"development"}
+659: {"attribute_data_classes":{"listen_address":"internal","listen_port":"internal","transport":"internal","transport_name":"internal"},"attributes":{"listen_address":"0.0.0.0","listen_port":61565,"transport":"quic","transport_name":"client_quic"},"cluster":"local","environment":"development","event_name":"listener_started","kind":"diagnostic","message":"gateway listener started","module":"framework.service_host","node_id":"development-node","process_id":31320,"process_start_id":"cf5a3fb90e984244537f3cc5db4a7895","region":"local","schema_version":1,"sequence":1,"service_instance":"gateway-dev-01","service_name":"gateway","severity":"INFO","source_file":"/private/tmp/realmmesh-p6/final/framework/service_host/src/service_frame.cpp","source_line":151,"thread_id":9810675905446315910,"timestamp":"2026-10-06T17:19:01.361226000Z","zone":"development"}
+659: {"attribute_data_classes":{"listen_address":"internal","listen_port":"internal","transport":"internal","transport_name":"internal"},"attributes":{"listen_address":"0.0.0.0","listen_port":61565,"transport":"tls_tcp","transport_name":"client_tls_tcp"},"cluster":"local","environment":"development","event_name":"listener_started","kind":"diagnostic","message":"gateway listener started","module":"framework.service_host","node_id":"development-node","process_id":31320,"process_start_id":"cf5a3fb90e984244537f3cc5db4a7895","region":"local","schema_version":1,"sequence":2,"service_instance":"gateway-dev-01","service_name":"gateway","severity":"INFO","source_file":"/private/tmp/realmmesh-p6/final/framework/service_host/src/service_frame.cpp","source_line":151,"thread_id":9810675905446315910,"timestamp":"2026-10-06T17:19:01.361309000Z","zone":"development"}
+659: {"attribute_data_classes":{},"attributes":{},"cluster":"local","environment":"development","event_name":"service_started","kind":"diagnostic","message":"gateway service started","module":"framework.service_host","node_id":"development-node","process_id":31320,"process_start_id":"cf5a3fb90e984244537f3cc5db4a7895","region":"local","schema_version":1,"sequence":3,"service_instance":"gateway-dev-01","service_name":"gateway","severity":"INFO","source_file":"/private/tmp/realmmesh-p6/final/framework/service_host/src/service_frame.cpp","source_line":161,"thread_id":9810675905446315910,"timestamp":"2026-10-06T17:19:01.361376000Z","zone":"development"}
+659: {"attribute_data_classes":{"protocol":"internal","session_id":"internal","transport_name":"internal"},"attributes":{"protocol":"tls_tcp","session_id":1,"transport_name":"client_tls_tcp"},"cluster":"local","environment":"development","event_name":"connection_accepted","kind":"diagnostic","message":"tls transport accepted incoming connection","module":"framework.network","node_id":"development-node","process_id":31320,"process_start_id":"cf5a3fb90e984244537f3cc5db4a7895","region":"local","schema_version":1,"sequence":4,"service_instance":"gateway-dev-01","service_name":"gateway","severity":"INFO","source_file":"/private/tmp/realmmesh-p6/final/framework/network/src/tls/tls_tcp_transport.cpp","source_line":152,"thread_id":12389390762569939935,"timestamp":"2026-10-06T17:19:03.385279000Z","zone":"development"}
+659: {"attribute_data_classes":{"alpn":"internal","protocol":"internal","session_id":"internal","transport_name":"internal"},"attributes":{"alpn":"realmmesh-edge/1","protocol":"tls_tcp","session_id":1,"transport_name":"client_tls_tcp"},"cluster":"local","environment":"development","event_name":"tls_handshake_completed","kind":"diagnostic","message":"tls transport completed handshake","module":"framework.network","node_id":"development-node","process_id":31320,"process_start_id":"cf5a3fb90e984244537f3cc5db4a7895","region":"local","schema_version":1,"sequence":5,"service_instance":"gateway-dev-01","service_name":"gateway","severity":"INFO","source_file":"/private/tmp/realmmesh-p6/final/framework/network/src/tls/tls_tcp_transport.cpp","source_line":185,"thread_id":12389390762569939935,"timestamp":"2026-10-06T17:19:03.389762000Z","zone":"development"}
+659: {"attribute_data_classes":{"gateway_instance":"internal","result":"internal"},"attributes":{"gateway_instance":"gateway-dev-01","result":"reserved"},"cluster":"local","environment":"development","event_name":"gateway_credential_audit","kind":"diagnostic","message":"gateway credential admission outcome","module":"game.gateway","node_id":"development-node","process_id":31320,"process_start_id":"cf5a3fb90e984244537f3cc5db4a7895","region":"local","schema_version":1,"sequence":6,"service_instance":"gateway-dev-01","service_name":"gateway","severity":"INFO","source_file":"/private/tmp/realmmesh-p6/final/game/gateway/src/gateway_login_pipeline.cpp","source_line":722,"thread_id":13478544718591199187,"timestamp":"2026-10-06T17:19:03.405304000Z","zone":"development"}
+659: {"attribute_data_classes":{"account_id":"pseudonymous","session_id":"internal"},"attributes":{"account_id":5115113555351659826,"session_id":1},"cluster":"local","environment":"development","event_name":"edge_session_attached","kind":"diagnostic","message":"edge session attached","module":"game.gateway","node_id":"development-node","process_id":31320,"process_start_id":"cf5a3fb90e984244537f3cc5db4a7895","region":"local","schema_version":1,"sequence":7,"service_instance":"gateway-dev-01","service_name":"gateway","severity":"INFO","source_file":"/private/tmp/realmmesh-p6/final/game/gateway/src/gateway_login_pipeline.cpp","source_line":659,"thread_id":13478544718591199187,"timestamp":"2026-10-06T17:19:03.410172000Z","zone":"development"}
+659: {"attribute_data_classes":{"session_id":"internal"},"attributes":{"session_id":1},"cluster":"local","environment":"development","event_name":"edge_fetch_completed","kind":"diagnostic","message":"edge fetch completed","module":"game.gateway","node_id":"development-node","process_id":31320,"process_start_id":"cf5a3fb90e984244537f3cc5db4a7895","region":"local","schema_version":1,"sequence":8,"service_instance":"gateway-dev-01","service_name":"gateway","severity":"INFO","source_file":"/private/tmp/realmmesh-p6/final/game/gateway/src/gateway_login_pipeline.cpp","source_line":393,"thread_id":13478544718591199187,"timestamp":"2026-10-06T17:19:03.426314000Z","zone":"development"}
+659: {"attribute_data_classes":{"account_id":"pseudonymous","session_id":"internal"},"attributes":{"account_id":5115113555351659826,"session_id":1},"cluster":"local","environment":"development","event_name":"edge_handoff_granted","kind":"diagnostic","message":"enter-realm handoff granted","module":"game.gateway","node_id":"development-node","process_id":31320,"process_start_id":"cf5a3fb90e984244537f3cc5db4a7895","region":"local","schema_version":1,"sequence":9,"service_instance":"gateway-dev-01","service_name":"gateway","severity":"INFO","source_file":"/private/tmp/realmmesh-p6/final/game/gateway/src/gateway_login_pipeline.cpp","source_line":590,"thread_id":13478544718591199187,"timestamp":"2026-10-06T17:19:03.426531000Z","zone":"development"}
+659: {"attribute_data_classes":{"protocol":"internal","session_id":"internal","transport_name":"internal"},"attributes":{"protocol":"tls_tcp","session_id":1,"transport_name":"realm_tls_tcp"},"cluster":"local","environment":"development","event_name":"connection_accepted","kind":"diagnostic","message":"tls transport accepted incoming connection","module":"framework.network","node_id":"development-node","process_id":31320,"process_start_id":"e9aea8939226df13f86ddf1c3e406621","region":"local","schema_version":1,"sequence":2,"service_instance":"realm-dev-01","service_name":"realm","severity":"INFO","source_file":"/private/tmp/realmmesh-p6/final/framework/network/src/tls/tls_tcp_transport.cpp","source_line":152,"thread_id":3765776073433818196,"timestamp":"2026-10-06T17:19:03.428397000Z","zone":"development"}
+659: {"attribute_data_classes":{"protocol":"internal","reason":"internal","session_id":"internal","transport_name":"internal"},"attributes":{"protocol":"tls_tcp","reason":"peer_closed","session_id":1,"transport_name":"client_tls_tcp"},"cluster":"local","environment":"development","event_name":"connection_closed","kind":"diagnostic","message":"tls transport closed session","module":"framework.network","node_id":"development-node","process_id":31320,"process_start_id":"cf5a3fb90e984244537f3cc5db4a7895","region":"local","schema_version":1,"sequence":10,"service_instance":"gateway-dev-01","service_name":"gateway","severity":"INFO","source_file":"/private/tmp/realmmesh-p6/final/framework/network/src/tls/tls_tcp_transport.cpp","source_line":276,"thread_id":12389390762569939935,"timestamp":"2026-10-06T17:19:03.429216000Z","zone":"development"}
+659: {"attribute_data_classes":{"alpn":"internal","protocol":"internal","session_id":"internal","transport_name":"internal"},"attributes":{"alpn":"realmmesh-edge/1","protocol":"tls_tcp","session_id":1,"transport_name":"realm_tls_tcp"},"cluster":"local","environment":"development","event_name":"tls_handshake_completed","kind":"diagnostic","message":"tls transport completed handshake","module":"framework.network","node_id":"development-node","process_id":31320,"process_start_id":"e9aea8939226df13f86ddf1c3e406621","region":"local","schema_version":1,"sequence":3,"service_instance":"realm-dev-01","service_name":"realm","severity":"INFO","source_file":"/private/tmp/realmmesh-p6/final/framework/network/src/tls/tls_tcp_transport.cpp","source_line":185,"thread_id":3765776073433818196,"timestamp":"2026-10-06T17:19:03.430027000Z","zone":"development"}
+659: {"attribute_data_classes":{"account_id":"pseudonymous"},"attributes":{"account_id":5115113555351659826},"cluster":"local","environment":"development","event_name":"player_session_established","kind":"diagnostic","message":"realm accepted direct entry","module":"framework.service_host","node_id":"development-node","process_id":31320,"process_start_id":"e9aea8939226df13f86ddf1c3e406621","region":"local","request_id":0,"schema_version":1,"sequence":4,"service_instance":"realm-dev-01","service_name":"realm","severity":"INFO","source_file":"/private/tmp/realmmesh-p6/final/framework/service_host/src/service_frame.cpp","source_line":365,"thread_id":13478544718591199187,"timestamp":"2026-10-06T17:19:03.431773000Z","zone":"development"}
+659: loadgen report
+659: robots: 1  completed: 1
+659: verify: attempts=1 failures=0 p50_ms=20.152292 p99_ms=20.152292 max_ms=20.152292
+659: tickets: attempts=1 failures=0 p50_ms=20.239417 p99_ms=20.239417 max_ms=20.239417
+659: poll: attempts=36 failures=0 p50_ms=2.387917 p99_ms=5.880166 max_ms=5.880166
+659: attach: attempts=1 failures=0 p50_ms=17.056000 p99_ms=17.056000 max_ms=17.056000
+659: handoff: attempts=1 failures=0 p50_ms=22.059542 p99_ms=22.059542 max_ms=22.059542
+659: realm: attempts=1 failures=0 p50_ms=4.694875 p99_ms=4.694875 max_ms=4.694875
+659: {"attribute_data_classes":{"protocol":"internal","reason":"internal","session_id":"internal","transport_name":"internal"},"attributes":{"protocol":"tls_tcp","reason":"peer_closed","session_id":1,"transport_name":"realm_tls_tcp"},"cluster":"local","environment":"development","event_name":"connection_closed","kind":"diagnostic","message":"tls transport closed session","module":"framework.network","node_id":"development-node","process_id":31320,"process_start_id":"e9aea8939226df13f86ddf1c3e406621","region":"local","schema_version":1,"sequence":5,"service_instance":"realm-dev-01","service_name":"realm","severity":"INFO","source_file":"/private/tmp/realmmesh-p6/final/framework/network/src/tls/tls_tcp_transport.cpp","source_line":276,"thread_id":3765776073433818196,"timestamp":"2026-10-06T17:19:03.440260000Z","zone":"development"}
+659: {"attribute_data_classes":{"delivered":"internal","delivery_failed":"internal","invalid_source_disconnects":"internal","outbound_rejected":"internal","overload_disconnects":"internal","unknown_session_commands":"internal"},"attributes":{"delivered":2,"delivery_failed":0,"invalid_source_disconnects":0,"outbound_rejected":0,"overload_disconnects":0,"unknown_session_commands":0},"cluster":"local","environment":"development","event_name":"service_stopped","kind":"diagnostic","message":"gateway service stopped","module":"framework.service_host","node_id":"development-node","process_id":31320,"process_start_id":"cf5a3fb90e984244537f3cc5db4a7895","region":"local","schema_version":1,"sequence":11,"service_instance":"gateway-dev-01","service_name":"gateway","severity":"INFO","source_file":"/private/tmp/realmmesh-p6/final/framework/service_host/src/service_frame.cpp","source_line":201,"thread_id":9810675905446315910,"timestamp":"2026-10-06T17:19:03.443287000Z","zone":"development"}
+659: {"attribute_data_classes":{},"attributes":{},"cluster":"local","environment":"development","event_name":"service_stopped","kind":"diagnostic","message":"login_verify service stopped","module":"framework.service_host","node_id":"development-node","process_id":31320,"process_start_id":"74dccf74ea28f2d6bbcefd3c74cef91c","region":"local","schema_version":1,"sequence":3,"service_instance":"login-verify-dev-01","service_name":"login_verify","severity":"INFO","source_file":"/private/tmp/realmmesh-p6/final/framework/service_host/src/service_host.cpp","source_line":364,"thread_id":9810675905446315910,"timestamp":"2026-10-06T17:19:04.253560000Z","zone":"development"}
+659: {"attribute_data_classes":{},"attributes":{},"cluster":"local","environment":"development","event_name":"service_stopped","kind":"diagnostic","message":"queue service stopped","module":"framework.service_host","node_id":"development-node","process_id":31320,"process_start_id":"139ffa8d824dd6cdb3eeeca9e4b3b5a8","region":"local","schema_version":1,"sequence":3,"service_instance":"queue-dev-01","service_name":"queue","severity":"INFO","source_file":"/private/tmp/realmmesh-p6/final/framework/service_host/src/service_host.cpp","source_line":364,"thread_id":9810675905446315910,"timestamp":"2026-10-06T17:19:04.254147000Z","zone":"development"}
+659: {"attribute_data_classes":{},"attributes":{},"cluster":"local","environment":"development","event_name":"service_stopped","kind":"diagnostic","message":"realm service stopped","module":"framework.service_host","node_id":"development-node","process_id":31320,"process_start_id":"e9aea8939226df13f86ddf1c3e406621","region":"local","schema_version":1,"sequence":6,"service_instance":"realm-dev-01","service_name":"realm","severity":"INFO","source_file":"/private/tmp/realmmesh-p6/final/framework/service_host/src/service_frame.cpp","source_line":219,"thread_id":9810675905446315910,"timestamp":"2026-10-06T17:19:04.256008000Z","zone":"development"}
+659: {"level":"error","ts":"2026-10-07T01:19:04.360385+0800","caller":"embed/etcd.go:912","msg":"setting up serving from embedded etcd failed.","error":"mux: server closed","stacktrace":"go.etcd.io/etcd/server/v3/embed.(*Etcd).errHandler\n\tgo.etcd.io/etcd/server/v3/embed/etcd.go:912\ngo.etcd.io/etcd/server/v3/embed.(*serveCtx).startHandler.func1\n\tgo.etcd.io/etcd/server/v3/embed/serve.go:91"}
+659: {"level":"error","ts":"2026-10-07T01:19:04.360364+0800","caller":"embed/etcd.go:912","msg":"setting up serving from embedded etcd failed.","error":"http: Server closed","stacktrace":"go.etcd.io/etcd/server/v3/embed.(*Etcd).errHandler\n\tgo.etcd.io/etcd/server/v3/embed/etcd.go:912\ngo.etcd.io/etcd/server/v3/embed.(*serveCtx).startHandler.func1\n\tgo.etcd.io/etcd/server/v3/embed/serve.go:91"}
+659: {"level":"error","ts":"2026-10-07T01:19:04.360688+0800","caller":"embed/etcd.go:912","msg":"setting up serving from embedded etcd failed.","error":"accept tcp 127.0.0.1:61567: use of closed network connection","stacktrace":"go.etcd.io/etcd/server/v3/embed.(*Etcd).errHandler\n\tgo.etcd.io/etcd/server/v3/embed/etcd.go:912\ngo.etcd.io/etcd/server/v3/embed.(*Etcd).startHandler.func1\n\tgo.etcd.io/etcd/server/v3/embed/etcd.go:906"}
+659: {"level":"error","ts":"2026-10-07T01:19:04.386847+0800","caller":"embed/etcd.go:912","msg":"setting up serving from embedded etcd failed.","error":"accept tcp 127.0.0.1:61568: use of closed network connection","stacktrace":"go.etcd.io/etcd/server/v3/embed.(*Etcd).errHandler\n\tgo.etcd.io/etcd/server/v3/embed/etcd.go:912\ngo.etcd.io/etcd/server/v3/embed.(*Etcd).startHandler.func1\n\tgo.etcd.io/etcd/server/v3/embed/etcd.go:906"}
+659: [       OK ] LoadgenIntegrationTest.FullTargetRedeemsRealmSession (5011 ms)
+659: [----------] 1 test from LoadgenIntegrationTest (5011 ms total)
+659: 
+659: [----------] Global test environment tear-down
+659: [==========] 1 test from 1 test suite ran. (5011 ms total)
+659: [  PASSED  ] 1 test.
+    Test #659: LoadgenIntegrationTest.FullTargetRedeemsRealmSession ............   Passed    5.24 sec
+    Start 659: LoadgenIntegrationTest.FullTargetRedeemsRealmSession
+
+659: Test command: /private/tmp/realmmesh-p6/final/build/dev-ninja/tests/cpp/tools/loadgen/loadgen_integration_test "--gtest_filter=LoadgenIntegrationTest.FullTargetRedeemsRealmSession" "--gtest_also_run_disabled_tests"
+659: Working Directory: /private/tmp/realmmesh-p6/final/build/dev-ninja/tests/cpp
+659: Test timeout computed to be: 1500
+659: Running main() from /private/tmp/realmmesh-p5/deps-src/googletest-src/googletest/src/gtest_main.cc
+659: Note: Google Test filter = LoadgenIntegrationTest.FullTargetRedeemsRealmSession
+659: [==========] Running 1 test from 1 test suite.
+659: [----------] Global test environment set-up.
+659: [----------] 1 test from LoadgenIntegrationTest
+659: [ RUN      ] LoadgenIntegrationTest.FullTargetRedeemsRealmSession
+659: {"t":{"$date":"2026-10-07T01:19:05.534+08:00"},"s":"I",  "c":"-",        "id":8991200, "ctx":"thread1","msg":"Shuffling initializers","attr":{"seed":3747066588}}
+659: {"attribute_data_classes":{"listen_address":"internal","listen_port":"internal","transport":"internal","transport_name":"internal"},"attributes":{"listen_address":"127.0.0.1","listen_port":61632,"transport":"tls_tcp","transport_name":"https"},"cluster":"local","environment":"development","event_name":"listener_started","kind":"diagnostic","message":"login_verify listener started","module":"game.login_verify","node_id":"development-node","process_id":31395,"process_start_id":"b0a4687f0ffa83f495bff9b4853d4cc3","region":"local","schema_version":1,"sequence":1,"service_instance":"login-verify-dev-01","service_name":"login_verify","severity":"INFO","source_file":"/private/tmp/realmmesh-p6/final/game/login_verify/src/login_verify_service.cpp","source_line":57,"thread_id":9810675905446315910,"timestamp":"2026-10-06T17:19:06.677755000Z","zone":"development"}
+659: {"attribute_data_classes":{},"attributes":{},"cluster":"local","environment":"development","event_name":"service_started","kind":"diagnostic","message":"login_verify service started","module":"game.login_verify","node_id":"development-node","process_id":31395,"process_start_id":"b0a4687f0ffa83f495bff9b4853d4cc3","region":"local","schema_version":1,"sequence":2,"service_instance":"login-verify-dev-01","service_name":"login_verify","severity":"INFO","source_file":"/private/tmp/realmmesh-p6/final/game/login_verify/src/login_verify_service.cpp","source_line":66,"thread_id":9810675905446315910,"timestamp":"2026-10-06T17:19:06.678361000Z","zone":"development"}
+659: {"attribute_data_classes":{"listen_address":"internal","listen_port":"internal","transport":"internal","transport_name":"internal"},"attributes":{"listen_address":"127.0.0.1","listen_port":61633,"transport":"tls_tcp","transport_name":"https"},"cluster":"local","environment":"development","event_name":"listener_started","kind":"diagnostic","message":"queue listener started","module":"game.queue","node_id":"development-node","process_id":31395,"process_start_id":"e7c73b7d7d64338b22428b5d1813e0e5","region":"local","schema_version":1,"sequence":1,"service_instance":"queue-dev-01","service_name":"queue","severity":"INFO","source_file":"/private/tmp/realmmesh-p6/final/game/queue/src/queue_service.cpp","source_line":120,"thread_id":9810675905446315910,"timestamp":"2026-10-06T17:19:06.681198000Z","zone":"development"}
+659: {"attribute_data_classes":{},"attributes":{},"cluster":"local","environment":"development","event_name":"service_started","kind":"diagnostic","message":"queue service started","module":"game.queue","node_id":"development-node","process_id":31395,"process_start_id":"e7c73b7d7d64338b22428b5d1813e0e5","region":"local","schema_version":1,"sequence":2,"service_instance":"queue-dev-01","service_name":"queue","severity":"INFO","source_file":"/private/tmp/realmmesh-p6/final/game/queue/src/queue_service.cpp","source_line":129,"thread_id":9810675905446315910,"timestamp":"2026-10-06T17:19:06.681288000Z","zone":"development"}
+659: {"attribute_data_classes":{"listen_address":"internal","listen_port":"internal"},"attributes":{"listen_address":"0.0.0.0","listen_port":61635},"cluster":"local","environment":"development","event_name":"service_started","kind":"diagnostic","message":"realm service started","module":"framework.service_host","node_id":"development-node","process_id":31395,"process_start_id":"e366dfc6d3df71b81fab1c0d09138806","region":"local","schema_version":1,"sequence":1,"service_instance":"realm-dev-01","service_name":"realm","severity":"INFO","source_file":"/private/tmp/realmmesh-p6/final/framework/service_host/src/service_frame.cpp","source_line":165,"thread_id":9810675905446315910,"timestamp":"2026-10-06T17:19:06.684277000Z","zone":"development"}
+659: {"attribute_data_classes":{"listen_address":"internal","listen_port":"internal","transport":"internal","transport_name":"internal"},"attributes":{"listen_address":"0.0.0.0","listen_port":61634,"transport":"quic","transport_name":"client_quic"},"cluster":"local","environment":"development","event_name":"listener_started","kind":"diagnostic","message":"gateway listener started","module":"framework.service_host","node_id":"development-node","process_id":31395,"process_start_id":"ff0a12542a3154707faef17f44428978","region":"local","schema_version":1,"sequence":1,"service_instance":"gateway-dev-01","service_name":"gateway","severity":"INFO","source_file":"/private/tmp/realmmesh-p6/final/framework/service_host/src/service_frame.cpp","source_line":151,"thread_id":9810675905446315910,"timestamp":"2026-10-06T17:19:06.687464000Z","zone":"development"}
+659: {"attribute_data_classes":{"listen_address":"internal","listen_port":"internal","transport":"internal","transport_name":"internal"},"attributes":{"listen_address":"0.0.0.0","listen_port":61634,"transport":"tls_tcp","transport_name":"client_tls_tcp"},"cluster":"local","environment":"development","event_name":"listener_started","kind":"diagnostic","message":"gateway listener started","module":"framework.service_host","node_id":"development-node","process_id":31395,"process_start_id":"ff0a12542a3154707faef17f44428978","region":"local","schema_version":1,"sequence":2,"service_instance":"gateway-dev-01","service_name":"gateway","severity":"INFO","source_file":"/private/tmp/realmmesh-p6/final/framework/service_host/src/service_frame.cpp","source_line":151,"thread_id":9810675905446315910,"timestamp":"2026-10-06T17:19:06.687558000Z","zone":"development"}
+659: {"attribute_data_classes":{},"attributes":{},"cluster":"local","environment":"development","event_name":"service_started","kind":"diagnostic","message":"gateway service started","module":"framework.service_host","node_id":"development-node","process_id":31395,"process_start_id":"ff0a12542a3154707faef17f44428978","region":"local","schema_version":1,"sequence":3,"service_instance":"gateway-dev-01","service_name":"gateway","severity":"INFO","source_file":"/private/tmp/realmmesh-p6/final/framework/service_host/src/service_frame.cpp","source_line":161,"thread_id":9810675905446315910,"timestamp":"2026-10-06T17:19:06.687634000Z","zone":"development"}
+659: {"attribute_data_classes":{"protocol":"internal","session_id":"internal","transport_name":"internal"},"attributes":{"protocol":"tls_tcp","session_id":1,"transport_name":"client_tls_tcp"},"cluster":"local","environment":"development","event_name":"connection_accepted","kind":"diagnostic","message":"tls transport accepted incoming connection","module":"framework.network","node_id":"development-node","process_id":31395,"process_start_id":"ff0a12542a3154707faef17f44428978","region":"local","schema_version":1,"sequence":4,"service_instance":"gateway-dev-01","service_name":"gateway","severity":"INFO","source_file":"/private/tmp/realmmesh-p6/final/framework/network/src/tls/tls_tcp_transport.cpp","source_line":152,"thread_id":7624768796110034361,"timestamp":"2026-10-06T17:19:08.717877000Z","zone":"development"}
+659: {"attribute_data_classes":{"alpn":"internal","protocol":"internal","session_id":"internal","transport_name":"internal"},"attributes":{"alpn":"realmmesh-edge/1","protocol":"tls_tcp","session_id":1,"transport_name":"client_tls_tcp"},"cluster":"local","environment":"development","event_name":"tls_handshake_completed","kind":"diagnostic","message":"tls transport completed handshake","module":"framework.network","node_id":"development-node","process_id":31395,"process_start_id":"ff0a12542a3154707faef17f44428978","region":"local","schema_version":1,"sequence":5,"service_instance":"gateway-dev-01","service_name":"gateway","severity":"INFO","source_file":"/private/tmp/realmmesh-p6/final/framework/network/src/tls/tls_tcp_transport.cpp","source_line":185,"thread_id":7624768796110034361,"timestamp":"2026-10-06T17:19:08.721791000Z","zone":"development"}
+659: {"attribute_data_classes":{"gateway_instance":"internal","result":"internal"},"attributes":{"gateway_instance":"gateway-dev-01","result":"reserved"},"cluster":"local","environment":"development","event_name":"gateway_credential_audit","kind":"diagnostic","message":"gateway credential admission outcome","module":"game.gateway","node_id":"development-node","process_id":31395,"process_start_id":"ff0a12542a3154707faef17f44428978","region":"local","schema_version":1,"sequence":6,"service_instance":"gateway-dev-01","service_name":"gateway","severity":"INFO","source_file":"/private/tmp/realmmesh-p6/final/game/gateway/src/gateway_login_pipeline.cpp","source_line":722,"thread_id":48192004607613991,"timestamp":"2026-10-06T17:19:08.740543000Z","zone":"development"}
+659: {"attribute_data_classes":{"account_id":"pseudonymous","session_id":"internal"},"attributes":{"account_id":5115113555351659826,"session_id":1},"cluster":"local","environment":"development","event_name":"edge_session_attached","kind":"diagnostic","message":"edge session attached","module":"game.gateway","node_id":"development-node","process_id":31395,"process_start_id":"ff0a12542a3154707faef17f44428978","region":"local","schema_version":1,"sequence":7,"service_instance":"gateway-dev-01","service_name":"gateway","severity":"INFO","source_file":"/private/tmp/realmmesh-p6/final/game/gateway/src/gateway_login_pipeline.cpp","source_line":659,"thread_id":48192004607613991,"timestamp":"2026-10-06T17:19:08.746238000Z","zone":"development"}
+659: {"attribute_data_classes":{"session_id":"internal"},"attributes":{"session_id":1},"cluster":"local","environment":"development","event_name":"edge_fetch_completed","kind":"diagnostic","message":"edge fetch completed","module":"game.gateway","node_id":"development-node","process_id":31395,"process_start_id":"ff0a12542a3154707faef17f44428978","region":"local","schema_version":1,"sequence":8,"service_instance":"gateway-dev-01","service_name":"gateway","severity":"INFO","source_file":"/private/tmp/realmmesh-p6/final/game/gateway/src/gateway_login_pipeline.cpp","source_line":393,"thread_id":48192004607613991,"timestamp":"2026-10-06T17:19:08.762124000Z","zone":"development"}
+659: {"attribute_data_classes":{"account_id":"pseudonymous","session_id":"internal"},"attributes":{"account_id":5115113555351659826,"session_id":1},"cluster":"local","environment":"development","event_name":"edge_handoff_granted","kind":"diagnostic","message":"enter-realm handoff granted","module":"game.gateway","node_id":"development-node","process_id":31395,"process_start_id":"ff0a12542a3154707faef17f44428978","region":"local","schema_version":1,"sequence":9,"service_instance":"gateway-dev-01","service_name":"gateway","severity":"INFO","source_file":"/private/tmp/realmmesh-p6/final/game/gateway/src/gateway_login_pipeline.cpp","source_line":590,"thread_id":48192004607613991,"timestamp":"2026-10-06T17:19:08.762379000Z","zone":"development"}
+659: {"attribute_data_classes":{"protocol":"internal","session_id":"internal","transport_name":"internal"},"attributes":{"protocol":"tls_tcp","session_id":1,"transport_name":"realm_tls_tcp"},"cluster":"local","environment":"development","event_name":"connection_accepted","kind":"diagnostic","message":"tls transport accepted incoming connection","module":"framework.network","node_id":"development-node","process_id":31395,"process_start_id":"e366dfc6d3df71b81fab1c0d09138806","region":"local","schema_version":1,"sequence":2,"service_instance":"realm-dev-01","service_name":"realm","severity":"INFO","source_file":"/private/tmp/realmmesh-p6/final/framework/network/src/tls/tls_tcp_transport.cpp","source_line":152,"thread_id":9066802590029076137,"timestamp":"2026-10-06T17:19:08.765657000Z","zone":"development"}
+659: {"attribute_data_classes":{"protocol":"internal","reason":"internal","session_id":"internal","transport_name":"internal"},"attributes":{"protocol":"tls_tcp","reason":"peer_closed","session_id":1,"transport_name":"client_tls_tcp"},"cluster":"local","environment":"development","event_name":"connection_closed","kind":"diagnostic","message":"tls transport closed session","module":"framework.network","node_id":"development-node","process_id":31395,"process_start_id":"ff0a12542a3154707faef17f44428978","region":"local","schema_version":1,"sequence":10,"service_instance":"gateway-dev-01","service_name":"gateway","severity":"INFO","source_file":"/private/tmp/realmmesh-p6/final/framework/network/src/tls/tls_tcp_transport.cpp","source_line":276,"thread_id":7624768796110034361,"timestamp":"2026-10-06T17:19:08.766512000Z","zone":"development"}
+659: {"attribute_data_classes":{"alpn":"internal","protocol":"internal","session_id":"internal","transport_name":"internal"},"attributes":{"alpn":"realmmesh-edge/1","protocol":"tls_tcp","session_id":1,"transport_name":"realm_tls_tcp"},"cluster":"local","environment":"development","event_name":"tls_handshake_completed","kind":"diagnostic","message":"tls transport completed handshake","module":"framework.network","node_id":"development-node","process_id":31395,"process_start_id":"e366dfc6d3df71b81fab1c0d09138806","region":"local","schema_version":1,"sequence":3,"service_instance":"realm-dev-01","service_name":"realm","severity":"INFO","source_file":"/private/tmp/realmmesh-p6/final/framework/network/src/tls/tls_tcp_transport.cpp","source_line":185,"thread_id":9066802590029076137,"timestamp":"2026-10-06T17:19:08.767162000Z","zone":"development"}
+659: {"attribute_data_classes":{"account_id":"pseudonymous"},"attributes":{"account_id":5115113555351659826},"cluster":"local","environment":"development","event_name":"player_session_established","kind":"diagnostic","message":"realm accepted direct entry","module":"framework.service_host","node_id":"development-node","process_id":31395,"process_start_id":"e366dfc6d3df71b81fab1c0d09138806","region":"local","request_id":0,"schema_version":1,"sequence":4,"service_instance":"realm-dev-01","service_name":"realm","severity":"INFO","source_file":"/private/tmp/realmmesh-p6/final/framework/service_host/src/service_frame.cpp","source_line":365,"thread_id":48192004607613991,"timestamp":"2026-10-06T17:19:08.767646000Z","zone":"development"}
+659: loadgen report
+659: robots: 1  completed: 1
+659: verify: attempts=1 failures=0 p50_ms=20.081291 p99_ms=20.081291 max_ms=20.081291
+659: tickets: attempts=1 failures=0 p50_ms=18.431250 p99_ms=18.431250 max_ms=18.431250
+659: poll: attempts=35 failures=0 p50_ms=2.733250 p99_ms=7.292875 max_ms=7.292875
+659: attach: attempts=1 failures=0 p50_ms=20.541583 p99_ms=20.541583 max_ms=20.541583
+659: handoff: attempts=1 failures=0 p50_ms=24.019458 p99_ms=24.019458 max_ms=24.019458
+659: realm: attempts=1 failures=0 p50_ms=4.694750 p99_ms=4.694750 max_ms=4.694750
+659: {"attribute_data_classes":{"protocol":"internal","reason":"internal","session_id":"internal","transport_name":"internal"},"attributes":{"protocol":"tls_tcp","reason":"peer_closed","session_id":1,"transport_name":"realm_tls_tcp"},"cluster":"local","environment":"development","event_name":"connection_closed","kind":"diagnostic","message":"tls transport closed session","module":"framework.network","node_id":"development-node","process_id":31395,"process_start_id":"e366dfc6d3df71b81fab1c0d09138806","region":"local","schema_version":1,"sequence":5,"service_instance":"realm-dev-01","service_name":"realm","severity":"INFO","source_file":"/private/tmp/realmmesh-p6/final/framework/network/src/tls/tls_tcp_transport.cpp","source_line":276,"thread_id":9066802590029076137,"timestamp":"2026-10-06T17:19:08.777453000Z","zone":"development"}
+659: {"attribute_data_classes":{"delivered":"internal","delivery_failed":"internal","invalid_source_disconnects":"internal","outbound_rejected":"internal","overload_disconnects":"internal","unknown_session_commands":"internal"},"attributes":{"delivered":2,"delivery_failed":0,"invalid_source_disconnects":0,"outbound_rejected":0,"overload_disconnects":0,"unknown_session_commands":0},"cluster":"local","environment":"development","event_name":"service_stopped","kind":"diagnostic","message":"gateway service stopped","module":"framework.service_host","node_id":"development-node","process_id":31395,"process_start_id":"ff0a12542a3154707faef17f44428978","region":"local","schema_version":1,"sequence":11,"service_instance":"gateway-dev-01","service_name":"gateway","severity":"INFO","source_file":"/private/tmp/realmmesh-p6/final/framework/service_host/src/service_frame.cpp","source_line":201,"thread_id":9810675905446315910,"timestamp":"2026-10-06T17:19:08.780213000Z","zone":"development"}
+659: {"attribute_data_classes":{},"attributes":{},"cluster":"local","environment":"development","event_name":"service_stopped","kind":"diagnostic","message":"login_verify service stopped","module":"framework.service_host","node_id":"development-node","process_id":31395,"process_start_id":"b0a4687f0ffa83f495bff9b4853d4cc3","region":"local","schema_version":1,"sequence":3,"service_instance":"login-verify-dev-01","service_name":"login_verify","severity":"INFO","source_file":"/private/tmp/realmmesh-p6/final/framework/service_host/src/service_host.cpp","source_line":364,"thread_id":9810675905446315910,"timestamp":"2026-10-06T17:19:09.578089000Z","zone":"development"}
+659: {"attribute_data_classes":{},"attributes":{},"cluster":"local","environment":"development","event_name":"service_stopped","kind":"diagnostic","message":"queue service stopped","module":"framework.service_host","node_id":"development-node","process_id":31395,"process_start_id":"e7c73b7d7d64338b22428b5d1813e0e5","region":"local","schema_version":1,"sequence":3,"service_instance":"queue-dev-01","service_name":"queue","severity":"INFO","source_file":"/private/tmp/realmmesh-p6/final/framework/service_host/src/service_host.cpp","source_line":364,"thread_id":9810675905446315910,"timestamp":"2026-10-06T17:19:09.578763000Z","zone":"development"}
+659: {"attribute_data_classes":{},"attributes":{},"cluster":"local","environment":"development","event_name":"service_stopped","kind":"diagnostic","message":"realm service stopped","module":"framework.service_host","node_id":"development-node","process_id":31395,"process_start_id":"e366dfc6d3df71b81fab1c0d09138806","region":"local","schema_version":1,"sequence":6,"service_instance":"realm-dev-01","service_name":"realm","severity":"INFO","source_file":"/private/tmp/realmmesh-p6/final/framework/service_host/src/service_frame.cpp","source_line":219,"thread_id":9810675905446315910,"timestamp":"2026-10-06T17:19:09.580041000Z","zone":"development"}
+659: {"level":"error","ts":"2026-10-07T01:19:09.687437+0800","caller":"embed/etcd.go:912","msg":"setting up serving from embedded etcd failed.","error":"http: Server closed","stacktrace":"go.etcd.io/etcd/server/v3/embed.(*Etcd).errHandler\n\tgo.etcd.io/etcd/server/v3/embed/etcd.go:912\ngo.etcd.io/etcd/server/v3/embed.(*serveCtx).startHandler.func1\n\tgo.etcd.io/etcd/server/v3/embed/serve.go:91"}
+659: {"level":"error","ts":"2026-10-07T01:19:09.687738+0800","caller":"embed/etcd.go:912","msg":"setting up serving from embedded etcd failed.","error":"mux: server closed","stacktrace":"go.etcd.io/etcd/server/v3/embed.(*Etcd).errHandler\n\tgo.etcd.io/etcd/server/v3/embed/etcd.go:912\ngo.etcd.io/etcd/server/v3/embed.(*serveCtx).startHandler.func1\n\tgo.etcd.io/etcd/server/v3/embed/serve.go:91"}
+659: {"level":"error","ts":"2026-10-07T01:19:09.687793+0800","caller":"embed/etcd.go:912","msg":"setting up serving from embedded etcd failed.","error":"accept tcp 127.0.0.1:61636: use of closed network connection","stacktrace":"go.etcd.io/etcd/server/v3/embed.(*Etcd).errHandler\n\tgo.etcd.io/etcd/server/v3/embed/etcd.go:912\ngo.etcd.io/etcd/server/v3/embed.(*Etcd).startHandler.func1\n\tgo.etcd.io/etcd/server/v3/embed/etcd.go:906"}
+659: {"level":"error","ts":"2026-10-07T01:19:09.718219+0800","caller":"embed/etcd.go:912","msg":"setting up serving from embedded etcd failed.","error":"accept tcp 127.0.0.1:61637: use of closed network connection","stacktrace":"go.etcd.io/etcd/server/v3/embed.(*Etcd).errHandler\n\tgo.etcd.io/etcd/server/v3/embed/etcd.go:912\ngo.etcd.io/etcd/server/v3/embed.(*Etcd).startHandler.func1\n\tgo.etcd.io/etcd/server/v3/embed/etcd.go:906"}
+659: [       OK ] LoadgenIntegrationTest.FullTargetRedeemsRealmSession (5126 ms)
+659: [----------] 1 test from LoadgenIntegrationTest (5126 ms total)
+659: 
+659: [----------] Global test environment tear-down
+659: [==========] 1 test from 1 test suite ran. (5126 ms total)
+659: [  PASSED  ] 1 test.
+    Test #659: LoadgenIntegrationTest.FullTargetRedeemsRealmSession ............   Passed    5.34 sec
+    Start 659: LoadgenIntegrationTest.FullTargetRedeemsRealmSession
+
+659: Test command: /private/tmp/realmmesh-p6/final/build/dev-ninja/tests/cpp/tools/loadgen/loadgen_integration_test "--gtest_filter=LoadgenIntegrationTest.FullTargetRedeemsRealmSession" "--gtest_also_run_disabled_tests"
+659: Working Directory: /private/tmp/realmmesh-p6/final/build/dev-ninja/tests/cpp
+659: Test timeout computed to be: 1500
+659: Running main() from /private/tmp/realmmesh-p5/deps-src/googletest-src/googletest/src/gtest_main.cc
+659: Note: Google Test filter = LoadgenIntegrationTest.FullTargetRedeemsRealmSession
+659: [==========] Running 1 test from 1 test suite.
+659: [----------] Global test environment set-up.
+659: [----------] 1 test from LoadgenIntegrationTest
+659: [ RUN      ] LoadgenIntegrationTest.FullTargetRedeemsRealmSession
+659: {"t":{"$date":"2026-10-07T01:19:10.410+08:00"},"s":"I",  "c":"-",        "id":8991200, "ctx":"thread1","msg":"Shuffling initializers","attr":{"seed":2886599865}}
+659: {"attribute_data_classes":{"listen_address":"internal","listen_port":"internal","transport":"internal","transport_name":"internal"},"attributes":{"listen_address":"127.0.0.1","listen_port":61696,"transport":"tls_tcp","transport_name":"https"},"cluster":"local","environment":"development","event_name":"listener_started","kind":"diagnostic","message":"login_verify listener started","module":"game.login_verify","node_id":"development-node","process_id":31484,"process_start_id":"c018e0cc69f5cd83225982058b93bab5","region":"local","schema_version":1,"sequence":1,"service_instance":"login-verify-dev-01","service_name":"login_verify","severity":"INFO","source_file":"/private/tmp/realmmesh-p6/final/game/login_verify/src/login_verify_service.cpp","source_line":57,"thread_id":9810675905446315910,"timestamp":"2026-10-06T17:19:11.584801000Z","zone":"development"}
+659: {"attribute_data_classes":{},"attributes":{},"cluster":"local","environment":"development","event_name":"service_started","kind":"diagnostic","message":"login_verify service started","module":"game.login_verify","node_id":"development-node","process_id":31484,"process_start_id":"c018e0cc69f5cd83225982058b93bab5","region":"local","schema_version":1,"sequence":2,"service_instance":"login-verify-dev-01","service_name":"login_verify","severity":"INFO","source_file":"/private/tmp/realmmesh-p6/final/game/login_verify/src/login_verify_service.cpp","source_line":66,"thread_id":9810675905446315910,"timestamp":"2026-10-06T17:19:11.585233000Z","zone":"development"}
+659: {"attribute_data_classes":{"listen_address":"internal","listen_port":"internal","transport":"internal","transport_name":"internal"},"attributes":{"listen_address":"127.0.0.1","listen_port":61697,"transport":"tls_tcp","transport_name":"https"},"cluster":"local","environment":"development","event_name":"listener_started","kind":"diagnostic","message":"queue listener started","module":"game.queue","node_id":"development-node","process_id":31484,"process_start_id":"6861fd329383cd51600e32268cda4cbc","region":"local","schema_version":1,"sequence":1,"service_instance":"queue-dev-01","service_name":"queue","severity":"INFO","source_file":"/private/tmp/realmmesh-p6/final/game/queue/src/queue_service.cpp","source_line":120,"thread_id":9810675905446315910,"timestamp":"2026-10-06T17:19:11.587407000Z","zone":"development"}
+659: {"attribute_data_classes":{},"attributes":{},"cluster":"local","environment":"development","event_name":"service_started","kind":"diagnostic","message":"queue service started","module":"game.queue","node_id":"development-node","process_id":31484,"process_start_id":"6861fd329383cd51600e32268cda4cbc","region":"local","schema_version":1,"sequence":2,"service_instance":"queue-dev-01","service_name":"queue","severity":"INFO","source_file":"/private/tmp/realmmesh-p6/final/game/queue/src/queue_service.cpp","source_line":129,"thread_id":9810675905446315910,"timestamp":"2026-10-06T17:19:11.587468000Z","zone":"development"}
+659: {"attribute_data_classes":{"listen_address":"internal","listen_port":"internal"},"attributes":{"listen_address":"0.0.0.0","listen_port":61699},"cluster":"local","environment":"development","event_name":"service_started","kind":"diagnostic","message":"realm service started","module":"framework.service_host","node_id":"development-node","process_id":31484,"process_start_id":"a183ec2aa8ca9dae88907ee809d20043","region":"local","schema_version":1,"sequence":1,"service_instance":"realm-dev-01","service_name":"realm","severity":"INFO","source_file":"/private/tmp/realmmesh-p6/final/framework/service_host/src/service_frame.cpp","source_line":165,"thread_id":9810675905446315910,"timestamp":"2026-10-06T17:19:11.589852000Z","zone":"development"}
+659: {"attribute_data_classes":{"listen_address":"internal","listen_port":"internal","transport":"internal","transport_name":"internal"},"attributes":{"listen_address":"0.0.0.0","listen_port":61698,"transport":"quic","transport_name":"client_quic"},"cluster":"local","environment":"development","event_name":"listener_started","kind":"diagnostic","message":"gateway listener started","module":"framework.service_host","node_id":"development-node","process_id":31484,"process_start_id":"fc3dab4e703a91cde201856fce8db758","region":"local","schema_version":1,"sequence":1,"service_instance":"gateway-dev-01","service_name":"gateway","severity":"INFO","source_file":"/private/tmp/realmmesh-p6/final/framework/service_host/src/service_frame.cpp","source_line":151,"thread_id":9810675905446315910,"timestamp":"2026-10-06T17:19:11.592396000Z","zone":"development"}
+659: {"attribute_data_classes":{"listen_address":"internal","listen_port":"internal","transport":"internal","transport_name":"internal"},"attributes":{"listen_address":"0.0.0.0","listen_port":61698,"transport":"tls_tcp","transport_name":"client_tls_tcp"},"cluster":"local","environment":"development","event_name":"listener_started","kind":"diagnostic","message":"gateway listener started","module":"framework.service_host","node_id":"development-node","process_id":31484,"process_start_id":"fc3dab4e703a91cde201856fce8db758","region":"local","schema_version":1,"sequence":2,"service_instance":"gateway-dev-01","service_name":"gateway","severity":"INFO","source_file":"/private/tmp/realmmesh-p6/final/framework/service_host/src/service_frame.cpp","source_line":151,"thread_id":9810675905446315910,"timestamp":"2026-10-06T17:19:11.592462000Z","zone":"development"}
+659: {"attribute_data_classes":{},"attributes":{},"cluster":"local","environment":"development","event_name":"service_started","kind":"diagnostic","message":"gateway service started","module":"framework.service_host","node_id":"development-node","process_id":31484,"process_start_id":"fc3dab4e703a91cde201856fce8db758","region":"local","schema_version":1,"sequence":3,"service_instance":"gateway-dev-01","service_name":"gateway","severity":"INFO","source_file":"/private/tmp/realmmesh-p6/final/framework/service_host/src/service_frame.cpp","source_line":161,"thread_id":9810675905446315910,"timestamp":"2026-10-06T17:19:11.592519000Z","zone":"development"}
+659: {"attribute_data_classes":{"protocol":"internal","session_id":"internal","transport_name":"internal"},"attributes":{"protocol":"tls_tcp","session_id":1,"transport_name":"client_tls_tcp"},"cluster":"local","environment":"development","event_name":"connection_accepted","kind":"diagnostic","message":"tls transport accepted incoming connection","module":"framework.network","node_id":"development-node","process_id":31484,"process_start_id":"fc3dab4e703a91cde201856fce8db758","region":"local","schema_version":1,"sequence":4,"service_instance":"gateway-dev-01","service_name":"gateway","severity":"INFO","source_file":"/private/tmp/realmmesh-p6/final/framework/network/src/tls/tls_tcp_transport.cpp","source_line":152,"thread_id":11872069581448655132,"timestamp":"2026-10-06T17:19:13.660305000Z","zone":"development"}
+659: {"attribute_data_classes":{"alpn":"internal","protocol":"internal","session_id":"internal","transport_name":"internal"},"attributes":{"alpn":"realmmesh-edge/1","protocol":"tls_tcp","session_id":1,"transport_name":"client_tls_tcp"},"cluster":"local","environment":"development","event_name":"tls_handshake_completed","kind":"diagnostic","message":"tls transport completed handshake","module":"framework.network","node_id":"development-node","process_id":31484,"process_start_id":"fc3dab4e703a91cde201856fce8db758","region":"local","schema_version":1,"sequence":5,"service_instance":"gateway-dev-01","service_name":"gateway","severity":"INFO","source_file":"/private/tmp/realmmesh-p6/final/framework/network/src/tls/tls_tcp_transport.cpp","source_line":185,"thread_id":11872069581448655132,"timestamp":"2026-10-06T17:19:13.664077000Z","zone":"development"}
+659: {"attribute_data_classes":{"gateway_instance":"internal","result":"internal"},"attributes":{"gateway_instance":"gateway-dev-01","result":"reserved"},"cluster":"local","environment":"development","event_name":"gateway_credential_audit","kind":"diagnostic","message":"gateway credential admission outcome","module":"game.gateway","node_id":"development-node","process_id":31484,"process_start_id":"fc3dab4e703a91cde201856fce8db758","region":"local","schema_version":1,"sequence":6,"service_instance":"gateway-dev-01","service_name":"gateway","severity":"INFO","source_file":"/private/tmp/realmmesh-p6/final/game/gateway/src/gateway_login_pipeline.cpp","source_line":722,"thread_id":8501297478177440585,"timestamp":"2026-10-06T17:19:13.679791000Z","zone":"development"}
+659: {"attribute_data_classes":{"account_id":"pseudonymous","session_id":"internal"},"attributes":{"account_id":5115113555351659826,"session_id":1},"cluster":"local","environment":"development","event_name":"edge_session_attached","kind":"diagnostic","message":"edge session attached","module":"game.gateway","node_id":"development-node","process_id":31484,"process_start_id":"fc3dab4e703a91cde201856fce8db758","region":"local","schema_version":1,"sequence":7,"service_instance":"gateway-dev-01","service_name":"gateway","severity":"INFO","source_file":"/private/tmp/realmmesh-p6/final/game/gateway/src/gateway_login_pipeline.cpp","source_line":659,"thread_id":8501297478177440585,"timestamp":"2026-10-06T17:19:13.684547000Z","zone":"development"}
+659: {"attribute_data_classes":{"session_id":"internal"},"attributes":{"session_id":1},"cluster":"local","environment":"development","event_name":"edge_fetch_completed","kind":"diagnostic","message":"edge fetch completed","module":"game.gateway","node_id":"development-node","process_id":31484,"process_start_id":"fc3dab4e703a91cde201856fce8db758","region":"local","schema_version":1,"sequence":8,"service_instance":"gateway-dev-01","service_name":"gateway","severity":"INFO","source_file":"/private/tmp/realmmesh-p6/final/game/gateway/src/gateway_login_pipeline.cpp","source_line":393,"thread_id":8501297478177440585,"timestamp":"2026-10-06T17:19:13.700539000Z","zone":"development"}
+659: {"attribute_data_classes":{"account_id":"pseudonymous","session_id":"internal"},"attributes":{"account_id":5115113555351659826,"session_id":1},"cluster":"local","environment":"development","event_name":"edge_handoff_granted","kind":"diagnostic","message":"enter-realm handoff granted","module":"game.gateway","node_id":"development-node","process_id":31484,"process_start_id":"fc3dab4e703a91cde201856fce8db758","region":"local","schema_version":1,"sequence":9,"service_instance":"gateway-dev-01","service_name":"gateway","severity":"INFO","source_file":"/private/tmp/realmmesh-p6/final/game/gateway/src/gateway_login_pipeline.cpp","source_line":590,"thread_id":8501297478177440585,"timestamp":"2026-10-06T17:19:13.700865000Z","zone":"development"}
+659: {"attribute_data_classes":{"protocol":"internal","session_id":"internal","transport_name":"internal"},"attributes":{"protocol":"tls_tcp","session_id":1,"transport_name":"realm_tls_tcp"},"cluster":"local","environment":"development","event_name":"connection_accepted","kind":"diagnostic","message":"tls transport accepted incoming connection","module":"framework.network","node_id":"development-node","process_id":31484,"process_start_id":"a183ec2aa8ca9dae88907ee809d20043","region":"local","schema_version":1,"sequence":2,"service_instance":"realm-dev-01","service_name":"realm","severity":"INFO","source_file":"/private/tmp/realmmesh-p6/final/framework/network/src/tls/tls_tcp_transport.cpp","source_line":152,"thread_id":11728270677341587506,"timestamp":"2026-10-06T17:19:13.701542000Z","zone":"development"}
+659: {"attribute_data_classes":{"protocol":"internal","reason":"internal","session_id":"internal","transport_name":"internal"},"attributes":{"protocol":"tls_tcp","reason":"peer_closed","session_id":1,"transport_name":"client_tls_tcp"},"cluster":"local","environment":"development","event_name":"connection_closed","kind":"diagnostic","message":"tls transport closed session","module":"framework.network","node_id":"development-node","process_id":31484,"process_start_id":"fc3dab4e703a91cde201856fce8db758","region":"local","schema_version":1,"sequence":10,"service_instance":"gateway-dev-01","service_name":"gateway","severity":"INFO","source_file":"/private/tmp/realmmesh-p6/final/framework/network/src/tls/tls_tcp_transport.cpp","source_line":276,"thread_id":11872069581448655132,"timestamp":"2026-10-06T17:19:13.702541000Z","zone":"development"}
+659: {"attribute_data_classes":{"alpn":"internal","protocol":"internal","session_id":"internal","transport_name":"internal"},"attributes":{"alpn":"realmmesh-edge/1","protocol":"tls_tcp","session_id":1,"transport_name":"realm_tls_tcp"},"cluster":"local","environment":"development","event_name":"tls_handshake_completed","kind":"diagnostic","message":"tls transport completed handshake","module":"framework.network","node_id":"development-node","process_id":31484,"process_start_id":"a183ec2aa8ca9dae88907ee809d20043","region":"local","schema_version":1,"sequence":3,"service_instance":"realm-dev-01","service_name":"realm","severity":"INFO","source_file":"/private/tmp/realmmesh-p6/final/framework/network/src/tls/tls_tcp_transport.cpp","source_line":185,"thread_id":11728270677341587506,"timestamp":"2026-10-06T17:19:13.703447000Z","zone":"development"}
+659: {"attribute_data_classes":{"account_id":"pseudonymous"},"attributes":{"account_id":5115113555351659826},"cluster":"local","environment":"development","event_name":"player_session_established","kind":"diagnostic","message":"realm accepted direct entry","module":"framework.service_host","node_id":"development-node","process_id":31484,"process_start_id":"a183ec2aa8ca9dae88907ee809d20043","region":"local","request_id":0,"schema_version":1,"sequence":4,"service_instance":"realm-dev-01","service_name":"realm","severity":"INFO","source_file":"/private/tmp/realmmesh-p6/final/framework/service_host/src/service_frame.cpp","source_line":365,"thread_id":8501297478177440585,"timestamp":"2026-10-06T17:19:13.706263000Z","zone":"development"}
+659: loadgen report
+659: robots: 1  completed: 1
+659: verify: attempts=1 failures=0 p50_ms=18.844708 p99_ms=18.844708 max_ms=18.844708
+659: tickets: attempts=1 failures=0 p50_ms=18.985458 p99_ms=18.985458 max_ms=18.985458
+659: poll: attempts=36 failures=0 p50_ms=2.580917 p99_ms=5.979458 max_ms=5.979458
+659: attach: attempts=1 failures=0 p50_ms=17.165125 p99_ms=17.165125 max_ms=17.165125
+659: handoff: attempts=1 failures=0 p50_ms=20.840458 p99_ms=20.840458 max_ms=20.840458
+659: realm: attempts=1 failures=0 p50_ms=7.195375 p99_ms=7.195375 max_ms=7.195375
+659: {"attribute_data_classes":{"protocol":"internal","reason":"internal","session_id":"internal","transport_name":"internal"},"attributes":{"protocol":"tls_tcp","reason":"peer_closed","session_id":1,"transport_name":"realm_tls_tcp"},"cluster":"local","environment":"development","event_name":"connection_closed","kind":"diagnostic","message":"tls transport closed session","module":"framework.network","node_id":"development-node","process_id":31484,"process_start_id":"a183ec2aa8ca9dae88907ee809d20043","region":"local","schema_version":1,"sequence":5,"service_instance":"realm-dev-01","service_name":"realm","severity":"INFO","source_file":"/private/tmp/realmmesh-p6/final/framework/network/src/tls/tls_tcp_transport.cpp","source_line":276,"thread_id":11728270677341587506,"timestamp":"2026-10-06T17:19:13.715495000Z","zone":"development"}
+659: {"attribute_data_classes":{"delivered":"internal","delivery_failed":"internal","invalid_source_disconnects":"internal","outbound_rejected":"internal","overload_disconnects":"internal","unknown_session_commands":"internal"},"attributes":{"delivered":2,"delivery_failed":0,"invalid_source_disconnects":0,"outbound_rejected":0,"overload_disconnects":0,"unknown_session_commands":0},"cluster":"local","environment":"development","event_name":"service_stopped","kind":"diagnostic","message":"gateway service stopped","module":"framework.service_host","node_id":"development-node","process_id":31484,"process_start_id":"fc3dab4e703a91cde201856fce8db758","region":"local","schema_version":1,"sequence":11,"service_instance":"gateway-dev-01","service_name":"gateway","severity":"INFO","source_file":"/private/tmp/realmmesh-p6/final/framework/service_host/src/service_frame.cpp","source_line":201,"thread_id":9810675905446315910,"timestamp":"2026-10-06T17:19:13.718999000Z","zone":"development"}
+659: {"attribute_data_classes":{},"attributes":{},"cluster":"local","environment":"development","event_name":"service_stopped","kind":"diagnostic","message":"login_verify service stopped","module":"framework.service_host","node_id":"development-node","process_id":31484,"process_start_id":"c018e0cc69f5cd83225982058b93bab5","region":"local","schema_version":1,"sequence":3,"service_instance":"login-verify-dev-01","service_name":"login_verify","severity":"INFO","source_file":"/private/tmp/realmmesh-p6/final/framework/service_host/src/service_host.cpp","source_line":364,"thread_id":9810675905446315910,"timestamp":"2026-10-06T17:19:14.498461000Z","zone":"development"}
+659: {"attribute_data_classes":{},"attributes":{},"cluster":"local","environment":"development","event_name":"service_stopped","kind":"diagnostic","message":"queue service stopped","module":"framework.service_host","node_id":"development-node","process_id":31484,"process_start_id":"6861fd329383cd51600e32268cda4cbc","region":"local","schema_version":1,"sequence":3,"service_instance":"queue-dev-01","service_name":"queue","severity":"INFO","source_file":"/private/tmp/realmmesh-p6/final/framework/service_host/src/service_host.cpp","source_line":364,"thread_id":9810675905446315910,"timestamp":"2026-10-06T17:19:14.499422000Z","zone":"development"}
+659: {"attribute_data_classes":{},"attributes":{},"cluster":"local","environment":"development","event_name":"service_stopped","kind":"diagnostic","message":"realm service stopped","module":"framework.service_host","node_id":"development-node","process_id":31484,"process_start_id":"a183ec2aa8ca9dae88907ee809d20043","region":"local","schema_version":1,"sequence":6,"service_instance":"realm-dev-01","service_name":"realm","severity":"INFO","source_file":"/private/tmp/realmmesh-p6/final/framework/service_host/src/service_frame.cpp","source_line":219,"thread_id":9810675905446315910,"timestamp":"2026-10-06T17:19:14.501099000Z","zone":"development"}
+659: {"level":"error","ts":"2026-10-07T01:19:14.592368+0800","caller":"embed/etcd.go:912","msg":"setting up serving from embedded etcd failed.","error":"mux: server closed","stacktrace":"go.etcd.io/etcd/server/v3/embed.(*Etcd).errHandler\n\tgo.etcd.io/etcd/server/v3/embed/etcd.go:912\ngo.etcd.io/etcd/server/v3/embed.(*serveCtx).startHandler.func1\n\tgo.etcd.io/etcd/server/v3/embed/serve.go:91"}
+659: {"level":"error","ts":"2026-10-07T01:19:14.592342+0800","caller":"embed/etcd.go:912","msg":"setting up serving from embedded etcd failed.","error":"http: Server closed","stacktrace":"go.etcd.io/etcd/server/v3/embed.(*Etcd).errHandler\n\tgo.etcd.io/etcd/server/v3/embed/etcd.go:912\ngo.etcd.io/etcd/server/v3/embed.(*serveCtx).startHandler.func1\n\tgo.etcd.io/etcd/server/v3/embed/serve.go:91"}
+659: {"level":"error","ts":"2026-10-07T01:19:14.592965+0800","caller":"embed/etcd.go:912","msg":"setting up serving from embedded etcd failed.","error":"accept tcp 127.0.0.1:61700: use of closed network connection","stacktrace":"go.etcd.io/etcd/server/v3/embed.(*Etcd).errHandler\n\tgo.etcd.io/etcd/server/v3/embed/etcd.go:912\ngo.etcd.io/etcd/server/v3/embed.(*Etcd).startHandler.func1\n\tgo.etcd.io/etcd/server/v3/embed/etcd.go:906"}
+659: {"level":"error","ts":"2026-10-07T01:19:14.618584+0800","caller":"embed/etcd.go:912","msg":"setting up serving from embedded etcd failed.","error":"accept tcp 127.0.0.1:61701: use of closed network connection","stacktrace":"go.etcd.io/etcd/server/v3/embed.(*Etcd).errHandler\n\tgo.etcd.io/etcd/server/v3/embed/etcd.go:912\ngo.etcd.io/etcd/server/v3/embed.(*Etcd).startHandler.func1\n\tgo.etcd.io/etcd/server/v3/embed/etcd.go:906"}
+659: [       OK ] LoadgenIntegrationTest.FullTargetRedeemsRealmSession (4669 ms)
+659: [----------] 1 test from LoadgenIntegrationTest (4669 ms total)
+659: 
+659: [----------] Global test environment tear-down
+659: [==========] 1 test from 1 test suite ran. (4669 ms total)
+659: [  PASSED  ] 1 test.
+2/2 Test #659: LoadgenIntegrationTest.FullTargetRedeemsRealmSession ............   Passed    4.89 sec
+
+The following tests passed:
+	WireLoginTransportIntegrationTest.DrivesLoginChainOverRealTls
+	LoadgenIntegrationTest.FullTargetRedeemsRealmSession
+
+100% tests passed out of 2
+
+Label Time Summary:
+integration                                     =   5.00 sec*proc (2 tests)
+target=loadgen_integration_test                 =   4.89 sec*proc (1 test)
+target=wire_login_transport_integration_test    =   0.11 sec*proc (1 test)
+
+Total Test time (real) =  15.84 sec
+## Failure and restart recovery
+Test project /private/tmp/realmmesh-p6/final/build/dev-ninja
+    Start  16: DevServicesScriptTest.FourProcessFailureRecovery
+1/9 Test  #16: DevServicesScriptTest.FourProcessFailureRecovery ..........................   Passed   53.59 sec
+    Start 196: LoginChainTest.AdmitTimeoutReturnsToIdle
+2/9 Test #196: LoginChainTest.AdmitTimeoutReturnsToIdle ..................................   Passed    0.27 sec
+    Start 439: NewChainFlowTest.AttachesToGatewayAndEntersRealm
+3/9 Test #439: NewChainFlowTest.AttachesToGatewayAndEntersRealm ..........................   Passed    3.58 sec
+    Start 440: NewChainFlowTest.RestartKeepsCommittedAdmissionConsumed
+4/9 Test #440: NewChainFlowTest.RestartKeepsCommittedAdmissionConsumed ...................   Passed    4.86 sec
+    Start 484: GatewayAdmissionTest.TwoInstancesCommitOneIdentityAtMostOnce
+5/9 Test #484: GatewayAdmissionTest.TwoInstancesCommitOneIdentityAtMostOnce ..............   Passed    0.02 sec
+    Start 486: GatewayAdmissionTest.StoreOutageIsRetryableAndAffectsAvailability
+6/9 Test #486: GatewayAdmissionTest.StoreOutageIsRetryableAndAffectsAvailability .........   Passed    0.01 sec
+    Start 488: GatewayAdmissionTest.AmbiguousCommitCanNeverReleaseReservation
+7/9 Test #488: GatewayAdmissionTest.AmbiguousCommitCanNeverReleaseReservation ............   Passed    0.01 sec
+    Start 595: QueueProcessRestartTest.RecoversAcknowledgedIssueFromAuthoritativeStore
+8/9 Test #595: QueueProcessRestartTest.RecoversAcknowledgedIssueFromAuthoritativeStore ...   Passed    3.28 sec
+    Start 660: LoadgenIntegrationTest.GatewayReadinessRecoversAfterEtcdOutage
+9/9 Test #660: LoadgenIntegrationTest.GatewayReadinessRecoversAfterEtcdOutage ............   Passed    5.16 sec
+
+100% tests passed out of 9
+
+Label Time Summary:
+integration                          =  70.46 sec*proc (5 tests)
+target=gateway_admission_test        =   0.05 sec*proc (3 tests)
+target=loadgen_integration_test      =   5.16 sec*proc (1 test)
+target=login_chain_test              =   0.27 sec*proc (1 test)
+target=new_chain_flow_test           =   8.44 sec*proc (2 tests)
+target=queue_process_restart_test    =   3.28 sec*proc (1 test)
+unit                                 =   0.31 sec*proc (4 tests)
+
+Total Test time (real) =  70.80 sec
+## L1 soak
+Test project /private/tmp/realmmesh-p6/final/build/dev-ninja
+    Start 657: LoadgenIntegrationTest.L1GatewaySoakHoldsWaterLevelWithoutFdLeak
+1/1 Test #657: LoadgenIntegrationTest.L1GatewaySoakHoldsWaterLevelWithoutFdLeak ...   Passed   15.36 sec
+
+100% tests passed out of 1
+
+Label Time Summary:
+integration                        =  15.36 sec*proc (1 test)
+target=loadgen_integration_test    =  15.36 sec*proc (1 test)
+
+Total Test time (real) =  15.38 sec

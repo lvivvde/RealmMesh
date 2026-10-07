@@ -1,0 +1,50 @@
+$ cmake --preset dev -DREALMMESH_CCACHE=ON -DCMAKE_PROJECT_RealmMesh_INCLUDE=/home/edwin.guest/code/.bench/p6-clock-fixed-20261007/checks-results/compile-observer.cmake -DCMAKE_C_LINKER_LAUNCHER=/home/edwin.guest/code/.bench/p6-clock-fixed-20261007/launcher -DCMAKE_CXX_LINKER_LAUNCHER=/home/edwin.guest/code/.bench/p6-clock-fixed-20261007/launcher -DCMAKE_C_COMPILER_LAUNCHER= -DCMAKE_CXX_COMPILER_LAUNCHER= -DFETCHCONTENT_SOURCE_DIR_ABSL=/home/edwin.guest/code/.bench/p5-20261006/deps-src/absl-src -DFETCHCONTENT_SOURCE_DIR_CPP_HTTPLIB_SOURCE=/home/edwin.guest/code/.bench/p5-20261006/deps-src/cpp_httplib_source-src -DFETCHCONTENT_SOURCE_DIR_GOOGLETEST=/home/edwin.guest/code/.bench/p5-20261006/deps-src/googletest-src -DFETCHCONTENT_SOURCE_DIR_LUA_SOURCE=/home/edwin.guest/code/.bench/p5-20261006/deps-src/lua_source-src -DFETCHCONTENT_SOURCE_DIR_LUAUNIT=/home/edwin.guest/code/.bench/p5-20261006/deps-src/luaunit-src -DFETCHCONTENT_SOURCE_DIR_MONGO-C-DRIVER=/home/edwin.guest/code/.bench/p5-20261006/deps-src/mongo-c-driver-src -DFETCHCONTENT_SOURCE_DIR_MONGO-CXX-DRIVER=/home/edwin.guest/code/.bench/p5-20261006/deps-src/mongo-cxx-driver-src -DFETCHCONTENT_SOURCE_DIR_NLOHMANN_JSON_SOURCE=/home/edwin.guest/code/.bench/p5-20261006/deps-src/nlohmann_json_source-src -DFETCHCONTENT_SOURCE_DIR_PROTOBUF=/home/edwin.guest/code/.bench/p5-20261006/deps-src/protobuf-src -DFETCHCONTENT_SOURCE_DIR_REALMMESH_PROTOC=/home/edwin.guest/code/.bench/p5-20261006/deps-src/realmmesh_protoc-src -DFETCHCONTENT_SOURCE_DIR_SOL2_SOURCE=/home/edwin.guest/code/.bench/p5-20261006/deps-src/sol2_source-src -DFETCHCONTENT_SOURCE_DIR_SPDLOG=/home/edwin.guest/code/.bench/p5-20261006/deps-src/spdlog-src
+-- RealmMesh ccache: ON, /usr/bin/ccache 4.12.3; native C/CXX targets; dir=/home/edwin.guest/code/.bench/p6-clock-fixed-20261007/final/.cache/ccache, max=5GiB; libsodium excluded
+-- Found OpenSSL: /usr/lib/aarch64-linux-gnu/libcrypto.so (found suitable version "3.5.5", minimum required is "3.0") found components: SSL Crypto
+-- RealmMesh: OpenSSL 3.5.5 from /usr (root none, FindOpenSSL search)
+-- realm_build_dir: preset dev -> /home/edwin.guest/code/.bench/p6-clock-fixed-20261007/final/build/dev-ninja
+-- Using the multi-header code from /home/edwin.guest/code/.bench/p5-20261006/deps-src/nlohmann_json_source-src/include/
+-- MsQuic: 2.6.1 (/home/edwin.guest/code/RealmMesh/.tools/msquic/usr/lib/aarch64-linux-gnu/libmsquic.so.2.6.1)
+-- realm_protocol: protoc 35.0 from the pinned release download
+-- protobuf version: 35.0.0
+-- Build spdlog: 1.17.0
+-- Build type: Debug
+-- Using bundled libbson
+-- libmongoc version (from VERSION_CURRENT file): 2.5.5
+-- Disabling zlib compression
+-- Found OpenSSL: /usr/lib/aarch64-linux-gnu/libcrypto.so (found version "3.5.5")
+-- libmongoc TLS : OpenSSL
+-- Using SASL backend : OFF
+-- Detected parameters: accept (int, struct sockaddr *, socklen_t *)
+-- SASL disabled
+-- Enabling utf8proc (bundled)
+-- Adding -fPIC to compilation of mongoc_static components
+-- Build files generated for:
+-- 	build system: Ninja
+-- The following features have been enabled:
+
+ * TLS, for secure network communication (OpenSSL)
+ * Cryptography, cryptographic primitives (OpenSSL)
+
+-- The following features have been disabled:
+
+ * AWS Authentication, authenticate with MongoDB servers using credentials from AWS instance metadata. (Manually disabled)
+ * SASL Authentication, authenticate with MongoDB servers using SASL: “Simple Authentication and Security Layer” (OFF)
+
+-- bsoncxx version: 4.6.0
+-- bsoncxx soversion: 1
+-- Auto-configuring bsoncxx to use its own polyfill implementations since C++17 is inactive
+-- Using bson targets imported via add_subdirectory() without version checks
+-- mongocxx version: 4.6.0
+-- mongocxx soversion: 1
+-- Using mongoc targets imported via add_subdirectory() without version checks
+-- Build files generated for:
+-- 	build system: Ninja
+-- realm_network: QUIC transport enabled (MsQuic found)
+-- realm_network Event Loop backend: epoll (REALMMESH_NET_BACKEND=auto)
+-- Configuring done (0.2s)
+-- Generating done (0.3s)
+-- Build files have been written to: /home/edwin.guest/code/.bench/p6-clock-fixed-20261007/final/build/dev-ninja
+$ cmake --build --preset dev --parallel 2
+[0/2] Re-checking globbed directories...
+ninja: no work to do.

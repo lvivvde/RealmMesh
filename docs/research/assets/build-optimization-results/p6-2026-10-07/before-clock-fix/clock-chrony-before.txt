@@ -1,0 +1,13 @@
+Reference ID    : C61200A9 (198.18.0.169)
+Stratum         : 3
+Ref time (UTC)  : Wed Oct 07 10:04:53 2026
+System time     : 0.013969896 seconds slow of NTP time
+Last offset     : -0.039186846 seconds
+RMS offset      : 0.064388871 seconds
+Frequency       : 42815.543 ppm slow
+Residual freq   : -0.294 ppm
+Skew            : 14.304 ppm
+Root delay      : 0.618367434 seconds
+Root dispersion : 0.194521517 seconds
+Update interval : 1026.3 seconds
+Leap status     : Normal

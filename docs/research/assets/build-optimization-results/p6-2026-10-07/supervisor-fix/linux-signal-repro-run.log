@@ -1,0 +1,48 @@
+Test project /home/edwin.guest/code/.bench/p6-20261006/final/build/dev-ninja
+    Start 11: DevServicesScriptTest.StopDuringProcessChecks
+    Test #11: DevServicesScriptTest.StopDuringProcessChecks ...   Passed    2.57 sec
+    Start 11: DevServicesScriptTest.StopDuringProcessChecks
+    Test #11: DevServicesScriptTest.StopDuringProcessChecks ...   Passed    2.65 sec
+    Start 11: DevServicesScriptTest.StopDuringProcessChecks
+    Test #11: DevServicesScriptTest.StopDuringProcessChecks ...   Passed    2.20 sec
+    Start 11: DevServicesScriptTest.StopDuringProcessChecks
+    Test #11: DevServicesScriptTest.StopDuringProcessChecks ...   Passed    2.53 sec
+    Start 11: DevServicesScriptTest.StopDuringProcessChecks
+    Test #11: DevServicesScriptTest.StopDuringProcessChecks ...   Passed    2.63 sec
+    Start 11: DevServicesScriptTest.StopDuringProcessChecks
+    Test #11: DevServicesScriptTest.StopDuringProcessChecks ...   Passed    2.48 sec
+    Start 11: DevServicesScriptTest.StopDuringProcessChecks
+    Test #11: DevServicesScriptTest.StopDuringProcessChecks ...   Passed    2.53 sec
+    Start 11: DevServicesScriptTest.StopDuringProcessChecks
+    Test #11: DevServicesScriptTest.StopDuringProcessChecks ...   Passed    2.06 sec
+    Start 11: DevServicesScriptTest.StopDuringProcessChecks
+    Test #11: DevServicesScriptTest.StopDuringProcessChecks ...   Passed    2.73 sec
+    Start 11: DevServicesScriptTest.StopDuringProcessChecks
+    Test #11: DevServicesScriptTest.StopDuringProcessChecks ...   Passed    2.52 sec
+    Start 11: DevServicesScriptTest.StopDuringProcessChecks
+    Test #11: DevServicesScriptTest.StopDuringProcessChecks ...   Passed    2.50 sec
+    Start 11: DevServicesScriptTest.StopDuringProcessChecks
+    Test #11: DevServicesScriptTest.StopDuringProcessChecks ...   Passed    2.73 sec
+    Start 11: DevServicesScriptTest.StopDuringProcessChecks
+    Test #11: DevServicesScriptTest.StopDuringProcessChecks ...   Passed    2.01 sec
+    Start 11: DevServicesScriptTest.StopDuringProcessChecks
+    Test #11: DevServicesScriptTest.StopDuringProcessChecks ...   Passed    2.60 sec
+    Start 11: DevServicesScriptTest.StopDuringProcessChecks
+    Test #11: DevServicesScriptTest.StopDuringProcessChecks ...   Passed    1.99 sec
+    Start 11: DevServicesScriptTest.StopDuringProcessChecks
+    Test #11: DevServicesScriptTest.StopDuringProcessChecks ...   Passed    2.14 sec
+    Start 11: DevServicesScriptTest.StopDuringProcessChecks
+    Test #11: DevServicesScriptTest.StopDuringProcessChecks ...   Passed    2.02 sec
+    Start 11: DevServicesScriptTest.StopDuringProcessChecks
+    Test #11: DevServicesScriptTest.StopDuringProcessChecks ...   Passed    2.11 sec
+    Start 11: DevServicesScriptTest.StopDuringProcessChecks
+    Test #11: DevServicesScriptTest.StopDuringProcessChecks ...   Passed    2.49 sec
+    Start 11: DevServicesScriptTest.StopDuringProcessChecks
+1/1 Test #11: DevServicesScriptTest.StopDuringProcessChecks ...   Passed    2.69 sec
+
+100% tests passed, 0 tests failed out of 1
+
+Label Time Summary:
+integration    =   2.69 sec*proc (1 test)
+
+Total Test time (real) =  48.21 sec

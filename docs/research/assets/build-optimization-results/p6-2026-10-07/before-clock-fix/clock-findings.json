@@ -1,0 +1,106 @@
+{
+  "before_build_statement": [
+    "build _deps/absl-build/absl/base/libabsl_base.a: CXX_STATIC_LIBRARY_LINKER__absl_base_Debug _deps/absl-build/absl/base/CMakeFiles/absl_base.dir/internal/cycleclock.cc.o _deps/absl-build/absl/base/CMakeFiles/absl_base.dir/internal/spinlock.cc.o _deps/absl-build/absl/base/CMakeFiles/absl_base.dir/internal/sysinfo.cc.o _deps/absl-build/absl/base/CMakeFiles/absl_base.dir/internal/thread_identity.cc.o _deps/absl-build/absl/base/CMakeFiles/absl_base.dir/internal/unscaledcycleclock.cc.o || _deps/absl-build/absl/base/libabsl_log_severity.a _deps/absl-build/absl/base/libabsl_raw_logging_internal.a _deps/absl-build/absl/base/libabsl_spinlock_wait.a",
+    "  CONFIG = Debug",
+    "  LANGUAGE_COMPILE_FLAGS = -g",
+    "  OBJECT_DIR = _deps/absl-build/absl/base/CMakeFiles/absl_base.dir",
+    "  POST_BUILD = :",
+    "  PRE_LINK = :",
+    "  TARGET_COMPILE_PDB = _deps/absl-build/absl/base/CMakeFiles/absl_base.dir/absl_base.pdb",
+    "  TARGET_FILE = _deps/absl-build/absl/base/libabsl_base.a",
+    "  TARGET_PDB = _deps/absl-build/absl/base/libabsl_base.pdb",
+    "  TARGET_SUPPORT_DIR = _deps/absl-build/absl/base/CMakeFiles/absl_base.dir",
+    "  pool = realmmesh_link",
+    ""
+  ],
+  "before_archive_records": [
+    [
+      "72",
+      "78",
+      "1791366734999963872",
+      "_deps/absl-build/absl/base/libabsl_base.a",
+      "84a1e15c04cd104f"
+    ]
+  ],
+  "before_object_records": [
+    [
+      "42",
+      "49",
+      "1791366735397989333",
+      "_deps/absl-build/absl/base/CMakeFiles/absl_base.dir/internal/cycleclock.cc.o",
+      "7f8befa4ce01a067"
+    ],
+    [
+      "49",
+      "57",
+      "1791366735405745944",
+      "_deps/absl-build/absl/base/CMakeFiles/absl_base.dir/internal/spinlock.cc.o",
+      "ba8c0c5f5b9b00b"
+    ],
+    [
+      "50",
+      "58",
+      "1791366735406475518",
+      "_deps/absl-build/absl/base/CMakeFiles/absl_base.dir/internal/sysinfo.cc.o",
+      "20c0e235933bc7cd"
+    ],
+    [
+      "58",
+      "65",
+      "1791366734986490813",
+      "_deps/absl-build/absl/base/CMakeFiles/absl_base.dir/internal/unscaledcycleclock.cc.o",
+      "f3895735c7f3b47d"
+    ],
+    [
+      "57",
+      "65",
+      "1791366734986250577",
+      "_deps/absl-build/absl/base/CMakeFiles/absl_base.dir/internal/thread_identity.cc.o",
+      "551edaa27b362b13"
+    ]
+  ],
+  "after_build_statement": [
+    "build _deps/absl-build/absl/base/libabsl_base.a: CXX_STATIC_LIBRARY_LINKER__absl_base_Debug _deps/absl-build/absl/base/CMakeFiles/absl_base.dir/internal/cycleclock.cc.o _deps/absl-build/absl/base/CMakeFiles/absl_base.dir/internal/spinlock.cc.o _deps/absl-build/absl/base/CMakeFiles/absl_base.dir/internal/sysinfo.cc.o _deps/absl-build/absl/base/CMakeFiles/absl_base.dir/internal/thread_identity.cc.o _deps/absl-build/absl/base/CMakeFiles/absl_base.dir/internal/unscaledcycleclock.cc.o || _deps/absl-build/absl/base/libabsl_log_severity.a _deps/absl-build/absl/base/libabsl_raw_logging_internal.a _deps/absl-build/absl/base/libabsl_spinlock_wait.a",
+    "  CONFIG = Debug",
+    "  LANGUAGE_COMPILE_FLAGS = -g",
+    "  OBJECT_DIR = _deps/absl-build/absl/base/CMakeFiles/absl_base.dir",
+    "  POST_BUILD = :",
+    "  PRE_LINK = :",
+    "  TARGET_FILE = _deps/absl-build/absl/base/libabsl_base.a",
+    "  TARGET_PDB = absl_base.a.dbg",
+    "  TARGET_SUPPORT_DIR = _deps/absl-build/absl/base/CMakeFiles/absl_base.dir",
+    "  pool = realmmesh_link",
+    "",
+    "# ============================================================================="
+  ],
+  "after_archive_records": [
+    [
+      "72",
+      "78",
+      "1791366734999963872",
+      "_deps/absl-build/absl/base/libabsl_base.a",
+      "84a1e15c04cd104f"
+    ],
+    [
+      "34",
+      "40",
+      "1791366762762886669",
+      "_deps/absl-build/absl/base/libabsl_base.a",
+      "84a1e15c04cd104f"
+    ]
+  ],
+  "current_object_mtimes": {
+    "_deps/absl-build/absl/base/CMakeFiles/absl_base.dir/internal/cycleclock.cc.o": 1791366735404116255,
+    "_deps/absl-build/absl/base/CMakeFiles/absl_base.dir/internal/spinlock.cc.o": 1791366734984855215,
+    "_deps/absl-build/absl/base/CMakeFiles/absl_base.dir/internal/sysinfo.cc.o": 1791366734984974964,
+    "_deps/absl-build/absl/base/CMakeFiles/absl_base.dir/internal/unscaledcycleclock.cc.o": 1791366734991274644,
+    "_deps/absl-build/absl/base/CMakeFiles/absl_base.dir/internal/thread_identity.cc.o": 1791366734992395227
+  },
+  "time_services": {
+    "chrony": "active",
+    "systemd-timesyncd": "inactive",
+    "lima-guestagent": "active"
+  },
+  "cmake_version": "cmake version 4.2.3",
+  "interpretation": "Archive command hash unchanged; cycleclock.o mtime exceeds first archive mtime. Natural clock probe and guestagent SyncTime journal record backward wall/mtime steps. No global clock service or artifact timestamp modification performed."
+}

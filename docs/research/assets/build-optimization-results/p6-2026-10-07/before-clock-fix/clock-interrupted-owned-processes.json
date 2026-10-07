@@ -1,0 +1,44 @@
+[
+  {
+    "pid": 3777877,
+    "ppid": 2340,
+    "pgid": 3777877,
+    "args": "bash -c cd /home/edwin.guest/code/.bench/p6-fixed-20261007 && python3 continue-after-clock-failure.py > continuation-run.log 2>&1"
+  },
+  {
+    "pid": 3777878,
+    "ppid": 3777877,
+    "pgid": 3777877,
+    "args": "python3 continue-after-clock-failure.py"
+  },
+  {
+    "pid": 3781394,
+    "ppid": 3777878,
+    "pgid": 3777877,
+    "args": "bash scripts/build.sh --preset dev --jobs 2"
+  },
+  {
+    "pid": 3781465,
+    "ppid": 3781394,
+    "pgid": 3777877,
+    "args": "/usr/bin/ctest --preset dev -j 1"
+  },
+  {
+    "pid": 3804281,
+    "ppid": 3781465,
+    "pgid": 3777877,
+    "args": "/home/edwin.guest/code/.bench/p6-fixed-20261007/final/build/dev-ninja/tests/cpp/tools/loadgen/loadgen_integration_test --gtest_filter=LoadgenIntegrationTest.M3SmokeTenThousandTicketsAndConcurrentPolls --gtest_also_run_disabled_tests"
+  },
+  {
+    "pid": 3804282,
+    "ppid": 3804281,
+    "pgid": 3777877,
+    "args": "/home/edwin.guest/code/.bench/p6-fixed-20261007/final/.tools/etcd-v3.6.14/etcd --name realmmesh-test --data-dir /home/edwin.guest/code/.bench/p6-fixed-20261007/tmp/realmmesh-etcd-3804281 --listen-client-urls http://127.0.0.1:55601 --advertise-client-urls http://127.0.0.1:55601 --listen-peer-urls http://127.0.0.1:36093 --initial-advertise-peer-urls http://127.0.0.1:36093 --initial-cluster realmmesh-test=http://127.0.0.1:36093 --log-level error"
+  },
+  {
+    "pid": 3804294,
+    "ppid": 3804281,
+    "pgid": 3777877,
+    "args": "/home/edwin.guest/code/.bench/p6-fixed-20261007/final/.tools/mongodb-8.0.32/bin/mongod --replSet rs0 --bind_ip 127.0.0.1 --port 59857 --dbpath /home/edwin.guest/code/.bench/p6-fixed-20261007/tmp/realmmesh-mongod-3804281-1 --logpath /home/edwin.guest/code/.bench/p6-fixed-20261007/tmp/realmmesh-mongod-3804281-1/mongod.log --nounixsocket --wiredTigerCacheSizeGB 0.25"
+  }
+]

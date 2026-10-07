@@ -1,0 +1,1469 @@
+$ cmake --preset dev -DREALMMESH_CCACHE=OFF -DCMAKE_PROJECT_RealmMesh_INCLUDE=/home/edwin.guest/code/.bench/p6-clock-fixed-20261007/final-results/compile-observer.cmake -DCMAKE_C_LINKER_LAUNCHER=/home/edwin.guest/code/.bench/p6-clock-fixed-20261007/launcher -DCMAKE_CXX_LINKER_LAUNCHER=/home/edwin.guest/code/.bench/p6-clock-fixed-20261007/launcher -DCMAKE_C_COMPILER_LAUNCHER= -DCMAKE_CXX_COMPILER_LAUNCHER= -DFETCHCONTENT_SOURCE_DIR_ABSL=/home/edwin.guest/code/.bench/p5-20261006/deps-src/absl-src -DFETCHCONTENT_SOURCE_DIR_CPP_HTTPLIB_SOURCE=/home/edwin.guest/code/.bench/p5-20261006/deps-src/cpp_httplib_source-src -DFETCHCONTENT_SOURCE_DIR_GOOGLETEST=/home/edwin.guest/code/.bench/p5-20261006/deps-src/googletest-src -DFETCHCONTENT_SOURCE_DIR_LUA_SOURCE=/home/edwin.guest/code/.bench/p5-20261006/deps-src/lua_source-src -DFETCHCONTENT_SOURCE_DIR_LUAUNIT=/home/edwin.guest/code/.bench/p5-20261006/deps-src/luaunit-src -DFETCHCONTENT_SOURCE_DIR_MONGO-C-DRIVER=/home/edwin.guest/code/.bench/p5-20261006/deps-src/mongo-c-driver-src -DFETCHCONTENT_SOURCE_DIR_MONGO-CXX-DRIVER=/home/edwin.guest/code/.bench/p5-20261006/deps-src/mongo-cxx-driver-src -DFETCHCONTENT_SOURCE_DIR_NLOHMANN_JSON_SOURCE=/home/edwin.guest/code/.bench/p5-20261006/deps-src/nlohmann_json_source-src -DFETCHCONTENT_SOURCE_DIR_PROTOBUF=/home/edwin.guest/code/.bench/p5-20261006/deps-src/protobuf-src -DFETCHCONTENT_SOURCE_DIR_REALMMESH_PROTOC=/home/edwin.guest/code/.bench/p5-20261006/deps-src/realmmesh_protoc-src -DFETCHCONTENT_SOURCE_DIR_SOL2_SOURCE=/home/edwin.guest/code/.bench/p5-20261006/deps-src/sol2_source-src -DFETCHCONTENT_SOURCE_DIR_SPDLOG=/home/edwin.guest/code/.bench/p5-20261006/deps-src/spdlog-src
+-- RealmMesh ccache: OFF, disabled (OFF or tool absent); native compilation uses existing custom launchers or compiler directly
+-- Found OpenSSL: /usr/lib/aarch64-linux-gnu/libcrypto.so (found suitable version "3.5.5", minimum required is "3.0") found components: SSL Crypto
+-- RealmMesh: OpenSSL 3.5.5 from /usr (root none, FindOpenSSL search)
+-- realm_build_dir: preset dev -> /home/edwin.guest/code/.bench/p6-clock-fixed-20261007/final/build/dev-ninja
+-- Using the multi-header code from /home/edwin.guest/code/.bench/p5-20261006/deps-src/nlohmann_json_source-src/include/
+-- MsQuic: 2.6.1 (/home/edwin.guest/code/RealmMesh/.tools/msquic/usr/lib/aarch64-linux-gnu/libmsquic.so.2.6.1)
+-- realm_protocol: protoc 35.0 from the pinned release download
+-- protobuf version: 35.0.0
+-- Build spdlog: 1.17.0
+-- Build type: Debug
+-- Using bundled libbson
+-- libmongoc version (from VERSION_CURRENT file): 2.5.5
+-- Disabling zlib compression
+-- Found OpenSSL: /usr/lib/aarch64-linux-gnu/libcrypto.so (found version "3.5.5")
+-- libmongoc TLS : OpenSSL
+-- Using SASL backend : OFF
+-- Detected parameters: accept (int, struct sockaddr *, socklen_t *)
+-- SASL disabled
+-- Enabling utf8proc (bundled)
+-- Adding -fPIC to compilation of mongoc_static components
+-- Build files generated for:
+-- 	build system: Ninja
+-- The following features have been enabled:
+
+ * TLS, for secure network communication (OpenSSL)
+ * Cryptography, cryptographic primitives (OpenSSL)
+
+-- The following features have been disabled:
+
+ * AWS Authentication, authenticate with MongoDB servers using credentials from AWS instance metadata. (Manually disabled)
+ * SASL Authentication, authenticate with MongoDB servers using SASL: “Simple Authentication and Security Layer” (OFF)
+
+-- bsoncxx version: 4.6.0
+-- bsoncxx soversion: 1
+-- Auto-configuring bsoncxx to use its own polyfill implementations since C++17 is inactive
+-- Using bson targets imported via add_subdirectory() without version checks
+-- mongocxx version: 4.6.0
+-- mongocxx soversion: 1
+-- Using mongoc targets imported via add_subdirectory() without version checks
+-- Build files generated for:
+-- 	build system: Ninja
+-- realm_network: QUIC transport enabled (MsQuic found)
+-- realm_network Event Loop backend: epoll (REALMMESH_NET_BACKEND=auto)
+-- Configuring done (0.2s)
+-- Generating done (0.3s)
+-- Build files have been written to: /home/edwin.guest/code/.bench/p6-clock-fixed-20261007/final/build/dev-ninja
+$ cmake --build --preset dev --parallel 2
+[0/2] Re-checking globbed directories...
+ninja: no work to do.
+$ ctest --preset dev -j 1
+Test project /home/edwin.guest/code/.bench/p6-clock-fixed-20261007/final/build/dev-ninja
+        Start   1: NetBackendSwitchTest
+  1/667 Test   #1: NetBackendSwitchTest ...................................................................................   Passed    0.03 sec
+        Start   2: DependencyIsolationTest
+  2/667 Test   #2: DependencyIsolationTest ................................................................................   Passed    0.06 sec
+        Start   3: BuildGraphTest
+  3/667 Test   #3: BuildGraphTest .........................................................................................   Passed    0.10 sec
+        Start   4: CompilerCacheCISummaryTest
+  4/667 Test   #4: CompilerCacheCISummaryTest .............................................................................   Passed    0.35 sec
+        Start   5: CompilerCacheConfigTest
+  5/667 Test   #5: CompilerCacheConfigTest ................................................................................   Passed    0.38 sec
+        Start   6: CompilerCacheNativeTest
+  6/667 Test   #6: CompilerCacheNativeTest ................................................................................   Passed   13.65 sec
+        Start   7: DevServicesScriptTest.StartUsesSupervisor
+  7/667 Test   #7: DevServicesScriptTest.StartUsesSupervisor ..............................................................   Passed    2.49 sec
+        Start   8: DevServicesScriptTest.UnreadyRealmBlocksDependents
+  8/667 Test   #8: DevServicesScriptTest.UnreadyRealmBlocksDependents .....................................................   Passed    2.05 sec
+        Start   9: DevServicesScriptTest.ChildFailureStopsGroup
+  9/667 Test   #9: DevServicesScriptTest.ChildFailureStopsGroup ...........................................................   Passed    2.49 sec
+        Start  10: DevServicesScriptTest.StopIsReverseOrdered
+ 10/667 Test  #10: DevServicesScriptTest.StopIsReverseOrdered .............................................................   Passed    2.75 sec
+        Start  11: DevServicesScriptTest.StopDuringProcessChecks
+ 11/667 Test  #11: DevServicesScriptTest.StopDuringProcessChecks ..........................................................   Passed    2.43 sec
+        Start  12: DevServicesScriptTest.StopAfterInterruptedWorkerWait
+ 12/667 Test  #12: DevServicesScriptTest.StopAfterInterruptedWorkerWait ...................................................   Passed    2.00 sec
+        Start  13: DevServicesScriptTest.StopDuringStartup
+ 13/667 Test  #13: DevServicesScriptTest.StopDuringStartup ................................................................   Passed    1.63 sec
+        Start  14: DevServicesScriptTest.CommandsManageServiceGroup
+ 14/667 Test  #14: DevServicesScriptTest.CommandsManageServiceGroup .......................................................   Passed    3.65 sec
+        Start  15: DevServicesScriptTest.NewChainFlowUsesServiceGroup
+ 15/667 Test  #15: DevServicesScriptTest.NewChainFlowUsesServiceGroup .....................................................   Passed    2.60 sec
+        Start  16: DevServicesScriptTest.FourProcessFullRepeats
+ 16/667 Test  #16: DevServicesScriptTest.FourProcessFullRepeats ...........................................................   Passed    8.06 sec
+        Start  17: DevServicesScriptTest.FourProcessFailureRecovery
+ 17/667 Test  #17: DevServicesScriptTest.FourProcessFailureRecovery .......................................................   Passed   50.22 sec
+        Start  18: LinuxAcceptanceScriptTest.PlanDescribesEveryMilestone
+ 18/667 Test  #18: LinuxAcceptanceScriptTest.PlanDescribesEveryMilestone ..................................................   Passed    0.04 sec
+        Start  19: BuildDirScriptTest.PresetEntriesResolveRecordedBuildDirs
+ 19/667 Test  #19: BuildDirScriptTest.PresetEntriesResolveRecordedBuildDirs ...............................................   Passed    0.54 sec
+        Start  20: TestFastScriptTest.FastEntryWatchAndJobsBudget
+ 20/667 Test  #20: TestFastScriptTest.FastEntryWatchAndJobsBudget .........................................................   Passed    7.93 sec
+        Start  21: FrameSchedulerTest.RejectsZeroTickRate
+ 21/667 Test  #21: FrameSchedulerTest.RejectsZeroTickRate .................................................................   Passed    0.01 sec
+        Start  22: FrameSchedulerTest.AdvancesFramesUsingFixedDeadlines
+ 22/667 Test  #22: FrameSchedulerTest.AdvancesFramesUsingFixedDeadlines ...................................................   Passed    0.00 sec
+        Start  23: BoundedQueueTest.RejectsZeroCapacity
+ 23/667 Test  #23: BoundedQueueTest.RejectsZeroCapacity ...................................................................   Passed    0.00 sec
+        Start  24: BoundedQueueTest.PreservesFifoOrderAndRejectsOverflow
+ 24/667 Test  #24: BoundedQueueTest.PreservesFifoOrderAndRejectsOverflow ..................................................   Passed    0.00 sec
+        Start  25: BoundedWorkPoolTest.RejectsZeroWorkersOrCapacity
+ 25/667 Test  #25: BoundedWorkPoolTest.RejectsZeroWorkersOrCapacity .......................................................   Passed    0.00 sec
+        Start  26: BoundedWorkPoolTest.DeliversResultsTaggedWithSubmissionId
+ 26/667 Test  #26: BoundedWorkPoolTest.DeliversResultsTaggedWithSubmissionId ..............................................   Passed    0.00 sec
+        Start  27: BoundedWorkPoolTest.RunsJobsConcurrentlyAcrossWorkers
+ 27/667 Test  #27: BoundedWorkPoolTest.RunsJobsConcurrentlyAcrossWorkers ..................................................   Passed    0.00 sec
+        Start  28: BoundedWorkPoolTest.CapacityCountsQueuedRunningAndUndrainedWork
+ 28/667 Test  #28: BoundedWorkPoolTest.CapacityCountsQueuedRunningAndUndrainedWork ........................................   Passed    0.00 sec
+        Start  29: BoundedWorkPoolTest.CancelledQueuedJobNeverRunsAndFreesItsSlot
+ 29/667 Test  #29: BoundedWorkPoolTest.CancelledQueuedJobNeverRunsAndFreesItsSlot .........................................   Passed    0.00 sec
+        Start  30: BoundedWorkPoolTest.CancelledRunningJobHoldsSlotUntilItFinishesAndDropsResult
+ 30/667 Test  #30: BoundedWorkPoolTest.CancelledRunningJobHoldsSlotUntilItFinishesAndDropsResult ..........................   Passed    0.00 sec
+        Start  31: BoundedWorkPoolTest.CancelDropsUndrainedResult
+ 31/667 Test  #31: BoundedWorkPoolTest.CancelDropsUndrainedResult .........................................................   Passed    0.05 sec
+        Start  32: BoundedWorkPoolTest.StoppedPoolRejectsSubmissions
+ 32/667 Test  #32: BoundedWorkPoolTest.StoppedPoolRejectsSubmissions ......................................................   Passed    0.00 sec
+        Start  33: LuaRuntimeTest.CallsLuaAndBoundCppFunctions
+ 33/667 Test  #33: LuaRuntimeTest.CallsLuaAndBoundCppFunctions ............................................................   Passed    0.00 sec
+        Start  34: LuaRuntimeTest.KeepsTheOldModuleWhenAHotReloadFails
+ 34/667 Test  #34: LuaRuntimeTest.KeepsTheOldModuleWhenAHotReloadFails ....................................................   Passed    0.00 sec
+        Start  35: LuaRuntimeTest.ReloadsChangedFilesAndRollsBackInvalidChanges
+ 35/667 Test  #35: LuaRuntimeTest.ReloadsChangedFilesAndRollsBackInvalidChanges ...........................................   Passed    0.00 sec
+        Start  36: LuaRuntimeTest.RejectsAccessFromAnotherThread
+ 36/667 Test  #36: LuaRuntimeTest.RejectsAccessFromAnotherThread ..........................................................   Passed    0.00 sec
+        Start  37: LuaRuntimeTest.DoesNotExposeFileLoadingLibraries
+ 37/667 Test  #37: LuaRuntimeTest.DoesNotExposeFileLoadingLibraries .......................................................   Passed    0.00 sec
+        Start  38: ServiceLifecycleTest.StartsInCreatedState
+ 38/667 Test  #38: ServiceLifecycleTest.StartsInCreatedState ..............................................................   Passed    0.00 sec
+        Start  39: ServiceLifecycleTest.FollowsNormalStartupAndShutdownSequence
+ 39/667 Test  #39: ServiceLifecycleTest.FollowsNormalStartupAndShutdownSequence ...........................................   Passed    0.00 sec
+        Start  40: ServiceLifecycleTest.RejectsSkippedAndBackwardTransitions
+ 40/667 Test  #40: ServiceLifecycleTest.RejectsSkippedAndBackwardTransitions ..............................................   Passed    0.00 sec
+        Start  41: ServiceLifecycleTest.AllowsShutdownWhileInitializing
+ 41/667 Test  #41: ServiceLifecycleTest.AllowsShutdownWhileInitializing ...................................................   Passed    0.00 sec
+        Start  42: ServiceLifecycleTest.StoppedStateIsTerminal
+ 42/667 Test  #42: ServiceLifecycleTest.StoppedStateIsTerminal ............................................................   Passed    0.00 sec
+        Start  43: LoggerTest.CallerCanWriteAStructuredDiagnosticEvent
+ 43/667 Test  #43: LoggerTest.CallerCanWriteAStructuredDiagnosticEvent ....................................................   Passed    0.01 sec
+        Start  44: LoggerTest.WorkerMakesAcceptedEventsVisibleWithoutExplicitFlush
+ 44/667 Test  #44: LoggerTest.WorkerMakesAcceptedEventsVisibleWithoutExplicitFlush ........................................   Passed    0.01 sec
+        Start  45: LoggerTest.WorkerDrainsAndFlushesBatchedEventsWithoutExplicitFlush
+ 45/667 Test  #45: LoggerTest.WorkerDrainsAndFlushesBatchedEventsWithoutExplicitFlush .....................................   Passed    0.02 sec
+        Start  46: LoggerTest.CallerCanAttachTrustedCorrelationContext
+ 46/667 Test  #46: LoggerTest.CallerCanAttachTrustedCorrelationContext ....................................................   Passed    0.00 sec
+        Start  47: LoggerTest.MetricsExposeDeliveryAndValidationState
+ 47/667 Test  #47: LoggerTest.MetricsExposeDeliveryAndValidationState .....................................................   Passed    0.00 sec
+        Start  48: LoggerTest.MetricsServerPublishesPrometheusEndpoint
+ 48/667 Test  #48: LoggerTest.MetricsServerPublishesPrometheusEndpoint ....................................................   Passed    0.00 sec
+        Start  49: LoggerTest.RuntimePolicyFiltersModulesAndSamplesOnlyLowPriorityEvents
+ 49/667 Test  #49: LoggerTest.RuntimePolicyFiltersModulesAndSamplesOnlyLowPriorityEvents ..................................   Passed    0.00 sec
+        Start  50: LoggerTest.DevelopmentCanFallBackToStderrButProductionFailsClosed
+ 50/667 Test  #50: LoggerTest.DevelopmentCanFallBackToStderrButProductionFailsClosed ......................................   Passed    0.00 sec
+        Start  51: MetricsRegistryTest.CounterAddRendersTypeLineAndCumulativeValue
+ 51/667 Test  #51: MetricsRegistryTest.CounterAddRendersTypeLineAndCumulativeValue ........................................   Passed    0.00 sec
+        Start  52: MetricsRegistryTest.CounterSetPublishesPolledCumulativeValue
+ 52/667 Test  #52: MetricsRegistryTest.CounterSetPublishesPolledCumulativeValue ...........................................   Passed    0.00 sec
+        Start  53: MetricsRegistryTest.GaugeSetWithLabelsRendersLabelSeries
+ 53/667 Test  #53: MetricsRegistryTest.GaugeSetWithLabelsRendersLabelSeries ...............................................   Passed    0.00 sec
+        Start  54: MetricsRegistryTest.HistogramRendersBucketsSumAndCount
+ 54/667 Test  #54: MetricsRegistryTest.HistogramRendersBucketsSumAndCount .................................................   Passed    0.00 sec
+        Start  55: MetricsRegistryTest.RenderIsSortedByMetricNameThenLabelSeries
+ 55/667 Test  #55: MetricsRegistryTest.RenderIsSortedByMetricNameThenLabelSeries ..........................................   Passed    0.00 sec
+        Start  56: MetricsRegistryTest.LabelValuesAreEscaped
+ 56/667 Test  #56: MetricsRegistryTest.LabelValuesAreEscaped ..............................................................   Passed    0.00 sec
+        Start  57: MetricsRegistryTest.ConcurrentUpdatesKeepCountsConsistent
+ 57/667 Test  #57: MetricsRegistryTest.ConcurrentUpdatesKeepCountsConsistent ..............................................   Passed    0.00 sec
+        Start  58: BudgetPublishPolicyTest.FirstPublishAlwaysPublishes
+ 58/667 Test  #58: BudgetPublishPolicyTest.FirstPublishAlwaysPublishes ....................................................   Passed    0.00 sec
+        Start  59: BudgetPublishPolicyTest.UnchangedSnapshotNeverRepublishes
+ 59/667 Test  #59: BudgetPublishPolicyTest.UnchangedSnapshotNeverRepublishes ..............................................   Passed    0.00 sec
+        Start  60: BudgetPublishPolicyTest.ChangeBeyondThresholdPublishesImmediately
+ 60/667 Test  #60: BudgetPublishPolicyTest.ChangeBeyondThresholdPublishesImmediately ......................................   Passed    0.00 sec
+        Start  61: BudgetPublishPolicyTest.ChangeWithinThresholdWaitsForInterval
+ 61/667 Test  #61: BudgetPublishPolicyTest.ChangeWithinThresholdWaitsForInterval ..........................................   Passed    0.00 sec
+        Start  62: BudgetPublishPolicyTest.DropToZeroAndGrowthFromZeroAreBeyondThreshold
+ 62/667 Test  #62: BudgetPublishPolicyTest.DropToZeroAndGrowthFromZeroAreBeyondThreshold ..................................   Passed    0.00 sec
+        Start  63: BudgetPublishPolicyTest.FetchChangeTriggersOnItsOwn
+ 63/667 Test  #63: BudgetPublishPolicyTest.FetchChangeTriggersOnItsOwn ....................................................   Passed    0.00 sec
+        Start  64: BudgetPublishPolicyTest.FetchPresenceMismatchCountsAsChange
+ 64/667 Test  #64: BudgetPublishPolicyTest.FetchPresenceMismatchCountsAsChange ............................................   Passed    0.00 sec
+        Start  65: BudgetPublishPolicyTest.ReturnToFullPublishesImmediately
+ 65/667 Test  #65: BudgetPublishPolicyTest.ReturnToFullPublishesImmediately ...............................................   Passed    0.00 sec
+        Start  66: BudgetKeyTest.BuildsBudgetKeyFromTypeAndInstance
+ 66/667 Test  #66: BudgetKeyTest.BuildsBudgetKeyFromTypeAndInstance .......................................................   Passed    0.00 sec
+        Start  67: InstanceBudgetReporterTest.PublishesFirstSnapshotUnderRegistrationLease
+ 67/667 Test  #67: InstanceBudgetReporterTest.PublishesFirstSnapshotUnderRegistrationLease ................................   Passed    0.00 sec
+        Start  68: InstanceBudgetReporterTest.SkipsUnchangedSnapshot
+ 68/667 Test  #68: InstanceBudgetReporterTest.SkipsUnchangedSnapshot ......................................................   Passed    0.00 sec
+        Start  69: InstanceBudgetReporterTest.HoldsSubThresholdChangeWithinInterval
+ 69/667 Test  #69: InstanceBudgetReporterTest.HoldsSubThresholdChangeWithinInterval .......................................   Passed    0.00 sec
+        Start  70: InstanceBudgetReporterTest.RepublishesBeyondThresholdImmediately
+ 70/667 Test  #70: InstanceBudgetReporterTest.RepublishesBeyondThresholdImmediately .......................................   Passed    0.00 sec
+        Start  71: InstanceBudgetReporterTest.RetriesFailedPublishAfterInterval
+ 71/667 Test  #71: InstanceBudgetReporterTest.RetriesFailedPublishAfterInterval ...........................................   Passed    0.00 sec
+        Start  72: InstanceBudgetReporterTest.RealmReporterOmitsFetchFree
+ 72/667 Test  #72: InstanceBudgetReporterTest.RealmReporterOmitsFetchFree .................................................   Passed    0.00 sec
+        Start  73: InstanceBudgetReporterTest.UnknownRegistrationFailsWithoutRetry
+ 73/667 Test  #73: InstanceBudgetReporterTest.UnknownRegistrationFailsWithoutRetry ........................................   Passed    0.00 sec
+        Start  74: InstanceBudgetReporterTest.FailedWriteNotifiesSinkNotThrottledRetries
+ 74/667 Test  #74: InstanceBudgetReporterTest.FailedWriteNotifiesSinkNotThrottledRetries ..................................   Passed    0.00 sec
+        Start  75: EtcdServiceRegistryTest.RegistersRefreshesAndRevokesLeasedInstance
+ 75/667 Test  #75: EtcdServiceRegistryTest.RegistersRefreshesAndRevokesLeasedInstance .....................................   Passed    0.00 sec
+        Start  76: EtcdServiceRegistryTest.RejectsDuplicateInstanceAtomically
+ 76/667 Test  #76: EtcdServiceRegistryTest.RejectsDuplicateInstanceAtomically .............................................   Passed    0.00 sec
+        Start  77: EtcdServiceRegistryTest.DiscoversAndDecodesMultiProtocolEndpoints
+ 77/667 Test  #77: EtcdServiceRegistryTest.DiscoversAndDecodesMultiProtocolEndpoints ......................................   Passed    0.00 sec
+        Start  78: EtcdServiceRegistryTest.PublishesSnapshotChangesToWatchers
+ 78/667 Test  #78: EtcdServiceRegistryTest.PublishesSnapshotChangesToWatchers .............................................   Passed    0.00 sec
+        Start  79: EtcdServiceRegistryTest.PutLeasedWritesKeyUnderRegistrationLease
+ 79/667 Test  #79: EtcdServiceRegistryTest.PutLeasedWritesKeyUnderRegistrationLease .......................................   Passed    0.00 sec
+        Start  80: EtcdServiceRegistryTest.PutLeasedUnknownRegistrationReturnsFalse
+ 80/667 Test  #80: EtcdServiceRegistryTest.PutLeasedUnknownRegistrationReturnsFalse .......................................   Passed    0.00 sec
+        Start  81: EtcdServiceRegistryTest.RefreshRewritesLeasedKeysUnderNewLease
+ 81/667 Test  #81: EtcdServiceRegistryTest.RefreshRewritesLeasedKeysUnderNewLease .........................................   Passed    0.00 sec
+        Start  82: EtcdServiceRegistryTest.PutLeasedFailureOfNewKeyIsNotTracked
+ 82/667 Test  #82: EtcdServiceRegistryTest.PutLeasedFailureOfNewKeyIsNotTracked ...........................................   Passed    0.00 sec
+        Start  83: EtcdServiceRegistryTest.PutLeasedFailureKeepsPreviousTrackedValue
+ 83/667 Test  #83: EtcdServiceRegistryTest.PutLeasedFailureKeepsPreviousTrackedValue ......................................   Passed    0.00 sec
+        Start  84: ServiceRegistryTest.RegistersAndDiscoversByServiceType
+ 84/667 Test  #84: ServiceRegistryTest.RegistersAndDiscoversByServiceType .................................................   Passed    0.00 sec
+        Start  85: ServiceRegistryTest.RejectsDuplicateServiceInstanceKey
+ 85/667 Test  #85: ServiceRegistryTest.RejectsDuplicateServiceInstanceKey .................................................   Passed    0.00 sec
+        Start  86: ServiceRegistryTest.PublishesAddedAndRemovedWatchEvents
+ 86/667 Test  #86: ServiceRegistryTest.PublishesAddedAndRemovedWatchEvents ................................................   Passed    0.00 sec
+        Start  87: ServiceRegistryTest.ExpiredRegistrationDisappearsAndCannotRefresh
+ 87/667 Test  #87: ServiceRegistryTest.ExpiredRegistrationDisappearsAndCannotRefresh ......................................   Passed    0.00 sec
+        Start  88: ServiceRegistryTest.RejectsNonPositiveLeaseTtl
+ 88/667 Test  #88: ServiceRegistryTest.RejectsNonPositiveLeaseTtl .........................................................   Passed    0.00 sec
+        Start  89: ServiceRegistryTest.ResolverTracksAddedAndRemovedEndpoints
+ 89/667 Test  #89: ServiceRegistryTest.ResolverTracksAddedAndRemovedEndpoints .............................................   Passed    0.00 sec
+        Start  90: ServiceRegistryTest.ResolverReceivesInstancesPresentBeforeSubscription
+ 90/667 Test  #90: ServiceRegistryTest.ResolverReceivesInstancesPresentBeforeSubscription .................................   Passed    0.00 sec
+        Start  91: ServiceRegistryTest.PublisherRegistersAndUnregistersWithItsLifetime
+ 91/667 Test  #91: ServiceRegistryTest.PublisherRegistersAndUnregistersWithItsLifetime ....................................   Passed    0.00 sec
+        Start  92: LayeredConfigTest.ServiceLayerOverridesCommon
+ 92/667 Test  #92: LayeredConfigTest.ServiceLayerOverridesCommon ..........................................................   Passed    0.01 sec
+        Start  93: LayeredConfigTest.CliOverridesInstanceIdentity
+ 93/667 Test  #93: LayeredConfigTest.CliOverridesInstanceIdentity .........................................................   Passed    0.00 sec
+        Start  94: LayeredConfigTest.ParsesSharedPlayerDataDeployment
+ 94/667 Test  #94: LayeredConfigTest.ParsesSharedPlayerDataDeployment .....................................................   Passed    0.00 sec
+        Start  95: LayeredConfigTest.RequiresDatabaseWhenUriIsSet
+ 95/667 Test  #95: LayeredConfigTest.RequiresDatabaseWhenUriIsSet .........................................................   Passed    0.00 sec
+        Start  96: LayeredConfigTest.PrivatePlayerDataUriOverridesDefaultWithoutLuaOsAccess
+ 96/667 Test  #96: LayeredConfigTest.PrivatePlayerDataUriOverridesDefaultWithoutLuaOsAccess ...............................   Passed    0.00 sec
+        Start  97: LayeredConfigTest.UnsetPlayerDataUriEnvironmentPreservesLocalDefault
+ 97/667 Test  #97: LayeredConfigTest.UnsetPlayerDataUriEnvironmentPreservesLocalDefault ...................................   Passed    0.00 sec
+        Start  98: LayeredConfigTest.MissingPrivatePlayerDataUriFailsWithoutDefault
+ 98/667 Test  #98: LayeredConfigTest.MissingPrivatePlayerDataUriFailsWithoutDefault .......................................   Passed    0.00 sec
+        Start  99: LayeredConfigTest.EmptyPrivatePlayerDataUriFailsInsteadOfConnectingLocally
+ 99/667 Test  #99: LayeredConfigTest.EmptyPrivatePlayerDataUriFailsInsteadOfConnectingLocally .............................   Passed    0.00 sec
+        Start 100: LayeredConfigTest.RejectsRetiredSqlitePlayerDataKeys
+100/667 Test #100: LayeredConfigTest.RejectsRetiredSqlitePlayerDataKeys ...................................................   Passed    0.00 sec
+        Start 101: LayeredConfigTest.RejectsUnknownCredentialHashCost
+101/667 Test #101: LayeredConfigTest.RejectsUnknownCredentialHashCost .....................................................   Passed    0.00 sec
+        Start 102: LayeredConfigTest.MissingServiceFileThrows
+102/667 Test #102: LayeredConfigTest.MissingServiceFileThrows .............................................................   Passed    0.00 sec
+        Start 103: MeshHostE2ETest.AllInOneStartsAndStopsCleanly
+103/667 Test #103: MeshHostE2ETest.AllInOneStartsAndStopsCleanly ..........................................................   Passed    1.47 sec
+        Start 104: MeshHostTest.StartsWavesAndGatesEntryUntilAllReady
+104/667 Test #104: MeshHostTest.StartsWavesAndGatesEntryUntilAllReady .....................................................   Passed    0.01 sec
+        Start 105: MeshHostTest.FailureRecyclesStartedServicesInReverse
+105/667 Test #105: MeshHostTest.FailureRecyclesStartedServicesInReverse ...................................................   Passed    0.01 sec
+        Start 106: MeshHostTest.FailureBeforeFinalWaveNeverConstructsEntry
+106/667 Test #106: MeshHostTest.FailureBeforeFinalWaveNeverConstructsEntry ................................................   Passed    0.01 sec
+        Start 107: MeshHostTest.ServiceLookupThrowsForUnknownName
+107/667 Test #107: MeshHostTest.ServiceLookupThrowsForUnknownName .........................................................   Passed    0.01 sec
+        Start 108: Mode2Test.SingleServiceNarrowsTopologyAndAppliesOverrides
+108/667 Test #108: Mode2Test.SingleServiceNarrowsTopologyAndAppliesOverrides ..............................................   Passed    0.00 sec
+        Start 109: Mode2Test.RetiredLoginServiceFailsAtStartup
+109/667 Test #109: Mode2Test.RetiredLoginServiceFailsAtStartup ............................................................   Passed    1.40 sec
+        Start 110: Mode2Test.SingleServiceMeshStartsAndRuns
+110/667 Test #110: Mode2Test.SingleServiceMeshStartsAndRuns ...............................................................   Passed    1.40 sec
+        Start 111: Mode2Test.GatewayDoesNotStartWithoutRealm
+111/667 Test #111: Mode2Test.GatewayDoesNotStartWithoutRealm ..............................................................   Passed    1.41 sec
+        Start 112: Mode2Test.GatewayStartsAfterFallbackDependenciesAreReachable
+112/667 Test #112: Mode2Test.GatewayStartsAfterFallbackDependenciesAreReachable ...........................................   Passed    1.43 sec
+        Start 113: ObservabilityArtifactsTest.AlertRulesReferenceExposedMetrics
+113/667 Test #113: ObservabilityArtifactsTest.AlertRulesReferenceExposedMetrics ...........................................   Passed    0.01 sec
+        Start 114: ObservabilityArtifactsTest.DashboardsReferenceExposedMetrics
+114/667 Test #114: ObservabilityArtifactsTest.DashboardsReferenceExposedMetrics ...........................................   Passed    0.01 sec
+        Start 115: ObservabilityArtifactsTest.DashboardsPinPrometheusDatasource
+115/667 Test #115: ObservabilityArtifactsTest.DashboardsPinPrometheusDatasource ...........................................   Passed    0.01 sec
+        Start 116: ServiceFrameEdgeBudgetTest.PublishesCapacityThenConsumesOnAttach
+116/667 Test #116: ServiceFrameEdgeBudgetTest.PublishesCapacityThenConsumesOnAttach .......................................   Passed    0.01 sec
+        Start 117: ServiceFrameEdgeBudgetTest.AttachAcceptancePreservesWireContract
+117/667 Test #117: ServiceFrameEdgeBudgetTest.AttachAcceptancePreservesWireContract .......................................   Passed    0.05 sec
+        Start 118: ServiceFrameEdgeBudgetTest.AttachRejectionsPreserveWireContract
+118/667 Test #118: ServiceFrameEdgeBudgetTest.AttachRejectionsPreserveWireContract ........................................   Passed    0.05 sec
+        Start 119: ServiceFrameEdgeBudgetTest.CredentialFailuresKeepRawCredentialsAndJtiOutOfTelemetry
+119/667 Test #119: ServiceFrameEdgeBudgetTest.CredentialFailuresKeepRawCredentialsAndJtiOutOfTelemetry ....................   Passed    0.05 sec
+        Start 120: ServiceFrameEdgeBudgetTest.ReplayedJtiPreservesWireRejection
+120/667 Test #120: ServiceFrameEdgeBudgetTest.ReplayedJtiPreservesWireRejection ...........................................   Passed    0.04 sec
+        Start 121: ServiceFrameEdgeBudgetTest.RetiredMessageIdIsRefused
+121/667 Test #121: ServiceFrameEdgeBudgetTest.RetiredMessageIdIsRefused ...................................................   Passed    0.03 sec
+        Start 122: ServiceFrameEdgeBudgetTest.OutOfBudgetAttachIsRejectedWithoutConsuming
+122/667 Test #122: ServiceFrameEdgeBudgetTest.OutOfBudgetAttachIsRejectedWithoutConsuming .................................   Passed    0.04 sec
+        Start 123: ServiceFrameEdgeBudgetTest.StoppedFetchPublishesUnavailableBudgetAndStopsGateway
+123/667 Test #123: ServiceFrameEdgeBudgetTest.StoppedFetchPublishesUnavailableBudgetAndStopsGateway .......................   Passed    0.01 sec
+        Start 124: ServiceFrameEdgeBudgetTest.FetchSuccessTransitionsToHandedOff
+124/667 Test #124: ServiceFrameEdgeBudgetTest.FetchSuccessTransitionsToHandedOff ..........................................   Passed    0.01 sec
+        Start 125: ServiceFrameEdgeBudgetTest.GrantIssuedThenGraceCloses
+125/667 Test #125: ServiceFrameEdgeBudgetTest.GrantIssuedThenGraceCloses ..................................................   Passed    0.05 sec
+        Start 126: ServiceFrameEdgeBudgetTest.RealPeerCloseReturnsBothBudgets
+126/667 Test #126: ServiceFrameEdgeBudgetTest.RealPeerCloseReturnsBothBudgets .............................................   Passed    0.01 sec
+        Start 127: ServiceFrameEdgeBudgetTest.NoEndpointClosesWithoutGrant
+127/667 Test #127: ServiceFrameEdgeBudgetTest.NoEndpointClosesWithoutGrant ................................................   Passed    0.02 sec
+        Start 128: ServiceFrameEdgeBudgetTest.StaticDownstreamGrantsWithoutDiscovery
+128/667 Test #128: ServiceFrameEdgeBudgetTest.StaticDownstreamGrantsWithoutDiscovery ......................................   Passed    0.05 sec
+        Start 129: ServiceFrameEdgeBudgetTest.DiscoveredRealmEndpointWinsOverStaticFallback
+129/667 Test #129: ServiceFrameEdgeBudgetTest.DiscoveredRealmEndpointWinsOverStaticFallback ...............................   Passed    0.08 sec
+        Start 130: ServiceFrameEdgeBudgetTest.ExhaustedFetchClosesAndReturnsBudgets
+130/667 Test #130: ServiceFrameEdgeBudgetTest.ExhaustedFetchClosesAndReturnsBudgets .......................................   Passed    0.24 sec
+        Start 131: ServiceFrameEdgeBudgetTest.MetricsFollowPipelineStagesAndFetch
+131/667 Test #131: ServiceFrameEdgeBudgetTest.MetricsFollowPipelineStagesAndFetch .........................................   Passed    0.63 sec
+        Start 132: ServiceFrameEdgeBudgetTest.MetricsCountRetriesAndReplayRejections
+132/667 Test #132: ServiceFrameEdgeBudgetTest.MetricsCountRetriesAndReplayRejections ......................................   Passed    0.26 sec
+        Start 133: ServiceFrameRealmEnterTest.EnterRealmRedeemsTicketAndAcceptsSession
+133/667 Test #133: ServiceFrameRealmEnterTest.EnterRealmRedeemsTicketAndAcceptsSession ....................................   Passed    0.08 sec
+        Start 134: ServiceFrameRealmEnterTest.EnterRealmTicketIsSingleConsume
+134/667 Test #134: ServiceFrameRealmEnterTest.EnterRealmTicketIsSingleConsume .............................................   Passed    0.11 sec
+        Start 135: ServiceFrameRealmEnterTest.ResubmissionOnSameSessionCloses
+135/667 Test #135: ServiceFrameRealmEnterTest.ResubmissionOnSameSessionCloses .............................................   Passed    0.09 sec
+        Start 136: ServiceFrameRealmEnterTest.InvalidTicketBytesDecline
+136/667 Test #136: ServiceFrameRealmEnterTest.InvalidTicketBytesDecline ...................................................   Passed    0.04 sec
+        Start 137: ServiceFrameRealmEnterTest.RetiredMessageIdIsRefused
+137/667 Test #137: ServiceFrameRealmEnterTest.RetiredMessageIdIsRefused ...................................................   Passed    0.04 sec
+        Start 138: ServiceFrameRealmEnterTest.MessageBeforeEnterRealmIsRefused
+138/667 Test #138: ServiceFrameRealmEnterTest.MessageBeforeEnterRealmIsRefused ............................................   Passed    0.03 sec
+        Start 139: ServiceFrameRealmEnterTest.WrongPurposeTicketDeclines
+139/667 Test #139: ServiceFrameRealmEnterTest.WrongPurposeTicketDeclines ..................................................   Passed    0.03 sec
+        Start 140: ServiceFrameRealmEnterTest.ForeignRealmClaimDeclines
+140/667 Test #140: ServiceFrameRealmEnterTest.ForeignRealmClaimDeclines ...................................................   Passed    0.03 sec
+        Start 141: ServiceFrameRealmEnterTest.ExpiredTicketDeclines
+141/667 Test #141: ServiceFrameRealmEnterTest.ExpiredTicketDeclines .......................................................   Passed    0.03 sec
+        Start 142: ServiceFrameRealmEnterTest.RealmFrameRequiresRealmSessions
+142/667 Test #142: ServiceFrameRealmEnterTest.RealmFrameRequiresRealmSessions .............................................   Passed    0.01 sec
+        Start 143: ServiceFrameRealmEnterTest.EnteredSessionDispatchesRealmMessages
+143/667 Test #143: ServiceFrameRealmEnterTest.EnteredSessionDispatchesRealmMessages .......................................   Passed    0.10 sec
+        Start 144: ServiceFrameRealmEnterTest.UnsupportedMessageKeepsEnteredSession
+144/667 Test #144: ServiceFrameRealmEnterTest.UnsupportedMessageKeepsEnteredSession .......................................   Passed    0.10 sec
+        Start 145: ServiceFrameRealmEnterTest.SecondSessionDisplacesFirst
+145/667 Test #145: ServiceFrameRealmEnterTest.SecondSessionDisplacesFirst .................................................   Passed    0.16 sec
+        Start 146: ServiceFrameRealmEnterTest.ConnFreeBudgetTracksConnections
+146/667 Test #146: ServiceFrameRealmEnterTest.ConnFreeBudgetTracksConnections .............................................   Passed    0.06 sec
+        Start 147: ServiceHostTest.StartsRuntimeAndReadiesWithoutDiscovery
+147/667 Test #147: ServiceHostTest.StartsRuntimeAndReadiesWithoutDiscovery ................................................   Passed    0.02 sec
+        Start 148: ServiceHostTest.RuntimeStopClearsReadinessOnNextTick
+148/667 Test #148: ServiceHostTest.RuntimeStopClearsReadinessOnNextTick ...................................................   Passed    0.01 sec
+        Start 149: ServiceHostTest.GatewayIdentitySeedFailsBeforeRuntimeConstruction
+149/667 Test #149: ServiceHostTest.GatewayIdentitySeedFailsBeforeRuntimeConstruction ......................................   Passed    0.00 sec
+        Start 150: ServiceHostTest.UnknownServiceNameWithDiscoveryThrows
+150/667 Test #150: ServiceHostTest.UnknownServiceNameWithDiscoveryThrows ..................................................   Passed    0.01 sec
+        Start 151: ServiceHostTest.RequiredRegistrationFailureThrows
+151/667 Test #151: ServiceHostTest.RequiredRegistrationFailureThrows ......................................................   Passed    1.38 sec
+        Start 152: ServiceHostTest.RealmWithoutPlayerDataThrows
+152/667 Test #152: ServiceHostTest.RealmWithoutPlayerDataThrows ...........................................................   Passed    0.01 sec
+        Start 153: ServiceHostTest.EscapesGaugeLabelSpecialCharacters
+153/667 Test #153: ServiceHostTest.EscapesGaugeLabelSpecialCharacters .....................................................   Passed    0.01 sec
+        Start 154: ServiceHostTest.HttpMetricsExposeServiceReadiness
+154/667 Test #154: ServiceHostTest.HttpMetricsExposeServiceReadiness ......................................................   Passed    0.01 sec
+        Start 155: StartupTopologyTest.IndependentServicesShareFirstWave
+155/667 Test #155: StartupTopologyTest.IndependentServicesShareFirstWave ..................................................   Passed    0.00 sec
+        Start 156: StartupTopologyTest.ChainSplitsIntoWaves
+156/667 Test #156: StartupTopologyTest.ChainSplitsIntoWaves ...............................................................   Passed    0.00 sec
+        Start 157: StartupTopologyTest.EntryServiceIsAlwaysInTheFinalWave
+157/667 Test #157: StartupTopologyTest.EntryServiceIsAlwaysInTheFinalWave .................................................   Passed    0.00 sec
+        Start 158: StartupTopologyTest.RejectsServicesDependingOnAnEntry
+158/667 Test #158: StartupTopologyTest.RejectsServicesDependingOnAnEntry ..................................................   Passed    0.00 sec
+        Start 159: StartupTopologyTest.CycleThrows
+159/667 Test #159: StartupTopologyTest.CycleThrows ........................................................................   Passed    0.00 sec
+        Start 160: StartupTopologyTest.UnknownDependencyThrows
+160/667 Test #160: StartupTopologyTest.UnknownDependencyThrows ............................................................   Passed    0.00 sec
+        Start 161: ConfigHeadersTest.ConfigValuesAreUsableWithoutLua
+161/667 Test #161: ConfigHeadersTest.ConfigValuesAreUsableWithoutLua ......................................................   Passed    0.00 sec
+        Start 162: ConfigsLoadSmokeTest.LoginServiceConfigIsGone
+162/667 Test #162: ConfigsLoadSmokeTest.LoginServiceConfigIsGone ..........................................................   Passed    0.00 sec
+        Start 163: ConfigsLoadSmokeTest.MainConfigTopologyLoadsInDeclarationOrder
+163/667 Test #163: ConfigsLoadSmokeTest.MainConfigTopologyLoadsInDeclarationOrder .........................................   Passed    0.00 sec
+        Start 164: ConfigsLoadSmokeTest.EveryServiceConfigLoadsThroughLayeredLoader
+164/667 Test #164: ConfigsLoadSmokeTest.EveryServiceConfigLoadsThroughLayeredLoader .......................................   Passed    0.00 sec
+        Start 165: ConfigsLoadSmokeTest.LoginVerifyConfigLoadsThroughDedicatedLoader
+165/667 Test #165: ConfigsLoadSmokeTest.LoginVerifyConfigLoadsThroughDedicatedLoader ......................................   Passed    0.00 sec
+        Start 166: ConfigsLoadSmokeTest.QueueConfigLoadsThroughDedicatedLoader
+166/667 Test #166: ConfigsLoadSmokeTest.QueueConfigLoadsThroughDedicatedLoader ............................................   Passed    0.00 sec
+        Start 167: ConfigsLoadSmokeTest.GatewayAdmissionConfigLoadsAndValidates
+167/667 Test #167: ConfigsLoadSmokeTest.GatewayAdmissionConfigLoadsAndValidates ...........................................   Passed    0.00 sec
+        Start 168: ConfigsLoadSmokeTest.EveryConfigFileCompilesInLuaRuntime
+168/667 Test #168: ConfigsLoadSmokeTest.EveryConfigFileCompilesInLuaRuntime ...............................................   Passed    0.00 sec
+        Start 169: LoadTopologyFileTest.OmittedFieldsDefaultToNoDependenciesAndNotEntry
+169/667 Test #169: LoadTopologyFileTest.OmittedFieldsDefaultToNoDependenciesAndNotEntry ...................................   Passed    0.00 sec
+        Start 170: LoadTopologyFileTest.MissingFileIsALoadFailure
+170/667 Test #170: LoadTopologyFileTest.MissingFileIsALoadFailure .........................................................   Passed    0.00 sec
+        Start 171: LoadTopologyFileTest.LuaErrorIsALoadFailure
+171/667 Test #171: LoadTopologyFileTest.LuaErrorIsALoadFailure ............................................................   Passed    0.00 sec
+        Start 172: LoadTopologyFileTest.RejectsMissingOrEmptyServicesTable
+172/667 Test #172: LoadTopologyFileTest.RejectsMissingOrEmptyServicesTable ................................................   Passed    0.00 sec
+        Start 173: LoadTopologyFileTest.RejectsMalformedEntries
+173/667 Test #173: LoadTopologyFileTest.RejectsMalformedEntries ...........................................................   Passed    0.00 sec
+        Start 174: AdaptivePollerTest.TiersFollowSpecThresholds
+174/667 Test #174: AdaptivePollerTest.TiersFollowSpecThresholds ...........................................................   Passed    0.00 sec
+        Start 175: AdaptivePollerTest.JitterStaysWithinTwentyPercentAndHonoursFloor
+175/667 Test #175: AdaptivePollerTest.JitterStaysWithinTwentyPercentAndHonoursFloor .......................................   Passed    0.00 sec
+        Start 176: AdaptivePollerTest.BackoffDoublesAfterThresholdAndCaps
+176/667 Test #176: AdaptivePollerTest.BackoffDoublesAfterThresholdAndCaps .................................................   Passed    0.00 sec
+        Start 177: AdaptivePollerTest.EstimatesEtaFromPositionOverRate
+177/667 Test #177: AdaptivePollerTest.EstimatesEtaFromPositionOverRate ....................................................   Passed    0.00 sec
+        Start 178: AdaptivePollerTest.DefaultJitterSourceVariesWithinUnitInterval
+178/667 Test #178: AdaptivePollerTest.DefaultJitterSourceVariesWithinUnitInterval .........................................   Passed    0.00 sec
+        Start 179: LoginChainTest.HappyPathWalksSevenStatesAndFillsCredentials
+179/667 Test #179: LoginChainTest.HappyPathWalksSevenStatesAndFillsCredentials ............................................   Passed    0.05 sec
+        Start 180: LoginChainTest.VerifyRejectionReturnsToIdle
+180/667 Test #180: LoginChainTest.VerifyRejectionReturnsToIdle ............................................................   Passed    0.00 sec
+        Start 181: LoginChainTest.BusyVerifierIsRetriedAfterSuggestedDelay
+181/667 Test #181: LoginChainTest.BusyVerifierIsRetriedAfterSuggestedDelay ................................................   Passed    1.06 sec
+        Start 182: LoginChainTest.TicketRejectionReturnsToIdleBeforePolling
+182/667 Test #182: LoginChainTest.TicketRejectionReturnsToIdleBeforePolling ...............................................   Passed    0.01 sec
+        Start 183: LoginChainTest.ExpiredNumberTokenRestartsLoginAutomatically
+183/667 Test #183: LoginChainTest.ExpiredNumberTokenRestartsLoginAutomatically ............................................   Passed    0.01 sec
+        Start 184: LoginChainTest.ExpiredAdmissionGrantRestartsLogin
+184/667 Test #184: LoginChainTest.ExpiredAdmissionGrantRestartsLogin ......................................................   Passed    0.00 sec
+        Start 185: LoginChainTest.HandoffRejectionRetriesGatewayWithinGrace
+185/667 Test #185: LoginChainTest.HandoffRejectionRetriesGatewayWithinGrace ...............................................   Passed    0.01 sec
+        Start 186: LoginChainTest.TerminalHandoffRejectionFailsChainWithoutRetry
+186/667 Test #186: LoginChainTest.TerminalHandoffRejectionFailsChainWithoutRetry ..........................................   Passed    0.00 sec
+        Start 187: LoginChainTest.TerminalAttachRejectionFailsChainWithoutRetry
+187/667 Test #187: LoginChainTest.TerminalAttachRejectionFailsChainWithoutRetry ...........................................   Passed    0.00 sec
+        Start 188: LoginChainTest.GatewayFailureRetriesWithinGraceThenSucceeds
+188/667 Test #188: LoginChainTest.GatewayFailureRetriesWithinGraceThenSucceeds ............................................   Passed    0.01 sec
+        Start 189: LoginChainTest.AttachRejectionRetriesGatewayWithinGrace
+189/667 Test #189: LoginChainTest.AttachRejectionRetriesGatewayWithinGrace ................................................   Passed    0.00 sec
+        Start 190: LoginChainTest.ExhaustedAdmitGraceRetakesTicket
+190/667 Test #190: LoginChainTest.ExhaustedAdmitGraceRetakesTicket ........................................................   Passed    0.00 sec
+        Start 191: LoginChainTest.RealmTicketWindowExhaustionReturnsToGateway
+191/667 Test #191: LoginChainTest.RealmTicketWindowExhaustionReturnsToGateway .............................................   Passed    0.00 sec
+        Start 192: LoginChainTest.ChainUsesPollerIntervalForWaiting
+192/667 Test #192: LoginChainTest.ChainUsesPollerIntervalForWaiting .......................................................   Passed    0.01 sec
+        Start 193: LoginChainTest.EtaComesFromLatestProgress
+193/667 Test #193: LoginChainTest.EtaComesFromLatestProgress ..............................................................   Passed    0.05 sec
+        Start 194: LoginChainTest.FirstQueryAdmitsWithoutWaitingForProgress
+194/667 Test #194: LoginChainTest.FirstQueryAdmitsWithoutWaitingForProgress ...............................................   Passed    0.01 sec
+        Start 195: LoginChainTest.EveryTransportOperationReceivesOneAbsoluteDeadline
+195/667 Test #195: LoginChainTest.EveryTransportOperationReceivesOneAbsoluteDeadline ......................................   Passed    0.03 sec
+        Start 196: LoginChainTest.CredentialExpiryOnAttachReleasesGatewaySession
+196/667 Test #196: LoginChainTest.CredentialExpiryOnAttachReleasesGatewaySession ..........................................   Passed    0.01 sec
+        Start 197: LoginChainTest.AdmitTimeoutReturnsToIdle
+197/667 Test #197: LoginChainTest.AdmitTimeoutReturnsToIdle ...............................................................   Passed    0.26 sec
+        Start 198: LoginChainTest.EveryTargetStopsAtItsExactCheckpoint
+198/667 Test #198: LoginChainTest.EveryTargetStopsAtItsExactCheckpoint ....................................................   Passed    0.01 sec
+        Start 199: LoginChainTest.GatewaySoakRejectsPastHorizonAndClosesBeforeSuccess
+199/667 Test #199: LoginChainTest.GatewaySoakRejectsPastHorizonAndClosesBeforeSuccess .....................................   Passed    0.01 sec
+        Start 200: LoginChainTest.GatewaySoakTreatsAbsoluteDeadlineAsSuccessfulHorizon
+200/667 Test #200: LoginChainTest.GatewaySoakTreatsAbsoluteDeadlineAsSuccessfulHorizon ....................................   Passed    0.04 sec
+        Start 201: LoginChainTest.ExpiredAbsoluteDeadlineFailsBeforeAnyIo
+201/667 Test #201: LoginChainTest.ExpiredAbsoluteDeadlineFailsBeforeAnyIo .................................................   Passed    0.01 sec
+        Start 202: LoginChainTest.PollingProfilesShareStateAndFallbackSemantics
+202/667 Test #202: LoginChainTest.PollingProfilesShareStateAndFallbackSemantics ...........................................   Passed    0.03 sec
+        Start 203: LoginChainTest.FullTransfersRealmSessionUntilResultDestruction
+203/667 Test #203: LoginChainTest.FullTransfersRealmSessionUntilResultDestruction .........................................   Passed    0.01 sec
+        Start 204: LoginChainTest.StageNamesMatchSpecVocabulary
+204/667 Test #204: LoginChainTest.StageNamesMatchSpecVocabulary ...........................................................   Passed    0.00 sec
+        Start 205: WireEnterRealmRedeemerTest.Sends1304AndAccepts1305
+205/667 Test #205: WireEnterRealmRedeemerTest.Sends1304AndAccepts1305 .....................................................   Passed    0.01 sec
+        Start 206: WireEnterRealmRedeemerTest.MapsEdgeErrorToEnterRealmRejected
+206/667 Test #206: WireEnterRealmRedeemerTest.MapsEdgeErrorToEnterRealmRejected ...........................................   Passed    0.01 sec
+        Start 207: WireEnterRealmRedeemerTest.MapsBadFrameToEnterRealmRejected
+207/667 Test #207: WireEnterRealmRedeemerTest.MapsBadFrameToEnterRealmRejected ............................................   Passed    0.01 sec
+        Start 208: WireEnterRealmRedeemerTest.MapsUndecodableAcceptedToEnterRealmRejected
+208/667 Test #208: WireEnterRealmRedeemerTest.MapsUndecodableAcceptedToEnterRealmRejected .................................   Passed    0.00 sec
+        Start 209: WireEnterRealmRedeemerTest.MapsTimeoutToEnterRealmRejected
+209/667 Test #209: WireEnterRealmRedeemerTest.MapsTimeoutToEnterRealmRejected .............................................   Passed    0.00 sec
+        Start 210: WireLoginTransportIntegrationTest.DrivesLoginChainOverRealTls
+210/667 Test #210: WireLoginTransportIntegrationTest.DrivesLoginChainOverRealTls ..........................................   Passed    0.24 sec
+        Start 211: WireLoginTransportIntegrationTest.AttachRejectionRestartsLogin
+211/667 Test #211: WireLoginTransportIntegrationTest.AttachRejectionRestartsLogin .........................................   Passed    0.25 sec
+        Start 212: WireLoginTransportIntegrationTest.NotEligibleDeclineFailsChainWithoutRetry
+212/667 Test #212: WireLoginTransportIntegrationTest.NotEligibleDeclineFailsChainWithoutRetry .............................   Passed    0.15 sec
+        Start 213: WireLoginTransportIntegrationTest.PlayerDataUnavailableDeclineRestartsLogin
+213/667 Test #213: WireLoginTransportIntegrationTest.PlayerDataUnavailableDeclineRestartsLogin ............................   Passed    1.25 sec
+        Start 214: WireLoginTransportIntegrationTest.NonExpiryUnauthorizedIsTransient
+214/667 Test #214: WireLoginTransportIntegrationTest.NonExpiryUnauthorizedIsTransient .....................................   Passed    0.06 sec
+        Start 215: WireLoginTransportIntegrationTest.RealmRejectsForeignTicketAtPortLevel
+215/667 Test #215: WireLoginTransportIntegrationTest.RealmRejectsForeignTicketAtPortLevel .................................   Passed    0.02 sec
+        Start 216: WireLoginTransportIntegrationTest.RealmApiRoundTripsOverRealTls
+216/667 Test #216: WireLoginTransportIntegrationTest.RealmApiRoundTripsOverRealTls ........................................   Passed    0.12 sec
+        Start 217: LengthFieldCodecTest.EncodesFourByteBigEndianLength
+217/667 Test #217: LengthFieldCodecTest.EncodesFourByteBigEndianLength ....................................................   Passed    0.01 sec
+        Start 218: LengthFieldCodecTest.WaitsForAFragmentedFrameWithoutConsumingData
+218/667 Test #218: LengthFieldCodecTest.WaitsForAFragmentedFrameWithoutConsumingData ......................................   Passed    0.00 sec
+        Start 219: LengthFieldCodecTest.DecodesCoalescedFramesOneAtATime
+219/667 Test #219: LengthFieldCodecTest.DecodesCoalescedFramesOneAtATime ..................................................   Passed    0.00 sec
+        Start 220: LengthFieldCodecTest.SupportsAnEmptyPayload
+220/667 Test #220: LengthFieldCodecTest.SupportsAnEmptyPayload ............................................................   Passed    0.00 sec
+        Start 221: LengthFieldCodecTest.ReportsOversizedFrameWithoutAllocatingPayload
+221/667 Test #221: LengthFieldCodecTest.ReportsOversizedFrameWithoutAllocatingPayload .....................................   Passed    0.00 sec
+        Start 222: LengthFieldCodecTest.RefusesToEncodeOversizedPayload
+222/667 Test #222: LengthFieldCodecTest.RefusesToEncodeOversizedPayload ...................................................   Passed    0.00 sec
+        Start 223: PreferredTransportConnectorTest.ReturnsQuicWithoutStartingTlsWhenFast
+223/667 Test #223: PreferredTransportConnectorTest.ReturnsQuicWithoutStartingTlsWhenFast ..................................   Passed    0.01 sec
+        Start 224: PreferredTransportConnectorTest.StartsTlsAfterDelayAndFirstSecureWins
+224/667 Test #224: PreferredTransportConnectorTest.StartsTlsAfterDelayAndFirstSecureWins ..................................   Passed    0.03 sec
+        Start 225: PreferredTransportConnectorTest.DoesNotFallbackOnCertificateFailure
+225/667 Test #225: PreferredTransportConnectorTest.DoesNotFallbackOnCertificateFailure ....................................   Passed    0.00 sec
+        Start 226: PreferredTransportConnectorTest.CachesNetworkQuicFailureUntilNetworkChanges
+226/667 Test #226: PreferredTransportConnectorTest.CachesNetworkQuicFailureUntilNetworkChanges ............................   Passed    0.02 sec
+        Start 227: ExtractJsonStringFieldTest.ReadsIdentityTokenFromVerifyResponse
+227/667 Test #227: ExtractJsonStringFieldTest.ReadsIdentityTokenFromVerifyResponse ........................................   Passed    0.00 sec
+        Start 228: ExtractJsonStringFieldTest.ReadsAdmissionGrantFromNestedAdmitObject
+228/667 Test #228: ExtractJsonStringFieldTest.ReadsAdmissionGrantFromNestedAdmitObject ....................................   Passed    0.00 sec
+        Start 229: ExtractJsonStringFieldTest.RejectsMalformedValues
+229/667 Test #229: ExtractJsonStringFieldTest.RejectsMalformedValues ......................................................   Passed    0.00 sec
+        Start 230: ExtractJsonIntFieldTest.ReadsNumbersFromTicketsResponse
+230/667 Test #230: ExtractJsonIntFieldTest.ReadsNumbersFromTicketsResponse ................................................   Passed    0.00 sec
+        Start 231: TlsTcpClientDialerTest.QuicCandidateIsUnsupportedAndFallbackPermitted
+231/667 Test #231: TlsTcpClientDialerTest.QuicCandidateIsUnsupportedAndFallbackPermitted ..................................   Passed    0.00 sec
+        Start 232: TlsTcpClientDialerTest.RefusedTlsTcpDialIsNetworkUnreachable
+232/667 Test #232: TlsTcpClientDialerTest.RefusedTlsTcpDialIsNetworkUnreachable ...........................................   Passed    0.00 sec
+        Start 233: TcpListenerTest.AcceptsANonBlockingLoopbackConnection
+233/667 Test #233: TcpListenerTest.AcceptsANonBlockingLoopbackConnection ..................................................   Passed    0.00 sec
+        Start 234: TcpListenerTest.AcceptsIpv4ThroughAnIpv6DualStackListener
+234/667 Test #234: TcpListenerTest.AcceptsIpv4ThroughAnIpv6DualStackListener ..............................................   Passed    0.00 sec
+        Start 235: TcpListenerTest.AcceptDropsConnectionResetBeforeAccept
+235/667 Test #235: TcpListenerTest.AcceptDropsConnectionResetBeforeAccept .................................................   Passed    0.20 sec
+        Start 236: TcpPlatformTest.IgnoresSigpipeProcessWide
+236/667 Test #236: TcpPlatformTest.IgnoresSigpipeProcessWide ..............................................................   Passed    0.01 sec
+        Start 237: EventLoopTest.CreatesAPlatformBackend
+237/667 Test #237: EventLoopTest.CreatesAPlatformBackend ..................................................................   Passed    0.01 sec
+        Start 238: EventLoopTest.ReportsListenerAsReadableWhenClientConnects
+238/667 Test #238: EventLoopTest.ReportsListenerAsReadableWhenClientConnects ..............................................   Passed    0.00 sec
+        Start 239: EventLoopTest.StopsReportingAfterRemove
+239/667 Test #239: EventLoopTest.StopsReportingAfterRemove ................................................................   Passed    0.11 sec
+        Start 240: EventLoopTest.ReportsPeerClosedWhenThePeerStopsWriting
+240/667 Test #240: EventLoopTest.ReportsPeerClosedWhenThePeerStopsWriting .................................................   Passed    0.01 sec
+        Start 241: EventLoopTest.ReportsWritableOnlyWhileWriteInterestIsRegistered
+241/667 Test #241: EventLoopTest.ReportsWritableOnlyWhileWriteInterestIsRegistered ........................................   Passed    0.11 sec
+        Start 242: TransportProtocolTest.UsesStablePublicWireNamesAndValues
+242/667 Test #242: TransportProtocolTest.UsesStablePublicWireNamesAndValues ...............................................   Passed    0.01 sec
+        Start 243: TransportFactoryTest.CreatesOnlyEnabledSecureTransports
+243/667 Test #243: TransportFactoryTest.CreatesOnlyEnabledSecureTransports ................................................   Passed    0.01 sec
+        Start 244: TransportFactoryTest.RejectsDuplicateEnabledNames
+244/667 Test #244: TransportFactoryTest.RejectsDuplicateEnabledNames ......................................................   Passed    0.01 sec
+        Start 245: TransportFactoryTest.RejectsSecureTransportWithoutServerIdentity
+245/667 Test #245: TransportFactoryTest.RejectsSecureTransportWithoutServerIdentity .......................................   Passed    0.00 sec
+        Start 246: TransportFactoryTest.RejectsEmptyTlsAlpn
+246/667 Test #246: TransportFactoryTest.RejectsEmptyTlsAlpn ...............................................................   Passed    0.00 sec
+        Start 247: TransportFactoryTest.ServesOnlyTlsFallbackWithoutQuicCapability
+247/667 Test #247: TransportFactoryTest.ServesOnlyTlsFallbackWithoutQuicCapability ........................................   Passed    0.01 sec
+        Start 248: TransportCapabilitiesTest.AlwaysServesSecureTlsTcp
+248/667 Test #248: TransportCapabilitiesTest.AlwaysServesSecureTlsTcp .....................................................   Passed    0.00 sec
+        Start 249: TlsTcpTransportTest.NegotiatesTls13AndAlpnBeforeExchangingFrames
+249/667 Test #249: TlsTcpTransportTest.NegotiatesTls13AndAlpnBeforeExchangingFrames .......................................   Passed    0.05 sec
+        Start 250: TlsTcpTransportTest.DoesNotOpenASessionWithoutRequiredAlpn
+250/667 Test #250: TlsTcpTransportTest.DoesNotOpenASessionWithoutRequiredAlpn .............................................   Passed    1.29 sec
+        Start 251: TlsTcpTransportTest.WritingToAResetPeerFailsWithoutTerminatingProcess
+251/667 Test #251: TlsTcpTransportTest.WritingToAResetPeerFailsWithoutTerminatingProcess ..................................   Passed    0.03 sec
+        Start 252: TlsTcpTransportTest.ClientWritingToAClosedServerFailsWithoutTerminatingProcess
+252/667 Test #252: TlsTcpTransportTest.ClientWritingToAClosedServerFailsWithoutTerminatingProcess .........................   Passed    0.02 sec
+        Start 253: TlsTcpTransportTest.ClientReadIgnoresOpenSslErrorsLeftByAnotherConnection
+253/667 Test #253: TlsTcpTransportTest.ClientReadIgnoresOpenSslErrorsLeftByAnotherConnection ..............................   Passed    0.12 sec
+        Start 254: TlsTcpTransportTest.ServerIgnoresOpenSslErrorsLeftByAnotherConnection
+254/667 Test #254: TlsTcpTransportTest.ServerIgnoresOpenSslErrorsLeftByAnotherConnection ..................................   Passed    0.16 sec
+        Start 255: Http1ParserTest.ParsesSimpleGetRequest
+255/667 Test #255: Http1ParserTest.ParsesSimpleGetRequest .................................................................   Passed    0.01 sec
+        Start 256: Http1ParserTest.ParsesPostRequestWithBody
+256/667 Test #256: Http1ParserTest.ParsesPostRequestWithBody ..............................................................   Passed    0.00 sec
+        Start 257: Http1ParserTest.AssemblesARequestFedByteByByte
+257/667 Test #257: Http1ParserTest.AssemblesARequestFedByteByByte .........................................................   Passed    0.00 sec
+        Start 258: Http1ParserTest.ProducesTheSameRequestAcrossChunkBoundaries
+258/667 Test #258: Http1ParserTest.ProducesTheSameRequestAcrossChunkBoundaries ............................................   Passed    0.00 sec
+        Start 259: Http1ParserTest.ParsesPipelinedRequestsSequentially
+259/667 Test #259: Http1ParserTest.ParsesPipelinedRequestsSequentially ....................................................   Passed    0.00 sec
+        Start 260: Http1ParserTest.NormalizesHeaderNamesToLowercaseForLookup
+260/667 Test #260: Http1ParserTest.NormalizesHeaderNamesToLowercaseForLookup ..............................................   Passed    0.00 sec
+        Start 261: Http1ParserTest.HonorsConnectionClose
+261/667 Test #261: Http1ParserTest.HonorsConnectionClose ..................................................................   Passed    0.00 sec
+        Start 262: Http1ParserTest.RejectsProtocolViolationsDeterministically
+262/667 Test #262: Http1ParserTest.RejectsProtocolViolationsDeterministically .............................................   Passed    0.00 sec
+        Start 263: Http1ParserTest.RejectsOversizedBodyBeforeItArrives
+263/667 Test #263: Http1ParserTest.RejectsOversizedBodyBeforeItArrives ....................................................   Passed    0.00 sec
+        Start 264: Http1ParserTest.RejectsOversizedHeadBlocks
+264/667 Test #264: Http1ParserTest.RejectsOversizedHeadBlocks .............................................................   Passed    0.00 sec
+        Start 265: Http1ParserTest.ReportsMaxInputBound
+265/667 Test #265: Http1ParserTest.ReportsMaxInputBound ...................................................................   Passed    0.00 sec
+        Start 266: Http1ParserTest.ParsesCoDeliveredHeadAndLargeBody
+266/667 Test #266: Http1ParserTest.ParsesCoDeliveredHeadAndLargeBody ......................................................   Passed    0.00 sec
+        Start 267: Http1ParserTest.AfterRejectionSubsequentBytesProduceNoSecondRequest
+267/667 Test #267: Http1ParserTest.AfterRejectionSubsequentBytesProduceNoSecondRequest ....................................   Passed    0.00 sec
+        Start 268: Http1ResponseTest.SerializesStatusHeadersAndBody
+268/667 Test #268: Http1ResponseTest.SerializesStatusHeadersAndBody .......................................................   Passed    0.00 sec
+        Start 269: Http1ResponseTest.WritesCloseAndEmptyBody
+269/667 Test #269: Http1ResponseTest.WritesCloseAndEmptyBody ..............................................................   Passed    0.00 sec
+        Start 270: Http1ResponseTest.UsesReasonPhraseTable
+270/667 Test #270: Http1ResponseTest.UsesReasonPhraseTable ................................................................   Passed    0.00 sec
+        Start 271: Http1ResponseParserTest.ParsesOkResponseWithBody
+271/667 Test #271: Http1ResponseParserTest.ParsesOkResponseWithBody .......................................................   Passed    0.00 sec
+        Start 272: Http1ResponseParserTest.ParsesStatusOnlyResponseWithReason
+272/667 Test #272: Http1ResponseParserTest.ParsesStatusOnlyResponseWithReason .............................................   Passed    0.00 sec
+        Start 273: Http1ResponseParserTest.AssemblesAResponseFedByteByByte
+273/667 Test #273: Http1ResponseParserTest.AssemblesAResponseFedByteByByte ................................................   Passed    0.00 sec
+        Start 274: Http1ResponseParserTest.TreatsMissingContentLengthAsEmptyBody
+274/667 Test #274: Http1ResponseParserTest.TreatsMissingContentLengthAsEmptyBody ..........................................   Passed    0.00 sec
+        Start 275: Http1ResponseParserTest.LeavesPipelinedRemainderInBuffer
+275/667 Test #275: Http1ResponseParserTest.LeavesPipelinedRemainderInBuffer ...............................................   Passed    0.00 sec
+        Start 276: Http1ResponseParserTest.RejectsTransferEncoding
+276/667 Test #276: Http1ResponseParserTest.RejectsTransferEncoding ........................................................   Passed    0.00 sec
+        Start 277: Http1ResponseParserTest.RejectsDuplicateContentLength
+277/667 Test #277: Http1ResponseParserTest.RejectsDuplicateContentLength ..................................................   Passed    0.00 sec
+        Start 278: Http1ResponseParserTest.RejectsBodyBeyondLimit
+278/667 Test #278: Http1ResponseParserTest.RejectsBodyBeyondLimit .........................................................   Passed    0.00 sec
+        Start 279: Http1ResponseParserTest.RejectsHeadBeyondLimit
+279/667 Test #279: Http1ResponseParserTest.RejectsHeadBeyondLimit .........................................................   Passed    0.00 sec
+        Start 280: Http1ResponseParserTest.HoldsBodyUntilContentLengthSatisfied
+280/667 Test #280: Http1ResponseParserTest.HoldsBodyUntilContentLengthSatisfied ...........................................   Passed    0.00 sec
+        Start 281: Http1ResponseParserTest.SlowDripHeadStillHitsSizeLimit
+281/667 Test #281: Http1ResponseParserTest.SlowDripHeadStillHitsSizeLimit .................................................   Passed    0.00 sec
+        Start 282: Http1ResponseParserTest.RejectsHttp10Response
+282/667 Test #282: Http1ResponseParserTest.RejectsHttp10Response ..........................................................   Passed    0.00 sec
+        Start 283: Http1ResponseParserTest.RejectsGarbageStatusLine
+283/667 Test #283: Http1ResponseParserTest.RejectsGarbageStatusLine .......................................................   Passed    0.00 sec
+        Start 284: Http1ResponseParserTest.HeaderLookupIsCaseInsensitiveOnStruct
+284/667 Test #284: Http1ResponseParserTest.HeaderLookupIsCaseInsensitiveOnStruct ..........................................   Passed    0.00 sec
+        Start 285: HttpServerTest.ServesKeepAliveRequestsOverTls13WithAlpn
+285/667 Test #285: HttpServerTest.ServesKeepAliveRequestsOverTls13WithAlpn ................................................   Passed    0.08 sec
+        Start 286: HttpServerTest.RejectsUnsupportedVersionThenCloses
+286/667 Test #286: HttpServerTest.RejectsUnsupportedVersionThenCloses .....................................................   Passed    0.03 sec
+        Start 287: HttpServerTest.HonorsClientRequestedClose
+287/667 Test #287: HttpServerTest.HonorsClientRequestedClose ..............................................................   Passed    0.03 sec
+        Start 288: HttpServerTest.DeferredResponseHoldsPipelinedRequestsUntilCompleted
+288/667 Test #288: HttpServerTest.DeferredResponseHoldsPipelinedRequestsUntilCompleted ....................................   Passed    0.17 sec
+        Start 289: HttpServerTest.CompletingAfterConnectionClosedReturnsFalse
+289/667 Test #289: HttpServerTest.CompletingAfterConnectionClosedReturnsFalse .............................................   Passed    0.14 sec
+        Start 290: HttpServerTest.DeferredResponseSurvivesClientHalfClose
+290/667 Test #290: HttpServerTest.DeferredResponseSurvivesClientHalfClose .................................................   Passed    0.18 sec
+        Start 291: HttpServerTest.DeferringHandlerMayAnswerImmediately
+291/667 Test #291: HttpServerTest.DeferringHandlerMayAnswerImmediately ....................................................   Passed    0.06 sec
+        Start 292: QuicTransportTest.ExchangesAFramedMessageOverOneVerifiedStream
+292/667 Test #292: QuicTransportTest.ExchangesAFramedMessageOverOneVerifiedStream .........................................   Passed    0.06 sec
+        Start 293: AccountStoreTest.AuthenticatesValidAccountWithDerivedId
+293/667 Test #293: AccountStoreTest.AuthenticatesValidAccountWithDerivedId ................................................   Passed    0.00 sec
+        Start 294: AccountStoreTest.HonorsPinnedAccountId
+294/667 Test #294: AccountStoreTest.HonorsPinnedAccountId .................................................................   Passed    0.00 sec
+        Start 295: AccountStoreTest.WrongCredentialReturnsNothing
+295/667 Test #295: AccountStoreTest.WrongCredentialReturnsNothing .........................................................   Passed    0.00 sec
+        Start 296: AccountStoreTest.UnknownAccountReturnsNothing
+296/667 Test #296: AccountStoreTest.UnknownAccountReturnsNothing ..........................................................   Passed    0.00 sec
+        Start 297: AccountStoreTest.ExposesBannedFlag
+297/667 Test #297: AccountStoreTest.ExposesBannedFlag .....................................................................   Passed    0.00 sec
+        Start 298: AccountStoreTest.ExposesWhitelistFlags
+298/667 Test #298: AccountStoreTest.ExposesWhitelistFlags .................................................................   Passed    0.00 sec
+        Start 299: AccountStoreTest.LoadsEmptyAccountsTable
+299/667 Test #299: AccountStoreTest.LoadsEmptyAccountsTable ...............................................................   Passed    0.00 sec
+        Start 300: AccountStoreTest.RejectsDuplicateAccountName
+300/667 Test #300: AccountStoreTest.RejectsDuplicateAccountName ...........................................................   Passed    0.00 sec
+        Start 301: AccountStoreTest.RejectsDuplicateAccountId
+301/667 Test #301: AccountStoreTest.RejectsDuplicateAccountId .............................................................   Passed    0.00 sec
+        Start 302: AccountStoreTest.RejectsMissingCredentialField
+302/667 Test #302: AccountStoreTest.RejectsMissingCredentialField .........................................................   Passed    0.00 sec
+        Start 303: AccountStoreTest.RejectsNonStringCredential
+303/667 Test #303: AccountStoreTest.RejectsNonStringCredential ............................................................   Passed    0.00 sec
+        Start 304: AccountStoreTest.RejectsNonPositiveAccountId
+304/667 Test #304: AccountStoreTest.RejectsNonPositiveAccountId ...........................................................   Passed    0.00 sec
+        Start 305: AccountStoreTest.RejectsMissingFile
+305/667 Test #305: AccountStoreTest.RejectsMissingFile ....................................................................   Passed    0.00 sec
+        Start 306: AccountStoreTest.RejectsRootWithoutAccountsTable
+306/667 Test #306: AccountStoreTest.RejectsRootWithoutAccountsTable .......................................................   Passed    0.00 sec
+        Start 307: PlayerDataStoreTest.PersistsAccountAndSelectedCharacterAcrossReconnect
+307/667 Test #307: PlayerDataStoreTest.PersistsAccountAndSelectedCharacterAcrossReconnect .................................   Passed    1.77 sec
+        Start 308: PlayerDataStoreTest.CommittedAccessUpdatesAreVisibleToOtherStores
+308/667 Test #308: PlayerDataStoreTest.CommittedAccessUpdatesAreVisibleToOtherStores ......................................   Passed    1.74 sec
+        Start 309: PlayerDataStoreTest.PreservesFullUnsignedDomainIds
+309/667 Test #309: PlayerDataStoreTest.PreservesFullUnsignedDomainIds .....................................................   Passed    1.38 sec
+        Start 310: PlayerDataStoreTest.RejectsSelectingCharacterOwnedByAnotherAccount
+310/667 Test #310: PlayerDataStoreTest.RejectsSelectingCharacterOwnedByAnotherAccount .....................................   Passed    1.42 sec
+        Start 311: PlayerDataStoreTest.BootstrapsLegacyConfigOnlyWhenDatabaseIsEmpty
+311/667 Test #311: PlayerDataStoreTest.BootstrapsLegacyConfigOnlyWhenDatabaseIsEmpty ......................................   Passed    1.43 sec
+        Start 312: PlayerDataStoreTest.AnyProcessOpeningAnEmptyDatabaseRunsTheBootstrap
+312/667 Test #312: PlayerDataStoreTest.AnyProcessOpeningAnEmptyDatabaseRunsTheBootstrap ...................................   Passed    1.77 sec
+        Start 313: PlayerDataStoreTest.PopulatedDatabaseSkipsBootstrapWithoutReadingTheFile
+313/667 Test #313: PlayerDataStoreTest.PopulatedDatabaseSkipsBootstrapWithoutReadingTheFile ...............................   Passed    1.74 sec
+        Start 314: PlayerDataStoreTest.CredentialHashCostIsRecordedInTheStoredHash
+314/667 Test #314: PlayerDataStoreTest.CredentialHashCostIsRecordedInTheStoredHash ........................................   Passed    2.03 sec
+        Start 315: PlayerDataStoreTest.RejectsReassigningCharacterOwnership
+315/667 Test #315: PlayerDataStoreTest.RejectsReassigningCharacterOwnership ...............................................   Passed    1.33 sec
+        Start 316: PlayerDataStoreTest.RejectsAccountNameTakenByAnotherId
+316/667 Test #316: PlayerDataStoreTest.RejectsAccountNameTakenByAnotherId .................................................   Passed    1.41 sec
+        Start 317: PlayerDataStoreTest.ReprovisioningAccountKeepsSelectedCharacter
+317/667 Test #317: PlayerDataStoreTest.ReprovisioningAccountKeepsSelectedCharacter ........................................   Passed    1.36 sec
+        Start 318: PlayerDataStoreTest.ConcurrentFirstStartsImportTheBootstrapOnce
+318/667 Test #318: PlayerDataStoreTest.ConcurrentFirstStartsImportTheBootstrapOnce ........................................   Passed    1.79 sec
+        Start 319: PlayerDataStoreTest.AccountWithoutCharactersIsEligible
+319/667 Test #319: PlayerDataStoreTest.AccountWithoutCharactersIsEligible .................................................   Passed    1.74 sec
+        Start 320: PlayerDataStoreTest.CreatedCharacterStartsAtZeroAndIsListedInOrder
+320/667 Test #320: PlayerDataStoreTest.CreatedCharacterStartsAtZeroAndIsListedInOrder .....................................   Passed    1.77 sec
+        Start 321: PlayerDataStoreTest.CharacterNamesAreUniquePerRealm
+321/667 Test #321: PlayerDataStoreTest.CharacterNamesAreUniquePerRealm ....................................................   Passed    2.19 sec
+        Start 322: PlayerDataStoreTest.CharacterCountIsLimitedPerAccountAndRealm
+322/667 Test #322: PlayerDataStoreTest.CharacterCountIsLimitedPerAccountAndRealm ..........................................   Passed    1.80 sec
+        Start 323: PlayerDataStoreTest.ConcurrentCreatesNeverExceedTheLimit
+323/667 Test #323: PlayerDataStoreTest.ConcurrentCreatesNeverExceedTheLimit ...............................................   Passed    1.78 sec
+        Start 324: PlayerDataStoreTest.ConcurrentSameNameCreatesHaveOneWinner
+324/667 Test #324: PlayerDataStoreTest.ConcurrentSameNameCreatesHaveOneWinner .............................................   Passed    3.27 sec
+        Start 325: PlayerDataStoreTest.ChoosingVerifiesOwnershipAndRecordsLastSelected
+325/667 Test #325: PlayerDataStoreTest.ChoosingVerifiesOwnershipAndRecordsLastSelected ....................................   Passed    2.22 sec
+        Start 326: PlayerDataStoreTest.TrainingWriteIsConditionalOnThePreviousSeq
+326/667 Test #326: PlayerDataStoreTest.TrainingWriteIsConditionalOnThePreviousSeq .........................................   Passed    1.75 sec
+        Start 327: PlayerDataStoreTest.MigratesSchemaOneCharacters
+327/667 Test #327: PlayerDataStoreTest.MigratesSchemaOneCharacters ........................................................   Passed    1.94 sec
+        Start 328: PlayerDataStoreTest.RefusesSchemaNewerThanThisBinary
+328/667 Test #328: PlayerDataStoreTest.RefusesSchemaNewerThanThisBinary ...................................................   Passed    1.99 sec
+        Start 329: PlayerDataStoreTest.UnreachableDeploymentFailsWithinServerSelectionTimeout
+329/667 Test #329: PlayerDataStoreTest.UnreachableDeploymentFailsWithinServerSelectionTimeout .............................   Passed    1.40 sec
+        Start 330: PlayerDataStoreTest.RejectsTimeoutsEmbeddedInTheUri
+330/667 Test #330: PlayerDataStoreTest.RejectsTimeoutsEmbeddedInTheUri ....................................................   Passed    1.41 sec
+        Start 331: AdmissionGrantTest.RoundTripsStrictDeploymentBoundSchema
+331/667 Test #331: AdmissionGrantTest.RoundTripsStrictDeploymentBoundSchema ...............................................   Passed    0.00 sec
+        Start 332: AdmissionGrantTest.CapsExpiryAtBoundIdentityExpiry
+332/667 Test #332: AdmissionGrantTest.CapsExpiryAtBoundIdentityExpiry .....................................................   Passed    0.00 sec
+        Start 333: AdmissionGrantTest.RejectsWrongDeploymentIssuerBindingAndUnknownKid
+333/667 Test #333: AdmissionGrantTest.RejectsWrongDeploymentIssuerBindingAndUnknownKid ....................................   Passed    0.00 sec
+        Start 334: AdmissionGrantTest.RejectsStrictSchemaAndTimeWindowViolations
+334/667 Test #334: AdmissionGrantTest.RejectsStrictSchemaAndTimeWindowViolations ..........................................   Passed    0.00 sec
+        Start 335: AdmissionGrantTest.AcceptsConfiguredRotationOverlap
+335/667 Test #335: AdmissionGrantTest.AcceptsConfiguredRotationOverlap ....................................................   Passed    0.00 sec
+        Start 336: AdmissionGrantTest.RejectsExpiredFutureAndMalformedTokens
+336/667 Test #336: AdmissionGrantTest.RejectsExpiredFutureAndMalformedTokens ..............................................   Passed    0.00 sec
+        Start 337: AdmissionGrantTest.QueueNumberCannotValidateAsGrant
+337/667 Test #337: AdmissionGrantTest.QueueNumberCannotValidateAsGrant ....................................................   Passed    0.00 sec
+        Start 338: AdmissionGrantTest.GrantCannotValidateAsQueueNumberEvenWithSharedKey
+338/667 Test #338: AdmissionGrantTest.GrantCannotValidateAsQueueNumberEvenWithSharedKey ...................................   Passed    0.00 sec
+        Start 339: AdmissionGrantTest.RejectsUnsafePolicyRingAndTimes
+339/667 Test #339: AdmissionGrantTest.RejectsUnsafePolicyRingAndTimes .....................................................   Passed    0.00 sec
+        Start 340: AdmissionSecurityConfigTest.AcceptsSeparatedRolesAndRotationRings
+340/667 Test #340: AdmissionSecurityConfigTest.AcceptsSeparatedRolesAndRotationRings ......................................   Passed    0.00 sec
+        Start 341: AdmissionSecurityConfigTest.RejectsMissingActiveSigningRole
+341/667 Test #341: AdmissionSecurityConfigTest.RejectsMissingActiveSigningRole ............................................   Passed    0.00 sec
+        Start 342: AdmissionSecurityConfigTest.RejectsDuplicateAndUnknownActiveKeys
+342/667 Test #342: AdmissionSecurityConfigTest.RejectsDuplicateAndUnknownActiveKeys .......................................   Passed    0.00 sec
+        Start 343: AdmissionSecurityConfigTest.RejectsRoleConfusedKidOrSigningMaterial
+343/667 Test #343: AdmissionSecurityConfigTest.RejectsRoleConfusedKidOrSigningMaterial ....................................   Passed    0.00 sec
+        Start 344: AdmissionSecurityConfigTest.RejectsUnsafeBoundsAndIdentifiers
+344/667 Test #344: AdmissionSecurityConfigTest.RejectsUnsafeBoundsAndIdentifiers ..........................................   Passed    0.00 sec
+        Start 345: AdmissionSecurityConfigTest.ParsesPublicKeysStrictly
+345/667 Test #345: AdmissionSecurityConfigTest.ParsesPublicKeysStrictly ...................................................   Passed    0.00 sec
+        Start 346: Base64UrlTest.EncodesRfc4648TestVectorsWithoutPadding
+346/667 Test #346: Base64UrlTest.EncodesRfc4648TestVectorsWithoutPadding ..................................................   Passed    0.00 sec
+        Start 347: Base64UrlTest.DecodesRfc4648TestVectors
+347/667 Test #347: Base64UrlTest.DecodesRfc4648TestVectors ................................................................   Passed    0.00 sec
+        Start 348: Base64UrlTest.RoundTripsEveryLength
+348/667 Test #348: Base64UrlTest.RoundTripsEveryLength ....................................................................   Passed    0.00 sec
+        Start 349: Base64UrlTest.RejectsPaddingWhitespaceAndNonAlphabetCharacters
+349/667 Test #349: Base64UrlTest.RejectsPaddingWhitespaceAndNonAlphabetCharacters .........................................   Passed    0.00 sec
+        Start 350: Base64UrlTest.RejectsImpossibleLengths
+350/667 Test #350: Base64UrlTest.RejectsImpossibleLengths .................................................................   Passed    0.00 sec
+        Start 351: Base64UrlTest.RejectsNonCanonicalRemainderBits
+351/667 Test #351: Base64UrlTest.RejectsNonCanonicalRemainderBits .........................................................   Passed    0.00 sec
+        Start 352: CompactJwsTest.EncodeProducesCompactThreeSegments
+352/667 Test #352: CompactJwsTest.EncodeProducesCompactThreeSegments ......................................................   Passed    0.00 sec
+        Start 353: CompactJwsTest.DecodeRoundTripsVerifiedPayload
+353/667 Test #353: CompactJwsTest.DecodeRoundTripsVerifiedPayload .........................................................   Passed    0.00 sec
+        Start 354: CompactJwsTest.CurrentDecodeAcceptsTokenOverFourKiB
+354/667 Test #354: CompactJwsTest.CurrentDecodeAcceptsTokenOverFourKiB ....................................................   Passed    0.00 sec
+        Start 355: CompactJwsTest.CurrentDecodeRejectsVerifiedPayloadAboveJsonLimit
+355/667 Test #355: CompactJwsTest.CurrentDecodeRejectsVerifiedPayloadAboveJsonLimit .......................................   Passed    0.00 sec
+        Start 356: CompactJwsTest.DecodeRejectsWrongKid
+356/667 Test #356: CompactJwsTest.DecodeRejectsWrongKid ...................................................................   Passed    0.00 sec
+        Start 357: CompactJwsTest.DecodeRejectsTamperedPayload
+357/667 Test #357: CompactJwsTest.DecodeRejectsTamperedPayload ............................................................   Passed    0.00 sec
+        Start 358: CompactJwsTest.DecodeRejectsForeignKey
+358/667 Test #358: CompactJwsTest.DecodeRejectsForeignKey .................................................................   Passed    0.00 sec
+        Start 359: CompactJwsTest.DecodeRejectsMalformedSegmentCount
+359/667 Test #359: CompactJwsTest.DecodeRejectsMalformedSegmentCount ......................................................   Passed    0.00 sec
+        Start 360: CompactJwsTest.DecodeRejectsHeaderSchemaViolations
+360/667 Test #360: CompactJwsTest.DecodeRejectsHeaderSchemaViolations .....................................................   Passed    0.00 sec
+        Start 361: CompactJwsTest.ClockLeewayIsSharedConstant
+361/667 Test #361: CompactJwsTest.ClockLeewayIsSharedConstant .............................................................   Passed    0.00 sec
+        Start 362: CompactJwsTest.ParseSeedRejectsBadHex
+362/667 Test #362: CompactJwsTest.ParseSeedRejectsBadHex ..................................................................   Passed    0.00 sec
+        Start 363: EdgeAttachProtocolTest.AttachRoundTripsTokens
+363/667 Test #363: EdgeAttachProtocolTest.AttachRoundTripsTokens ..........................................................   Passed    0.00 sec
+        Start 364: EdgeAttachProtocolTest.AttachAcceptedRoundTripsAccountId
+364/667 Test #364: EdgeAttachProtocolTest.AttachAcceptedRoundTripsAccountId ...............................................   Passed    0.00 sec
+        Start 365: EdgeAttachProtocolTest.AttachErrorCodesFollowSpec
+365/667 Test #365: EdgeAttachProtocolTest.AttachErrorCodesFollowSpec ......................................................   Passed    0.00 sec
+        Start 366: EdgeAttachProtocolTest.EnterRealmRoundTripsTicket
+366/667 Test #366: EdgeAttachProtocolTest.EnterRealmRoundTripsTicket ......................................................   Passed    0.00 sec
+        Start 367: EdgeAttachProtocolTest.EnterRealmAcceptedRoundTripsAccountId
+367/667 Test #367: EdgeAttachProtocolTest.EnterRealmAcceptedRoundTripsAccountId ...........................................   Passed    0.00 sec
+        Start 368: EdgeAttachProtocolTest.EnterRealmGrantedRoundTripsTicketAndEndpoint
+368/667 Test #368: EdgeAttachProtocolTest.EnterRealmGrantedRoundTripsTicketAndEndpoint ....................................   Passed    0.00 sec
+        Start 369: RealmProtocolTest.ListCharactersCarriesIdAndRequestId
+369/667 Test #369: RealmProtocolTest.ListCharactersCarriesIdAndRequestId ..................................................   Passed    0.00 sec
+        Start 370: RealmProtocolTest.CharacterListRoundTripsItemsAndLastSelected
+370/667 Test #370: RealmProtocolTest.CharacterListRoundTripsItemsAndLastSelected ..........................................   Passed    0.00 sec
+        Start 371: RealmProtocolTest.TrainResultRoundTripsReplayedFlag
+371/667 Test #371: RealmProtocolTest.TrainResultRoundTripsReplayedFlag ....................................................   Passed    0.00 sec
+        Start 372: RealmProtocolTest.DisplacedIsAServerPush
+372/667 Test #372: RealmProtocolTest.DisplacedIsAServerPush ...............................................................   Passed    0.00 sec
+        Start 373: RealmProtocolTest.EdgeAndRealmIdsDoNotOverlap
+373/667 Test #373: RealmProtocolTest.EdgeAndRealmIdsDoNotOverlap ..........................................................   Passed    0.00 sec
+        Start 374: RealmProtocolTest.DecodeRejectsWrongMessageId
+374/667 Test #374: RealmProtocolTest.DecodeRejectsWrongMessageId ..........................................................   Passed    0.00 sec
+        Start 375: RealmProtocolTest.ErrorCodesFollowSpec
+375/667 Test #375: RealmProtocolTest.ErrorCodesFollowSpec .................................................................   Passed    0.00 sec
+        Start 376: IdentityReplayGuardTest.ConsumesOnceAndRejectsReplay
+376/667 Test #376: IdentityReplayGuardTest.ConsumesOnceAndRejectsReplay ...................................................   Passed    0.00 sec
+        Start 377: IdentityReplayGuardTest.DistinctJtiAreIndependent
+377/667 Test #377: IdentityReplayGuardTest.DistinctJtiAreIndependent ......................................................   Passed    0.00 sec
+        Start 378: IdentityReplayGuardTest.ExpiredEntriesAreEvictedNotReplayed
+378/667 Test #378: IdentityReplayGuardTest.ExpiredEntriesAreEvictedNotReplayed ............................................   Passed    0.00 sec
+        Start 379: IdentityReplayGuardTest.ReplayWithinLeewayAfterExpiryIsRejected
+379/667 Test #379: IdentityReplayGuardTest.ReplayWithinLeewayAfterExpiryIsRejected ........................................   Passed    0.00 sec
+        Start 380: IdentityReplayGuardTest.ReplayAtExactLeewayBoundaryIsRejected
+380/667 Test #380: IdentityReplayGuardTest.ReplayAtExactLeewayBoundaryIsRejected ..........................................   Passed    0.00 sec
+        Start 381: IdentityTokenTest.IssuesDeterministicCompactJwsWithControlledHeader
+381/667 Test #381: IdentityTokenTest.IssuesDeterministicCompactJwsWithControlledHeader ....................................   Passed    0.00 sec
+        Start 382: IdentityTokenTest.RoundTripsClaimsThroughValidate
+382/667 Test #382: IdentityTokenTest.RoundTripsClaimsThroughValidate ......................................................   Passed    0.00 sec
+        Start 383: IdentityTokenTest.AcceptsInteropFixturesFromNodeAndPyjwt
+383/667 Test #383: IdentityTokenTest.AcceptsInteropFixturesFromNodeAndPyjwt ...............................................   Passed    0.00 sec
+        Start 384: IdentityTokenTest.RejectsTamperedInteropFixtures
+384/667 Test #384: IdentityTokenTest.RejectsTamperedInteropFixtures .......................................................   Passed    0.00 sec
+        Start 385: IdentityTokenTest.RejectsAnyTamperedSegment
+385/667 Test #385: IdentityTokenTest.RejectsAnyTamperedSegment ............................................................   Passed    0.00 sec
+        Start 386: IdentityTokenTest.RejectsStructuralGarbage
+386/667 Test #386: IdentityTokenTest.RejectsStructuralGarbage .............................................................   Passed    0.00 sec
+        Start 387: IdentityTokenTest.RejectsWrongExpectedIssuer
+387/667 Test #387: IdentityTokenTest.RejectsWrongExpectedIssuer ...........................................................   Passed    0.00 sec
+        Start 388: IdentityTokenTest.RejectsForeignAlgorithmTypAndUnsignedTokens
+388/667 Test #388: IdentityTokenTest.RejectsForeignAlgorithmTypAndUnsignedTokens ..........................................   Passed    0.00 sec
+        Start 389: IdentityTokenTest.RejectsPinnedAudienceAndPurpose
+389/667 Test #389: IdentityTokenTest.RejectsPinnedAudienceAndPurpose ......................................................   Passed    0.00 sec
+        Start 390: IdentityTokenTest.RejectsForeignKid
+390/667 Test #390: IdentityTokenTest.RejectsForeignKid ....................................................................   Passed    0.00 sec
+        Start 391: IdentityTokenTest.RejectsMalformedSub
+391/667 Test #391: IdentityTokenTest.RejectsMalformedSub ..................................................................   Passed    0.00 sec
+        Start 392: IdentityTokenTest.EnforcesLowercaseHexJti
+392/667 Test #392: IdentityTokenTest.EnforcesLowercaseHexJti ..............................................................   Passed    0.00 sec
+        Start 393: IdentityTokenTest.RejectsExactKeySetViolations
+393/667 Test #393: IdentityTokenTest.RejectsExactKeySetViolations .........................................................   Passed    0.00 sec
+        Start 394: IdentityTokenTest.RejectsTokenSignedByDifferentKey
+394/667 Test #394: IdentityTokenTest.RejectsTokenSignedByDifferentKey .....................................................   Passed    0.00 sec
+        Start 395: IdentityTokenTest.EnforcesExpiryLeewayBoundary
+395/667 Test #395: IdentityTokenTest.EnforcesExpiryLeewayBoundary .........................................................   Passed    0.00 sec
+        Start 396: IdentityTokenTest.EnforcesIssuedAtLeewayBoundary
+396/667 Test #396: IdentityTokenTest.EnforcesIssuedAtLeewayBoundary .......................................................   Passed    0.00 sec
+        Start 397: IdentityTokenTest.JwksMatchesOkpShapeWithRfc8037VectorKey
+397/667 Test #397: IdentityTokenTest.JwksMatchesOkpShapeWithRfc8037VectorKey ..............................................   Passed    0.00 sec
+        Start 398: IdentityTokenTest.ParsesSeedHexStrictly
+398/667 Test #398: IdentityTokenTest.ParsesSeedHexStrictly ................................................................   Passed    0.00 sec
+        Start 399: JsonCodecTest.EncodesSortedKeysInCompactForm
+399/667 Test #399: JsonCodecTest.EncodesSortedKeysInCompactForm ...........................................................   Passed    0.00 sec
+        Start 400: JsonCodecTest.EncodesEmptyObject
+400/667 Test #400: JsonCodecTest.EncodesEmptyObject .......................................................................   Passed    0.00 sec
+        Start 401: JsonCodecTest.EscapesQuotesBackslashesAndControlCharacters
+401/667 Test #401: JsonCodecTest.EscapesQuotesBackslashesAndControlCharacters .............................................   Passed    0.00 sec
+        Start 402: JsonCodecTest.PassesUtf8ThroughUntouched
+402/667 Test #402: JsonCodecTest.PassesUtf8ThroughUntouched ...............................................................   Passed    0.00 sec
+        Start 403: JsonCodecTest.RoundTripsClaimsShape
+403/667 Test #403: JsonCodecTest.RoundTripsClaimsShape ....................................................................   Passed    0.00 sec
+        Start 404: JsonCodecTest.RoundTripsInt64Boundary
+404/667 Test #404: JsonCodecTest.RoundTripsInt64Boundary ..................................................................   Passed    0.00 sec
+        Start 405: JsonCodecTest.DecodesEmptyObject
+405/667 Test #405: JsonCodecTest.DecodesEmptyObject .......................................................................   Passed    0.00 sec
+        Start 406: JsonCodecTest.DecodesToleratesWhitespaceBetweenTokens
+406/667 Test #406: JsonCodecTest.DecodesToleratesWhitespaceBetweenTokens ..................................................   Passed    0.00 sec
+        Start 407: JsonCodecTest.DecodesEscapesItEmits
+407/667 Test #407: JsonCodecTest.DecodesEscapesItEmits ....................................................................   Passed    0.00 sec
+        Start 408: JsonCodecTest.RejectsNonObjectRoots
+408/667 Test #408: JsonCodecTest.RejectsNonObjectRoots ....................................................................   Passed    0.00 sec
+        Start 409: JsonCodecTest.RejectsNestedContainersAndNullValues
+409/667 Test #409: JsonCodecTest.RejectsNestedContainersAndNullValues .....................................................   Passed    0.00 sec
+        Start 410: JsonCodecTest.RejectsFloatsAndMalformedNumbers
+410/667 Test #410: JsonCodecTest.RejectsFloatsAndMalformedNumbers .........................................................   Passed    0.00 sec
+        Start 411: JsonCodecTest.RejectsDuplicateKeys
+411/667 Test #411: JsonCodecTest.RejectsDuplicateKeys .....................................................................   Passed    0.00 sec
+        Start 412: JsonCodecTest.RejectsMalformedStrings
+412/667 Test #412: JsonCodecTest.RejectsMalformedStrings ..................................................................   Passed    0.00 sec
+        Start 413: JsonCodecTest.RejectsTrailingContentAfterObject
+413/667 Test #413: JsonCodecTest.RejectsTrailingContentAfterObject ........................................................   Passed    0.00 sec
+        Start 414: JsonCodecTest.EnforcesInputSizeBound
+414/667 Test #414: JsonCodecTest.EnforcesInputSizeBound ...................................................................   Passed    0.00 sec
+        Start 415: LegacyQueueNumberCodecTest.RoundTripsQueuedTicket
+415/667 Test #415: LegacyQueueNumberCodecTest.RoundTripsQueuedTicket ......................................................   Passed    0.00 sec
+        Start 416: LegacyQueueNumberCodecTest.RoundTripsAdmittedTicket
+416/667 Test #416: LegacyQueueNumberCodecTest.RoundTripsAdmittedTicket ....................................................   Passed    0.00 sec
+        Start 417: LegacyQueueNumberCodecTest.V1PayloadHasNoIdentityBindingOrContext
+417/667 Test #417: LegacyQueueNumberCodecTest.V1PayloadHasNoIdentityBindingOrContext ......................................   Passed    0.00 sec
+        Start 418: LegacyQueueNumberCodecTest.AcceptsWithinLeewayAfterExpiry
+418/667 Test #418: LegacyQueueNumberCodecTest.AcceptsWithinLeewayAfterExpiry ..............................................   Passed    0.00 sec
+        Start 419: LegacyQueueNumberCodecTest.RejectsTokenFromFuture
+419/667 Test #419: LegacyQueueNumberCodecTest.RejectsTokenFromFuture ......................................................   Passed    0.00 sec
+        Start 420: LegacyQueueNumberCodecTest.RejectsWrongKid
+420/667 Test #420: LegacyQueueNumberCodecTest.RejectsWrongKid .............................................................   Passed    0.00 sec
+        Start 421: LegacyQueueNumberCodecTest.RejectsZeroNumber
+421/667 Test #421: LegacyQueueNumberCodecTest.RejectsZeroNumber ...........................................................   Passed    0.00 sec
+        Start 422: LegacyQueueNumberCodecTest.RejectsGarbage
+422/667 Test #422: LegacyQueueNumberCodecTest.RejectsGarbage ..............................................................   Passed    0.00 sec
+        Start 423: QueueNumberV2CodecTest.RoundTripsStrictIdentityBoundSchema
+423/667 Test #423: QueueNumberV2CodecTest.RoundTripsStrictIdentityBoundSchema .............................................   Passed    0.00 sec
+        Start 424: QueueNumberV2CodecTest.CapsExpiryAtBoundIdentityExpiry
+424/667 Test #424: QueueNumberV2CodecTest.CapsExpiryAtBoundIdentityExpiry .................................................   Passed    0.00 sec
+        Start 425: QueueNumberV2CodecTest.RejectsSchemaAudiencePurposeAndBindingChanges
+425/667 Test #425: QueueNumberV2CodecTest.RejectsSchemaAudiencePurposeAndBindingChanges ...................................   Passed    0.00 sec
+        Start 426: QueueNumberV2CodecTest.SelectsKnownKidAndAcceptsRotationOverlap
+426/667 Test #426: QueueNumberV2CodecTest.SelectsKnownKidAndAcceptsRotationOverlap ........................................   Passed    0.00 sec
+        Start 427: QueueNumberV2CodecTest.RejectsExpiredFutureAndMalformedTokens
+427/667 Test #427: QueueNumberV2CodecTest.RejectsExpiredFutureAndMalformedTokens ..........................................   Passed    0.00 sec
+        Start 428: QueueNumberV2CodecTest.RejectsUnsafeConstructionAndIssueInputs
+428/667 Test #428: QueueNumberV2CodecTest.RejectsUnsafeConstructionAndIssueInputs .........................................   Passed    0.00 sec
+        Start 429: SessionTicketTest.ValidatesPurposeExpiryTamperingAndReplay
+429/667 Test #429: SessionTicketTest.ValidatesPurposeExpiryTamperingAndReplay .............................................   Passed    0.00 sec
+        Start 430: SessionTicketTest.V2CarriesASignedCorrelationIdAndStillAcceptsV1
+430/667 Test #430: SessionTicketTest.V2CarriesASignedCorrelationIdAndStillAcceptsV1 .......................................   Passed    0.00 sec
+        Start 431: SessionTicketTest.RedeemsATicketExactlyOnce
+431/667 Test #431: SessionTicketTest.RedeemsATicketExactlyOnce ............................................................   Passed    0.00 sec
+        Start 432: SessionTicketTest.PurposeMismatchDoesNotBurnTheTicket
+432/667 Test #432: SessionTicketTest.PurposeMismatchDoesNotBurnTheTicket ..................................................   Passed    0.00 sec
+        Start 433: SessionTicketTest.RetiredPurposeTicketsAreNotRedeemable
+433/667 Test #433: SessionTicketTest.RetiredPurposeTicketsAreNotRedeemable ................................................   Passed    0.00 sec
+        Start 434: SessionTicketTest.EnterRealmPurposeValueIsPinned
+434/667 Test #434: SessionTicketTest.EnterRealmPurposeValueIsPinned .......................................................   Passed    0.00 sec
+        Start 435: SessionTicketTest.ExpiredTicketsAreInvalidNotReplayed
+435/667 Test #435: SessionTicketTest.ExpiredTicketsAreInvalidNotReplayed ..................................................   Passed    0.00 sec
+        Start 436: SessionTicketTest.AcceptsTicketsWithinClockLeeway
+436/667 Test #436: SessionTicketTest.AcceptsTicketsWithinClockLeeway ......................................................   Passed    0.00 sec
+        Start 437: SessionTicketTest.LeewayDoesNotOpenAReplayWindow
+437/667 Test #437: SessionTicketTest.LeewayDoesNotOpenAReplayWindow .......................................................   Passed    0.00 sec
+        Start 438: SessionTicketsTest.EnterRealmPurposeRoundTripsAndRejectsWrongPurpose
+438/667 Test #438: SessionTicketsTest.EnterRealmPurposeRoundTripsAndRejectsWrongPurpose ...................................   Passed    0.00 sec
+        Start 439: EdgeProtocolTest.RoundTripsTheGatewayAndRealmMessages
+439/667 Test #439: EdgeProtocolTest.RoundTripsTheGatewayAndRealmMessages ..................................................   Passed    0.00 sec
+        Start 440: NewChainFlowTest.AttachesToGatewayAndEntersRealm
+440/667 Test #440: NewChainFlowTest.AttachesToGatewayAndEntersRealm .......................................................   Passed    2.78 sec
+        Start 441: NewChainFlowTest.RestartKeepsCommittedAdmissionConsumed
+441/667 Test #441: NewChainFlowTest.RestartKeepsCommittedAdmissionConsumed ................................................   Passed    2.85 sec
+        Start 442: GatewayConfigLoaderTest.LoadsQuicPrimaryAndTlsTcpFallbackFromLua
+442/667 Test #442: GatewayConfigLoaderTest.LoadsQuicPrimaryAndTlsTcpFallbackFromLua .......................................   Passed    0.01 sec
+        Start 443: LayeredConfigLoaderTest.MergesAuthoritativeGatewayTreeFieldByField
+443/667 Test #443: LayeredConfigLoaderTest.MergesAuthoritativeGatewayTreeFieldByField .....................................   Passed    0.00 sec
+        Start 444: LayeredConfigLoaderTest.RejectsInvalidFetchRetryTuning
+444/667 Test #444: LayeredConfigLoaderTest.RejectsInvalidFetchRetryTuning .................................................   Passed    0.00 sec
+        Start 445: LayeredConfigLoaderTest.RejectsZeroHandoffGrace
+445/667 Test #445: LayeredConfigLoaderTest.RejectsZeroHandoffGrace ........................................................   Passed    0.00 sec
+        Start 446: LayeredConfigLoaderTest.CliOverrideWinsAndNamesTheLogFile
+446/667 Test #446: LayeredConfigLoaderTest.CliOverrideWinsAndNamesTheLogFile ..............................................   Passed    0.00 sec
+        Start 447: GatewayRuntimeTest.AcceptRespondsAndEstablishesAtomically
+447/667 Test #447: GatewayRuntimeTest.AcceptRespondsAndEstablishesAtomically ..............................................   Passed    0.05 sec
+        Start 448: GatewayRuntimeTest.EstablishedPeerClosePublishesRealSessionClosed
+448/667 Test #448: GatewayRuntimeTest.EstablishedPeerClosePublishesRealSessionClosed ......................................   Passed    0.05 sec
+        Start 449: GatewayRuntimeTest.DeclineRejectsAndTerminatesPendingSession
+449/667 Test #449: GatewayRuntimeTest.DeclineRejectsAndTerminatesPendingSession ...........................................   Passed    0.01 sec
+        Start 450: GatewayRuntimeTest.SendsToPendingSessionsCountAsUnknown
+450/667 Test #450: GatewayRuntimeTest.SendsToPendingSessionsCountAsUnknown ................................................   Passed    0.01 sec
+        Start 451: GatewayRuntimeTest.CommandsForUnknownSessionsCountAsUnknown
+451/667 Test #451: GatewayRuntimeTest.CommandsForUnknownSessionsCountAsUnknown ............................................   Passed    0.01 sec
+        Start 452: GatewayRuntimeTest.RejectsCommandsWhileStopped
+452/667 Test #452: GatewayRuntimeTest.RejectsCommandsWhileStopped .........................................................   Passed    0.00 sec
+        Start 453: EdgeSessionTableTest.SendsOnlyThroughThePrimaryTransport
+453/667 Test #453: EdgeSessionTableTest.SendsOnlyThroughThePrimaryTransport ...............................................   Passed    0.00 sec
+        Start 454: EdgeSessionTableTest.EstablishMovesPendingToEstablished
+454/667 Test #454: EdgeSessionTableTest.EstablishMovesPendingToEstablished ................................................   Passed    0.00 sec
+        Start 455: EdgeSessionTableTest.FindResolvesOnlyLiveSessions
+455/667 Test #455: EdgeSessionTableTest.FindResolvesOnlyLiveSessions ......................................................   Passed    0.00 sec
+        Start 456: EdgeSessionTableTest.CloseNotifiesTransportAndRemovesTheRecord
+456/667 Test #456: EdgeSessionTableTest.CloseNotifiesTransportAndRemovesTheRecord .........................................   Passed    0.00 sec
+        Start 457: EdgeSessionTableTest.TransportReportedCloseRemovesAndSnapshots
+457/667 Test #457: EdgeSessionTableTest.TransportReportedCloseRemovesAndSnapshots .........................................   Passed    0.00 sec
+        Start 458: EdgeSessionTableTest.UnknownSessionCommandsNeverTouchTransports
+458/667 Test #458: EdgeSessionTableTest.UnknownSessionCommandsNeverTouchTransports ........................................   Passed    0.00 sec
+        Start 459: InMemoryGatewayPrimaryTransportTest.DrainsEventsWithABound
+459/667 Test #459: InMemoryGatewayPrimaryTransportTest.DrainsEventsWithABound .............................................   Passed    0.00 sec
+        Start 460: InMemoryGatewayPrimaryTransportTest.ScriptsFullAndStoppedIndependently
+460/667 Test #460: InMemoryGatewayPrimaryTransportTest.ScriptsFullAndStoppedIndependently .................................   Passed    0.00 sec
+        Start 461: InMemoryGatewayPrimaryTransportTest.RecordsOnlyQueuedSemanticCommands
+461/667 Test #461: InMemoryGatewayPrimaryTransportTest.RecordsOnlyQueuedSemanticCommands ..................................   Passed    0.00 sec
+        Start 462: GatewayRuntimePrimaryTransportTest.MapsStoppedWithoutTakingOwnership
+462/667 Test #462: GatewayRuntimePrimaryTransportTest.MapsStoppedWithoutTakingOwnership ...................................   Passed    0.00 sec
+        Start 463: GatewayRuntimePrimaryTransportTest.MapsRuntimeQueueBackpressureToFull
+463/667 Test #463: GatewayRuntimePrimaryTransportTest.MapsRuntimeQueueBackpressureToFull ..................................   Passed    0.10 sec
+        Start 464: GatewayRuntimePrimaryTransportTest.QueuedDeliveryFailureEventuallyPublishesSessionClosed
+464/667 Test #464: GatewayRuntimePrimaryTransportTest.QueuedDeliveryFailureEventuallyPublishesSessionClosed ...............   Passed    0.01 sec
+        Start 465: GatewayRuntimePrimaryTransportTest.DeclineTerminatesAnEstablishedSessionForPipelineProtocolRejection
+465/667 Test #465: GatewayRuntimePrimaryTransportTest.DeclineTerminatesAnEstablishedSessionForPipelineProtocolRejection ...   Passed    0.01 sec
+        Start 466: GatewayHeadersTest.EventsFlowThroughPrimaryTransportWithoutRuntime
+466/667 Test #466: GatewayHeadersTest.EventsFlowThroughPrimaryTransportWithoutRuntime .....................................   Passed    0.00 sec
+        Start 467: DelayedAccountFetchPortTest.CompletesWithoutBlockingTheSubmitter
+467/667 Test #467: DelayedAccountFetchPortTest.CompletesWithoutBlockingTheSubmitter .......................................   Passed    0.00 sec
+        Start 468: DelayedAccountFetchPortTest.SeparatesBackpressureFromFailureCompletion
+468/667 Test #468: DelayedAccountFetchPortTest.SeparatesBackpressureFromFailureCompletion .................................   Passed    0.00 sec
+        Start 469: ScriptedAccountFetchPortTest.PreservesAttemptIdentityForLateDuplicates
+469/667 Test #469: ScriptedAccountFetchPortTest.PreservesAttemptIdentityForLateDuplicates .................................   Passed    0.00 sec
+        Start 470: ScriptedAccountFetchPortTest.ScriptsFullAndStoppedSubmissions
+470/667 Test #470: ScriptedAccountFetchPortTest.ScriptsFullAndStoppedSubmissions ..........................................   Passed    0.00 sec
+        Start 471: ScriptedAccountFetchPortTest.StopIsTerminalForTheAdapterInstance
+471/667 Test #471: ScriptedAccountFetchPortTest.StopIsTerminalForTheAdapterInstance .......................................   Passed    0.00 sec
+        Start 472: PlayerDataAccountFetchPortTest.LoadsEligibilityWithoutBlockingSubmit
+472/667 Test #472: PlayerDataAccountFetchPortTest.LoadsEligibilityWithoutBlockingSubmit ...................................   Passed    0.00 sec
+        Start 473: PlayerDataAccountFetchPortTest.SlowQueriesDoNotSerializeAcrossWorkers
+473/667 Test #473: PlayerDataAccountFetchPortTest.SlowQueriesDoNotSerializeAcrossWorkers ..................................   Passed    0.00 sec
+        Start 474: PlayerDataAccountFetchPortTest.RechecksAccountAccessOnEveryAttempt
+474/667 Test #474: PlayerDataAccountFetchPortTest.RechecksAccountAccessOnEveryAttempt .....................................   Passed    0.00 sec
+        Start 475: PlayerDataAccountFetchPortTest.StoreFailureCompletesAsUnavailable
+475/667 Test #475: PlayerDataAccountFetchPortTest.StoreFailureCompletesAsUnavailable ......................................   Passed    0.00 sec
+        Start 476: PlayerDataAccountFetchPortTest.RejectsMissingReaderZeroCapacityAndZeroWorkers
+476/667 Test #476: PlayerDataAccountFetchPortTest.RejectsMissingReaderZeroCapacityAndZeroWorkers ..........................   Passed    0.00 sec
+        Start 477: AdmissionConsumptionOptionsTest.RejectsUnsafeConfiguration
+477/667 Test #477: AdmissionConsumptionOptionsTest.RejectsUnsafeConfiguration .............................................   Passed    0.00 sec
+        Start 478: InMemoryAdmissionConsumptionStoreTest.ImplementsFencedTwoPhaseContract
+478/667 Test #478: InMemoryAdmissionConsumptionStoreTest.ImplementsFencedTwoPhaseContract .................................   Passed    0.00 sec
+        Start 479: InMemoryAdmissionConsumptionStoreTest.LeaseExpiryAndOutageFailClosed
+479/667 Test #479: InMemoryAdmissionConsumptionStoreTest.LeaseExpiryAndOutageFailClosed ...................................   Passed    0.00 sec
+        Start 480: EtcdAdmissionConsumptionStoreTest.UsesLinearizableRangeAndCasWithDigests
+480/667 Test #480: EtcdAdmissionConsumptionStoreTest.UsesLinearizableRangeAndCasWithDigests ...............................   Passed    0.00 sec
+        Start 481: EtcdAdmissionConsumptionStoreTest.RetriesCasAndFencesReleasedOwner
+481/667 Test #481: EtcdAdmissionConsumptionStoreTest.RetriesCasAndFencesReleasedOwner .....................................   Passed    0.00 sec
+        Start 482: EtcdAdmissionConsumptionStoreTest.RejectsMismatchedReturnedKey
+482/667 Test #482: EtcdAdmissionConsumptionStoreTest.RejectsMismatchedReturnedKey .........................................   Passed    0.00 sec
+        Start 483: EtcdAdmissionConsumptionStoreTest.InvalidLeaseGrantFailsClosed
+483/667 Test #483: EtcdAdmissionConsumptionStoreTest.InvalidLeaseGrantFailsClosed .........................................   Passed    0.00 sec
+        Start 484: EtcdAdmissionConsumptionStoreTest.UnavailableTransportRemovesHealth
+484/667 Test #484: EtcdAdmissionConsumptionStoreTest.UnavailableTransportRemovesHealth ....................................   Passed    0.00 sec
+        Start 485: GatewayAdmissionTest.TwoInstancesCommitOneIdentityAtMostOnce
+485/667 Test #485: GatewayAdmissionTest.TwoInstancesCommitOneIdentityAtMostOnce ...........................................   Passed    0.00 sec
+        Start 486: GatewayAdmissionTest.RejectsBindingAndDeploymentBeforeStoreWork
+486/667 Test #486: GatewayAdmissionTest.RejectsBindingAndDeploymentBeforeStoreWork ........................................   Passed    0.00 sec
+        Start 487: GatewayAdmissionTest.StoreOutageIsRetryableAndAffectsAvailability
+487/667 Test #487: GatewayAdmissionTest.StoreOutageIsRetryableAndAffectsAvailability ......................................   Passed    0.00 sec
+        Start 488: GatewayAdmissionTest.FullKeepsReservationAndStoppedReleasesIt
+488/667 Test #488: GatewayAdmissionTest.FullKeepsReservationAndStoppedReleasesIt ..........................................   Passed    0.00 sec
+        Start 489: GatewayAdmissionTest.AmbiguousCommitCanNeverReleaseReservation
+489/667 Test #489: GatewayAdmissionTest.AmbiguousCommitCanNeverReleaseReservation .........................................   Passed    0.00 sec
+        Start 490: GatewayLoginConfigTest.AcceptsCompleteConfiguration
+490/667 Test #490: GatewayLoginConfigTest.AcceptsCompleteConfiguration ....................................................   Passed    0.00 sec
+        Start 491: GatewayLoginConfigTest.RejectsInvalidCapacityRetryAndEndpoint
+491/667 Test #491: GatewayLoginConfigTest.RejectsInvalidCapacityRetryAndEndpoint ..........................................   Passed    0.00 sec
+        Start 492: GatewayLoginConfigTest.RejectsZeroFetchWorkersOrTimeout
+492/667 Test #492: GatewayLoginConfigTest.RejectsZeroFetchWorkersOrTimeout ................................................   Passed    0.00 sec
+        Start 493: GatewayLoginConfigTest.LoaderParsesFetchWorkersAndTimeout
+493/667 Test #493: GatewayLoginConfigTest.LoaderParsesFetchWorkersAndTimeout ..............................................   Passed    0.00 sec
+        Start 494: GatewayLoginConfigTest.RejectsIncompleteAdmissionConfiguration
+494/667 Test #494: GatewayLoginConfigTest.RejectsIncompleteAdmissionConfiguration .........................................   Passed    0.00 sec
+        Start 495: GatewayLoginConfigTest.RejectsMalformedAdmissionKeyRing
+495/667 Test #495: GatewayLoginConfigTest.RejectsMalformedAdmissionKeyRing ................................................   Passed    0.00 sec
+        Start 496: GatewayLoginConfigTest.RejectsGrantWindowOutsideProtocolLimits
+496/667 Test #496: GatewayLoginConfigTest.RejectsGrantWindowOutsideProtocolLimits .........................................   Passed    0.00 sec
+        Start 497: GatewayLoginConfigTest.LoaderRejectsRetiredSingleKidKeyName
+497/667 Test #497: GatewayLoginConfigTest.LoaderRejectsRetiredSingleKidKeyName ............................................   Passed    0.00 sec
+        Start 498: GatewayLoginConfigTest.LoaderParsesKeyRingForRotationOverlap
+498/667 Test #498: GatewayLoginConfigTest.LoaderParsesKeyRingForRotationOverlap ...........................................   Passed    0.00 sec
+        Start 499: GatewaySourceNormalizerTest.IgnoresForwardingHeadersFromUntrustedPeer
+499/667 Test #499: GatewaySourceNormalizerTest.IgnoresForwardingHeadersFromUntrustedPeer ..................................   Passed    0.00 sec
+        Start 500: GatewaySourceNormalizerTest.UsesFirstUntrustedForwardedHop
+500/667 Test #500: GatewaySourceNormalizerTest.UsesFirstUntrustedForwardedHop .............................................   Passed    0.00 sec
+        Start 501: GatewayCredentialIngressTest.RejectsMalformedBeforeVerification
+501/667 Test #501: GatewayCredentialIngressTest.RejectsMalformedBeforeVerification ........................................   Passed    0.00 sec
+        Start 502: GatewayCredentialIngressTest.BoundsEnvelopeBeforeDecode
+502/667 Test #502: GatewayCredentialIngressTest.BoundsEnvelopeBeforeDecode ................................................   Passed    0.00 sec
+        Start 503: GatewayLoginPipelineTest.CreationValidatesConfigurationAndInstance
+503/667 Test #503: GatewayLoginPipelineTest.CreationValidatesConfigurationAndInstance .....................................   Passed    0.00 sec
+        Start 504: GatewayLoginPipelineTest.AcceptFullFullQueuedKeepsOneReservationAndDoesNotOversubscribeFetch
+504/667 Test #504: GatewayLoginPipelineTest.AcceptFullFullQueuedKeepsOneReservationAndDoesNotOversubscribeFetch ...........   Passed    0.00 sec
+        Start 505: GatewayLoginPipelineTest.ReservedAndCommittedJtiRejectConcurrentAndLaterReplay
+505/667 Test #505: GatewayLoginPipelineTest.ReservedAndCommittedJtiRejectConcurrentAndLaterReplay .........................   Passed    0.00 sec
+        Start 506: GatewayLoginPipelineTest.AdmissionRejectsCrossIdentityCredentialSplice
+506/667 Test #506: GatewayLoginPipelineTest.AdmissionRejectsCrossIdentityCredentialSplice .................................   Passed    0.00 sec
+        Start 507: GatewayLoginPipelineTest.AdmissionFullAndPrecommitCloseReleaseWithoutBurningCredentials
+507/667 Test #507: GatewayLoginPipelineTest.AdmissionFullAndPrecommitCloseReleaseWithoutBurningCredentials ................   Passed    0.00 sec
+        Start 508: GatewayLoginPipelineTest.AdmissionSharedStoreCommitsAcrossPipelineInstancesAtMostOnce
+508/667 Test #508: GatewayLoginPipelineTest.AdmissionSharedStoreCommitsAcrossPipelineInstancesAtMostOnce ..................   Passed    0.00 sec
+        Start 509: GatewayLoginPipelineTest.AdmissionRejectsCrossIdentitySpliceBeforeTransportAccept
+509/667 Test #509: GatewayLoginPipelineTest.AdmissionRejectsCrossIdentitySpliceBeforeTransportAccept ......................   Passed    0.00 sec
+        Start 510: GatewayLoginPipelineTest.AdmissionStoreOutageFailsNewAttachClosedWithoutStoppingExistingFetch
+510/667 Test #510: GatewayLoginPipelineTest.AdmissionStoreOutageFailsNewAttachClosedWithoutStoppingExistingFetch ..........   Passed    0.00 sec
+        Start 511: GatewayLoginPipelineTest.AdmissionAmbiguousCommitClosesWithoutFetchOrRelease
+511/667 Test #511: GatewayLoginPipelineTest.AdmissionAmbiguousCommitClosesWithoutFetchOrRelease ...........................   Passed    0.00 sec
+        Start 512: GatewayLoginPipelineTest.CloseBeforeAcceptCommitReleasesJtiAndFetchReservation
+512/667 Test #512: GatewayLoginPipelineTest.CloseBeforeAcceptCommitReleasesJtiAndFetchReservation .........................   Passed    0.00 sec
+        Start 513: GatewayLoginPipelineTest.SameFrameCloseWinsOverFetchSuccessAndLateDuplicateCompletions
+513/667 Test #513: GatewayLoginPipelineTest.SameFrameCloseWinsOverFetchSuccessAndLateDuplicateCompletions .................   Passed    0.00 sec
+        Start 514: GatewayLoginPipelineTest.DestructionCancelsAcceptedFetchWork
+514/667 Test #514: GatewayLoginPipelineTest.DestructionCancelsAcceptedFetchWork ...........................................   Passed    0.00 sec
+        Start 515: GatewayLoginPipelineTest.FetchSubmitFullDoesNotConsumeRetryAndFailureUsesBackoff
+515/667 Test #515: GatewayLoginPipelineTest.FetchSubmitFullDoesNotConsumeRetryAndFailureUsesBackoff .......................   Passed    0.00 sec
+        Start 516: GatewayLoginPipelineTest.HandoffFullKeepsFetchingAndQueuedAttemptUsesFreshTicketAndDynamicEndpoint
+516/667 Test #516: GatewayLoginPipelineTest.HandoffFullKeepsFetchingAndQueuedAttemptUsesFreshTicketAndDynamicEndpoint .....   Passed    0.00 sec
+        Start 517: GatewayLoginPipelineTest.GraceCloseFullRetainsDeadlineStageAndConnectionUntilSessionClosed
+517/667 Test #517: GatewayLoginPipelineTest.GraceCloseFullRetainsDeadlineStageAndConnectionUntilSessionClosed .............   Passed    0.00 sec
+        Start 518: GatewayLoginPipelineTest.MissingEndpointCreatesCloseIntentWithoutIssuingHandoff
+518/667 Test #518: GatewayLoginPipelineTest.MissingEndpointCreatesCloseIntentWithoutIssuingHandoff ........................   Passed    0.00 sec
+        Start 519: GatewayLoginPipelineTest.ExhaustedFetchReleasesFetchCapacityAndDeclinesAsPlayerDataUnavailable
+519/667 Test #519: GatewayLoginPipelineTest.ExhaustedFetchReleasesFetchCapacityAndDeclinesAsPlayerDataUnavailable .........   Passed    0.00 sec
+        Start 520: GatewayLoginPipelineTest.NotEligibleFetchDeclinesImmediatelyWithoutRetry
+520/667 Test #520: GatewayLoginPipelineTest.NotEligibleFetchDeclinesImmediatelyWithoutRetry ...............................   Passed    0.00 sec
+        Start 521: GatewayLoginPipelineTest.FetchTimeoutCancelsAttemptAndRetriesWithBackoff
+521/667 Test #521: GatewayLoginPipelineTest.FetchTimeoutCancelsAttemptAndRetriesWithBackoff ...............................   Passed    0.00 sec
+        Start 522: GatewayLoginPipelineTest.StoppedPrimaryTransportMakesPipelineUnhealthyAndBudgetUnavailable
+522/667 Test #522: GatewayLoginPipelineTest.StoppedPrimaryTransportMakesPipelineUnhealthyAndBudgetUnavailable .............   Passed    0.00 sec
+        Start 523: GatewayLoginPipelineTest.StoppedFetchPortMakesPipelineUnhealthyAndBudgetUnavailable
+523/667 Test #523: GatewayLoginPipelineTest.StoppedFetchPortMakesPipelineUnhealthyAndBudgetUnavailable ....................   Passed    0.00 sec
+        Start 524: GatewayIngressThrottleTest.SingleSourceBucketThrottlesThenFlagsAbuse
+524/667 Test #524: GatewayIngressThrottleTest.SingleSourceBucketThrottlesThenFlagsAbuse ...................................   Passed    0.00 sec
+        Start 525: GatewayIngressThrottlePipelineTest.ThrottleIsRetryableErrorAndAbuseClosesConnection
+525/667 Test #525: GatewayIngressThrottlePipelineTest.ThrottleIsRetryableErrorAndAbuseClosesConnection ....................   Passed    0.00 sec
+        Start 526: LoginVerifyDataFailureTest.ReturnsServiceUnavailableWithoutCredentialLeak
+526/667 Test #526: LoginVerifyDataFailureTest.ReturnsServiceUnavailableWithoutCredentialLeak ..............................   Passed    0.00 sec
+        Start 527: LoginVerifyHandlerTest.IssuesTokenForValidAccount
+527/667 Test #527: LoginVerifyHandlerTest.IssuesTokenForValidAccount ......................................................   Passed    0.00 sec
+        Start 528: LoginVerifyHandlerTest.DerivedAccountIdIsReportedAsDecimalString
+528/667 Test #528: LoginVerifyHandlerTest.DerivedAccountIdIsReportedAsDecimalString .......................................   Passed    0.00 sec
+        Start 529: LoginVerifyHandlerTest.UnknownAccountAndWrongCredentialIndistinguishable
+529/667 Test #529: LoginVerifyHandlerTest.UnknownAccountAndWrongCredentialIndistinguishable ...............................   Passed    0.00 sec
+        Start 530: LoginVerifyHandlerTest.BannedAccountReturns1002
+530/667 Test #530: LoginVerifyHandlerTest.BannedAccountReturns1002 ........................................................   Passed    0.00 sec
+        Start 531: LoginVerifyHandlerTest.UnwhitelistedAccountReturns1003
+531/667 Test #531: LoginVerifyHandlerTest.UnwhitelistedAccountReturns1003 .................................................   Passed    0.00 sec
+        Start 532: LoginVerifyHandlerTest.MalformedRequestsReturn1000
+532/667 Test #532: LoginVerifyHandlerTest.MalformedRequestsReturn1000 .....................................................   Passed    0.00 sec
+        Start 533: LoginVerifyHandlerTest.OversizedJsonBodyIsRejectedAsInvalidRequest
+533/667 Test #533: LoginVerifyHandlerTest.OversizedJsonBodyIsRejectedAsInvalidRequest .....................................   Passed    0.00 sec
+        Start 534: LoginVerifyHandlerTest.UnknownPathReturns404
+534/667 Test #534: LoginVerifyHandlerTest.UnknownPathReturns404 ...........................................................   Passed    0.00 sec
+        Start 535: LoginVerifyHandlerTest.WrongMethodReturns405
+535/667 Test #535: LoginVerifyHandlerTest.WrongMethodReturns405 ...........................................................   Passed    0.00 sec
+        Start 536: LoginVerifyHandlerTest.ServesJwksMatchingCodec
+536/667 Test #536: LoginVerifyHandlerTest.ServesJwksMatchingCodec .........................................................   Passed    0.00 sec
+        Start 537: LoginVerifyHandlerTest.ServesHealthz
+537/667 Test #537: LoginVerifyHandlerTest.ServesHealthz ...................................................................   Passed    0.00 sec
+        Start 538: LoginVerifyHandlerTest.QueryStringIsIgnored
+538/667 Test #538: LoginVerifyHandlerTest.QueryStringIsIgnored ............................................................   Passed    0.00 sec
+        Start 539: LoginVerifyHandlerTest.JtiDiffersPerIssuance
+539/667 Test #539: LoginVerifyHandlerTest.JtiDiffersPerIssuance ...........................................................   Passed    0.00 sec
+        Start 540: LoginVerifyHandlerTest.MetricsCountRequestsRejectsAndIssueLatency
+540/667 Test #540: LoginVerifyHandlerTest.MetricsCountRequestsRejectsAndIssueLatency ......................................   Passed    0.00 sec
+        Start 541: LoginVerifyDispatcherTest.SlowVerificationDoesNotBlockOtherRoutes
+541/667 Test #541: LoginVerifyDispatcherTest.SlowVerificationDoesNotBlockOtherRoutes ......................................   Passed    0.00 sec
+        Start 542: LoginVerifyDispatcherTest.FullCapacityAnswersServiceUnavailableWithRetryAfter
+542/667 Test #542: LoginVerifyDispatcherTest.FullCapacityAnswersServiceUnavailableWithRetryAfter ..........................   Passed    0.01 sec
+        Start 543: LoginVerifyDispatcherTest.WrongMethodOnVerifyRouteAnswersImmediately
+543/667 Test #543: LoginVerifyDispatcherTest.WrongMethodOnVerifyRouteAnswersImmediately ...................................   Passed    0.00 sec
+        Start 544: LoginVerifyDispatcherTest.RejectsZeroWorkersAndZeroCapacity
+544/667 Test #544: LoginVerifyDispatcherTest.RejectsZeroWorkersAndZeroCapacity ............................................   Passed    0.00 sec
+        Start 545: LoginVerifyServiceTest.VerifiesAccountOverTlsAndIssuesToken
+545/667 Test #545: LoginVerifyServiceTest.VerifiesAccountOverTlsAndIssuesToken ............................................   Passed    1.71 sec
+        Start 546: LoginVerifyServiceTest.SeesCommittedAccountAccessUpdates
+546/667 Test #546: LoginVerifyServiceTest.SeesCommittedAccountAccessUpdates ...............................................   Passed    2.27 sec
+        Start 547: LoginVerifyServiceTest.WrongCredentialIsRejectedOverTls
+547/667 Test #547: LoginVerifyServiceTest.WrongCredentialIsRejectedOverTls ................................................   Passed    1.73 sec
+        Start 548: LoginVerifyServiceTest.ServesJwksOverTls
+548/667 Test #548: LoginVerifyServiceTest.ServesJwksOverTls ...............................................................   Passed    1.68 sec
+        Start 549: LoginVerifyServiceTest.ServesHealthzOverTls
+549/667 Test #549: LoginVerifyServiceTest.ServesHealthzOverTls ............................................................   Passed    1.78 sec
+        Start 550: QueueHandlerTest.IssuesSequentialNumbersForDistinctIdentities
+550/667 Test #550: QueueHandlerTest.IssuesSequentialNumbersForDistinctIdentities ..........................................   Passed    0.00 sec
+        Start 551: QueueHandlerTest.SameIdentityReplaysSameNumber
+551/667 Test #551: QueueHandlerTest.SameIdentityReplaysSameNumber .........................................................   Passed    0.00 sec
+        Start 552: QueueHandlerTest.StoreFailureIsRetryableAndDoesNotAdvanceNumber
+552/667 Test #552: QueueHandlerTest.StoreFailureIsRetryableAndDoesNotAdvanceNumber ........................................   Passed    0.00 sec
+        Start 553: QueueHandlerTest.MissingOrMalformedBearerIs1001
+553/667 Test #553: QueueHandlerTest.MissingOrMalformedBearerIs1001 ........................................................   Passed    0.00 sec
+        Start 554: QueueHandlerTest.InvalidIdentityIs1001
+554/667 Test #554: QueueHandlerTest.InvalidIdentityIs1001 .................................................................   Passed    0.00 sec
+        Start 555: QueueHandlerTest.ProgressReportsWaterLevelsAndCachePolicy
+555/667 Test #555: QueueHandlerTest.ProgressReportsWaterLevelsAndCachePolicy ..............................................   Passed    0.01 sec
+        Start 556: QueueHandlerTest.QueuedNumberReportsLivePosition
+556/667 Test #556: QueueHandlerTest.QueuedNumberReportsLivePosition .......................................................   Passed    0.00 sec
+        Start 557: QueueHandlerTest.ReleasedNumberGetsIdentityBoundAdmissionGrant
+557/667 Test #557: QueueHandlerTest.ReleasedNumberGetsIdentityBoundAdmissionGrant .........................................   Passed    0.00 sec
+        Start 558: QueueHandlerTest.RepeatedPollingReturnsStableAdmissionGrant
+558/667 Test #558: QueueHandlerTest.RepeatedPollingReturnsStableAdmissionGrant ............................................   Passed    0.00 sec
+        Start 559: QueueHandlerTest.InvalidOrExpiredNumberIs2001
+559/667 Test #559: QueueHandlerTest.InvalidOrExpiredNumberIs2001 ..........................................................   Passed    0.00 sec
+        Start 560: QueueHandlerTest.WrongMethodAndUnknownPath
+560/667 Test #560: QueueHandlerTest.WrongMethodAndUnknownPath .............................................................   Passed    0.00 sec
+        Start 561: QueueHandlerTest.HealthzAndQueryStrings
+561/667 Test #561: QueueHandlerTest.HealthzAndQueryStrings ................................................................   Passed    0.00 sec
+        Start 562: QueueHandlerTest.MetricsCountProgressRequests
+562/667 Test #562: QueueHandlerTest.MetricsCountProgressRequests ..........................................................   Passed    0.00 sec
+        Start 563: QueueCoreTest.ReleaseBatchHonorsStepAndBudgets
+563/667 Test #563: QueueCoreTest.ReleaseBatchHonorsStepAndBudgets .........................................................   Passed    0.00 sec
+        Start 564: QueueCoreTest.ReleaseLedgerMapsEveryBatchBoundaryToStableTime
+564/667 Test #564: QueueCoreTest.ReleaseLedgerMapsEveryBatchBoundaryToStableTime ..........................................   Passed    0.00 sec
+        Start 565: QueueCoreTest.ReleaseTimeIsNormalizedToPersistedJwsPrecision
+565/667 Test #565: QueueCoreTest.ReleaseTimeIsNormalizedToPersistedJwsPrecision ...........................................   Passed    0.00 sec
+        Start 566: QueueCoreTest.ReleaseLedgerPrunesOnlyPastWindowAndClockLeeway
+566/667 Test #566: QueueCoreTest.ReleaseLedgerPrunesOnlyPastWindowAndClockLeeway ..........................................   Passed    0.00 sec
+        Start 567: QueueCoreTest.ReleaseBatchBoundedByIssuedAhead
+567/667 Test #567: QueueCoreTest.ReleaseBatchBoundedByIssuedAhead .........................................................   Passed    0.00 sec
+        Start 568: QueueCoreTest.ReleaseBatchFailsClosedWithoutBudgets
+568/667 Test #568: QueueCoreTest.ReleaseBatchFailsClosedWithoutBudgets ....................................................   Passed    0.00 sec
+        Start 569: QueueCoreTest.AggregationUsesPerInstanceMinimum
+569/667 Test #569: QueueCoreTest.AggregationUsesPerInstanceMinimum ........................................................   Passed    0.00 sec
+        Start 570: QueueCoreTest.AdmitRateMeasuredOverFixedWindow
+570/667 Test #570: QueueCoreTest.AdmitRateMeasuredOverFixedWindow .........................................................   Passed    0.00 sec
+        Start 571: QueueCoreTest.SnapshotRoundTripsThroughRestore
+571/667 Test #571: QueueCoreTest.SnapshotRoundTripsThroughRestore .........................................................   Passed    0.00 sec
+        Start 572: QueueCoreTest.RestartPreservesWindowAndCannotRenewIt
+572/667 Test #572: QueueCoreTest.RestartPreservesWindowAndCannotRenewIt ...................................................   Passed    0.00 sec
+        Start 573: QueueCoreTest.RestoreRejectsInconsistentSnapshot
+573/667 Test #573: QueueCoreTest.RestoreRejectsInconsistentSnapshot .......................................................   Passed    0.00 sec
+        Start 574: QueueStoreTest.RefreshBudgetsAggregatesBothPrefixes
+574/667 Test #574: QueueStoreTest.RefreshBudgetsAggregatesBothPrefixes ....................................................   Passed    0.00 sec
+        Start 575: QueueStoreTest.RefreshBudgetsSkipsMalformedEntries
+575/667 Test #575: QueueStoreTest.RefreshBudgetsSkipsMalformedEntries .....................................................   Passed    0.00 sec
+        Start 576: QueueStoreTest.RefreshBudgetsFailsClosedOnEtcdError
+576/667 Test #576: QueueStoreTest.RefreshBudgetsFailsClosedOnEtcdError ....................................................   Passed    0.00 sec
+        Start 577: QueueStoreTest.NewIssueCommitsMappingAndSnapshotInOneTransaction
+577/667 Test #577: QueueStoreTest.NewIssueCommitsMappingAndSnapshotInOneTransaction .......................................   Passed    0.00 sec
+        Start 578: QueueStoreTest.ExistingIdentityRecoversOriginalNumberAndIssueTime
+578/667 Test #578: QueueStoreTest.ExistingIdentityRecoversOriginalNumberAndIssueTime ......................................   Passed    0.00 sec
+        Start 579: QueueStoreTest.AmbiguousCommitReadsBackDurableIssue
+579/667 Test #579: QueueStoreTest.AmbiguousCommitReadsBackDurableIssue ....................................................   Passed    0.00 sec
+        Start 580: QueueStoreTest.FailureBeforeCommitReturnsUnavailableWithoutNumber
+580/667 Test #580: QueueStoreTest.FailureBeforeCommitReturnsUnavailableWithoutNumber ......................................   Passed    0.00 sec
+        Start 581: QueueStoreTest.UnreadableAmbiguousCommitPoisonsFurtherIssuance
+581/667 Test #581: QueueStoreTest.UnreadableAmbiguousCommitPoisonsFurtherIssuance .........................................   Passed    0.00 sec
+        Start 582: QueueStoreTest.ReusesOneLeaseForSameExpiryBucket
+582/667 Test #582: QueueStoreTest.ReusesOneLeaseForSameExpiryBucket .......................................................   Passed    0.00 sec
+        Start 583: QueueStoreTest.SaveSnapshotPutsEncodedValue
+583/667 Test #583: QueueStoreTest.SaveSnapshotPutsEncodedValue ............................................................   Passed    0.00 sec
+        Start 584: QueueStoreTest.SaveSnapshotReturnsFalseOnFailure
+584/667 Test #584: QueueStoreTest.SaveSnapshotReturnsFalseOnFailure .......................................................   Passed    0.00 sec
+        Start 585: QueueStoreTest.LoadSnapshotParsesStoredValue
+585/667 Test #585: QueueStoreTest.LoadSnapshotParsesStoredValue ...........................................................   Passed    0.00 sec
+        Start 586: QueueStoreTest.LegacySnapshotRestoresAsExpiredPrefix
+586/667 Test #586: QueueStoreTest.LegacySnapshotRestoresAsExpiredPrefix ...................................................   Passed    0.00 sec
+        Start 587: QueueStoreTest.LoadSnapshotValidatesIssuanceAcrossPages
+587/667 Test #587: QueueStoreTest.LoadSnapshotValidatesIssuanceAcrossPages ................................................   Passed    0.00 sec
+        Start 588: QueueStoreTest.LoadSnapshotReturnsNulloptWhenMissing
+588/667 Test #588: QueueStoreTest.LoadSnapshotReturnsNulloptWhenMissing ...................................................   Passed    0.00 sec
+        Start 589: QueueStoreTest.LoadSnapshotRejectsOrphanIssuanceMappings
+589/667 Test #589: QueueStoreTest.LoadSnapshotRejectsOrphanIssuanceMappings ...............................................   Passed    0.00 sec
+        Start 590: QueueStoreTest.LoadSnapshotFailsClosedOnUnavailableIssuanceState
+590/667 Test #590: QueueStoreTest.LoadSnapshotFailsClosedOnUnavailableIssuanceState .......................................   Passed    0.00 sec
+        Start 591: QueueStoreTest.LoadSnapshotRejectsCorruptIssuanceMapping
+591/667 Test #591: QueueStoreTest.LoadSnapshotRejectsCorruptIssuanceMapping ...............................................   Passed    0.00 sec
+        Start 592: QueueStoreTest.LoadSnapshotFailsClosedOnUnavailableOrCorrupt
+592/667 Test #592: QueueStoreTest.LoadSnapshotFailsClosedOnUnavailableOrCorrupt ...........................................   Passed    0.00 sec
+        Start 593: QueueStoreEtcdIntegrationTest.ColdBackupRecoversAcknowledgedIssue
+593/667 Test #593: QueueStoreEtcdIntegrationTest.ColdBackupRecoversAcknowledgedIssue ......................................   Passed    0.55 sec
+        Start 594: QueueStoreEtcdIntegrationTest.IdentityExpiryRemovesRecoveryMapping
+594/667 Test #594: QueueStoreEtcdIntegrationTest.IdentityExpiryRemovesRecoveryMapping .....................................   Passed    3.12 sec
+        Start 595: QueueStoreEtcdIntegrationTest.MeasuresIssuanceWriteLoadAgainstTarget
+595/667 Test #595: QueueStoreEtcdIntegrationTest.MeasuresIssuanceWriteLoadAgainstTarget ...................................   Passed    1.58 sec
+        Start 596: QueueProcessRestartTest.RecoversAcknowledgedIssueFromAuthoritativeStore
+596/667 Test #596: QueueProcessRestartTest.RecoversAcknowledgedIssueFromAuthoritativeStore ................................   Passed    3.45 sec
+        Start 597: QueueTicketingTest.IssuesIdentityBoundQueueNumberV2
+597/667 Test #597: QueueTicketingTest.IssuesIdentityBoundQueueNumberV2 ....................................................   Passed    0.01 sec
+        Start 598: QueueTicketingTest.ReturnsQueuedShapeBeforeRelease
+598/667 Test #598: QueueTicketingTest.ReturnsQueuedShapeBeforeRelease .....................................................   Passed    0.00 sec
+        Start 599: QueueTicketingTest.IdempotentIssueAfterReleaseDoesNotUnderflowEta
+599/667 Test #599: QueueTicketingTest.IdempotentIssueAfterReleaseDoesNotUnderflowEta ......................................   Passed    0.00 sec
+        Start 600: QueueTicketingTest.RepeatedQueriesReturnByteIdenticalGrant
+600/667 Test #600: QueueTicketingTest.RepeatedQueriesReturnByteIdenticalGrant .............................................   Passed    0.00 sec
+        Start 601: QueueTicketingTest.RestartKeepsOriginalGrantAndReleaseWindow
+601/667 Test #601: QueueTicketingTest.RestartKeepsOriginalGrantAndReleaseWindow ...........................................   Passed    0.00 sec
+        Start 602: QueueTicketingTest.ReturnsExplicitExpiredAndInvalidOutcomes
+602/667 Test #602: QueueTicketingTest.ReturnsExplicitExpiredAndInvalidOutcomes ............................................   Passed    0.00 sec
+        Start 603: QueueServiceTest.ServesHealthzOverTls
+603/667 Test #603: QueueServiceTest.ServesHealthzOverTls ..................................................................   Passed    0.01 sec
+        Start 604: QueueServiceTest.IssuesAndReleasesByBudgetFrame
+604/667 Test #604: QueueServiceTest.IssuesAndReleasesByBudgetFrame ........................................................   Passed    0.04 sec
+        Start 605: QueueServiceTest.RejectsLegacyAdmittedQueueNumberAtQueryBoundary
+605/667 Test #605: QueueServiceTest.RejectsLegacyAdmittedQueueNumberAtQueryBoundary .......................................   Passed    0.01 sec
+        Start 606: QueueServiceTest.FailedSnapshotWriteDoesNotPublishRelease
+606/667 Test #606: QueueServiceTest.FailedSnapshotWriteDoesNotPublishRelease ..............................................   Passed    0.05 sec
+        Start 607: QueueServiceTest.MetricsTrackIssueAdmitAndProgress
+607/667 Test #607: QueueServiceTest.MetricsTrackIssueAdmitAndProgress .....................................................   Passed    0.03 sec
+        Start 608: QueueServiceTest.FailClosedWhenBudgetsUnavailable
+608/667 Test #608: QueueServiceTest.FailClosedWhenBudgetsUnavailable ......................................................   Passed    0.08 sec
+        Start 609: QueueServiceTest.RestoresWaterLevelsFromColdBackup
+609/667 Test #609: QueueServiceTest.RestoresWaterLevelsFromColdBackup .....................................................   Passed    0.02 sec
+        Start 610: QueueServiceTest.RestartRecoversAcknowledgedIssueAndReleasePosition
+610/667 Test #610: QueueServiceTest.RestartRecoversAcknowledgedIssueAndReleasePosition ....................................   Passed    0.04 sec
+        Start 611: CharacterNameTest.AcceptsOneToSixteenCodePoints
+611/667 Test #611: CharacterNameTest.AcceptsOneToSixteenCodePoints ........................................................   Passed    0.00 sec
+        Start 612: CharacterNameTest.CountsCodePointsNotBytes
+612/667 Test #612: CharacterNameTest.CountsCodePointsNotBytes .............................................................   Passed    0.00 sec
+        Start 613: CharacterNameTest.AllowsInnerWhitespaceButNotAtEitherEnd
+613/667 Test #613: CharacterNameTest.AllowsInnerWhitespaceButNotAtEitherEnd ...............................................   Passed    0.00 sec
+        Start 614: CharacterNameTest.RejectsControlCharacters
+614/667 Test #614: CharacterNameTest.RejectsControlCharacters .............................................................   Passed    0.00 sec
+        Start 615: CharacterNameTest.RejectsMalformedUtf8
+615/667 Test #615: CharacterNameTest.RejectsMalformedUtf8 .................................................................   Passed    0.00 sec
+        Start 616: TrainingRuleTest.ShippedRuleTrainsAndCapsAtLevelTen
+616/667 Test #616: TrainingRuleTest.ShippedRuleTrainsAndCapsAtLevelTen ....................................................   Passed    0.00 sec
+        Start 617: TrainingRuleTest.CallableFromFrameThreadOtherThanConstructor
+617/667 Test #617: TrainingRuleTest.CallableFromFrameThreadOtherThanConstructor ...........................................   Passed    0.00 sec
+        Start 618: TrainingRuleTest.MissingFileFailsStartup
+618/667 Test #618: TrainingRuleTest.MissingFileFailsStartup ...............................................................   Passed    0.00 sec
+        Start 619: TrainingRuleFileTest.SyntaxErrorFailsStartup
+619/667 Test #619: TrainingRuleFileTest.SyntaxErrorFailsStartup ...........................................................   Passed    0.00 sec
+        Start 620: TrainingRuleFileTest.MissingFunctionsFailStartup
+620/667 Test #620: TrainingRuleFileTest.MissingFunctionsFailStartup .......................................................   Passed    0.00 sec
+        Start 621: TrainingRuleFileTest.RuleWithoutIoAccess
+621/667 Test #621: TrainingRuleFileTest.RuleWithoutIoAccess ...............................................................   Passed    0.00 sec
+        Start 622: TrainingRuleFileTest.MalformedResultsFailStartup
+622/667 Test #622: TrainingRuleFileTest.MalformedResultsFailStartup .......................................................   Passed    0.00 sec
+        Start 623: TrainingRuleFileTest.LaterRuleErrorsThrowAtCallTime
+623/667 Test #623: TrainingRuleFileTest.LaterRuleErrorsThrowAtCallTime ....................................................   Passed    0.00 sec
+        Start 624: RealmSessionsTest.NewAccountListsEmptyRosterInSelection
+624/667 Test #624: RealmSessionsTest.NewAccountListsEmptyRosterInSelection ................................................   Passed    0.01 sec
+        Start 625: RealmSessionsTest.ListCarriesLevelAndLastSelected
+625/667 Test #625: RealmSessionsTest.ListCarriesLevelAndLastSelected ......................................................   Passed    0.01 sec
+        Start 626: RealmSessionsTest.InvalidNameIsRejectedWithoutTouchingStore
+626/667 Test #626: RealmSessionsTest.InvalidNameIsRejectedWithoutTouchingStore ............................................   Passed    0.00 sec
+        Start 627: RealmSessionsTest.CreateMapsTakenNameAndLimit
+627/667 Test #627: RealmSessionsTest.CreateMapsTakenNameAndLimit ..........................................................   Passed    0.01 sec
+        Start 628: RealmSessionsTest.SelectingForeignCharacterIsRejected
+628/667 Test #628: RealmSessionsTest.SelectingForeignCharacterIsRejected ..................................................   Passed    0.00 sec
+        Start 629: RealmSessionsTest.PhaseMismatchKeepsSessionOpen
+629/667 Test #629: RealmSessionsTest.PhaseMismatchKeepsSessionOpen ........................................................   Passed    0.01 sec
+        Start 630: RealmSessionsTest.TrainingFollowsTheSeqProtocol
+630/667 Test #630: RealmSessionsTest.TrainingFollowsTheSeqProtocol ........................................................   Passed    0.01 sec
+        Start 631: RealmSessionsTest.SeqZeroBeforeAnyTrainingReplaysCurrentState
+631/667 Test #631: RealmSessionsTest.SeqZeroBeforeAnyTrainingReplaysCurrentState ..........................................   Passed    0.01 sec
+        Start 632: RealmSessionsTest.MaxLevelRejectsTraining
+632/667 Test #632: RealmSessionsTest.MaxLevelRejectsTraining ..............................................................   Passed    0.00 sec
+        Start 633: RealmSessionsTest.PipelinedRequestsRunInArrivalOrder
+633/667 Test #633: RealmSessionsTest.PipelinedRequestsRunInArrivalOrder ...................................................   Passed    0.01 sec
+        Start 634: RealmSessionsTest.DisplacementNotifiesAndClosesOldSession
+634/667 Test #634: RealmSessionsTest.DisplacementNotifiesAndClosesOldSession ..............................................   Passed    0.01 sec
+        Start 635: RealmSessionsTest.UnavailableDataKeepsSessionOpen
+635/667 Test #635: RealmSessionsTest.UnavailableDataKeepsSessionOpen ......................................................   Passed    0.01 sec
+        Start 636: RealmSessionsTest.FullDataPoolThrottlesWithRetryAfter
+636/667 Test #636: RealmSessionsTest.FullDataPoolThrottlesWithRetryAfter ..................................................   Passed    0.00 sec
+        Start 637: RealmSessionsTest.OverlongPerSessionBacklogIsThrottled
+637/667 Test #637: RealmSessionsTest.OverlongPerSessionBacklogIsThrottled .................................................   Passed    0.01 sec
+        Start 638: RealmSessionsTest.RuleErrorsAnswerUnavailableAndKeepSession
+638/667 Test #638: RealmSessionsTest.RuleErrorsAnswerUnavailableAndKeepSession ............................................   Passed    0.01 sec
+        Start 639: RealmSessionsTest.NonRealmOrServerMessagesAreNotHandled
+639/667 Test #639: RealmSessionsTest.NonRealmOrServerMessagesAreNotHandled ................................................   Passed    0.00 sec
+        Start 640: RealmJourneyTest.CharacterLifecycleSurvivesReloginAndRealmRestart
+640/667 Test #640: RealmJourneyTest.CharacterLifecycleSurvivesReloginAndRealmRestart ......................................   Passed   20.25 sec
+        Start 641: LatencyRecorderTest.EmptyRecorderReportsZeros
+641/667 Test #641: LatencyRecorderTest.EmptyRecorderReportsZeros ..........................................................   Passed    0.00 sec
+        Start 642: LatencyRecorderTest.PercentilesFollowNearestRank
+642/667 Test #642: LatencyRecorderTest.PercentilesFollowNearestRank .......................................................   Passed    0.00 sec
+        Start 643: LatencyRecorderTest.PercentileOfSmallSample
+643/667 Test #643: LatencyRecorderTest.PercentileOfSmallSample ............................................................   Passed    0.00 sec
+        Start 644: PhaseCountersTest.FailuresBreakDownByKindAndMerge
+644/667 Test #644: PhaseCountersTest.FailuresBreakDownByKindAndMerge ......................................................   Passed    0.00 sec
+        Start 645: LoadgenReportTest.RenderLocksPhaseFieldsAndFailureNames
+645/667 Test #645: LoadgenReportTest.RenderLocksPhaseFieldsAndFailureNames ................................................   Passed    0.00 sec
+        Start 646: FailureKindNameTest.NamesEveryKind
+646/667 Test #646: FailureKindNameTest.NamesEveryKind .....................................................................   Passed    0.00 sec
+        Start 647: ParseLoadgenLoginTargetTest.AcceptsExplicitTargetsAndAllAlias
+647/667 Test #647: ParseLoadgenLoginTargetTest.AcceptsExplicitTargetsAndAllAlias ..........................................   Passed    0.00 sec
+        Start 648: LoginChainAdapterTest.MapsEveryTargetToValidatedLoginRun
+648/667 Test #648: LoginChainAdapterTest.MapsEveryTargetToValidatedLoginRun ...............................................   Passed    0.00 sec
+        Start 649: LoginChainAdapterTest.RejectsInvalidTargetSpecificConfiguration
+649/667 Test #649: LoginChainAdapterTest.RejectsInvalidTargetSpecificConfiguration ........................................   Passed    0.00 sec
+        Start 650: LoginChainAdapterTest.PollingProfileChangesPacingOnly
+650/667 Test #650: LoginChainAdapterTest.PollingProfileChangesPacingOnly ..................................................   Passed    0.00 sec
+        Start 651: LoginChainMetricsTest.MapsOperationsToExistingPhaseCounters
+651/667 Test #651: LoginChainMetricsTest.MapsOperationsToExistingPhaseCounters ............................................   Passed    0.00 sec
+        Start 652: LoginChainMetricsTest.RecordsRealmEntryFailuresAndLatency
+652/667 Test #652: LoginChainMetricsTest.RecordsRealmEntryFailuresAndLatency ..............................................   Passed    0.00 sec
+        Start 653: LoginChainMetricsTest.PreservesGatewayDialAttachBucketing
+653/667 Test #653: LoginChainMetricsTest.PreservesGatewayDialAttachBucketing ..............................................   Passed    0.00 sec
+        Start 654: ParseMetricsLineTest.ParsesPlainAndLabeledSeries
+654/667 Test #654: ParseMetricsLineTest.ParsesPlainAndLabeledSeries .......................................................   Passed    0.00 sec
+        Start 655: ScrapeMetricsTest.ParsesPrometheusBody
+655/667 Test #655: ScrapeMetricsTest.ParsesPrometheusBody .................................................................   Passed    0.00 sec
+        Start 656: LoadgenIntegrationTest.L1VerifyDirectsTrafficAndCountersAgree
+656/667 Test #656: LoadgenIntegrationTest.L1VerifyDirectsTrafficAndCountersAgree ..........................................   Passed    1.40 sec
+        Start 657: LoadgenIntegrationTest.L1TicketsIssueTokensAllValidate
+657/667 Test #657: LoadgenIntegrationTest.L1TicketsIssueTokensAllValidate .................................................   Passed    2.86 sec
+        Start 658: LoadgenIntegrationTest.L1GatewaySoakHoldsWaterLevelWithoutFdLeak
+658/667 Test #658: LoadgenIntegrationTest.L1GatewaySoakHoldsWaterLevelWithoutFdLeak .......................................   Passed   13.89 sec
+        Start 659: LoadgenIntegrationTest.AdapterAndDecoratorDriveRealGatewayChain
+659/667 Test #659: LoadgenIntegrationTest.AdapterAndDecoratorDriveRealGatewayChain ........................................   Passed    4.36 sec
+        Start 660: LoadgenIntegrationTest.FullTargetRedeemsRealmSession
+660/667 Test #660: LoadgenIntegrationTest.FullTargetRedeemsRealmSession ...................................................   Passed    4.56 sec
+        Start 661: LoadgenIntegrationTest.GatewayReadinessRecoversAfterEtcdOutage
+661/667 Test #661: LoadgenIntegrationTest.GatewayReadinessRecoversAfterEtcdOutage .........................................   Passed    4.78 sec
+        Start 662: LoadgenIntegrationTest.M2ReducedChainCompletesWithLowFetchFailure
+662/667 Test #662: LoadgenIntegrationTest.M2ReducedChainCompletesWithLowFetchFailure ......................................   Passed    9.77 sec
+        Start 663: LoadgenIntegrationTest.M3SmokeTenThousandTicketsAndConcurrentPolls
+663/667 Test #663: LoadgenIntegrationTest.M3SmokeTenThousandTicketsAndConcurrentPolls .....................................   Passed   51.91 sec
+        Start 664: LoadgenIntegrationTest.SuccessfulGatewayDialTimeIsExcludedFromAttach
+664/667 Test #664: LoadgenIntegrationTest.SuccessfulGatewayDialTimeIsExcludedFromAttach ...................................   Passed    4.88 sec
+        Start 665: LoadgenIntegrationTest.GatewayDialFailureIsChargedToAttach
+665/667 Test #665: LoadgenIntegrationTest.GatewayDialFailureIsChargedToAttach .............................................   Passed    7.08 sec
+        Start 666: LuaHarnessSelfTest
+666/667 Test #666: LuaHarnessSelfTest .....................................................................................   Passed    0.01 sec
+        Start 667: RealmTrainingRule
+667/667 Test #667: RealmTrainingRule ......................................................................................   Passed    0.01 sec
+
+100% tests passed, 0 tests failed out of 667
+
+Label Time Summary:
+integration                                     = 309.52 sec*proc (163 tests)
+lua                                             =   0.01 sec*proc (2 tests)
+target=account_fetch_port_test                  =   0.02 sec*proc (10 tests)
+target=account_store_test                       =   0.02 sec*proc (14 tests)
+target=adaptive_poller_test                     =   0.01 sec*proc (5 tests)
+target=admission_consumption_store_test         =   0.01 sec*proc (8 tests)
+target=admission_grant_test                     =   0.01 sec*proc (9 tests)
+target=admission_security_config_test           =   0.01 sec*proc (6 tests)
+target=base64url_test                           =   0.01 sec*proc (6 tests)
+target=bounded_queue_test                       =   0.01 sec*proc (2 tests)
+target=bounded_work_pool_test                   =   0.07 sec*proc (8 tests)
+target=character_name_test                      =   0.01 sec*proc (5 tests)
+target=compact_jws_test                         =   0.01 sec*proc (11 tests)
+target=config_headers_test                      =   0.00 sec*proc (1 test)
+target=configs_load_smoke_test                  =   0.02 sec*proc (7 tests)
+target=edge_attach_protocol_test                =   0.01 sec*proc (6 tests)
+target=edge_session_table_test                  =   0.01 sec*proc (6 tests)
+target=event_loop_test                          =   0.24 sec*proc (5 tests)
+target=frame_scheduler_test                     =   0.01 sec*proc (2 tests)
+target=gateway_admission_test                   =   0.01 sec*proc (5 tests)
+target=gateway_headers_test                     =   0.00 sec*proc (1 test)
+target=gateway_ingress_test                     =   0.01 sec*proc (4 tests)
+target=gateway_ingress_throttle_test            =   0.01 sec*proc (2 tests)
+target=gateway_login_config_test                =   0.02 sec*proc (9 tests)
+target=gateway_login_pipeline_test              =   0.05 sec*proc (21 tests)
+target=gateway_primary_transport_test           =   0.13 sec*proc (7 tests)
+target=gateway_runtime_test                     =   0.12 sec*proc (6 tests)
+target=gateway_server_test                      =   0.02 sec*proc (5 tests)
+target=http1_codec_test                         =   0.05 sec*proc (16 tests)
+target=http1_response_parser_test               =   0.02 sec*proc (14 tests)
+target=http_server_test                         =   0.69 sec*proc (7 tests)
+target=identity_replay_guard_test               =   0.00 sec*proc (5 tests)
+target=identity_token_test                      =   0.02 sec*proc (18 tests)
+target=json_field_test                          =   0.01 sec*proc (4 tests)
+target=json_test                                =   0.01 sec*proc (16 tests)
+target=load_topology_test                       =   0.01 sec*proc (5 tests)
+target=loadgen_core_test                        =   0.02 sec*proc (7 tests)
+target=loadgen_integration_test                 = 105.50 sec*proc (10 tests)
+target=loadgen_login_chain_test                 =   0.01 sec*proc (6 tests)
+target=login_chain_test                         =   1.61 sec*proc (26 tests)
+target=login_verify_dispatcher_test             =   0.01 sec*proc (4 tests)
+target=login_verify_handler_test                =   0.02 sec*proc (15 tests)
+target=login_verify_service_test                =   9.17 sec*proc (5 tests)
+target=lua_runtime_test                         =   0.01 sec*proc (5 tests)
+target=metrics_scrape_test                      =   0.00 sec*proc (2 tests)
+target=network_codec_test                       =   0.02 sec*proc (6 tests)
+target=new_chain_flow_test                      =   5.63 sec*proc (2 tests)
+target=observability_logger_test                =   0.04 sec*proc (8 tests)
+target=observability_metrics_registry_test      =   0.01 sec*proc (7 tests)
+target=player_data_store_test                   =  42.44 sec*proc (24 tests)
+target=preferred_transport_connector_test       =   0.05 sec*proc (4 tests)
+target=queue_core_test                          =   0.01 sec*proc (11 tests)
+target=queue_handler_test                       =   0.03 sec*proc (13 tests)
+target=queue_number_test                        =   0.01 sec*proc (8 tests)
+target=queue_number_v2_test                     =   0.01 sec*proc (6 tests)
+target=queue_process_restart_test               =   3.45 sec*proc (1 test)
+target=queue_service_test                       =   0.27 sec*proc (8 tests)
+target=queue_store_etcd_integration_test        =   5.25 sec*proc (3 tests)
+target=queue_store_test                         =   0.03 sec*proc (19 tests)
+target=queue_ticketing_test                     =   0.02 sec*proc (6 tests)
+target=quic_transport_test                      =   0.06 sec*proc (1 test)
+target=realm_journey_test                       =  20.25 sec*proc (1 test)
+target=realm_lua_cli                            =   0.01 sec*proc (2 tests)
+target=realm_protocol_test                      =   0.01 sec*proc (7 tests)
+target=realm_sessions_test                      =   0.09 sec*proc (16 tests)
+target=service_host_test                        =  11.20 sec*proc (69 tests)
+target=service_lifecycle_test                   =   0.01 sec*proc (5 tests)
+target=service_registry_test                    =   0.05 sec*proc (34 tests)
+target=session_ticket_test                      =   0.02 sec*proc (11 tests)
+target=tcp_listener_test                        =   0.22 sec*proc (4 tests)
+target=tls_tcp_client_dialer_test               =   0.01 sec*proc (2 tests)
+target=tls_tcp_transport_test                   =   1.68 sec*proc (6 tests)
+target=training_rule_test                       =   0.02 sec*proc (8 tests)
+target=transport_factory_test                   =   0.05 sec*proc (7 tests)
+target=wire_login_transport_integration_test    =   2.09 sec*proc (7 tests)
+target=wire_login_transport_test                =   0.03 sec*proc (5 tests)
+unit                                            =   5.02 sec*proc (504 tests)
+
+Total Test time (real) = 314.70 sec

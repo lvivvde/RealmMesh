@@ -1,0 +1,182 @@
+START cold-build-1
+DONE {"name": "cold-build-1", "wall_s": 334.79993959897547, "exit": 0, "compile_count": 770, "link_count": 73}
+START cold-build-1
+DONE {"name": "cold-build-1", "wall_s": 172.689550865005, "exit": 0, "compile_count": 776, "link_count": 76}
+START cold-build-2
+DONE {"name": "cold-build-2", "wall_s": 173.87349793000612, "exit": 0, "compile_count": 776, "link_count": 76}
+START cold-build-2
+DONE {"name": "cold-build-2", "wall_s": 331.73544396299985, "exit": 0, "compile_count": 770, "link_count": 73}
+START cold-build-3
+DONE {"name": "cold-build-3", "wall_s": 332.1189886459906, "exit": 0, "compile_count": 770, "link_count": 73}
+START cold-build-3
+DONE {"name": "cold-build-3", "wall_s": 172.6917836680077, "exit": 0, "compile_count": 776, "link_count": 76}
+START repro-configure-1
+DONE {"name": "repro-configure-1", "wall_s": 0.7680072899966035, "exit": 0, "compile_count": 0, "link_count": 0}
+START repro-build-1
+DONE {"name": "repro-build-1", "wall_s": 67.59524025899009, "exit": 0, "compile_count": 266, "link_count": 52}
+START repro-configure-2
+DONE {"name": "repro-configure-2", "wall_s": 0.9871578390011564, "exit": 0, "compile_count": 0, "link_count": 0}
+START repro-build-2
+DONE {"name": "repro-build-2", "wall_s": 2.5182434559974354, "exit": 0, "compile_count": 0, "link_count": 0}
+START repro-configure-3
+DONE {"name": "repro-configure-3", "wall_s": 0.689273260999471, "exit": 0, "compile_count": 0, "link_count": 0}
+START repro-build-3
+DONE {"name": "repro-build-3", "wall_s": 2.502279809996253, "exit": 0, "compile_count": 0, "link_count": 0}
+START repro-configure-1
+DONE {"name": "repro-configure-1", "wall_s": 0.5460380879812874, "exit": 0, "compile_count": 0, "link_count": 0}
+START repro-build-1
+DONE {"name": "repro-build-1", "wall_s": 0.04024747299263254, "exit": 0, "compile_count": 0, "link_count": 0}
+START repro-configure-2
+DONE {"name": "repro-configure-2", "wall_s": 0.525341009022668, "exit": 0, "compile_count": 0, "link_count": 0}
+START repro-build-2
+DONE {"name": "repro-build-2", "wall_s": 0.038721020973753184, "exit": 0, "compile_count": 0, "link_count": 0}
+START repro-configure-3
+DONE {"name": "repro-configure-3", "wall_s": 0.5242238709761295, "exit": 0, "compile_count": 0, "link_count": 0}
+START repro-build-3
+DONE {"name": "repro-build-3", "wall_s": 0.038052606978453696, "exit": 0, "compile_count": 0, "link_count": 0}
+START unit-warmup
+DONE {"name": "unit-warmup", "wall_s": 8.017834536003647, "exit": 0, "compile_count": 0, "link_count": 0}
+START unit-warmup
+DONE {"name": "unit-warmup", "wall_s": 2.189007406006567, "exit": 0, "compile_count": 0, "link_count": 0}
+START unit-1
+DONE {"name": "unit-1", "wall_s": 7.924530001997482, "exit": 0, "compile_count": 0, "link_count": 0}
+START unit-1
+DONE {"name": "unit-1", "wall_s": 1.8703693930001464, "exit": 0, "compile_count": 0, "link_count": 0}
+START unit-2
+DONE {"name": "unit-2", "wall_s": 1.8756726490100846, "exit": 0, "compile_count": 0, "link_count": 0}
+START unit-2
+DONE {"name": "unit-2", "wall_s": 7.901659566996386, "exit": 0, "compile_count": 0, "link_count": 0}
+START unit-3
+DONE {"name": "unit-3", "wall_s": 8.099557898996864, "exit": 0, "compile_count": 0, "link_count": 0}
+START unit-3
+DONE {"name": "unit-3", "wall_s": 2.403856385004474, "exit": 0, "compile_count": 0, "link_count": 0}
+START unit-4
+DONE {"name": "unit-4", "wall_s": 1.8643347619799897, "exit": 0, "compile_count": 0, "link_count": 0}
+START unit-4
+DONE {"name": "unit-4", "wall_s": 7.88673888600897, "exit": 0, "compile_count": 0, "link_count": 0}
+START unit-5
+DONE {"name": "unit-5", "wall_s": 7.979688421997707, "exit": 0, "compile_count": 0, "link_count": 0}
+START unit-5
+DONE {"name": "unit-5", "wall_s": 1.8647638879774604, "exit": 0, "compile_count": 0, "link_count": 0}
+START cpp-warmup
+DONE {"name": "cpp-warmup", "wall_s": 26.526060856005643, "exit": 0, "compile_count": 1, "link_count": 53}
+START cpp-warmup-reset
+DONE {"name": "cpp-warmup-reset", "wall_s": 26.20385599602014, "exit": 0, "compile_count": 1, "link_count": 53}
+START cpp-warmup
+DONE {"name": "cpp-warmup", "wall_s": 7.877722483011894, "exit": 0, "compile_count": 1, "link_count": 43}
+START cpp-warmup-reset
+DONE {"name": "cpp-warmup-reset", "wall_s": 7.883952428994235, "exit": 0, "compile_count": 1, "link_count": 43}
+START cpp-1
+DONE {"name": "cpp-1", "wall_s": 26.613135748018976, "exit": 0, "compile_count": 1, "link_count": 53}
+START cpp-1-reset
+DONE {"name": "cpp-1-reset", "wall_s": 26.70926606300054, "exit": 0, "compile_count": 1, "link_count": 53}
+START cpp-1
+DONE {"name": "cpp-1", "wall_s": 7.9105868080223445, "exit": 0, "compile_count": 1, "link_count": 43}
+START cpp-1-reset
+DONE {"name": "cpp-1-reset", "wall_s": 7.939906139974482, "exit": 0, "compile_count": 1, "link_count": 43}
+START cpp-2
+DONE {"name": "cpp-2", "wall_s": 7.93586714900448, "exit": 0, "compile_count": 1, "link_count": 43}
+START cpp-2-reset
+DONE {"name": "cpp-2-reset", "wall_s": 7.841989923996152, "exit": 0, "compile_count": 1, "link_count": 43}
+START cpp-2
+DONE {"name": "cpp-2", "wall_s": 26.500638427009108, "exit": 0, "compile_count": 1, "link_count": 53}
+START cpp-2-reset
+DONE {"name": "cpp-2-reset", "wall_s": 26.58635202702135, "exit": 0, "compile_count": 1, "link_count": 53}
+START cpp-3
+DONE {"name": "cpp-3", "wall_s": 26.524992339021992, "exit": 0, "compile_count": 1, "link_count": 53}
+START cpp-3-reset
+DONE {"name": "cpp-3-reset", "wall_s": 26.55590525601292, "exit": 0, "compile_count": 1, "link_count": 53}
+START cpp-3
+DONE {"name": "cpp-3", "wall_s": 7.903815281984862, "exit": 0, "compile_count": 1, "link_count": 43}
+START cpp-3-reset
+DONE {"name": "cpp-3-reset", "wall_s": 7.875482645002194, "exit": 0, "compile_count": 1, "link_count": 43}
+START cpp-4
+DONE {"name": "cpp-4", "wall_s": 7.901345890015364, "exit": 0, "compile_count": 1, "link_count": 43}
+START cpp-4-reset
+DONE {"name": "cpp-4-reset", "wall_s": 7.892647030996159, "exit": 0, "compile_count": 1, "link_count": 43}
+START cpp-4
+DONE {"name": "cpp-4", "wall_s": 26.3581792699988, "exit": 0, "compile_count": 1, "link_count": 53}
+START cpp-4-reset
+DONE {"name": "cpp-4-reset", "wall_s": 26.514301474002423, "exit": 0, "compile_count": 1, "link_count": 53}
+START cpp-5
+DONE {"name": "cpp-5", "wall_s": 26.377589636016637, "exit": 0, "compile_count": 1, "link_count": 53}
+START cpp-5-reset
+DONE {"name": "cpp-5-reset", "wall_s": 26.44157836199156, "exit": 0, "compile_count": 1, "link_count": 53}
+START cpp-5
+DONE {"name": "cpp-5", "wall_s": 7.971405568008777, "exit": 0, "compile_count": 1, "link_count": 43}
+START cpp-5-reset
+DONE {"name": "cpp-5-reset", "wall_s": 7.876599872979568, "exit": 0, "compile_count": 1, "link_count": 43}
+START lua-warmup
+DONE {"name": "lua-warmup", "wall_s": 45.84097005598596, "exit": 0, "compile_count": 33, "link_count": 53}
+START lua-warmup-reset
+DONE {"name": "lua-warmup-reset", "wall_s": 45.633738384000026, "exit": 0, "compile_count": 33, "link_count": 53}
+START lua-warmup
+DONE {"name": "lua-warmup", "wall_s": 17.555725313985022, "exit": 0, "compile_count": 10, "link_count": 56}
+START lua-warmup-reset
+DONE {"name": "lua-warmup-reset", "wall_s": 17.69271775399102, "exit": 0, "compile_count": 10, "link_count": 56}
+START lua-1
+DONE {"name": "lua-1", "wall_s": 45.38506670499919, "exit": 0, "compile_count": 33, "link_count": 53}
+START lua-1-reset
+DONE {"name": "lua-1-reset", "wall_s": 45.38019887698465, "exit": 0, "compile_count": 33, "link_count": 53}
+START lua-1
+DONE {"name": "lua-1", "wall_s": 17.773349867988145, "exit": 0, "compile_count": 10, "link_count": 56}
+START lua-1-reset
+DONE {"name": "lua-1-reset", "wall_s": 17.536745820980286, "exit": 0, "compile_count": 10, "link_count": 56}
+START lua-2
+DONE {"name": "lua-2", "wall_s": 17.600819841987686, "exit": 0, "compile_count": 10, "link_count": 56}
+START lua-2-reset
+DONE {"name": "lua-2-reset", "wall_s": 17.559995612013154, "exit": 0, "compile_count": 10, "link_count": 56}
+START lua-2
+DONE {"name": "lua-2", "wall_s": 45.51542097699712, "exit": 0, "compile_count": 33, "link_count": 53}
+START lua-2-reset
+DONE {"name": "lua-2-reset", "wall_s": 45.427459099999396, "exit": 0, "compile_count": 33, "link_count": 53}
+START lua-3
+DONE {"name": "lua-3", "wall_s": 45.4419952770113, "exit": 0, "compile_count": 33, "link_count": 53}
+START lua-3-reset
+DONE {"name": "lua-3-reset", "wall_s": 45.175711008982034, "exit": 0, "compile_count": 33, "link_count": 53}
+START lua-3
+DONE {"name": "lua-3", "wall_s": 17.7450950339844, "exit": 0, "compile_count": 10, "link_count": 56}
+START lua-3-reset
+DONE {"name": "lua-3-reset", "wall_s": 17.847391087998403, "exit": 0, "compile_count": 10, "link_count": 56}
+START lua-4
+DONE {"name": "lua-4", "wall_s": 17.64262309402693, "exit": 0, "compile_count": 10, "link_count": 56}
+START lua-4-reset
+DONE {"name": "lua-4-reset", "wall_s": 17.925349269004073, "exit": 0, "compile_count": 10, "link_count": 56}
+START lua-4
+DONE {"name": "lua-4", "wall_s": 44.71718490897911, "exit": 0, "compile_count": 33, "link_count": 53}
+START lua-4-reset
+DONE {"name": "lua-4-reset", "wall_s": 44.568554166995455, "exit": 0, "compile_count": 33, "link_count": 53}
+START lua-5
+DONE {"name": "lua-5", "wall_s": 44.684041044994956, "exit": 0, "compile_count": 33, "link_count": 53}
+START lua-5-reset
+DONE {"name": "lua-5-reset", "wall_s": 45.31952836399432, "exit": 0, "compile_count": 33, "link_count": 53}
+START lua-5
+DONE {"name": "lua-5", "wall_s": 19.281900233996566, "exit": 0, "compile_count": 10, "link_count": 56}
+START lua-5-reset
+DONE {"name": "lua-5-reset", "wall_s": 17.72749600201496, "exit": 0, "compile_count": 10, "link_count": 56}
+START hot-full-1
+DONE {"name": "hot-full-1", "wall_s": 290.3056727660005, "exit": 0, "compile_count": 0, "link_count": 0}
+START hot-full-1
+DONE {"name": "hot-full-1", "wall_s": 316.34656547001214, "exit": 0, "compile_count": 0, "link_count": 0}
+START hot-full-2
+DONE {"name": "hot-full-2", "wall_s": 317.96316113401554, "exit": 0, "compile_count": 0, "link_count": 0}
+START hot-full-2
+DONE {"name": "hot-full-2", "wall_s": 292.0491209930042, "exit": 0, "compile_count": 0, "link_count": 0}
+START hot-full-3
+DONE {"name": "hot-full-3", "wall_s": 292.6419916129962, "exit": 0, "compile_count": 0, "link_count": 0}
+START hot-full-3
+DONE {"name": "hot-full-3", "wall_s": 317.63654536000104, "exit": 0, "compile_count": 0, "link_count": 0}
+START cache-fill
+DONE {"name": "cache-fill", "wall_s": 203.4005871010013, "exit": 0, "compile_count": 776, "link_count": 76}
+START cache-OFF-1
+DONE {"name": "cache-OFF-1", "wall_s": 172.293791566015, "exit": 0, "compile_count": 776, "link_count": 76}
+START cache-ON-1
+DONE {"name": "cache-ON-1", "wall_s": 30.554505667998455, "exit": 0, "compile_count": 776, "link_count": 76}
+START cache-ON-2
+DONE {"name": "cache-ON-2", "wall_s": 30.632345309015363, "exit": 0, "compile_count": 776, "link_count": 76}
+START cache-OFF-2
+DONE {"name": "cache-OFF-2", "wall_s": 174.45672495599138, "exit": 0, "compile_count": 776, "link_count": 76}
+START cache-OFF-3
+DONE {"name": "cache-OFF-3", "wall_s": 170.15967185498448, "exit": 0, "compile_count": 776, "link_count": 76}
+START cache-ON-3
+DONE {"name": "cache-ON-3", "wall_s": 29.47788218400092, "exit": 0, "compile_count": 776, "link_count": 76}
