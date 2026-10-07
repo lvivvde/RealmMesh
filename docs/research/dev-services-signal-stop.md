@@ -114,3 +114,33 @@ Ubuntu 24.04 x86_64 Linux 完整 CTest 666/666，包含 QUIC；macOS 完整 CTes
 验收记录的后续提交只补文档与日志摘录；以上 CI 对应的是实际修复提交。
 
 Standards 与 Spec 两路代码审查均为 0 项发现。语法检查与 `git diff --check` 通过。
+
+## P6 后续：被再次中断的 worker 等待（#129）
+
+2026-10-07，P6 冻结快照 `51ad054` 的 Linux Bash 5.3.9 完整验证出现
+`StopDuringProcessChecks` 失败：拒绝 stale Supervisor PID，worker 与服务当时仍存活。
+没有原 #143 的 trap 解析错误；独立 20 次与追加 100 次均通过，不能据此排除竞态。
+用户选择在 #129 内修复并重新冻结复测，并确认真实停止、进程回收与文件清理的测试边界。
+
+使用准确的 `supervise_services` 管理函数及最小延迟 worker，原实现失败 13/1000 次。
+针对两次 wait、停止文件发布与 worker 存活的独立诊断也失败 13/1000 次：
+第一次 wait 返回 143，停止标志为 1；发布停止文件后，第二次 wait 又返回 143，
+worker 仍活着。随后管理进程删除停止文件并退出 143，worker 无法完成收尾。
+问题在于把第二次 wait 返回当成实际回收完成；改为忽略信号并没有保证该次 wait 不再被打断。
+
+修复在 worker 存活时继续等待，保持停止文件，直到 worker 实际退出。
+不增加管理进程的命令替换，不改变工作进程的查询、就绪与逆序停止职责。
+同一最小探针只替换此等待逻辑后为 0/1000 失败；有限样本仍不代表所有时序绝对无错。
+
+新增 `StopAfterInterruptedWorkerWait` 在真实 Supervisor 的 shell builtin 边界稳定注入
+第二次 wait 返回 143；服务进程、停止顺序与清理断言均沿用真实入口。
+Bash 3.2 中包装 `builtin wait` 会延迟本测试的 TERM trap，夹具最终用 alias 的短路表达式
+保留真正的 wait 命令，并只在管理 shell 注入一次中断，不替换 worker 的服务等待。
+同一最终夹具在原实现失败、修复后 Linux 与 macOS 通过。
+四个停止边界（正常逆序、连续 TERM、中断 wait、启动中取消）两平台各连续 20 次通过；
+当前完整合集由 666 增到 667，新增项仍为 `integration` / `RUN_SERIAL` / 20 秒超时。
+
+[原始失败、红绿与诊断证据](assets/build-optimization-results/p6-2026-10-07/supervisor-fix/README.md)
+保留了原失败、120 次未复现、最小探针与单变量对照、夹具前置条件和 Bash 3.2 包装失败，
+不将夹具错误算成产品回归。旧 P6 性能组不与新冻结组混合；后续完整验证及重新取样
+继续追加[构建阶段报告](build-optimization-results.md)。

@@ -606,7 +606,34 @@ case "${realmmesh_case}" in
         printf 'service group survived a Realm process failure\n' >&2
         exit 1
         ;;
-    stop_is_reverse_ordered|stop_during_process_checks|stop_during_startup)
+    stop_is_reverse_ordered|stop_during_process_checks|stop_after_interrupted_worker_wait|stop_during_startup)
+        if [[ "${realmmesh_case}" == stop_after_interrupted_worker_wait ]]; then
+            # 已观测到忽略后续 TERM 后,第二次 wait 仍返回 143,而 worker 尚存活。
+            # 在真实管理进程的 shell builtin 边界稳定注入该返回值;服务和回收路径不替换。
+            export REALMMESH_TEST_WAIT_MARKER="${realmmesh_scratch}/interrupted-wait"
+            export BASH_ENV="${realmmesh_scratch}/wait-interruption.sh"
+            cat > "${BASH_ENV}" <<'BASH'
+realmmesh_test_wait_calls=0
+realmmesh_test_manager_wait=0
+case " $* " in
+    *" supervise "*) realmmesh_test_manager_wait=1 ;;
+esac
+realmmesh_test_interrupt_wait() {
+    # BASH_SUBSHELL 在 Bash 3.2 也可用;worker 的服务 wait 保持原行为。
+    if [[ "${realmmesh_test_manager_wait}" -eq 1 && "${BASH_SUBSHELL}" -eq 0 ]]; then
+        realmmesh_test_wait_calls=$((realmmesh_test_wait_calls + 1))
+        if [[ "${realmmesh_test_wait_calls}" -eq 2 ]]; then
+            printf '%s\n' interrupted > "${REALMMESH_TEST_WAIT_MARKER}"
+            return 143
+        fi
+    fi
+    return 0
+}
+# 保留 wait 本身作为命令:在 Bash 3.2 中 builtin wait 包装会延迟 TERM trap。
+shopt -s expand_aliases
+alias wait='realmmesh_test_interrupt_wait && wait'
+BASH
+        fi
         if [[ "${realmmesh_case}" == stop_during_startup ]]; then
             # Realm 已启动但就绪永远不可达时,停止仍须及时回收,不能再拉 Gateway。
             export REALMMESH_REALM_METRICS_URL="http://127.0.0.1:1/metrics"
@@ -648,6 +675,9 @@ while time.monotonic() < deadline:
 PY
         fi
         bash "${realmmesh_script}" stop >/dev/null
+        if [[ "${realmmesh_case}" == stop_after_interrupted_worker_wait ]]; then
+            [[ -s "${REALMMESH_TEST_WAIT_MARKER}" ]]
+        fi
         realmmesh_supervisor_log="${realmmesh_test_root}/.runtime/logs/supervisor/console.log"
         if [[ "${realmmesh_case}" == stop_during_startup ]]; then
             if wait "${realmmesh_starter_pid}"; then
