@@ -1112,7 +1112,7 @@ Mac 接入验收的 Full chain/Realm 心跳成功各三轮，超时/重放/进�
 
 本地缓存每轮 OFF/ON 都重建完整空产物（含未接缓存的 sodium），原生源码/链接名单相同；ON 的 direct hit 等于原生编译请求数、miss 0，OFF 实际调用 compiler。首次 fill 独立记录，不能冒充兼容缓存收益。本地没有远端传输成本。
 
-CI 恢复/保存门槛复用 P5 已发布的真实 GitHub runner 三组证据：源码 `40b75b6`，run `37450446313`，Linux 净下降 81.17%、macOS 72.40%，包含真实键检查、restore/save 与远端回查，各 3/3 变快。缓存模块、键 CLI、CI workflow/action 与本轮最终产品提交逐文件 diff 无变化；差异为测量源码恢复、Supervisor 信号收尾、测试及文档变化。本票没有重新调度 CI，不把这些旧 runner 的秒数或编译请求数写成 `7858a925` 的新运行。既有 #143 CI（run `37473072687`，修复提交 `fd55a80`）的 x86_64 Linux QUIC / arm64 macOS TLS-only 行为证据与本地两平台各自保存，不混合统计。本次新的停止等待修复在本地 Bash 5.3.9 / macOS Bash 3.2 验证；新的 667 项合集未在 GitHub runner 重跑，旧 CI 不冒充该提交的生产平台回归。
+CI 恢复/保存门槛复用 P5 已发布的真实 GitHub runner 三组证据：源码 `40b75b6`，run `37450446313`，Linux 净下降 81.17%、macOS 72.40%，包含真实键检查、restore/save 与远端回查，各 3/3 变快。缓存模块、键 CLI、CI workflow/action 与本轮最终产品提交逐文件 diff 无变化；差异为测量源码恢复、Supervisor 信号收尾、测试及文档变化。P6 配对测量完成时未重新调度 CI，不把这些旧 runner 的秒数或编译请求数写成 `7858a925` 的新运行；后续 PR 常规 CI 另见下方发布验证记录。既有 #143 CI（run `37473072687`，修复提交 `fd55a80`）的 x86_64 Linux QUIC / arm64 macOS TLS-only 行为证据与本地两平台各自保存，不混合统计。本次新的停止等待修复在本地 Bash 5.3.9 / macOS Bash 3.2 验证；配对测量完成时新的 667 项合集尚未在 GitHub runner 重跑，旧 CI 不冒充该提交的生产平台回归。
 
 ### 回退定位与有界后续
 
@@ -1153,3 +1153,9 @@ Mac 原始目录 `/private/tmp/realmmesh-p6-fixed`；Lima `/home/edwin.guest/cod
 时钟修正前的产品冻结组（`7858a925`，主性能各 42 行/cache 7 行）也整体保留于 [`before-clock-fix`](assets/build-optimization-results/p6-2026-10-07/before-clock-fix/README.md)。用户明确要求修正 VM 并重跑全部 Linux 组；因此没有挑选其成功行加入最终统计。原组 15,363 个原始文件 SHA 全部核验，完整检查中断与未执行阶段保持可见。修复环境时关闭并禁用冲突的 chrony，清除细粒度频率校正并把实际内核 tick 从 10428µs 复原为 10000µs，仅保留 Lima 主机同步。校正后的第一次 45 秒观察捕获残余约 218ms 步进，收敛后的独立 45 秒/434 次自然写入无倒退或超过 50ms 跳变。新 Linux 根目录以同一冻结源码和依赖从空产物重建全部组，两侧全部正式 Linux 组使用相同的只读时钟观察器，0.1 秒记录 wall/monotonic/raw 时钟、每分钟读取 tick/频率，不增加编译或业务 debug 追踪；最终审计必须在观察器结束后核验环境门槛。最终只读观察覆盖 2.67 小时；无倒退或超过 50ms 跳变，环境时钟门槛通过。每分钟内核频率/tick 读数和最终时间服务状态均由最终审计核验。
 
 这是本次 VM 开发环境修复，不改产品构建或服务时钟逻辑。
+
+### P6 发布验证（2026-10-07，PR #146）
+
+用户随后授权推送并创建 [PR #146](https://github.com/lvivvde/RealmMesh/pull/146)，由 PR 最新提交触发常规双平台 CI。此项补充 Linux x86_64 QUIC 与 macOS TLS/TCP 的当前代码行为回归，具体结果以 [PR checks](https://github.com/lvivvde/RealmMesh/pull/146/checks) 为准；不能用尚在执行的检查宣称通过。它未启用远端 ccache 三对性能验收，不替代 P5 的恢复/保存净等待证据，也不进入上表本地性能统计。
+
+#129 在当前 CI 通过、PR 合并并记录后续范围后收束，表示最终复测、归因和有界后续已交付。首批性能未通过的结论不变；整体追踪 #119 继续保留热完整入口超过 5% 上限的问题。后续范围优先保留全部测试与原门槛，评估构建契约夹具的必要等待与复用方案，再决定实施与完整配对复测。
