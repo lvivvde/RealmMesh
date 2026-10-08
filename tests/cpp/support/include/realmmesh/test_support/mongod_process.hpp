@@ -20,6 +20,7 @@
 #include <array>
 #include <atomic>
 #include <chrono>
+#include <cerrno>
 #include <cstdint>
 #include <cstdlib>
 #include <filesystem>
@@ -91,11 +92,25 @@ public:
     }
 
     void stop() noexcept {
-        if (pid_ <= 0) return;
-        static_cast<void>(::kill(pid_, SIGTERM));
-        int status = 0;
-        static_cast<void>(::waitpid(pid_, &status, 0));
-        pid_ = -1;
+        if (pid_ > 0) {
+            // A stopped server cannot handle TERM. Resume it for graceful
+            // shutdown, then bound cleanup even if it remains unresponsive.
+            static_cast<void>(::kill(pid_, SIGCONT));
+            static_cast<void>(::kill(pid_, SIGTERM));
+            const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds{2};
+            int status = 0;
+            while (true) {
+                const auto reaped = ::waitpid(pid_, &status, WNOHANG);
+                if (reaped == pid_ || (reaped < 0 && errno == ECHILD)) break;
+                if (std::chrono::steady_clock::now() >= deadline) {
+                    static_cast<void>(::kill(pid_, SIGKILL));
+                    while (::waitpid(pid_, &status, 0) < 0 && errno == EINTR) {}
+                    break;
+                }
+                std::this_thread::sleep_for(std::chrono::milliseconds{5});
+            }
+            pid_ = -1;
+        }
         std::error_code error;
         std::filesystem::remove_all(data_dir_, error);
     }

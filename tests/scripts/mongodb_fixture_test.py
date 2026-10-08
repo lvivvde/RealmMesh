@@ -119,43 +119,57 @@ class MongoFixtureContract(unittest.TestCase):
 
     def test_constructor_failure_reaps_mongod_and_removes_its_data(self):
         self.assertIsNotNone(ARGS.probe, 'fixture constructor probe is required')
-        with tempfile.TemporaryDirectory(prefix='mongodb-constructor-contract-') as directory:
-            root = Path(directory)
-            wrapper = root / 'mongod-wrapper.py'
-            wrapper.write_text(
-                '#!/usr/bin/env python3\n'
-                'import os,sys\n'
-                'from pathlib import Path\n'
-                'Path(os.environ["REALMMESH_FIXTURE_PID_FILE"]).write_text(str(os.getpid()))\n'
-                'binary=os.environ["REALMMESH_FIXTURE_REAL_MONGOD"]\n'
-                'os.execv(binary,[binary,*sys.argv[1:]])\n')
-            wrapper.chmod(0o755)
-            env = os.environ.copy()
-            env.update(
-                TMPDIR=directory, REALMMESH_MONGOD_BINARY=str(wrapper),
-                REALMMESH_FIXTURE_REAL_MONGOD=tool('mongod'),
-                REALMMESH_FIXTURE_PID_FILE=str(root / 'pid'),
-                REALMMESH_TEST_MONGODB_INITIALIZER=str(root / 'missing-initializer'),
-            )
-            try:
-                result = subprocess.run([
-                    str(ARGS.probe),
-                ], env=env, capture_output=True, text=True, timeout=35)
-                self.assertNotEqual(result.returncode, 0, result.stdout)
-                pid = int((root / 'pid').read_text())
-                with self.assertRaises(ProcessLookupError):
-                    os.kill(pid, 0)
-                self.assertEqual(list(root.glob('realmmesh-mongod-*')), [])
-            finally:
-                # Reclaim only this test's recorded child if a failed assertion
-                # or a probe timeout prevented the fixture from doing so.
-                if (root / 'pid').exists():
+        for failure in ('missing', 'stopped'):
+            with self.subTest(failure=failure), tempfile.TemporaryDirectory(
+                    prefix='mongodb-constructor-contract-') as directory:
+                root = Path(directory)
+                wrapper = root / 'mongod-wrapper.py'
+                wrapper.write_text(
+                    '#!/usr/bin/env python3\n'
+                    'import os,sys\n'
+                    'from pathlib import Path\n'
+                    'Path(os.environ["REALMMESH_FIXTURE_PID_FILE"]).write_text(str(os.getpid()))\n'
+                    'binary=os.environ["REALMMESH_FIXTURE_REAL_MONGOD"]\n'
+                    'os.execv(binary,[binary,*sys.argv[1:]])\n')
+                wrapper.chmod(0o755)
+                initializer = root / 'initializer'
+                if failure == 'stopped':
+                    initializer.write_text(
+                        '#!/usr/bin/env python3\n'
+                        'import os,signal,sys\n'
+                        'from pathlib import Path\n'
+                        'os.kill(int(Path(os.environ["REALMMESH_FIXTURE_PID_FILE"]).read_text()),signal.SIGSTOP)\n'
+                        'binary=os.environ["REALMMESH_FIXTURE_REAL_INITIALIZER"]\n'
+                        'os.execv(binary,[binary,sys.argv[1],"200"])\n')
+                    initializer.chmod(0o755)
+                env = os.environ.copy()
+                env.update(
+                    TMPDIR=directory, REALMMESH_MONGOD_BINARY=str(wrapper),
+                    REALMMESH_FIXTURE_REAL_MONGOD=tool('mongod'),
+                    REALMMESH_FIXTURE_REAL_INITIALIZER=str(ARGS.initializer),
+                    REALMMESH_FIXTURE_PID_FILE=str(root / 'pid'),
+                    REALMMESH_TEST_MONGODB_INITIALIZER=str(initializer),
+                )
+                reclaimed = False
+                try:
+                    result = subprocess.run([
+                        str(ARGS.probe),
+                    ], env=env, capture_output=True, text=True, timeout=10)
+                    self.assertNotEqual(result.returncode, 0, result.stdout)
                     pid = int((root / 'pid').read_text())
-                    try:
-                        os.kill(pid, signal.SIGCONT)
-                        os.kill(pid, signal.SIGKILL)
-                    except ProcessLookupError:
-                        pass
+                    with self.assertRaises(ProcessLookupError):
+                        os.kill(pid, 0)
+                    self.assertEqual(list(root.glob('realmmesh-mongod-*')), [])
+                    reclaimed = True
+                finally:
+                    # Only a failed probe needs emergency cleanup of its own child.
+                    if not reclaimed and (root / 'pid').exists():
+                        pid = int((root / 'pid').read_text())
+                        try:
+                            os.kill(pid, signal.SIGCONT)
+                            os.kill(pid, signal.SIGKILL)
+                        except ProcessLookupError:
+                            pass
 
 
 if __name__ == '__main__':
