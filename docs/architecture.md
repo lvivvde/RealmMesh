@@ -226,6 +226,12 @@ Supervisor 的管理进程仅接收 INT/TERM、记录停止请求并等待工作
 夹具自带的 etcd 与 MongoDB 由测试回收。复现与平台验证见
 [诊断记录](research/dev-services-signal-stop.md)。
 
+完整测试构建还生成独立的 `realmmesh_mongodb_fixture`（#119），使用既有 C 驱动
+初始化真实本地 `rs0` 并确认可写 Primary。六个 `MongodProcess` 集成目标显式依赖它，
+DevServices 的 CTest 环境传入其路径；驱动生命周期留在辅助进程，数据回读仍用
+真实 `mongosh`。测试仍回收各自的服务与数据，产品与手动开发入口沿用原路径。
+边界契约及截止时间见 [tests/README](../tests/README.md#mongodb-夹具初始化119)。
+
 ## 未实现的服务与模块
 
 目录树只反映已实现代码:规划中的服务与模块不预先创建空目录(理由见

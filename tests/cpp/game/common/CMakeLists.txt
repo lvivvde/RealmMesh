@@ -6,7 +6,7 @@ realm_add_gtest(account_store_test
 
 realm_add_gtest(player_data_store_test
     SOURCES player_data_store_test.cpp
-    LIBS realm_game_common
+    LIBS realmmesh_test_mongodb realm_game_common
     INCLUDE_DIRS ${PROJECT_SOURCE_DIR}/tests/cpp/support/include
     DEFINITIONS REALMMESH_TEST_SOURCE_DIR="${PROJECT_SOURCE_DIR}"
     # 拉起真实单节点 mongod 副本集(ADR-0011),占端口：属集成测试。
@@ -79,7 +79,7 @@ realm_add_gtest(session_ticket_test
 
 realm_add_gtest(new_chain_flow_test
     SOURCES new_chain_flow_test.cpp
-    LIBS
+    LIBS realmmesh_test_mongodb
         nlohmann_json::nlohmann_json
         realm_cluster
         realm_game_common

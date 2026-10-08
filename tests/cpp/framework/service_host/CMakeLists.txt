@@ -11,7 +11,7 @@ realm_add_gtest(service_host_test
         startup_topology_test.cpp
         ${PROJECT_SOURCE_DIR}/tests/cpp/support/src/fake_service_registry.cpp
     INCLUDE_DIRS ${PROJECT_SOURCE_DIR}/tests/cpp/support/include
-    LIBS
+    LIBS realmmesh_test_mongodb
         httplib::httplib
         nlohmann_json::nlohmann_json
         realm_service_host
