@@ -8,6 +8,8 @@ set(REALMMESH_TEST_WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}")
 include(${CMAKE_CURRENT_SOURCE_DIR}/../cmake/test_helpers.cmake)
 include(${CMAKE_CURRENT_SOURCE_DIR}/../cmake/test-tls-identity.cmake)
 
+add_subdirectory(support)
+
 add_subdirectory(framework/scheduler)
 add_subdirectory(framework/concurrency)
 add_subdirectory(framework/scripting)

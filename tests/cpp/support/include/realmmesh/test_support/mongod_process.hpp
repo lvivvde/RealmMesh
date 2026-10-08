@@ -8,8 +8,8 @@
 /// 二进制按 REALMMESH_MONGOD_BINARY / REALMMESH_MONGOSH_BINARY 覆盖、
 /// PATH(macOS 上即 Homebrew 安装的 mongodb-community 与 mongosh)、
 /// ./scripts/install-mongodb.sh 装到 .tools/ 的 Linux 固定版本依次查找;
-/// 缺失即抛错而不是静默跳过。夹具自身的建副本集与回读都经 mongosh 子进程完成，
-/// 测试二进制不链接驱动，也就不会与被测代码争用进程唯一的驱动实例。
+/// 缺失即抛错而不是静默跳过。初始化可交给独立辅助进程，回读仍经 mongosh 完成；
+/// 测试二进制不链接额外驱动，也就不会与被测代码争用进程唯一的驱动实例。
 
 #include "realmmesh/test_support/etcd_process.hpp"
 
@@ -176,6 +176,22 @@ private:
         const std::string& connection, const std::string& script) {
         const auto binary = tool_binary(
             "REALMMESH_MONGOSH_BINARY", "mongosh-2.12.0", "mongosh");
+        auto captured = run_process(binary, {connection, "--quiet", "--norc", "--eval", script});
+        if (captured.status == 127) {
+            throw std::runtime_error(
+                "mongosh not found at " + binary +
+                "; install MongoDB first (see tests/README.md)");
+        }
+        return captured;
+    }
+
+    [[nodiscard]] static Captured run_process(
+        const std::string& binary, const std::vector<std::string>& arguments) {
+        std::vector<char*> argv{const_cast<char*>(binary.c_str())};
+        for (const auto& argument : arguments) {
+            argv.push_back(const_cast<char*>(argument.c_str()));
+        }
+        argv.push_back(nullptr);
         std::array<int, 2> pipe_fds{};
         if (::pipe(pipe_fds.data()) != 0) {
             throw std::runtime_error("cannot create mongosh pipe");
@@ -191,15 +207,7 @@ private:
             ::dup2(pipe_fds[1], STDERR_FILENO);
             ::close(pipe_fds[0]);
             ::close(pipe_fds[1]);
-            ::execlp(
-                binary.c_str(),
-                binary.c_str(),
-                connection.c_str(),
-                "--quiet",
-                "--norc",
-                "--eval",
-                script.c_str(),
-                static_cast<char*>(nullptr));
+            ::execvp(binary.c_str(), argv.data());
             _exit(127);
         }
         ::close(pipe_fds[1]);
@@ -214,11 +222,6 @@ private:
         ::close(pipe_fds[0]);
         int status = 0;
         static_cast<void>(::waitpid(child, &status, 0));
-        if (WIFEXITED(status) && WEXITSTATUS(status) == 127) {
-            throw std::runtime_error(
-                "mongosh not found at " + binary +
-                "; install MongoDB first (see tests/README.md)");
-        }
         captured.status = WIFEXITED(status) ? WEXITSTATUS(status) : -1;
         while (!captured.output.empty() && captured.output.back() == '\n') {
             captured.output.pop_back();
@@ -241,6 +244,24 @@ private:
                 throw std::runtime_error("mongod did not open its port");
             }
             std::this_thread::sleep_for(20ms);
+        }
+
+        const char* initializer = std::getenv("REALMMESH_TEST_MONGODB_INITIALIZER");
+#ifdef REALMMESH_TEST_MONGODB_INITIALIZER_PATH
+        if (initializer == nullptr || *initializer == '\0') {
+            initializer = REALMMESH_TEST_MONGODB_INITIALIZER_PATH;
+        }
+#endif
+        if (initializer != nullptr && *initializer != '\0') {
+            const auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(
+                deadline - std::chrono::steady_clock::now()).count();
+            if (remaining <= 0) throw std::runtime_error("mongod initialization deadline exceeded");
+            const auto result = run_process(initializer, {
+                "127.0.0.1:" + std::to_string(port_), std::to_string(remaining)});
+            if (result.status != 0) {
+                throw std::runtime_error("MongoDB fixture initializer failed: " + result.output);
+            }
+            return;
         }
 
         const auto direct = "mongodb://127.0.0.1:" + std::to_string(port_) +
