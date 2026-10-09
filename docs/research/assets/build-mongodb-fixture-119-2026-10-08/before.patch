@@ -1,0 +1,583 @@
+diff --git a/docs/research/build-implementation-acceptance.md b/docs/research/build-implementation-acceptance.md
+index 02b43ce..961145b 100644
+--- a/docs/research/build-implementation-acceptance.md
++++ b/docs/research/build-implementation-acceptance.md
+@@ -101,3 +101,24 @@ Q5已选择正确性、覆盖、生成文件恢复和资源安全优先作为硬
+ [精简逐次样本与统计](assets/build-acceptance-2026-10-02/historical-samples.json)、[资产校验清单](assets/build-acceptance-2026-10-02/manifest.json)。来源为已发布[基线](build-baseline-2026-10-02.md)和[Unit补测](build-test-entry-decisions.md)，统计保留失败状态，不包含全部命令参数、缓存或环境。
+ 
+ 图证据Tier Verify，项目Users-edwin-Projects-RealmMesh，generation2026-10-02T13:08:33Z、complete。LuaRuntime唯一正向符号定位及相关文档/头覆盖metadata_match，无记录缺口；本项主要读取非代码决策与资产，不从图推断全库包含或当前测试安全性。未新增领域概念或ADR。
++
++## #119 后续收束约定（2026-10-08）
++
++用户确认扩展到真实 MongoDB 测试夹具的副本集初始化、Primary 就绪、初始化失败与
++进程回收边界，先证明完整入口有足够节省空间，再实施可行优化。保留全部断言、
++真实后端、用例数据隔离、截止时间、串行完整测试和原 5% 上限。
++
++PR #148 已证明当前新接口守卫无法原样加入 R0；用户因此明确选择以以下双重验证
++收束 #119，不追认 P6 的历史“严格同合集”验收：
++
++1. 本轮优化前后冻结相同的当前完整合集，包括新增正确性守卫，进行完整连续入口
++   配对，证明本轮收益。两侧能力、工具、缓存、存储与工作量保持一致。
++2. 同期重新测量此前冻结的未优化 R0 正确性基线，保留既有独立正确性补丁，
++   不回移本轮优化或新接口。最终当前全部测试的完整入口中位墙钟，分别在 Mac
++   和 Lima 不得超过同期 R0 完整入口中位墙钟的 1.05 倍；新增测试耗时全部计入。
++
++两项都满足且正确性、资源和既有 CI 门槛通过后，才按此新约定收束 #119。
++649 项 R0 与当前扩展合集的差异继续明示；不扣除新增项、不拼接旧秒数，
++也不将新的收束规则写成旧首批同合集验收已经通过。完整场景仍至少三组交替配对，
++异常、失败与排除原因继续保存；其余采样与安全约束沿用本文。
++
+diff --git a/tests/cmake/mongodb-fixture-contract.cmake b/tests/cmake/mongodb-fixture-contract.cmake
+new file mode 100644
+index 0000000..47be203
+--- /dev/null
++++ b/tests/cmake/mongodb-fixture-contract.cmake
+@@ -0,0 +1,14 @@
++find_package(Python3 REQUIRED COMPONENTS Interpreter)
++add_test(
++    NAME MongoFixtureTest
++    COMMAND "${Python3_EXECUTABLE}"
++        "${PROJECT_SOURCE_DIR}/tests/scripts/mongodb_fixture_test.py"
++        --source "${PROJECT_SOURCE_DIR}"
++        --initializer "$<TARGET_FILE:realmmesh_mongodb_fixture>"
++        --probe "$<TARGET_FILE:realmmesh_mongod_fixture_probe>"
++)
++set_tests_properties(MongoFixtureTest PROPERTIES
++    LABELS integration
++    RUN_SERIAL TRUE
++    TIMEOUT 120
++)
+diff --git a/tests/cpp/CMakeLists.txt b/tests/cpp/CMakeLists.txt
+index 88b97e9..ee5f984 100644
+--- a/tests/cpp/CMakeLists.txt
++++ b/tests/cpp/CMakeLists.txt
+@@ -8,6 +8,8 @@ set(REALMMESH_TEST_WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}")
+ include(${CMAKE_CURRENT_SOURCE_DIR}/../cmake/test_helpers.cmake)
+ include(${CMAKE_CURRENT_SOURCE_DIR}/../cmake/test-tls-identity.cmake)
+ 
++add_subdirectory(support)
++
+ add_subdirectory(framework/scheduler)
+ add_subdirectory(framework/concurrency)
+ add_subdirectory(framework/scripting)
+diff --git a/tests/cpp/support/CMakeLists.txt b/tests/cpp/support/CMakeLists.txt
+new file mode 100644
+index 0000000..ada370a
+--- /dev/null
++++ b/tests/cpp/support/CMakeLists.txt
+@@ -0,0 +1,12 @@
++add_executable(realmmesh_mongodb_fixture mongodb_fixture.cpp)
++target_compile_features(realmmesh_mongodb_fixture PRIVATE cxx_std_20)
++target_link_libraries(realmmesh_mongodb_fixture PRIVATE mongoc_static)
++target_include_directories(realmmesh_mongodb_fixture PRIVATE include)
++
++add_executable(realmmesh_mongod_fixture_probe mongod_fixture_probe.cpp)
++target_compile_features(realmmesh_mongod_fixture_probe PRIVATE cxx_std_20)
++target_include_directories(realmmesh_mongod_fixture_probe PRIVATE include)
++target_compile_definitions(realmmesh_mongod_fixture_probe PRIVATE
++    REALMMESH_TEST_SOURCE_DIR="${PROJECT_SOURCE_DIR}")
++
++include(${PROJECT_SOURCE_DIR}/tests/cmake/mongodb-fixture-contract.cmake)
+diff --git a/tests/cpp/support/include/realmmesh/test_support/mongod_process.hpp b/tests/cpp/support/include/realmmesh/test_support/mongod_process.hpp
+index 243c201..075c165 100644
+--- a/tests/cpp/support/include/realmmesh/test_support/mongod_process.hpp
++++ b/tests/cpp/support/include/realmmesh/test_support/mongod_process.hpp
+@@ -8,8 +8,8 @@
+ /// 二进制按 REALMMESH_MONGOD_BINARY / REALMMESH_MONGOSH_BINARY 覆盖、
+ /// PATH(macOS 上即 Homebrew 安装的 mongodb-community 与 mongosh)、
+ /// ./scripts/install-mongodb.sh 装到 .tools/ 的 Linux 固定版本依次查找;
+-/// 缺失即抛错而不是静默跳过。夹具自身的建副本集与回读都经 mongosh 子进程完成，
+-/// 测试二进制不链接驱动，也就不会与被测代码争用进程唯一的驱动实例。
++/// 缺失即抛错而不是静默跳过。初始化可交给独立辅助进程，回读仍经 mongosh 完成；
++/// 测试二进制不链接额外驱动，也就不会与被测代码争用进程唯一的驱动实例。
+ 
+ #include "realmmesh/test_support/etcd_process.hpp"
+ 
+@@ -20,6 +20,7 @@
+ #include <array>
+ #include <atomic>
+ #include <chrono>
++#include <cerrno>
+ #include <cstdint>
+ #include <cstdlib>
+ #include <filesystem>
+@@ -91,11 +92,25 @@ public:
+     }
+ 
+     void stop() noexcept {
+-        if (pid_ <= 0) return;
+-        static_cast<void>(::kill(pid_, SIGTERM));
+-        int status = 0;
+-        static_cast<void>(::waitpid(pid_, &status, 0));
+-        pid_ = -1;
++        if (pid_ > 0) {
++            // A stopped server cannot handle TERM. Resume it for graceful
++            // shutdown, then bound cleanup even if it remains unresponsive.
++            static_cast<void>(::kill(pid_, SIGCONT));
++            static_cast<void>(::kill(pid_, SIGTERM));
++            const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds{2};
++            int status = 0;
++            while (true) {
++                const auto reaped = ::waitpid(pid_, &status, WNOHANG);
++                if (reaped == pid_ || (reaped < 0 && errno == ECHILD)) break;
++                if (std::chrono::steady_clock::now() >= deadline) {
++                    static_cast<void>(::kill(pid_, SIGKILL));
++                    while (::waitpid(pid_, &status, 0) < 0 && errno == EINTR) {}
++                    break;
++                }
++                std::this_thread::sleep_for(std::chrono::milliseconds{5});
++            }
++            pid_ = -1;
++        }
+         std::error_code error;
+         std::filesystem::remove_all(data_dir_, error);
+     }
+@@ -176,6 +191,22 @@ private:
+         const std::string& connection, const std::string& script) {
+         const auto binary = tool_binary(
+             "REALMMESH_MONGOSH_BINARY", "mongosh-2.12.0", "mongosh");
++        auto captured = run_process(binary, {connection, "--quiet", "--norc", "--eval", script});
++        if (captured.status == 127) {
++            throw std::runtime_error(
++                "mongosh not found at " + binary +
++                "; install MongoDB first (see tests/README.md)");
++        }
++        return captured;
++    }
++
++    [[nodiscard]] static Captured run_process(
++        const std::string& binary, const std::vector<std::string>& arguments) {
++        std::vector<char*> argv{const_cast<char*>(binary.c_str())};
++        for (const auto& argument : arguments) {
++            argv.push_back(const_cast<char*>(argument.c_str()));
++        }
++        argv.push_back(nullptr);
+         std::array<int, 2> pipe_fds{};
+         if (::pipe(pipe_fds.data()) != 0) {
+             throw std::runtime_error("cannot create mongosh pipe");
+@@ -191,15 +222,7 @@ private:
+             ::dup2(pipe_fds[1], STDERR_FILENO);
+             ::close(pipe_fds[0]);
+             ::close(pipe_fds[1]);
+-            ::execlp(
+-                binary.c_str(),
+-                binary.c_str(),
+-                connection.c_str(),
+-                "--quiet",
+-                "--norc",
+-                "--eval",
+-                script.c_str(),
+-                static_cast<char*>(nullptr));
++            ::execvp(binary.c_str(), argv.data());
+             _exit(127);
+         }
+         ::close(pipe_fds[1]);
+@@ -214,11 +237,6 @@ private:
+         ::close(pipe_fds[0]);
+         int status = 0;
+         static_cast<void>(::waitpid(child, &status, 0));
+-        if (WIFEXITED(status) && WEXITSTATUS(status) == 127) {
+-            throw std::runtime_error(
+-                "mongosh not found at " + binary +
+-                "; install MongoDB first (see tests/README.md)");
+-        }
+         captured.status = WIFEXITED(status) ? WEXITSTATUS(status) : -1;
+         while (!captured.output.empty() && captured.output.back() == '\n') {
+             captured.output.pop_back();
+@@ -243,6 +261,24 @@ private:
+             std::this_thread::sleep_for(20ms);
+         }
+ 
++        const char* initializer = std::getenv("REALMMESH_TEST_MONGODB_INITIALIZER");
++#ifdef REALMMESH_TEST_MONGODB_INITIALIZER_PATH
++        if (initializer == nullptr || *initializer == '\0') {
++            initializer = REALMMESH_TEST_MONGODB_INITIALIZER_PATH;
++        }
++#endif
++        if (initializer != nullptr && *initializer != '\0') {
++            const auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(
++                deadline - std::chrono::steady_clock::now()).count();
++            if (remaining <= 0) throw std::runtime_error("mongod initialization deadline exceeded");
++            const auto result = run_process(initializer, {
++                "127.0.0.1:" + std::to_string(port_), std::to_string(remaining)});
++            if (result.status != 0) {
++                throw std::runtime_error("MongoDB fixture initializer failed: " + result.output);
++            }
++            return;
++        }
++
+         const auto direct = "mongodb://127.0.0.1:" + std::to_string(port_) +
+                             "/?directConnection=true";
+         const auto member = "127.0.0.1:" + std::to_string(port_);
+diff --git a/tests/cpp/support/mongod_fixture_probe.cpp b/tests/cpp/support/mongod_fixture_probe.cpp
+new file mode 100644
+index 0000000..d37fca6
+--- /dev/null
++++ b/tests/cpp/support/mongod_fixture_probe.cpp
+@@ -0,0 +1,17 @@
++#include "realmmesh/test_support/mongod_process.hpp"
++
++#include <iostream>
++
++int main() {
++    try {
++        realm::test_support::MongodProcess process;
++        std::cout << process.eval(
++            realm::test_support::MongodProcess::fresh_database(),
++            "const hello = db.hello(); print(hello.setName + ':' + hello.isWritablePrimary)")
++                  << '\n';
++        return 0;
++    } catch (const std::exception& error) {
++        std::cerr << error.what() << '\n';
++        return 1;
++    }
++}
+diff --git a/tests/cpp/support/mongodb_fixture.cpp b/tests/cpp/support/mongodb_fixture.cpp
+new file mode 100644
+index 0000000..be78021
+--- /dev/null
++++ b/tests/cpp/support/mongodb_fixture.cpp
+@@ -0,0 +1,161 @@
++#include "realmmesh/test_support/etcd_process.hpp"
++
++#include <mongoc/mongoc.h>
++
++#include <charconv>
++#include <chrono>
++#include <condition_variable>
++#include <cstdlib>
++#include <iostream>
++#include <memory>
++#include <mutex>
++#include <stdexcept>
++#include <string>
++#include <string_view>
++#include <thread>
++
++namespace {
++
++using namespace std::chrono_literals;
++
++// This executable owns the driver lifetime; the tested process keeps its own
++// unique mongocxx::instance. The deadline also covers blocked driver operations.
++class Deadline final {
++public:
++    explicit Deadline(std::chrono::milliseconds timeout)
++        : worker_([this, end = std::chrono::steady_clock::now() + timeout] {
++              std::unique_lock lock(mutex_);
++              if (!condition_.wait_until(lock, end, [this] { return finished_; })) {
++                  constexpr char message[] =
++                      "MongoDB fixture initialization deadline exceeded\n";
++                  static_cast<void>(::write(STDERR_FILENO, message, sizeof(message) - 1));
++                  std::_Exit(124);
++              }
++          }) {}
++
++    ~Deadline() {
++        {
++            std::lock_guard lock(mutex_);
++            finished_ = true;
++        }
++        condition_.notify_one();
++        worker_.join();
++    }
++
++private:
++    std::mutex mutex_;
++    std::condition_variable condition_;
++    bool finished_{false};
++    std::thread worker_;
++};
++
++struct Driver final {
++    Driver() { mongoc_init(); }
++    ~Driver() { mongoc_cleanup(); }
++};
++
++struct Document final {
++    bson_t value = BSON_INITIALIZER;
++    ~Document() { bson_destroy(&value); }
++    Document() = default;
++    Document(const Document&) = delete;
++    Document& operator=(const Document&) = delete;
++};
++
++std::string_view string_field(const bson_t& document, const char* key) {
++    bson_iter_t field;
++    if (!bson_iter_init_find(&field, &document, key) || !BSON_ITER_HOLDS_UTF8(&field)) {
++        return {};
++    }
++    return bson_iter_utf8(&field, nullptr);
++}
++
++int positive_integer(std::string_view text, int maximum) {
++    int value = 0;
++    const auto [end, error] = std::from_chars(text.data(), text.data() + text.size(), value);
++    if (error != std::errc{} || end != text.data() + text.size() || value <= 0 || value > maximum) {
++        throw std::invalid_argument("invalid fixture port or deadline");
++    }
++    return value;
++}
++
++void initialize(const std::string& member, int port, int timeout_ms) {
++    Deadline deadline{std::chrono::milliseconds{timeout_ms}};
++    while (!realm::test_support::loopback_port_open(static_cast<std::uint16_t>(port))) {
++        std::this_thread::sleep_for(20ms);
++    }
++
++    Driver driver;
++    const std::string connection = "mongodb://" + member + "/?directConnection=true";
++    std::unique_ptr<mongoc_uri_t, decltype(&mongoc_uri_destroy)> uri{
++        mongoc_uri_new(connection.c_str()), mongoc_uri_destroy};
++    if (!uri) throw std::runtime_error("invalid local MongoDB URI");
++    for (const char* option : {MONGOC_URI_SERVERSELECTIONTIMEOUTMS,
++                               MONGOC_URI_CONNECTTIMEOUTMS, MONGOC_URI_SOCKETTIMEOUTMS}) {
++        if (!mongoc_uri_set_option_as_int32(uri.get(), option, 1000)) {
++            throw std::runtime_error("cannot set MongoDB fixture timeout");
++        }
++    }
++    std::unique_ptr<mongoc_client_t, decltype(&mongoc_client_destroy)> client{
++        mongoc_client_new_from_uri(uri.get()), mongoc_client_destroy};
++    if (!client) throw std::runtime_error("cannot create MongoDB fixture client");
++
++    Document status;
++    BSON_APPEND_INT32(&status.value, "replSetGetStatus", 1);
++    Document reply;
++    bson_error_t error{};
++    if (mongoc_client_command_simple(client.get(), "admin", &status.value, nullptr, &reply.value, &error)) {
++        if (string_field(reply.value, "set") != "rs0") {
++            throw std::runtime_error("MongoDB fixture is not the rs0 replica set");
++        }
++    } else {
++        if (string_field(reply.value, "codeName") != "NotYetInitialized") {
++            throw std::runtime_error(std::string{"replSetGetStatus failed: "} + error.message);
++        }
++        const auto config = "{\"replSetInitiate\":{\"_id\":\"rs0\",\"members\":[{\"_id\":0,\"host\":\"" + member + "\"}]}}";
++        std::unique_ptr<bson_t, decltype(&bson_destroy)> command{
++            bson_new_from_json(reinterpret_cast<const std::uint8_t*>(config.c_str()), -1, &error), bson_destroy};
++        if (!command) throw std::runtime_error("cannot encode replica set initialization");
++        Document initiated;
++        if (!mongoc_client_command_simple(client.get(), "admin", command.get(), nullptr, &initiated.value, &error)) {
++            throw std::runtime_error(std::string{"replSetInitiate failed: "} + error.message);
++        }
++    }
++
++    Document hello;
++    BSON_APPEND_INT32(&hello.value, "hello", 1);
++    while (true) {
++        Document observed;
++        if (mongoc_client_command_simple(client.get(), "admin", &hello.value, nullptr, &observed.value, &error)) {
++            bson_iter_t primary;
++            if (string_field(observed.value, "setName") == "rs0" &&
++                bson_iter_init_find(&primary, &observed.value, "isWritablePrimary") &&
++                BSON_ITER_HOLDS_BOOL(&primary) && bson_iter_bool(&primary)) {
++                return;
++            }
++        }
++        std::this_thread::sleep_for(20ms);
++    }
++}
++
++}  // namespace
++
++int main(int argc, char** argv) {
++    try {
++        if (argc != 3) throw std::invalid_argument("usage: realmmesh_mongodb_fixture 127.0.0.1:PORT TIMEOUT_MS");
++        const std::string member = argv[1];
++        constexpr std::string_view prefix = "127.0.0.1:";
++        if (!member.starts_with(prefix)) throw std::invalid_argument("fixture must use IPv4 loopback");
++        const int port = positive_integer(std::string_view{member}.substr(prefix.size()), 65535);
++        const int timeout_ms = positive_integer(argv[2], 30000);
++        initialize(member, port, timeout_ms);
++        std::cout << "rs0 primary ready\n";
++        return 0;
++    } catch (const std::invalid_argument& error) {
++        std::cerr << error.what() << '\n';
++        return 64;
++    } catch (const std::exception& error) {
++        std::cerr << error.what() << '\n';
++        return 1;
++    }
++}
+diff --git a/tests/scripts/mongodb_fixture_test.py b/tests/scripts/mongodb_fixture_test.py
+new file mode 100644
+index 0000000..b2df10c
+--- /dev/null
++++ b/tests/scripts/mongodb_fixture_test.py
+@@ -0,0 +1,176 @@
++#!/usr/bin/env python3
++"""Exercise fixture initialization through real, isolated MongoDB processes."""
++import argparse
++import contextlib
++import os
++import signal
++from pathlib import Path
++import socket
++import subprocess
++import tempfile
++import time
++import unittest
++
++parser = argparse.ArgumentParser()
++parser.add_argument('--source', required=True, type=Path)
++parser.add_argument('--initializer', required=True, type=Path)
++parser.add_argument('--probe', type=Path)
++ARGS, unittest_args = parser.parse_known_args()
++
++
++def tool(name):
++    return subprocess.check_output([
++        'bash', '-c',
++        'realmmesh_mongodb_root="$1"; source "$1/scripts/lib/mongodb-tools.sh"; '
++        '"realmmesh_${2}_binary"',
++        'bash', str(ARGS.source), name,
++    ], text=True).strip()
++
++
++@contextlib.contextmanager
++def mongod(replica_set='rs0'):
++    with tempfile.TemporaryDirectory(prefix='mongodb-fixture-contract-') as directory:
++        with socket.socket() as port_socket:
++            port_socket.bind(('127.0.0.1', 0))
++            port = port_socket.getsockname()[1]
++        process = subprocess.Popen([
++            tool('mongod'), '--replSet', replica_set, '--bind_ip', '127.0.0.1',
++            '--port', str(port), '--dbpath', directory,
++            '--logpath', str(Path(directory) / 'mongod.log'),
++            '--nounixsocket', '--wiredTigerCacheSizeGB', '0.25',
++        ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
++        try:
++            deadline = time.monotonic() + 10
++            while time.monotonic() < deadline:
++                if process.poll() is not None:
++                    raise RuntimeError('real mongod exited during startup')
++                try:
++                    with socket.create_connection(('127.0.0.1', port), timeout=0.1):
++                        break
++                except OSError:
++                    time.sleep(0.02)
++            else:
++                raise RuntimeError('real mongod did not open its port')
++            yield process, f'127.0.0.1:{port}'
++        finally:
++            if process.poll() is None:
++                process.send_signal(signal.SIGCONT)
++                process.terminate()
++            try:
++                process.wait(timeout=10)
++            except subprocess.TimeoutExpired:
++                process.kill()
++                process.wait()
++
++
++class MongoFixtureContract(unittest.TestCase):
++    def test_initializes_replica_set_and_waits_for_primary(self):
++        with mongod() as (_, member):
++            result = subprocess.run([
++                str(ARGS.initializer), member, '30000',
++            ], capture_output=True, text=True, timeout=35)
++            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
++            observed = subprocess.check_output([
++                tool('mongosh'), f'mongodb://{member}/?directConnection=true',
++                '--quiet', '--norc', '--eval',
++                "const hello = db.hello(); print(hello.setName + ':' + hello.isWritablePrimary)",
++            ], text=True, timeout=10).strip()
++            self.assertEqual(observed, 'rs0:true')
++            repeated = subprocess.run([
++                str(ARGS.initializer), member, '30000',
++            ], capture_output=True, text=True, timeout=35)
++            self.assertEqual(repeated.returncode, 0, repeated.stdout + repeated.stderr)
++
++    def test_initialization_failure_does_not_report_ready(self):
++        with mongod(replica_set='different-set') as (_, member):
++            result = subprocess.run([
++                str(ARGS.initializer), member, '30000',
++            ], capture_output=True, text=True, timeout=35)
++            self.assertNotEqual(result.returncode, 0)
++            self.assertIn('replSetInitiate failed', result.stderr)
++            self.assertNotIn('primary ready', result.stdout)
++
++    def test_deadline_reaps_initializer_and_allows_recovery(self):
++        with mongod() as (server, member):
++            initialized = subprocess.run([
++                str(ARGS.initializer), member, '30000',
++            ], capture_output=True, text=True, timeout=35)
++            self.assertEqual(initialized.returncode, 0, initialized.stderr)
++            server.send_signal(signal.SIGSTOP)
++            try:
++                child = subprocess.Popen([
++                    str(ARGS.initializer), member, '200',
++                ], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
++                try:
++                    _, error = child.communicate(timeout=2)
++                except subprocess.TimeoutExpired:
++                    child.kill()
++                    child.communicate()
++                    self.fail('initializer did not respect its deadline')
++                self.assertEqual(child.returncode, 124, error)
++                with self.assertRaises(ProcessLookupError):
++                    os.kill(child.pid, 0)
++            finally:
++                server.send_signal(signal.SIGCONT)
++            recovered = subprocess.run([
++                str(ARGS.initializer), member, '30000',
++            ], capture_output=True, text=True, timeout=35)
++            self.assertEqual(recovered.returncode, 0, recovered.stderr)
++
++    def test_constructor_failure_reaps_mongod_and_removes_its_data(self):
++        self.assertIsNotNone(ARGS.probe, 'fixture constructor probe is required')
++        for failure in ('missing', 'stopped'):
++            with self.subTest(failure=failure), tempfile.TemporaryDirectory(
++                    prefix='mongodb-constructor-contract-') as directory:
++                root = Path(directory)
++                wrapper = root / 'mongod-wrapper.py'
++                wrapper.write_text(
++                    '#!/usr/bin/env python3\n'
++                    'import os,sys\n'
++                    'from pathlib import Path\n'
++                    'Path(os.environ["REALMMESH_FIXTURE_PID_FILE"]).write_text(str(os.getpid()))\n'
++                    'binary=os.environ["REALMMESH_FIXTURE_REAL_MONGOD"]\n'
++                    'os.execv(binary,[binary,*sys.argv[1:]])\n')
++                wrapper.chmod(0o755)
++                initializer = root / 'initializer'
++                if failure == 'stopped':
++                    initializer.write_text(
++                        '#!/usr/bin/env python3\n'
++                        'import os,signal,sys\n'
++                        'from pathlib import Path\n'
++                        'os.kill(int(Path(os.environ["REALMMESH_FIXTURE_PID_FILE"]).read_text()),signal.SIGSTOP)\n'
++                        'binary=os.environ["REALMMESH_FIXTURE_REAL_INITIALIZER"]\n'
++                        'os.execv(binary,[binary,sys.argv[1],"200"])\n')
++                    initializer.chmod(0o755)
++                env = os.environ.copy()
++                env.update(
++                    TMPDIR=directory, REALMMESH_MONGOD_BINARY=str(wrapper),
++                    REALMMESH_FIXTURE_REAL_MONGOD=tool('mongod'),
++                    REALMMESH_FIXTURE_REAL_INITIALIZER=str(ARGS.initializer),
++                    REALMMESH_FIXTURE_PID_FILE=str(root / 'pid'),
++                    REALMMESH_TEST_MONGODB_INITIALIZER=str(initializer),
++                )
++                reclaimed = False
++                try:
++                    result = subprocess.run([
++                        str(ARGS.probe),
++                    ], env=env, capture_output=True, text=True, timeout=10)
++                    self.assertNotEqual(result.returncode, 0, result.stdout)
++                    pid = int((root / 'pid').read_text())
++                    with self.assertRaises(ProcessLookupError):
++                        os.kill(pid, 0)
++                    self.assertEqual(list(root.glob('realmmesh-mongod-*')), [])
++                    reclaimed = True
++                finally:
++                    # Only a failed probe needs emergency cleanup of its own child.
++                    if not reclaimed and (root / 'pid').exists():
++                        pid = int((root / 'pid').read_text())
++                        try:
++                            os.kill(pid, signal.SIGCONT)
++                            os.kill(pid, signal.SIGKILL)
++                        except ProcessLookupError:
++                            pass
++
++
++if __name__ == '__main__':
++    unittest.main(argv=[__file__, *unittest_args], verbosity=2)

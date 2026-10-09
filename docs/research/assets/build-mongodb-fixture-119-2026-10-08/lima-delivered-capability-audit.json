@@ -1,0 +1,60 @@
+{
+  "platform": "lima",
+  "sources": {
+    "r0": {
+      "environment_captured_quic": null,
+      "msquic_library": "/home/edwin.guest/code/.bench/p6-clock-fixed-20261007/r0/.tools/msquic/usr/lib/aarch64-linux-gnu/libmsquic.so.2",
+      "real_quic_tests": [
+        "QuicTransportTest.ExchangesAFramedMessageOverOneVerifiedStream"
+      ],
+      "configure_logs": {
+        "hot-full-1.log": [
+          "-- realm_network: QUIC transport enabled (MsQuic found)"
+        ],
+        "hot-full-2.log": [
+          "-- realm_network: QUIC transport enabled (MsQuic found)"
+        ],
+        "hot-full-3.log": [
+          "-- realm_network: QUIC transport enabled (MsQuic found)"
+        ]
+      }
+    },
+    "before": {
+      "environment_captured_quic": null,
+      "msquic_library": "/home/edwin.guest/code/119-mongodb-cost-20261008/before/.tools/msquic/usr/lib/aarch64-linux-gnu/libmsquic.so.2",
+      "real_quic_tests": [
+        "QuicTransportTest.ExchangesAFramedMessageOverOneVerifiedStream"
+      ],
+      "configure_logs": {
+        "hot-full-1.log": [
+          "-- realm_network: QUIC transport enabled (MsQuic found)"
+        ],
+        "hot-full-2.log": [
+          "-- realm_network: QUIC transport enabled (MsQuic found)"
+        ],
+        "hot-full-3.log": [
+          "-- realm_network: QUIC transport enabled (MsQuic found)"
+        ]
+      }
+    },
+    "after": {
+      "environment_captured_quic": null,
+      "msquic_library": "/home/edwin.guest/code/119-mongodb-cost-20261008/after/.tools/msquic/usr/lib/aarch64-linux-gnu/libmsquic.so.2",
+      "real_quic_tests": [
+        "QuicTransportTest.ExchangesAFramedMessageOverOneVerifiedStream"
+      ],
+      "configure_logs": {
+        "hot-full-1.log": [
+          "-- realm_network: QUIC transport enabled (MsQuic found)"
+        ],
+        "hot-full-2.log": [
+          "-- realm_network: QUIC transport enabled (MsQuic found)"
+        ],
+        "hot-full-3.log": [
+          "-- realm_network: QUIC transport enabled (MsQuic found)"
+        ]
+      }
+    }
+  },
+  "passed": true
+}

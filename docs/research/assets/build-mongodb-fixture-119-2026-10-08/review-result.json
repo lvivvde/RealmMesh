@@ -1,0 +1,24 @@
+{
+  "base": "ead8b7ce71d89e7aac05230a24a4517e1f3e9617",
+  "head": "e59cc88b27c0b61955ae901ecad0d97819c8513c",
+  "standards_remaining": 0,
+  "spec_remaining": 0,
+  "fixed_findings": [
+    "correct fixture/database isolation description",
+    "bounded stopped mongod failure cleanup and real contract"
+  ],
+  "evidence_draft_review": {
+    "standards_remaining": 0,
+    "spec_remaining": 0,
+    "fixed_findings": [
+      "require complete Linux OOM counters",
+      "document launcher and Linux clock probe compilation"
+    ],
+    "lima_results_pending": false
+  },
+  "final_evidence_review": {
+    "standards_remaining": 0,
+    "spec_remaining": 0,
+    "scope": "final documentation, numeric results, manifests and reproducibility; native code unchanged"
+  }
+}
