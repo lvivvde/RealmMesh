@@ -1,0 +1,60 @@
+{
+  "platform": "mac",
+  "sources": {
+    "r0": {
+      "environment_captured_quic": true,
+      "msquic_library": "/opt/homebrew/opt/libmsquic/lib/libmsquic.dylib",
+      "real_quic_tests": [
+        "QuicTransportTest.ExchangesAFramedMessageOverOneVerifiedStream"
+      ],
+      "configure_logs": {
+        "hot-full-1.log": [
+          "-- realm_network: QUIC transport enabled (MsQuic found)"
+        ],
+        "hot-full-2.log": [
+          "-- realm_network: QUIC transport enabled (MsQuic found)"
+        ],
+        "hot-full-3.log": [
+          "-- realm_network: QUIC transport enabled (MsQuic found)"
+        ]
+      }
+    },
+    "before": {
+      "environment_captured_quic": true,
+      "msquic_library": "/opt/homebrew/opt/libmsquic/lib/libmsquic.dylib",
+      "real_quic_tests": [
+        "QuicTransportTest.ExchangesAFramedMessageOverOneVerifiedStream"
+      ],
+      "configure_logs": {
+        "hot-full-1.log": [
+          "-- realm_network: QUIC transport enabled (MsQuic found)"
+        ],
+        "hot-full-2.log": [
+          "-- realm_network: QUIC transport enabled (MsQuic found)"
+        ],
+        "hot-full-3.log": [
+          "-- realm_network: QUIC transport enabled (MsQuic found)"
+        ]
+      }
+    },
+    "after": {
+      "environment_captured_quic": true,
+      "msquic_library": "/opt/homebrew/opt/libmsquic/lib/libmsquic.dylib",
+      "real_quic_tests": [
+        "QuicTransportTest.ExchangesAFramedMessageOverOneVerifiedStream"
+      ],
+      "configure_logs": {
+        "hot-full-1.log": [
+          "-- realm_network: QUIC transport enabled (MsQuic found)"
+        ],
+        "hot-full-2.log": [
+          "-- realm_network: QUIC transport enabled (MsQuic found)"
+        ],
+        "hot-full-3.log": [
+          "-- realm_network: QUIC transport enabled (MsQuic found)"
+        ]
+      }
+    }
+  },
+  "passed": true
+}

@@ -17,7 +17,7 @@ realm_add_gtest(metrics_scrape_test
 # 并发机器人,整目标集成档串行,不进快速子集。
 realm_add_gtest(loadgen_integration_test
     SOURCES loadgen_integration_test.cpp
-    LIBS
+    LIBS realmmesh_test_mongodb
         realm_loadgen_core
         realm_service_host
         httplib::httplib

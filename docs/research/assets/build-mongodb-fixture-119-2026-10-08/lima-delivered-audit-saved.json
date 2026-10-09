@@ -1,0 +1,81 @@
+{
+  "platform": "lima",
+  "raw_checksums": "pass",
+  "full_entries": 9,
+  "source_files_rechecked": false,
+  "stats": {
+    "r0": {
+      "n": 3,
+      "values": [
+        290.9460551799857,
+        289.6695955969626,
+        293.9928422649973
+      ],
+      "median": 290.9460551799857,
+      "min": 289.6695955969626,
+      "max": 293.9928422649973
+    },
+    "before": {
+      "n": 3,
+      "values": [
+        328.286322239961,
+        321.1112081949832,
+        320.8404544450459
+      ],
+      "median": 321.1112081949832,
+      "min": 320.8404544450459,
+      "max": 328.286322239961
+    },
+    "after": {
+      "n": 3,
+      "values": [
+        307.3033556040027,
+        306.3957316459855,
+        304.7216242289869
+      ],
+      "median": 306.3957316459855,
+      "min": 304.7216242289869,
+      "max": 307.3033556040027
+    }
+  },
+  "current_gain": {
+    "pairs": [
+      {
+        "group": 1,
+        "before_s": 328.286322239961,
+        "after_s": 307.3033556040027,
+        "saved_s": 20.98296663595829
+      },
+      {
+        "group": 2,
+        "before_s": 321.1112081949832,
+        "after_s": 306.3957316459855,
+        "saved_s": 14.715476548997685
+      },
+      {
+        "group": 3,
+        "before_s": 320.8404544450459,
+        "after_s": 304.7216242289869,
+        "saved_s": 16.118830216058996
+      }
+    ],
+    "reduction": 0.0458267297230629,
+    "faster_pairs": 3,
+    "passed": true
+  },
+  "r0_cap": {
+    "limit_s": 305.493357938985,
+    "ratio": 1.053101515524733,
+    "headroom_s": -0.9023737070004927,
+    "passed": false
+  },
+  "resources": {
+    "max_tree_rss_mib": 693.1875,
+    "min_available_mib": 2225.87890625,
+    "max_swap_growth_mib": 0.0,
+    "max_pressure_level": null,
+    "oom_kills": 0
+  },
+  "resource_passed": true,
+  "passed": false
+}

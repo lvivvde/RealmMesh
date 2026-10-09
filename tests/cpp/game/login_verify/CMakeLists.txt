@@ -12,7 +12,7 @@ realm_add_gtest(login_verify_dispatcher_test
 # 真实 TLS loopback 占内核临时端口,见 tests/README.md:不进快速子集。
 realm_add_gtest(login_verify_service_test
     SOURCES login_verify_service_test.cpp
-    LIBS realm_login_verify_service
+    LIBS realmmesh_test_mongodb realm_login_verify_service
     INCLUDE_DIRS ${PROJECT_SOURCE_DIR}/tests/cpp/support/include
     DEFINITIONS
         REALMMESH_TEST_SOURCE_DIR="${PROJECT_SOURCE_DIR}"

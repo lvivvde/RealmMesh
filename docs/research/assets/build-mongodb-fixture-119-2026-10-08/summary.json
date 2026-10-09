@@ -1,0 +1,1039 @@
+{
+  "mac": {
+    "platform": "mac",
+    "revisions": {
+      "base": "ead8b7ce71d89e7aac05230a24a4517e1f3e9617",
+      "before": "397bac5ee54c47adec007ef46e54a0e578f33057",
+      "after": "e59cc88b27c0b61955ae901ecad0d97819c8513c",
+      "r0": "4ffb58df9b8d20beec59f4b056d3e9c90859401f",
+      "r0_correctness_patch_sha256": "e85bd84a2c93341b6e71a84aba9cf15827a9968ba7c805d400c34fae165408ac"
+    },
+    "collection_counts": {
+      "r0": 649,
+      "before": 668,
+      "after": 668
+    },
+    "same_current_collection": true,
+    "r0_collection_difference": {
+      "strict_same_collection": false,
+      "removed": [],
+      "added": [
+        "BuildDirScriptTest.PresetEntriesResolveRecordedBuildDirs",
+        "BuildGraphTest",
+        "CompilerCacheCISummaryTest",
+        "CompilerCacheConfigTest",
+        "CompilerCacheNativeTest",
+        "ConfigHeadersTest.ConfigValuesAreUsableWithoutLua",
+        "ConfigsLoadSmokeTest.MainConfigTopologyLoadsInDeclarationOrder",
+        "DependencyIsolationTest",
+        "DevServicesScriptTest.StopAfterInterruptedWorkerWait",
+        "DevServicesScriptTest.StopDuringProcessChecks",
+        "DevServicesScriptTest.StopDuringStartup",
+        "GatewayHeadersTest.EventsFlowThroughPrimaryTransportWithoutRuntime",
+        "LoadTopologyFileTest.LuaErrorIsALoadFailure",
+        "LoadTopologyFileTest.MissingFileIsALoadFailure",
+        "LoadTopologyFileTest.OmittedFieldsDefaultToNoDependenciesAndNotEntry",
+        "LoadTopologyFileTest.RejectsMalformedEntries",
+        "LoadTopologyFileTest.RejectsMissingOrEmptyServicesTable",
+        "MongoFixtureTest",
+        "TestFastScriptTest.FastEntryWatchAndJobsBudget"
+      ]
+    },
+    "stats": {
+      "r0": {
+        "n": 3,
+        "values": [
+          347.85074837499997,
+          348.54162754199933,
+          350.1607200829894
+        ],
+        "median": 348.54162754199933,
+        "min": 347.85074837499997,
+        "max": 350.1607200829894
+      },
+      "before": {
+        "n": 3,
+        "values": [
+          403.63829837500816,
+          401.3907788330107,
+          405.3528263330227
+        ],
+        "median": 403.63829837500816,
+        "min": 401.3907788330107,
+        "max": 405.3528263330227
+      },
+      "after": {
+        "n": 3,
+        "values": [
+          375.17785441695014,
+          370.8547529170173,
+          378.70845775003545
+        ],
+        "median": 375.17785441695014,
+        "min": 370.8547529170173,
+        "max": 378.70845775003545
+      }
+    },
+    "current_gain": {
+      "pairs": [
+        {
+          "group": 1,
+          "before_s": 403.63829837500816,
+          "after_s": 375.17785441695014,
+          "saved_s": 28.460443958058022
+        },
+        {
+          "group": 2,
+          "before_s": 401.3907788330107,
+          "after_s": 370.8547529170173,
+          "saved_s": 30.536025915993378
+        },
+        {
+          "group": 3,
+          "before_s": 405.3528263330227,
+          "after_s": 378.70845775003545,
+          "saved_s": 26.644368582987227
+        }
+      ],
+      "reduction": 0.07050977093262911,
+      "faster_pairs": 3,
+      "passed": true
+    },
+    "r0_cap": {
+      "limit_s": 365.9687089190993,
+      "ratio": 1.0764219386441614,
+      "headroom_s": -9.209145497850841,
+      "passed": false
+    },
+    "resources": {
+      "max_tree_rss_mib": 404.96875,
+      "min_available_mib": 16857.421875,
+      "max_swap_growth_mib": 0.0,
+      "max_pressure_level": 1,
+      "oom_kills": null
+    },
+    "resource_passed": true,
+    "passed": false,
+    "capability_audit": {
+      "platform": "mac",
+      "sources": {
+        "r0": {
+          "environment_captured_quic": true,
+          "msquic_library": "/opt/homebrew/opt/libmsquic/lib/libmsquic.dylib",
+          "real_quic_tests": [
+            "QuicTransportTest.ExchangesAFramedMessageOverOneVerifiedStream"
+          ],
+          "configure_logs": {
+            "hot-full-1.log": [
+              "-- realm_network: QUIC transport enabled (MsQuic found)"
+            ],
+            "hot-full-2.log": [
+              "-- realm_network: QUIC transport enabled (MsQuic found)"
+            ],
+            "hot-full-3.log": [
+              "-- realm_network: QUIC transport enabled (MsQuic found)"
+            ]
+          }
+        },
+        "before": {
+          "environment_captured_quic": true,
+          "msquic_library": "/opt/homebrew/opt/libmsquic/lib/libmsquic.dylib",
+          "real_quic_tests": [
+            "QuicTransportTest.ExchangesAFramedMessageOverOneVerifiedStream"
+          ],
+          "configure_logs": {
+            "hot-full-1.log": [
+              "-- realm_network: QUIC transport enabled (MsQuic found)"
+            ],
+            "hot-full-2.log": [
+              "-- realm_network: QUIC transport enabled (MsQuic found)"
+            ],
+            "hot-full-3.log": [
+              "-- realm_network: QUIC transport enabled (MsQuic found)"
+            ]
+          }
+        },
+        "after": {
+          "environment_captured_quic": true,
+          "msquic_library": "/opt/homebrew/opt/libmsquic/lib/libmsquic.dylib",
+          "real_quic_tests": [
+            "QuicTransportTest.ExchangesAFramedMessageOverOneVerifiedStream"
+          ],
+          "configure_logs": {
+            "hot-full-1.log": [
+              "-- realm_network: QUIC transport enabled (MsQuic found)"
+            ],
+            "hot-full-2.log": [
+              "-- realm_network: QUIC transport enabled (MsQuic found)"
+            ],
+            "hot-full-3.log": [
+              "-- realm_network: QUIC transport enabled (MsQuic found)"
+            ]
+          }
+        }
+      },
+      "passed": true
+    }
+  },
+  "lima": {
+    "platform": "lima",
+    "revisions": {
+      "base": "ead8b7ce71d89e7aac05230a24a4517e1f3e9617",
+      "before": "397bac5ee54c47adec007ef46e54a0e578f33057",
+      "after": "e59cc88b27c0b61955ae901ecad0d97819c8513c",
+      "r0": "4ffb58df9b8d20beec59f4b056d3e9c90859401f",
+      "r0_correctness_patch_sha256": "e85bd84a2c93341b6e71a84aba9cf15827a9968ba7c805d400c34fae165408ac"
+    },
+    "collection_counts": {
+      "r0": 649,
+      "before": 668,
+      "after": 668
+    },
+    "same_current_collection": true,
+    "r0_collection_difference": {
+      "strict_same_collection": false,
+      "removed": [],
+      "added": [
+        "BuildDirScriptTest.PresetEntriesResolveRecordedBuildDirs",
+        "BuildGraphTest",
+        "CompilerCacheCISummaryTest",
+        "CompilerCacheConfigTest",
+        "CompilerCacheNativeTest",
+        "ConfigHeadersTest.ConfigValuesAreUsableWithoutLua",
+        "ConfigsLoadSmokeTest.MainConfigTopologyLoadsInDeclarationOrder",
+        "DependencyIsolationTest",
+        "DevServicesScriptTest.StopAfterInterruptedWorkerWait",
+        "DevServicesScriptTest.StopDuringProcessChecks",
+        "DevServicesScriptTest.StopDuringStartup",
+        "GatewayHeadersTest.EventsFlowThroughPrimaryTransportWithoutRuntime",
+        "LoadTopologyFileTest.LuaErrorIsALoadFailure",
+        "LoadTopologyFileTest.MissingFileIsALoadFailure",
+        "LoadTopologyFileTest.OmittedFieldsDefaultToNoDependenciesAndNotEntry",
+        "LoadTopologyFileTest.RejectsMalformedEntries",
+        "LoadTopologyFileTest.RejectsMissingOrEmptyServicesTable",
+        "MongoFixtureTest",
+        "TestFastScriptTest.FastEntryWatchAndJobsBudget"
+      ]
+    },
+    "stats": {
+      "r0": {
+        "n": 3,
+        "values": [
+          290.9460551799857,
+          289.6695955969626,
+          293.9928422649973
+        ],
+        "median": 290.9460551799857,
+        "min": 289.6695955969626,
+        "max": 293.9928422649973
+      },
+      "before": {
+        "n": 3,
+        "values": [
+          328.286322239961,
+          321.1112081949832,
+          320.8404544450459
+        ],
+        "median": 321.1112081949832,
+        "min": 320.8404544450459,
+        "max": 328.286322239961
+      },
+      "after": {
+        "n": 3,
+        "values": [
+          307.3033556040027,
+          306.3957316459855,
+          304.7216242289869
+        ],
+        "median": 306.3957316459855,
+        "min": 304.7216242289869,
+        "max": 307.3033556040027
+      }
+    },
+    "current_gain": {
+      "pairs": [
+        {
+          "group": 1,
+          "before_s": 328.286322239961,
+          "after_s": 307.3033556040027,
+          "saved_s": 20.98296663595829
+        },
+        {
+          "group": 2,
+          "before_s": 321.1112081949832,
+          "after_s": 306.3957316459855,
+          "saved_s": 14.715476548997685
+        },
+        {
+          "group": 3,
+          "before_s": 320.8404544450459,
+          "after_s": 304.7216242289869,
+          "saved_s": 16.118830216058996
+        }
+      ],
+      "reduction": 0.0458267297230629,
+      "faster_pairs": 3,
+      "passed": true
+    },
+    "r0_cap": {
+      "limit_s": 305.493357938985,
+      "ratio": 1.053101515524733,
+      "headroom_s": -0.9023737070004927,
+      "passed": false
+    },
+    "resources": {
+      "max_tree_rss_mib": 693.1875,
+      "min_available_mib": 2225.87890625,
+      "max_swap_growth_mib": 0.0,
+      "max_pressure_level": null,
+      "oom_kills": 0
+    },
+    "resource_passed": true,
+    "passed": false,
+    "clock": {
+      "preflight": {
+        "samples": 437,
+        "elapsed_s": 45.02180402097292,
+        "backward_steps": [],
+        "wall_steps_over_50ms": [],
+        "frequency_readings": [
+          {
+            "monotonic_elapsed_s": 0.000832833000458777,
+            "reading": "frequency_before_ppm=0.000000000 tick_before_us=10000 status=64"
+          },
+          {
+            "monotonic_elapsed_s": 45.02078318799613,
+            "reading": "frequency_before_ppm=0.000000000 tick_before_us=10000 status=64"
+          }
+        ],
+        "chrony_active": "inactive",
+        "chrony_enabled": "disabled",
+        "guestagent_active": "active"
+      },
+      "monitor": {
+        "samples": 28488,
+        "elapsed_s": 2886.040742543002,
+        "backward_steps": [],
+        "wall_steps_over_50ms": [],
+        "frequency_readings": [
+          {
+            "monotonic_elapsed_s": 0.0007589579909108579,
+            "reading": "frequency_before_ppm=0.000000000 tick_before_us=10000 status=64"
+          },
+          {
+            "monotonic_elapsed_s": 60.06530823698267,
+            "reading": "frequency_before_ppm=0.000000000 tick_before_us=10000 status=64"
+          },
+          {
+            "monotonic_elapsed_s": 120.03900205699028,
+            "reading": "frequency_before_ppm=0.000000000 tick_before_us=10000 status=64"
+          },
+          {
+            "monotonic_elapsed_s": 180.09126496099634,
+            "reading": "frequency_before_ppm=0.000000000 tick_before_us=10000 status=64"
+          },
+          {
+            "monotonic_elapsed_s": 240.01419115596218,
+            "reading": "frequency_before_ppm=0.000000000 tick_before_us=10000 status=64"
+          },
+          {
+            "monotonic_elapsed_s": 300.0794262259733,
+            "reading": "frequency_before_ppm=0.000000000 tick_before_us=10000 status=64"
+          },
+          {
+            "monotonic_elapsed_s": 360.03575362998527,
+            "reading": "frequency_before_ppm=0.000000000 tick_before_us=10000 status=64"
+          },
+          {
+            "monotonic_elapsed_s": 420.0452104919823,
+            "reading": "frequency_before_ppm=0.000000000 tick_before_us=10000 status=64"
+          },
+          {
+            "monotonic_elapsed_s": 480.0256026459974,
+            "reading": "frequency_before_ppm=0.000000000 tick_before_us=10000 status=64"
+          },
+          {
+            "monotonic_elapsed_s": 540.0280520909582,
+            "reading": "frequency_before_ppm=0.000000000 tick_before_us=10000 status=64"
+          },
+          {
+            "monotonic_elapsed_s": 600.0286782030016,
+            "reading": "frequency_before_ppm=0.000000000 tick_before_us=10000 status=64"
+          },
+          {
+            "monotonic_elapsed_s": 660.0278506900067,
+            "reading": "frequency_before_ppm=0.000000000 tick_before_us=10000 status=64"
+          },
+          {
+            "monotonic_elapsed_s": 720.0029755099677,
+            "reading": "frequency_before_ppm=0.000000000 tick_before_us=10000 status=64"
+          },
+          {
+            "monotonic_elapsed_s": 780.0290419549565,
+            "reading": "frequency_before_ppm=0.000000000 tick_before_us=10000 status=64"
+          },
+          {
+            "monotonic_elapsed_s": 840.100779275992,
+            "reading": "frequency_before_ppm=0.000000000 tick_before_us=10000 status=64"
+          },
+          {
+            "monotonic_elapsed_s": 900.0081101789838,
+            "reading": "frequency_before_ppm=0.000000000 tick_before_us=10000 status=64"
+          },
+          {
+            "monotonic_elapsed_s": 960.0571462079533,
+            "reading": "frequency_before_ppm=0.000000000 tick_before_us=10000 status=64"
+          },
+          {
+            "monotonic_elapsed_s": 1020.0452791949501,
+            "reading": "frequency_before_ppm=0.000000000 tick_before_us=10000 status=64"
+          },
+          {
+            "monotonic_elapsed_s": 1080.0282983069774,
+            "reading": "frequency_before_ppm=0.000000000 tick_before_us=10000 status=64"
+          },
+          {
+            "monotonic_elapsed_s": 1140.0227471689577,
+            "reading": "frequency_before_ppm=0.000000000 tick_before_us=10000 status=64"
+          },
+          {
+            "monotonic_elapsed_s": 1200.0699134469614,
+            "reading": "frequency_before_ppm=0.000000000 tick_before_us=10000 status=64"
+          },
+          {
+            "monotonic_elapsed_s": 1260.0696097259643,
+            "reading": "frequency_before_ppm=0.000000000 tick_before_us=10000 status=64"
+          },
+          {
+            "monotonic_elapsed_s": 1320.0345250459504,
+            "reading": "frequency_before_ppm=0.000000000 tick_before_us=10000 status=64"
+          },
+          {
+            "monotonic_elapsed_s": 1380.0540634909994,
+            "reading": "frequency_before_ppm=0.000000000 tick_before_us=10000 status=64"
+          },
+          {
+            "monotonic_elapsed_s": 1440.035709269985,
+            "reading": "frequency_before_ppm=0.000000000 tick_before_us=10000 status=64"
+          },
+          {
+            "monotonic_elapsed_s": 1500.028121965006,
+            "reading": "frequency_before_ppm=0.000000000 tick_before_us=10000 status=64"
+          },
+          {
+            "monotonic_elapsed_s": 1560.0382275359589,
+            "reading": "frequency_before_ppm=0.000000000 tick_before_us=10000 status=64"
+          },
+          {
+            "monotonic_elapsed_s": 1620.0962093980052,
+            "reading": "frequency_before_ppm=0.000000000 tick_before_us=10000 status=64"
+          },
+          {
+            "monotonic_elapsed_s": 1680.1015343850013,
+            "reading": "frequency_before_ppm=0.000000000 tick_before_us=10000 status=64"
+          },
+          {
+            "monotonic_elapsed_s": 1740.0893562879646,
+            "reading": "frequency_before_ppm=0.000000000 tick_before_us=10000 status=64"
+          },
+          {
+            "monotonic_elapsed_s": 1800.0565892749582,
+            "reading": "frequency_before_ppm=0.000000000 tick_before_us=10000 status=64"
+          },
+          {
+            "monotonic_elapsed_s": 1860.0129143039812,
+            "reading": "frequency_before_ppm=0.000000000 tick_before_us=10000 status=64"
+          },
+          {
+            "monotonic_elapsed_s": 1920.086467457004,
+            "reading": "frequency_before_ppm=0.000000000 tick_before_us=10000 status=64"
+          },
+          {
+            "monotonic_elapsed_s": 1980.0063619029825,
+            "reading": "frequency_before_ppm=0.000000000 tick_before_us=10000 status=64"
+          },
+          {
+            "monotonic_elapsed_s": 2040.09317676496,
+            "reading": "frequency_before_ppm=0.000000000 tick_before_us=10000 status=64"
+          },
+          {
+            "monotonic_elapsed_s": 2100.0099476259784,
+            "reading": "frequency_before_ppm=0.000000000 tick_before_us=10000 status=64"
+          },
+          {
+            "monotonic_elapsed_s": 2160.0843611969613,
+            "reading": "frequency_before_ppm=0.000000000 tick_before_us=10000 status=64"
+          },
+          {
+            "monotonic_elapsed_s": 2220.0259310999536,
+            "reading": "frequency_before_ppm=0.000000000 tick_before_us=10000 status=64"
+          },
+          {
+            "monotonic_elapsed_s": 2280.012456253986,
+            "reading": "frequency_before_ppm=0.000000000 tick_before_us=10000 status=64"
+          },
+          {
+            "monotonic_elapsed_s": 2340.026807157963,
+            "reading": "frequency_before_ppm=0.000000000 tick_before_us=10000 status=64"
+          },
+          {
+            "monotonic_elapsed_s": 2400.038465768972,
+            "reading": "frequency_before_ppm=0.000000000 tick_before_us=10000 status=64"
+          },
+          {
+            "monotonic_elapsed_s": 2460.0344748809584,
+            "reading": "frequency_before_ppm=0.000000000 tick_before_us=10000 status=64"
+          },
+          {
+            "monotonic_elapsed_s": 2520.018883909972,
+            "reading": "frequency_before_ppm=0.000000000 tick_before_us=10000 status=64"
+          },
+          {
+            "monotonic_elapsed_s": 2580.1063197299954,
+            "reading": "frequency_before_ppm=0.000000000 tick_before_us=10000 status=64"
+          },
+          {
+            "monotonic_elapsed_s": 2640.0931241340004,
+            "reading": "frequency_before_ppm=0.000000000 tick_before_us=10000 status=64"
+          },
+          {
+            "monotonic_elapsed_s": 2700.0460532879806,
+            "reading": "frequency_before_ppm=0.000000000 tick_before_us=10000 status=64"
+          },
+          {
+            "monotonic_elapsed_s": 2760.0826659409795,
+            "reading": "frequency_before_ppm=0.000000000 tick_before_us=10000 status=64"
+          },
+          {
+            "monotonic_elapsed_s": 2820.0106318029575,
+            "reading": "frequency_before_ppm=0.000000000 tick_before_us=10000 status=64"
+          },
+          {
+            "monotonic_elapsed_s": 2880.0592430399847,
+            "reading": "frequency_before_ppm=0.000000000 tick_before_us=10000 status=64"
+          },
+          {
+            "monotonic_elapsed_s": 2886.0401207509567,
+            "reading": "frequency_before_ppm=0.000000000 tick_before_us=10000 status=64"
+          }
+        ],
+        "chrony_active": "inactive",
+        "chrony_enabled": "disabled",
+        "guestagent_active": "active"
+      }
+    },
+    "clock_passed": true,
+    "capability_audit": {
+      "platform": "lima",
+      "sources": {
+        "r0": {
+          "environment_captured_quic": null,
+          "msquic_library": "/home/edwin.guest/code/.bench/p6-clock-fixed-20261007/r0/.tools/msquic/usr/lib/aarch64-linux-gnu/libmsquic.so.2",
+          "real_quic_tests": [
+            "QuicTransportTest.ExchangesAFramedMessageOverOneVerifiedStream"
+          ],
+          "configure_logs": {
+            "hot-full-1.log": [
+              "-- realm_network: QUIC transport enabled (MsQuic found)"
+            ],
+            "hot-full-2.log": [
+              "-- realm_network: QUIC transport enabled (MsQuic found)"
+            ],
+            "hot-full-3.log": [
+              "-- realm_network: QUIC transport enabled (MsQuic found)"
+            ]
+          }
+        },
+        "before": {
+          "environment_captured_quic": null,
+          "msquic_library": "/home/edwin.guest/code/119-mongodb-cost-20261008/before/.tools/msquic/usr/lib/aarch64-linux-gnu/libmsquic.so.2",
+          "real_quic_tests": [
+            "QuicTransportTest.ExchangesAFramedMessageOverOneVerifiedStream"
+          ],
+          "configure_logs": {
+            "hot-full-1.log": [
+              "-- realm_network: QUIC transport enabled (MsQuic found)"
+            ],
+            "hot-full-2.log": [
+              "-- realm_network: QUIC transport enabled (MsQuic found)"
+            ],
+            "hot-full-3.log": [
+              "-- realm_network: QUIC transport enabled (MsQuic found)"
+            ]
+          }
+        },
+        "after": {
+          "environment_captured_quic": null,
+          "msquic_library": "/home/edwin.guest/code/119-mongodb-cost-20261008/after/.tools/msquic/usr/lib/aarch64-linux-gnu/libmsquic.so.2",
+          "real_quic_tests": [
+            "QuicTransportTest.ExchangesAFramedMessageOverOneVerifiedStream"
+          ],
+          "configure_logs": {
+            "hot-full-1.log": [
+              "-- realm_network: QUIC transport enabled (MsQuic found)"
+            ],
+            "hot-full-2.log": [
+              "-- realm_network: QUIC transport enabled (MsQuic found)"
+            ],
+            "hot-full-3.log": [
+              "-- realm_network: QUIC transport enabled (MsQuic found)"
+            ]
+          }
+        }
+      },
+      "passed": true
+    }
+  },
+  "code_ci": {
+    "head": "e59cc88b27c0b61955ae901ecad0d97819c8513c",
+    "conclusion": "success",
+    "jobs": {
+      "linux": {
+        "full_tests": 668,
+        "quic": true,
+        "skipped": [],
+        "summary_counts": [
+          668,
+          6,
+          4,
+          2,
+          1,
+          8
+        ]
+      },
+      "macos": {
+        "full_tests": 667,
+        "quic": false,
+        "skipped": [],
+        "summary_counts": [
+          667
+        ]
+      }
+    }
+  },
+  "excluded_lima_epoch": {
+    "samples": 27240,
+    "elapsed_s": 2775.591264063958,
+    "backward_steps": [],
+    "wall_steps_over_50ms": [
+      {
+        "previous": {
+          "wall_ns": 1791478627964370119,
+          "monotonic_ns": 278738134307669,
+          "raw_ns": 272315320399683
+        },
+        "current": {
+          "wall_ns": 1791479218523121708,
+          "monotonic_ns": 278738235057418,
+          "raw_ns": 272315421147266
+        },
+        "wall_vs_monotonic_shift_ns": 590458001840
+      },
+      {
+        "previous": {
+          "wall_ns": 1791479248352591430,
+          "monotonic_ns": 278768064529141,
+          "raw_ns": 272345250620655
+        },
+        "current": {
+          "wall_ns": 1791479538294319833,
+          "monotonic_ns": 278768164995182,
+          "raw_ns": 272345351084989
+        },
+        "wall_vs_monotonic_shift_ns": 289841262362
+      },
+      {
+        "previous": {
+          "wall_ns": 1791479548170213463,
+          "monotonic_ns": 278778040891020,
+          "raw_ns": 272355226981535
+        },
+        "current": {
+          "wall_ns": 1791480555912934791,
+          "monotonic_ns": 278778141036520,
+          "raw_ns": 272355327125910
+        },
+        "wall_vs_monotonic_shift_ns": 1007642575828
+      },
+      {
+        "previous": {
+          "wall_ns": 1791480565838617046,
+          "monotonic_ns": 278788066717150,
+          "raw_ns": 272365252805540
+        },
+        "current": {
+          "wall_ns": 1791482222345928083,
+          "monotonic_ns": 278788169502316,
+          "raw_ns": 272365355591707
+        },
+        "wall_vs_monotonic_shift_ns": 1656404525871
+      },
+      {
+        "previous": {
+          "wall_ns": 1791482242194273926,
+          "monotonic_ns": 278808017852784,
+          "raw_ns": 272385203944550
+        },
+        "current": {
+          "wall_ns": 1791483299586476125,
+          "monotonic_ns": 278808118378284,
+          "raw_ns": 272385304467716
+        },
+        "wall_vs_monotonic_shift_ns": 1057291676699
+      },
+      {
+        "previous": {
+          "wall_ns": 1791483309574791796,
+          "monotonic_ns": 278818106697497,
+          "raw_ns": 272395292789179
+        },
+        "current": {
+          "wall_ns": 1791484286251127000,
+          "monotonic_ns": 278818216728329,
+          "raw_ns": 272395402818221
+        },
+        "wall_vs_monotonic_shift_ns": 976566304372
+      },
+      {
+        "previous": {
+          "wall_ns": 1791484296112328796,
+          "monotonic_ns": 278828077930709,
+          "raw_ns": 272405264021476
+        },
+        "current": {
+          "wall_ns": 1791485884405893666,
+          "monotonic_ns": 278828178351333,
+          "raw_ns": 272405364444101
+        },
+        "wall_vs_monotonic_shift_ns": 1588193144246
+      },
+      {
+        "previous": {
+          "wall_ns": 1791485914328151722,
+          "monotonic_ns": 278858100608639,
+          "raw_ns": 272435286699990
+        },
+        "current": {
+          "wall_ns": 1791487929479488916,
+          "monotonic_ns": 278858201076305,
+          "raw_ns": 272435387167740
+        },
+        "wall_vs_monotonic_shift_ns": 2015050869528
+      },
+      {
+        "previous": {
+          "wall_ns": 1791487939306709046,
+          "monotonic_ns": 278868028295727,
+          "raw_ns": 272445214385536
+        },
+        "current": {
+          "wall_ns": 1791489540760315208,
+          "monotonic_ns": 278868128584018,
+          "raw_ns": 272445314674162
+        },
+        "wall_vs_monotonic_shift_ns": 1601353317871
+      },
+      {
+        "previous": {
+          "wall_ns": 1791489570667587930,
+          "monotonic_ns": 278898035859574,
+          "raw_ns": 272475221950967
+        },
+        "current": {
+          "wall_ns": 1791491584210651541,
+          "monotonic_ns": 278898143730365,
+          "raw_ns": 272475329822009
+        },
+        "wall_vs_monotonic_shift_ns": 2013435192820
+      },
+      {
+        "previous": {
+          "wall_ns": 1791491594107451129,
+          "monotonic_ns": 278908040529620,
+          "raw_ns": 272485226620639
+        },
+        "current": {
+          "wall_ns": 1791492790549511833,
+          "monotonic_ns": 278908141228328,
+          "raw_ns": 272485327320264
+        },
+        "wall_vs_monotonic_shift_ns": 1196341361996
+      },
+      {
+        "previous": {
+          "wall_ns": 1791492810503383342,
+          "monotonic_ns": 278928095098504,
+          "raw_ns": 272505281188815
+        },
+        "current": {
+          "wall_ns": 1791493206154380166,
+          "monotonic_ns": 278928195376378,
+          "raw_ns": 272505381466524
+        },
+        "wall_vs_monotonic_shift_ns": 395550718950
+      },
+      {
+        "previous": {
+          "wall_ns": 1791493216016968921,
+          "monotonic_ns": 278938057964758,
+          "raw_ns": 272515244054153
+        },
+        "current": {
+          "wall_ns": 1791494236056142333,
+          "monotonic_ns": 278938158100549,
+          "raw_ns": 272515344190195
+        },
+        "wall_vs_monotonic_shift_ns": 1019939037621
+      },
+      {
+        "previous": {
+          "wall_ns": 1791494245981455963,
+          "monotonic_ns": 278948083414512,
+          "raw_ns": 272525269504158
+        },
+        "current": {
+          "wall_ns": 1791496255421485333,
+          "monotonic_ns": 278948183656553,
+          "raw_ns": 272525369746158
+        },
+        "wall_vs_monotonic_shift_ns": 2009339787329
+      },
+      {
+        "previous": {
+          "wall_ns": 1791496265277423963,
+          "monotonic_ns": 278958039600433,
+          "raw_ns": 272535225692121
+        },
+        "current": {
+          "wall_ns": 1791498279724980458,
+          "monotonic_ns": 278958139834516,
+          "raw_ns": 272535325924246
+        },
+        "wall_vs_monotonic_shift_ns": 2014347322412
+      },
+      {
+        "previous": {
+          "wall_ns": 1791498289700630754,
+          "monotonic_ns": 278968115485354,
+          "raw_ns": 272545301574751
+        },
+        "current": {
+          "wall_ns": 1791498490459567875,
+          "monotonic_ns": 278968216236228,
+          "raw_ns": 272545402325793
+        },
+        "wall_vs_monotonic_shift_ns": 200658186247
+      },
+      {
+        "previous": {
+          "wall_ns": 1791498500283432671,
+          "monotonic_ns": 278978040104066,
+          "raw_ns": 272555226220089
+        },
+        "current": {
+          "wall_ns": 1791499461548092166,
+          "monotonic_ns": 278978393511816,
+          "raw_ns": 272555579604047
+        },
+        "wall_vs_monotonic_shift_ns": 960911251745
+      }
+    ],
+    "frequency_readings": [
+      {
+        "monotonic_elapsed_s": 0.0005250829854048789,
+        "reading": "frequency_before_ppm=0.000000000 tick_before_us=10000 status=64"
+      },
+      {
+        "monotonic_elapsed_s": 60.021198819973506,
+        "reading": "frequency_before_ppm=0.000000000 tick_before_us=10000 status=64"
+      },
+      {
+        "monotonic_elapsed_s": 120.05198201496387,
+        "reading": "frequency_before_ppm=0.000000000 tick_before_us=10000 status=64"
+      },
+      {
+        "monotonic_elapsed_s": 180.07861433597282,
+        "reading": "frequency_before_ppm=0.000000000 tick_before_us=10000 status=64"
+      },
+      {
+        "monotonic_elapsed_s": 240.0848684060038,
+        "reading": "frequency_before_ppm=0.000000000 tick_before_us=10000 status=64"
+      },
+      {
+        "monotonic_elapsed_s": 300.091300267959,
+        "reading": "frequency_before_ppm=0.000000000 tick_before_us=10000 status=64"
+      },
+      {
+        "monotonic_elapsed_s": 360.0934725459665,
+        "reading": "frequency_before_ppm=0.000000000 tick_before_us=10000 status=64"
+      },
+      {
+        "monotonic_elapsed_s": 420.04938390798634,
+        "reading": "frequency_before_ppm=0.000000000 tick_before_us=10000 status=64"
+      },
+      {
+        "monotonic_elapsed_s": 480.0240637289826,
+        "reading": "frequency_before_ppm=0.000000000 tick_before_us=10000 status=64"
+      },
+      {
+        "monotonic_elapsed_s": 540.0855915489956,
+        "reading": "frequency_before_ppm=0.000000000 tick_before_us=10000 status=64"
+      },
+      {
+        "monotonic_elapsed_s": 600.0260004109587,
+        "reading": "frequency_before_ppm=0.000000000 tick_before_us=10000 status=64"
+      },
+      {
+        "monotonic_elapsed_s": 660.015613814001,
+        "reading": "frequency_before_ppm=0.000000000 tick_before_us=10000 status=64"
+      },
+      {
+        "monotonic_elapsed_s": 720.0474452599883,
+        "reading": "frequency_before_ppm=0.000000000 tick_before_us=10000 status=64"
+      },
+      {
+        "monotonic_elapsed_s": 780.0931700379588,
+        "reading": "frequency_before_ppm=0.000000000 tick_before_us=10000 status=64"
+      },
+      {
+        "monotonic_elapsed_s": 840.0148254839587,
+        "reading": "frequency_before_ppm=0.000000000 tick_before_us=10000 status=64"
+      },
+      {
+        "monotonic_elapsed_s": 900.0909770120052,
+        "reading": "frequency_before_ppm=0.000000000 tick_before_us=10000 status=64"
+      },
+      {
+        "monotonic_elapsed_s": 960.012889415957,
+        "reading": "frequency_before_ppm=0.000000000 tick_before_us=10000 status=64"
+      },
+      {
+        "monotonic_elapsed_s": 1020.0511034440133,
+        "reading": "frequency_before_ppm=0.000000000 tick_before_us=10000 status=64"
+      },
+      {
+        "monotonic_elapsed_s": 1080.0982432650053,
+        "reading": "frequency_before_ppm=0.000000000 tick_before_us=10000 status=64"
+      },
+      {
+        "monotonic_elapsed_s": 1140.072736001981,
+        "reading": "frequency_before_ppm=0.000000000 tick_before_us=10000 status=64"
+      },
+      {
+        "monotonic_elapsed_s": 1200.0136336970027,
+        "reading": "frequency_before_ppm=0.000000000 tick_before_us=10000 status=64"
+      },
+      {
+        "monotonic_elapsed_s": 1260.0570449759834,
+        "reading": "frequency_before_ppm=0.000000000 tick_before_us=10000 status=64"
+      },
+      {
+        "monotonic_elapsed_s": 1320.0687792960089,
+        "reading": "frequency_before_ppm=0.000000000 tick_before_us=10000 status=64"
+      },
+      {
+        "monotonic_elapsed_s": 1380.0105275330134,
+        "reading": "frequency_before_ppm=0.000000000 tick_before_us=10000 status=64"
+      },
+      {
+        "monotonic_elapsed_s": 1440.0794384779874,
+        "reading": "frequency_before_ppm=0.000000000 tick_before_us=10000 status=64"
+      },
+      {
+        "monotonic_elapsed_s": 1500.062138882,
+        "reading": "frequency_before_ppm=0.000000000 tick_before_us=10000 status=64"
+      },
+      {
+        "monotonic_elapsed_s": 1560.0185234519886,
+        "reading": "frequency_before_ppm=0.000000000 tick_before_us=10000 status=64"
+      },
+      {
+        "monotonic_elapsed_s": 1620.0721786890063,
+        "reading": "frequency_before_ppm=0.000000000 tick_before_us=10000 status=64"
+      },
+      {
+        "monotonic_elapsed_s": 1680.0954293009709,
+        "reading": "frequency_before_ppm=0.000000000 tick_before_us=10000 status=64"
+      },
+      {
+        "monotonic_elapsed_s": 1740.0575288709952,
+        "reading": "frequency_before_ppm=0.000000000 tick_before_us=10000 status=64"
+      },
+      {
+        "monotonic_elapsed_s": 1800.0715896909824,
+        "reading": "frequency_before_ppm=0.000000000 tick_before_us=10000 status=64"
+      },
+      {
+        "monotonic_elapsed_s": 1860.0583075530012,
+        "reading": "frequency_before_ppm=0.000000000 tick_before_us=10000 status=64"
+      },
+      {
+        "monotonic_elapsed_s": 1920.0734922490083,
+        "reading": "frequency_before_ppm=0.000000000 tick_before_us=10000 status=64"
+      },
+      {
+        "monotonic_elapsed_s": 1980.0976809439599,
+        "reading": "frequency_before_ppm=0.000000000 tick_before_us=10000 status=64"
+      },
+      {
+        "monotonic_elapsed_s": 2040.0532468059682,
+        "reading": "frequency_before_ppm=0.000000000 tick_before_us=10000 status=64"
+      },
+      {
+        "monotonic_elapsed_s": 2100.059860709007,
+        "reading": "frequency_before_ppm=0.000000000 tick_before_us=10000 status=64"
+      },
+      {
+        "monotonic_elapsed_s": 2160.0341470299754,
+        "reading": "frequency_before_ppm=0.000000000 tick_before_us=10000 status=64"
+      },
+      {
+        "monotonic_elapsed_s": 2220.0363811000134,
+        "reading": "frequency_before_ppm=0.000000000 tick_before_us=10000 status=64"
+      },
+      {
+        "monotonic_elapsed_s": 2280.0965507539804,
+        "reading": "frequency_before_ppm=0.000000000 tick_before_us=10000 status=64"
+      },
+      {
+        "monotonic_elapsed_s": 2340.0861328240135,
+        "reading": "frequency_before_ppm=0.000000000 tick_before_us=10000 status=64"
+      },
+      {
+        "monotonic_elapsed_s": 2400.0010593109764,
+        "reading": "frequency_before_ppm=0.000000000 tick_before_us=10000 status=64"
+      },
+      {
+        "monotonic_elapsed_s": 2460.0578527139733,
+        "reading": "frequency_before_ppm=0.000000000 tick_before_us=10000 status=64"
+      },
+      {
+        "monotonic_elapsed_s": 2520.0763327429886,
+        "reading": "frequency_before_ppm=0.000000000 tick_before_us=10000 status=64"
+      },
+      {
+        "monotonic_elapsed_s": 2580.04098868696,
+        "reading": "frequency_before_ppm=0.000000000 tick_before_us=10000 status=64"
+      },
+      {
+        "monotonic_elapsed_s": 2640.0798891299637,
+        "reading": "frequency_before_ppm=0.000000000 tick_before_us=10000 status=64"
+      },
+      {
+        "monotonic_elapsed_s": 2700.0503506989917,
+        "reading": "frequency_before_ppm=0.000000000 tick_before_us=10000 status=64"
+      },
+      {
+        "monotonic_elapsed_s": 2760.067428432987,
+        "reading": "frequency_before_ppm=0.000000000 tick_before_us=10000 status=64"
+      },
+      {
+        "monotonic_elapsed_s": 2775.590826564003,
+        "reading": "frequency_before_ppm=0.000000000 tick_before_us=10000 status=64"
+      }
+    ],
+    "chrony_active": "inactive",
+    "chrony_enabled": "disabled",
+    "guestagent_active": "active"
+  }
+}

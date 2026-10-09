@@ -65,6 +65,24 @@
 - **Lua**:LuaUnit v3.5(FetchContent 固定 tag+SHA,单文件零依赖)+ `realm_lua_cli`(`third_party/lua` 的最小解释器目标);套件以 `os.exit(lu.LuaUnit.run())` 结尾——退出码 = 失败+错误数,0 即通过;样例结构见 `tests/lua/self_test.lua`。
 - 测试目标的注册函数只此两个(`realm_add_gtest` / `realm_add_lua_test`),不要绕开它们直接 `add_test`;脚本级集成的 `add_test` 收敛在 `tests/cmake/*.cmake` 里。
 
+## MongoDB 夹具初始化（#119）
+
+完整构建生成 `realmmesh_mongodb_fixture`：使用现有固定版本 C 驱动在独立进程中
+初始化真实单成员 `rs0` 并等待 `hello` 同时确认副本集名称与可写 Primary。
+使用 `MongodProcess` 的六个集成目标显式依赖它；DevServices 的 CTest 环境传入同一
+可执行路径。GTest 二进制内仍可共享本地 `mongod`、按每例独立数据库隔离；
+DevServices 每条用例自起实例。所有数据回读继续经真实 `mongosh`，辅助程序不进入
+产品二进制，也不争用被测进程唯一的 C++ 驱动实例。
+
+`REALMMESH_TEST_MONGODB_INITIALIZER` 可覆盖测试初始化器；显式路径缺失或执行失败会
+让夹具失败并回收 `mongod`，不会静默改用旧路径。无构建路径的独立夹具消费者保留
+旧 `mongosh` 初始化。辅助程序的截止时间涵盖端口等待、驱动调用和 Primary 就绪；
+`MongodProcess` 将原 30 秒预算的剩余时间传入，回收时恢复暂停的服务，发送 TERM 后
+最多等待 2 秒再 KILL 并回收子进程。手动开发脚本仍使用原初始化流程。
+
+`MongoFixtureTest` 是串行 `integration` 契约，使用真实本地后端验证初始化、Primary、
+初始化失败、超时回收与构造失败后的进程/目录清理。它也计入完整入口性能门槛。
+
 ## 原生编译缓存（#124）
 
 配置变量 `REALMMESH_CCACHE=AUTO|ON|OFF` 控制所有原生 C/CXX 目标（含测试与 FetchContent 依赖），默认 AUTO；libsodium 外部 Make 不缓存。可用 `cmake --preset dev -DREALMMESH_CCACHE=OFF` 配置后运行相同 `./scripts/build.sh`，关闭不会删对象缓存。用户预设覆盖目录、工具与 5GiB 上限；CI 显式 ON／2GiB。配置和 launcher 选择不会改变用例标签、合集或测试并行。缓存的命中/失效/缺失/损坏与淘汰验收及未覆盖组合见[阶段报告](../docs/research/build-optimization-results.md)；本机缓存与 CI 恢复/保存的净成本不能混算。

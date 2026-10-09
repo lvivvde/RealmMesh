@@ -1,0 +1,47 @@
+{
+  "frozen_revisions": {
+    "base": "ead8b7ce71d89e7aac05230a24a4517e1f3e9617",
+    "before": "397bac5ee54c47adec007ef46e54a0e578f33057",
+    "after": "e59cc88b27c0b61955ae901ecad0d97819c8513c",
+    "r0": "4ffb58df9b8d20beec59f4b056d3e9c90859401f",
+    "r0_correctness_patch_sha256": "e85bd84a2c93341b6e71a84aba9cf15827a9968ba7c805d400c34fae165408ac"
+  },
+  "gates": {
+    "same_current_collection_gain": "1-median(after)/median(before)>0 and majority paired directions improve; all current tests included",
+    "current_vs_r0": "median(current after)<=1.05*median(contemporaneous unoptimized R0) independently on macOS and Lima; include all added tests; disclose649vs668"
+  },
+  "groups": [
+    [
+      "r0",
+      "before",
+      "after"
+    ],
+    [
+      "after",
+      "before",
+      "r0"
+    ],
+    [
+      "before",
+      "r0",
+      "after"
+    ]
+  ],
+  "samples": 3,
+  "maximum_samples_if_noise": 5,
+  "entry": [
+    "configure --preset dev cacheOFF fixed source overrides",
+    "build ALL --preset dev --parallel 1 for R0 /8 Mac current /2 Linux current",
+    "ctest --preset dev -j1"
+  ],
+  "constraints": [
+    "no overlapping heavy work between platforms",
+    "same tools, pinned dependencies, capability, source preparation and storage",
+    "all failures and excluded samples retained",
+    "no source timestamps changed",
+    "R0 includes only previously frozen correctness patch; no new optimization or guards backported"
+  ],
+  "formal_started": true,
+  "formal_start_note": "State recorded after the first complete R0 sample; this timestamp is not the timed entry start.",
+  "protocol_state_observed_at_utc": "2026-10-08T15:09:57.817169+00:00"
+}

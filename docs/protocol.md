@@ -185,6 +185,10 @@ Login Verifier 的 HTTPS 错误体为 `{code, message, retry_after_seconds?}`：
 MongoDB 共享开发连接使用仓库外私有配置、TLS、账号认证及 SSH 隧道；这仅改变
 Player Data Store 的部署连接，不改变上述客户端消息、HTTP 契约或凭据线格式。
 
+自动化测试的真实副本集由本地辅助进程初始化并确认可写 Primary；其命令行与退出
+状态属于[测试编排接口](../tests/README.md#mongodb-夹具初始化119)，不发布为客户端
+消息、HTTP 接口或服务发现字段。
+
 - 已发布字段编号和消息 ID 不得复用。
 - 删除字段使用 `reserved`。
 - 兼容新增字段使用新编号，接收方接受未知字段。

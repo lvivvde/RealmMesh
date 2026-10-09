@@ -19,7 +19,7 @@ realm_add_gtest(realm_sessions_test
 realm_add_gtest(realm_journey_test
     SOURCES realm_journey_test.cpp
     INCLUDE_DIRS ${PROJECT_SOURCE_DIR}/tests/cpp/support/include
-    LIBS
+    LIBS realmmesh_test_mongodb
         nlohmann_json::nlohmann_json
         realm_client
         realm_cluster

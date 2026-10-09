@@ -14,6 +14,7 @@ function(add_dev_services_test name test_case timeout)
     )
     set_tests_properties("DevServicesScriptTest.${name}" PROPERTIES
         LABELS integration
+        ENVIRONMENT "REALMMESH_TEST_MONGODB_INITIALIZER=$<TARGET_FILE:realmmesh_mongodb_fixture>"
         RUN_SERIAL TRUE
         TIMEOUT "${timeout}"
         # dev-services.sh 用 ps 识别服务进程。受限沙箱里 ps 会被拒绝,那套

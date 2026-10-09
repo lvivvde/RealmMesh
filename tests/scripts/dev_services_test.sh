@@ -258,8 +258,15 @@ if [[ "${realmmesh_etcd_ready}" -ne 1 ]]; then
         "${realmmesh_scratch}/etcd.log" >&2
     exit 1
 fi
-if ! "${realmmesh_source_root}/scripts/mongodb-init-replset.sh" \
-    "${realmmesh_mongosh_bin}" "${realmmesh_mongod_member}"; then
+initialize_test_mongodb() {
+    if [[ -n "${REALMMESH_TEST_MONGODB_INITIALIZER:-}" ]]; then
+        "${REALMMESH_TEST_MONGODB_INITIALIZER}" "${realmmesh_mongod_member}" 30000
+    else
+        "${realmmesh_source_root}/scripts/mongodb-init-replset.sh" \
+            "${realmmesh_mongosh_bin}" "${realmmesh_mongod_member}"
+    fi
+}
+if ! initialize_test_mongodb; then
     printf 'mongod did not become the rs0 primary; see %s\n' \
         "${realmmesh_scratch}/mongod.log" >&2
     exit 1
