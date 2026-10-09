@@ -5,7 +5,8 @@
     "CONTEXT.md",
     "README.md",
     "docs/protocol.md",
-    "docs/research/build-optimization-results.md"
+    "docs/research/build-optimization-results.md",
+    "docs/research/build-implementation-acceptance.md"
   ],
   "new_paths": [
     "docs/research/assets/build-mongodb-fixture-119-2026-10-08/README.md",
