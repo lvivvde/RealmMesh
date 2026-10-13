@@ -3,6 +3,8 @@
 import argparse
 import json
 import os
+import signal
+import socket
 from pathlib import Path
 import subprocess
 import tempfile
@@ -110,6 +112,78 @@ set_tests_properties(Cleanup PROPERTIES FIXTURES_CLEANUP mongo TIMEOUT 5)
             self.assertEqual([p for p in state.iterdir() if p.is_dir()],[])
             self.assertIn('MongoDB fixture initializer failed',result.stdout)
 
+    def test_interrupted_preparation_waits_for_complete_backend_reclamation(self):
+        with tempfile.TemporaryDirectory(prefix='mongodb-interrupted-setup-') as directory:
+            root = Path(directory)
+            state = root / 'fixture'
+            server_record = root / 'server.json'
+            initializer_record = root / 'initializer-pid'
+            real = subprocess.check_output(['bash', '-c',
+                'realmmesh_mongodb_root="$1"; source "$1/scripts/lib/mongodb-tools.sh"; realmmesh_mongod_binary',
+                'bash', str(ARGS.source)], text=True).strip()
+            server_wrapper = root / 'mongod.py'
+            server_wrapper.write_text('#!/usr/bin/env python3\nimport json,os,sys\nfrom pathlib import Path\n'
+                + f'Path({str(server_record)!r}).write_text(json.dumps({{"pid":os.getpid(),"port":int(sys.argv[sys.argv.index("--port")+1])}}))\n'
+                + f'os.execv({real!r},[{real!r},*sys.argv[1:]])\n')
+            server_wrapper.chmod(0o755)
+            # A real initializer pointed at a bound, non-listening endpoint stays
+            # in its real port wait until its deadline; no stub replaces it.
+            unavailable = socket.socket()
+            unavailable.bind(('127.0.0.1', 0))
+            unavailable_member = '127.0.0.1:' + str(unavailable.getsockname()[1])
+            initializer_wrapper = root / 'initializer.py'
+            initializer_wrapper.write_text('#!/usr/bin/env python3\nimport os,signal,sys\nfrom pathlib import Path\n'
+                + f'Path({str(initializer_record)!r}).write_text(str(os.getpid()))\n'
+                + 'signal.signal(signal.SIGTERM,signal.SIG_IGN)\n'
+                + f'os.execv({str(ARGS.initializer)!r},[{str(ARGS.initializer)!r},{unavailable_member!r},"30000"])\n')
+            initializer_wrapper.chmod(0o755)
+            env = os.environ.copy()
+            env['REALMMESH_MONGOD_BINARY'] = str(server_wrapper)
+            process = subprocess.Popen([os.sys.executable, str(MODULE), 'setup', str(state),
+                str(ARGS.source), str(initializer_wrapper)], env=env,
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            server_pid = initializer_pid = None
+            try:
+                deadline = time.monotonic() + 10
+                while time.monotonic() < deadline:
+                    if server_record.exists() and initializer_record.exists():
+                        server = json.loads(server_record.read_text())
+                        server_pid = server['pid']
+                        initializer_pid = int(initializer_record.read_text())
+                        try:
+                            with socket.create_connection(('127.0.0.1', server['port']), timeout=.1): pass
+                            break
+                        except OSError: pass
+                    time.sleep(.01)
+                else: self.fail('real mongod did not open its port during preparation')
+                os.kill(server_pid, signal.SIGSTOP)
+                os.kill(initializer_pid, signal.SIGSTOP)
+                self.assertEqual(process.poll(), None, 'preparation already completed')
+                process.send_signal(signal.SIGINT)
+                self.assertNotEqual(process.wait(timeout=8), 0)
+                self.assertEqual([p for p in state.iterdir() if p.is_dir()], [])
+                for pid in (initializer_pid, server_pid):
+                    with self.assertRaises(ProcessLookupError): os.kill(pid, 0)
+            finally:
+                unavailable.close()
+                if process.poll() is None:
+                    process.kill(); process.wait()
+                # A red test must reclaim only the real processes it started.
+                for pid in (initializer_pid, server_pid):
+                    if pid is None: continue
+                    try:
+                        os.kill(pid, signal.SIGCONT)
+                        os.kill(pid, signal.SIGTERM)
+                    except ProcessLookupError: continue
+                    deadline = time.monotonic() + 3
+                    while time.monotonic() < deadline:
+                        try: os.kill(pid, 0)
+                        except ProcessLookupError: break
+                        time.sleep(.02)
+                    else:
+                        try: os.kill(pid, signal.SIGKILL)
+                        except ProcessLookupError: pass
+
     def test_killed_ctest_owner_reclaims_shared_processes_and_data(self):
         with tempfile.TemporaryDirectory(prefix='mongodb-killed-ctest-') as directory:
             root = Path(directory)
@@ -147,6 +221,9 @@ set_tests_properties(Cleanup PROPERTIES FIXTURES_CLEANUP mongo TIMEOUT 5)
                             self.fail('real shared fixture was not prepared: '+(root/'ctest.log').read_text())
                         time.sleep(.02)
                     observed=json.loads((root/'observed.json').read_text())
+                    unrelated=subprocess.run([os.sys.executable,str(MODULE),'member',str(state),
+                        '--owner',str(process.pid)],capture_output=True,text=True,timeout=3)
+                    self.assertNotEqual(unrelated.returncode,0,'borrowed a CTest that is not an ancestor')
                     process.kill();process.wait(timeout=2)
                     deadline=time.monotonic()+6
                     while Path(observed['data_directory']).exists() and time.monotonic()<deadline:
@@ -163,6 +240,13 @@ set_tests_properties(Cleanup PROPERTIES FIXTURES_CLEANUP mongo TIMEOUT 5)
                 finally:
                     if process.poll() is None:
                         process.kill();process.wait()
+                    if (root/'observed.json').exists():
+                        guardian=json.loads((root/'observed.json').read_text())['guardian_pid']
+                        deadline=time.monotonic()+5
+                        while time.monotonic()<deadline:
+                            try: os.kill(guardian,0)
+                            except ProcessLookupError: break
+                            time.sleep(.02)
 
 if __name__=='__main__':
     unittest.main(argv=[__file__,*rest],verbosity=2)

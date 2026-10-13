@@ -33,13 +33,13 @@ def binary(source):
         'bash', str(source)], text=True).strip()
 
 
-def stop(child):
+def stop(child, timeout=2):
     if child is None or child.poll() is not None:
         return
     child.send_signal(signal.SIGCONT)
     child.terminate()
     try:
-        child.wait(timeout=2)
+        child.wait(timeout=timeout)
     except subprocess.TimeoutExpired:
         child.kill()
         child.wait()
@@ -133,6 +133,22 @@ def daemon(args):
             reply.close()
 
 
+def require_ancestor(owner):
+    ancestor = os.getppid()
+    for _ in range(64):
+        if ancestor == owner:
+            return
+        if ancestor <= 1:
+            break
+        parent = subprocess.run(['ps', '-p', str(ancestor), '-o', 'ppid='],
+                                capture_output=True, text=True)
+        try:
+            ancestor = int(parent.stdout.strip()) if parent.returncode == 0 else 0
+        except ValueError:
+            break
+    raise RuntimeError('CTest MongoDB owner is not an ancestor')
+
+
 def state(root, owner):
     directory = location(root, owner)
     if not (directory / 'port').is_file():
@@ -171,7 +187,8 @@ def setup(args):
                 time.sleep(0.02)
             raise RuntimeError('MongoDB fixture preparation deadline exceeded')
         except BaseException:
-            stop(child)
+            # Guardian cleanup may need both leaf-process TERM/KILL budgets.
+            stop(child, timeout=5)
             raise
 
 
@@ -202,6 +219,8 @@ def main():
         elif args.action == 'daemon': daemon(args)
         elif args.action == 'cleanup': cleanup(args)
         else:
+            if args.action == 'member':
+                require_ancestor(args.owner)
             value = state(args.root, args.owner)
             print(value['port'] if args.action == 'member' else json.dumps(value))
     except Exception as error:
