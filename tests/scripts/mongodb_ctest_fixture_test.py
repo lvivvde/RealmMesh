@@ -28,7 +28,9 @@ class MongoCtestFixtureContract(unittest.TestCase):
 from pathlib import Path
 module,root,source,record=sys.argv[1:]
 snapshot=json.loads(subprocess.check_output([sys.executable,module,'status',root,'--owner',str(os.getppid())],text=True))
-Path(record).write_text(json.dumps(snapshot))
+records=json.loads(Path(record).read_text()) if Path(record).exists() else []
+records.append(snapshot)
+Path(record).write_text(json.dumps(records))
 shell=subprocess.check_output(['bash','-c','realmmesh_mongodb_root="$1"; source "$1/scripts/lib/mongodb-tools.sh"; realmmesh_mongosh_binary','bash',source],text=True).strip()
 hello=subprocess.check_output([shell,'mongodb://127.0.0.1:'+str(snapshot['port'])+'/?directConnection=true','--quiet','--norc','--eval',"const h=db.hello();print(h.setName+':'+h.isWritablePrimary)"],text=True).strip()
 assert hello=='rs0:true',hello
@@ -45,9 +47,13 @@ set_tests_properties(Cleanup PROPERTIES FIXTURES_CLEANUP mongo TIMEOUT 5)
 '''
             (root / 'CMakeLists.txt').write_text(cmake)
             subprocess.run(['cmake','-S',str(root),'-B',str(root/'build')],check=True,capture_output=True,text=True)
-            result=subprocess.run(['ctest','--test-dir',str(root/'build'),'-j','1','--output-on-failure'],capture_output=True,text=True,timeout=55)
+            result=subprocess.run(['ctest','--test-dir',str(root/'build'),'-j','1','--repeat','until-fail:3','--output-on-failure'],capture_output=True,text=True,timeout=55)
             self.assertEqual(result.returncode,0,result.stdout+result.stderr)
-            observed=json.loads((root/'observed.json').read_text())
+            records=json.loads((root/'observed.json').read_text())
+            self.assertEqual(len(records),3,'CTest must execute every consumer repeat')
+            self.assertEqual(len({(v['server_pid'],v['guardian_pid'],v['port']) for v in records}),1,
+                             'repeated preparation must retain this CTest backend')
+            observed=records[0]
             with self.assertRaises(ProcessLookupError): os.kill(observed['server_pid'],0)
             self.assertFalse(Path(observed['data_directory']).exists())
             self.assertEqual(list(state.iterdir()),[])

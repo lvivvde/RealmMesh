@@ -164,7 +164,15 @@ def state(root, owner):
 def setup(args):
     directory = location(args.root, args.owner)
     directory.parent.mkdir(parents=True, exist_ok=True)
-    directory.mkdir()  # A stale/concurrent owner must fail, never be silently overwritten.
+    try:
+        directory.mkdir()
+    except FileExistsError:
+        # CTest --repeat repeats setup too; reuse only this live, ready owner.
+        require_ancestor(args.owner)
+        value = state(args.root, args.owner)
+        subprocess.run([str(args.initializer), f'127.0.0.1:{value["port"]}', '30000'],
+                       check=True, timeout=30)
+        return
     birth = identity(args.owner)
     if birth is None:
         directory.rmdir()

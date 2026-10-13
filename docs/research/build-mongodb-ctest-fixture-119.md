@@ -64,3 +64,22 @@ sol2 与 httplib 的旧固定源码缓存和 Linux 冻结来源逐文件完全�
 原始诊断与红绿反馈见[诊断归档](assets/build-mongodb-ctest-fixture-119-2026-10-13/diagnostic-evidence.tar.gz)，
 其[SHA256 清单](assets/build-mongodb-ctest-fixture-119-2026-10-13/diagnostic-manifest.json)可独立核验。
 当前协议和版本元数据也在同一资产目录；正式结果及原始证据将在完整系列结束后追加。
+
+## 首轮正式尝试与 CTest 重复准备修复
+
+`6ebce52` 的首次 macOS 正式尝试在 R0 的
+`MeshHostE2ETest.AllInOneStartsAndStopsCleanly` 遇到 MsQuic 状态 48
+（macOS 的 `ADDRESS_IN_USE`），其余 648 项通过。原样单用例连续重跑 10 次通过；
+临时诊断程序保持 R0 源码不变，在其 TCP 空闲端口选择后占用对应 IPv4/IPv6 UDP
+端口，重现同一错误。首次实际占用进程不可追溯，诊断只确认这种冲突可以产生该错误。
+全部失败原始轮次与诊断尝试保留，失败耗时不进入通过样本中位数。
+
+首轮 CI 的 macOS 全量与 Linux QUIC 全量均通过，但 Linux M1–M4 步骤失败：
+`--repeat until-fail:3` 同时重复夹具准备，第二次准备因目录存在而失败，
+消费者未运行，导致运行指标缺失。修复前的真实嵌套 CTest 回归重现该失败；
+现在同一祖先 CTest 的已就绪夹具可重复准备，每次重新用真实原生初始化器验证
+`rs0`/Primary，不覆盖尚未就绪、失效或不匹配的状态。回归要求三次消费者全部执行、
+后端 PID/端口一致、最终进程与数据回收；全部五项真实生命周期契约通过。
+
+在发现重复准备问题后，第二次正式尝试主动中止，完整保留为失效候选的中止证据。
+最终实现需要重新冻结，重新进行全部配对组；既有尝试不补成最终通过样本。
