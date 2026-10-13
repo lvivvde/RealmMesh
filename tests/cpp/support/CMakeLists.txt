@@ -12,6 +12,7 @@ target_compile_definitions(realmmesh_test_mongodb INTERFACE
 
 add_executable(realmmesh_mongod_fixture_probe mongod_fixture_probe.cpp)
 target_compile_features(realmmesh_mongod_fixture_probe PRIVATE cxx_std_20)
+target_link_libraries(realmmesh_mongod_fixture_probe PRIVATE realmmesh_test_mongodb)
 target_include_directories(realmmesh_mongod_fixture_probe PRIVATE include)
 target_compile_definitions(realmmesh_mongod_fixture_probe PRIVATE
     REALMMESH_TEST_SOURCE_DIR="${PROJECT_SOURCE_DIR}")

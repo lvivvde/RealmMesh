@@ -2,8 +2,12 @@
 
 #include <iostream>
 
-int main() {
+int main(int argc, char** argv) {
     try {
+        if (argc == 4 && std::string_view{argv[1]} == "--shared") {
+            std::cout << realm::test_support::MongodProcess::shared().eval(argv[2], argv[3]) << '\n';
+            return 0;
+        }
         realm::test_support::MongodProcess process;
         std::cout << process.eval(
             realm::test_support::MongodProcess::fresh_database(),

@@ -20,6 +20,7 @@
 #include <array>
 #include <atomic>
 #include <chrono>
+#include <charconv>
 #include <cerrno>
 #include <cstdint>
 #include <cstdlib>
@@ -35,8 +36,9 @@
 namespace realm::test_support {
 
 class MongodProcess final {
-public:
-    MongodProcess() {
+    enum class Ownership { Private, Ctest };
+    explicit MongodProcess(Ownership ownership) {
+        if (ownership == Ownership::Ctest && borrow_ctest_fixture()) return;
         const auto binary = tool_binary(
             "REALMMESH_MONGOD_BINARY", "mongodb-8.0.32", "mongod");
         std::error_code error;
@@ -80,18 +82,21 @@ public:
             throw;
         }
     }
+public:
+    MongodProcess() : MongodProcess(Ownership::Private) {}
     ~MongodProcess() { stop(); }
     MongodProcess(const MongodProcess&) = delete;
     MongodProcess& operator=(const MongodProcess&) = delete;
 
-    /// 同一测试二进制内共享一个 mongod:启动加选举要数秒，用例之间改用
-    /// fresh_database() 隔离。
+    /// CTest 内借用同一次运行的真实副本集；独立运行时在本二进制内共享。
+    /// 每例使用 fresh_database() 保持数据隔离。
     [[nodiscard]] static MongodProcess& shared() {
-        static MongodProcess process;
+        static MongodProcess process{Ownership::Ctest};
         return process;
     }
 
     void stop() noexcept {
+        if (borrowed_) return;
         if (pid_ > 0) {
             // A stopped server cannot handle TERM. Resume it for graceful
             // shutdown, then bound cleanup even if it remains unresponsive.
@@ -122,10 +127,11 @@ public:
                "/?replicaSet=rs0";
     }
 
-    /// 进程内唯一的库名，用例之间互不可见。
+    /// 跨进程的每例独立库名，用例之间互不可见。
     [[nodiscard]] static std::string fresh_database() {
         return "realmmesh_test_" +
                std::to_string(static_cast<long long>(::getpid())) + "_" +
+               std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) + "_" +
                std::to_string(next_instance());
     }
 
@@ -244,6 +250,59 @@ private:
         return captured;
     }
 
+    [[nodiscard]] static const char* selected_initializer() {
+        const char* initializer = std::getenv("REALMMESH_TEST_MONGODB_INITIALIZER");
+#ifdef REALMMESH_TEST_MONGODB_INITIALIZER_PATH
+        if (initializer == nullptr || *initializer == '\0') {
+            initializer = REALMMESH_TEST_MONGODB_INITIALIZER_PATH;
+        }
+#endif
+        return initializer;
+    }
+
+    bool borrow_ctest_fixture() {
+        const char* root = std::getenv("REALMMESH_TEST_MONGODB_SESSION_DIRECTORY");
+        if (root == nullptr || *root == '\0') return false;
+        auto owner = ::getppid();
+        if (const char* selected = std::getenv("REALMMESH_TEST_MONGODB_OWNER")) {
+            const std::string_view text{selected};
+            const auto [end, error] = std::from_chars(text.data(), text.data() + text.size(), owner);
+            if (error != std::errc{} || end != text.data() + text.size() || owner <= 0) {
+                throw std::runtime_error("invalid CTest MongoDB fixture owner");
+            }
+            auto ancestor = ::getppid();
+            for (int depth = 0; ancestor > 1 && ancestor != owner && depth < 64; ++depth) {
+                const auto parent = run_process("ps", {"-p", std::to_string(ancestor), "-o", "ppid="});
+                if (parent.status != 0) break;
+                try { ancestor = static_cast<pid_t>(std::stol(parent.output)); }
+                catch (...) { break; }
+            }
+            if (ancestor != owner) throw std::runtime_error("CTest MongoDB owner is not an ancestor");
+        }
+        std::ifstream ready{std::filesystem::path{root} /
+            ("ctest-" + std::to_string(owner)) / "port"};
+        long recorded_owner = 0;
+        long guardian = 0;
+        int port = 0;
+        std::string extra;
+        if (!(ready >> recorded_owner >> guardian >> port) || (ready >> extra) ||
+            recorded_owner != owner || guardian <= 0 || port <= 0 || port > 65535 ||
+            ::kill(static_cast<pid_t>(guardian), 0) != 0) {
+            throw std::runtime_error("shared MongoDB fixture is not ready for this CTest owner");
+        }
+        const char* initializer = selected_initializer();
+        if (initializer == nullptr || *initializer == '\0') {
+            throw std::runtime_error("shared MongoDB fixture requires its native initializer");
+        }
+        port_ = static_cast<std::uint16_t>(port);
+        const auto initialized = run_process(initializer, {"127.0.0.1:" + std::to_string(port_), "30000"});
+        if (initialized.status != 0) {
+            throw std::runtime_error("shared MongoDB readiness failed: " + initialized.output);
+        }
+        borrowed_ = true;
+        return true;
+    }
+
     void initiate_replica_set() {
         using namespace std::chrono_literals;
         const auto deadline = std::chrono::steady_clock::now() + 30s;
@@ -261,12 +320,7 @@ private:
             std::this_thread::sleep_for(20ms);
         }
 
-        const char* initializer = std::getenv("REALMMESH_TEST_MONGODB_INITIALIZER");
-#ifdef REALMMESH_TEST_MONGODB_INITIALIZER_PATH
-        if (initializer == nullptr || *initializer == '\0') {
-            initializer = REALMMESH_TEST_MONGODB_INITIALIZER_PATH;
-        }
-#endif
+        const char* initializer = selected_initializer();
         if (initializer != nullptr && *initializer != '\0') {
             const auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(
                 deadline - std::chrono::steady_clock::now()).count();
@@ -299,6 +353,7 @@ private:
         throw std::runtime_error("mongod did not become a writable primary");
     }
 
+    bool borrowed_{false};
     pid_t pid_{-1};
     std::uint16_t port_{0};
     std::filesystem::path data_dir_;
