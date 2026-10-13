@@ -1,0 +1,42 @@
+{
+  "issue": 119,
+  "base": "a420ee80bbdb38b73573da2bd2ed20a53808ec76",
+  "r0": "4ffb58df9b8d20beec59f4b056d3e9c90859401f",
+  "r0_correctness_sha256": "e85bd84a2c93341b6e71a84aba9cf15827a9968ba7c805d400c34fae165408ac",
+  "formal_started": false,
+  "samples": 3,
+  "order": [
+    [
+      "r0",
+      "before",
+      "after"
+    ],
+    [
+      "after",
+      "before",
+      "r0"
+    ],
+    [
+      "before",
+      "r0",
+      "after"
+    ]
+  ],
+  "gate_current_same_cohort": "median(after)<median(before), every assertion and new contract counted",
+  "gate_r0": "median(after)<=1.05*median(r0) separately on Mac and Lima; disclose 649 vs current expanded cohort",
+  "entry": "continuous configure + ALL build + all serial CTest",
+  "cache": "OFF",
+  "benchmark_process_memory": "union of original command tree and active detached MongoDB guardian trees; one-second sampling, not absolute peak",
+  "current_cohort_note": "both sides contain the identical new preparation/cleanup/contract tests and unique per-case databases; only consumer fixture attachment differs",
+  "exclusions": "failed setup and diagnostic pilot kept separately; no selective exclusion of valid formal samples",
+  "measured_head": "6ebce52271119528ec27e0ad1ca11097ccb8c901",
+  "tool_sha256": {
+    "paired-run.py": "0a38af72ef42822a03fef85cdcf2cce513197d32de19d5bfe8092c9be000309b",
+    "tool/measure.py": "033a4dd5b1097430ee920922569c1db50df2c6c057c0236b6efe9938b83a7d82",
+    "tool/launcher.cpp": "1374833a6c5e20d9d72f04055694ba4930c2066bc2147aa85116bf96d8f4034b",
+    "collect-current.py": "76f3300b2497a3eebf61da98b45a06abafe39b9279f70bb47aaa123c67a8caf4",
+    "clock-monitor.py": "b8442ccf3342009e42eaf0af857156b71c8ae4d64d00aca6be2ad0f4d25bc1f2",
+    "clock-frequency.c": "68c3bed8125525fad6fc7bffea26321cb47bc937773c28bcc1e56ed3b0f3af27",
+    "linux-formal.py": "ccd60fe4c9cc1a2fa29780e83204426c424b0892803e49ca6ff0a7419f731667"
+  }
+}
