@@ -46,7 +46,7 @@ KILL 预算；后端仍是真实 mongod，不用替身。修复前可复现遗�
 
 ## 正式验证计划
 
-- 当前两个完整同合集使用上述冻结代码，新增中断断言与全部成本同计；三组顺序为
+- 当前两个完整同合集使用重复准备修复冻结代码 `7a881a860fc6ff3b11ec768b5e2d078cd7df98e8`，新增中断断言与全部成本同计；三组顺序为
   R0/前/后、后/前/R0、前/R0/后，Mac 与 Lima 重负载不同时运行。
 - R0 为原冻结 `4ffb58df9b8d20beec59f4b056d3e9c90859401f` 加原正确性补丁
   SHA256 `e85bd84a2c93341b6e71a84aba9cf15827a9968ba7c805d400c34fae165408ac`，
@@ -83,3 +83,9 @@ sol2 与 httplib 的旧固定源码缓存和 Linux 冻结来源逐文件完全�
 
 在发现重复准备问题后，第二次正式尝试主动中止，完整保留为失效候选的中止证据。
 最终实现需要重新冻结，重新进行全部配对组；既有尝试不补成最终通过样本。
+
+失败轮次见[端口冲突归档](assets/build-mongodb-ctest-fixture-119-2026-10-13/failed-formal-quic-collision.tar.gz)
+及其 [SHA256/大小](assets/build-mongodb-ctest-fixture-119-2026-10-13/failed-formal-quic-collision.archive.json)；
+主动中止与 CI 重复准备红绿证据见[重复准备修复归档](assets/build-mongodb-ctest-fixture-119-2026-10-13/aborted-formal-repeat-fix.tar.gz)
+及其 [SHA256/大小](assets/build-mongodb-ctest-fixture-119-2026-10-13/aborted-formal-repeat-fix.archive.json)。
+两份归档均逐文件 SHA256 校验。重复准备修复 `7a881a8` 的 Standards 与 Spec 复核均为 0 项发现。
