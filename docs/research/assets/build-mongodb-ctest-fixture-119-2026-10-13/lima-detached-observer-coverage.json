@@ -1,0 +1,17 @@
+{
+  "hot-full-1": {
+    "total_samples": 286,
+    "samples_with_detached_roots": 257,
+    "largest_observed_root_count": 2
+  },
+  "hot-full-2": {
+    "total_samples": 283,
+    "samples_with_detached_roots": 252,
+    "largest_observed_root_count": 2
+  },
+  "hot-full-3": {
+    "total_samples": 286,
+    "samples_with_detached_roots": 256,
+    "largest_observed_root_count": 2
+  }
+}

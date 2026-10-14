@@ -1,0 +1,6 @@
+{
+  "base_tree_kib": 300,
+  "detached_guardian_tree_union_kib": 1000,
+  "descendant_overlap_counted_once": true,
+  "absent_root_ignored": true
+}

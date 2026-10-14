@@ -1,0 +1,7 @@
+{
+  "measured_source": "git archive base; git apply measured-source.patch",
+  "before_source": "same then git apply before-detach.patch",
+  "r0_source": "git archive original R0; git apply original r0-correctness.patch",
+  "excluded_diff_files": "new research report and raw evidence assets do not enter execution; archived independently",
+  "generated_before_only_artifact": "tools/build-bench/__pycache__/measure.cpython-313.pyc included in frozen SHA list but is generated Python cache, not a source difference"
+}

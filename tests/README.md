@@ -43,7 +43,7 @@
 ## 前置条件
 
 - **etcd 二进制**:跨进程集成用例(`new_chain_flow_test`、`realm_journey_test`、`loadgen_integration_test`、`DevServicesScriptTest.*`)会各自拉起一个**真实单节点 etcd** —— 网关的准入消费存储是线性一致存储,attach 路径真实依赖它(ADR-0009),用假 CAS 替身去证明外部系统契约无法归因缺陷。先跑 `./scripts/install-etcd.sh`(安装到 `.tools/etcd-v3.6.14/`,可用 `REALMMESH_ETCD_BINARY` 覆盖路径);二进制缺失即用例失败并提示安装命令,不静默跳过。用例自带的 etcd 用空闲端口 + 临时数据目录,自起自停,因此**不需要**开发机上长期运行 `./scripts/run-etcd-dev.sh`,也不与它抢 2379。
-- **MongoDB 二进制**:Player Data 用例(`player_data_store_test`、`login_verify_service_test`、`realm_journey_test`、`loadgen_integration_test`、`DevServicesScriptTest.*`)会拉起**真实单节点副本集 `rs0`** —— 准入事实的 majority 读写与事务只有在真副本集上才有意义(ADR-0011),内存替身只用在不涉及存储契约的单元测试(网关拉取口、Realm 角色存储)。macOS 用 Homebrew 安装 `brew tap mongodb/brew && brew trust mongodb/brew && brew install mongodb-community mongosh`;Linux 跑 `./scripts/install-mongodb.sh`(安装到 `.tools/`,CI 自动执行)。用例永远不连远程共享开发库:改写配置时会删掉 `uri_environment`,shell 里设置了 `REALMMESH_MONGODB_URI` 也不受影响。夹具按 `REALMMESH_MONGOD_BINARY` / `REALMMESH_MONGOSH_BINARY` → PATH → `.tools/` 的顺序查找,缺失即失败并提示安装命令。gtest 二进制内共享一个 mongod、每个用例用独立库名;`DevServicesScriptTest.*` 每条用例自起一个。它们都用空闲端口 + 临时数据目录，自起自停，因此**不需要**运行 Homebrew 服务或 `./scripts/run-mongodb-dev.sh`,也不与它们抢 27017。
+- **MongoDB 二进制**:Player Data 用例(`player_data_store_test`、`login_verify_service_test`、`realm_journey_test`、`loadgen_integration_test`、`DevServicesScriptTest.*`)会拉起**真实单节点副本集 `rs0`** —— 准入事实的 majority 读写与事务只有在真副本集上才有意义(ADR-0011),内存替身只用在不涉及存储契约的单元测试(网关拉取口、Realm 角色存储)。macOS 用 Homebrew 安装 `brew tap mongodb/brew && brew trust mongodb/brew && brew install mongodb-community mongosh`;Linux 跑 `./scripts/install-mongodb.sh`(安装到 `.tools/`,CI 自动执行)。用例永远不连远程共享开发库:改写配置时会删掉 `uri_environment`,shell 里设置了 `REALMMESH_MONGODB_URI` 也不受影响。夹具按 `REALMMESH_MONGOD_BINARY` / `REALMMESH_MONGOSH_BINARY` → PATH → `.tools/` 的顺序查找,缺失即失败并提示安装命令。完整 CTest 通过夹具依赖共享一个真实 mongod，GTest 与每条 `DevServicesScriptTest.*` 使用独立库名；独立运行时仍自启实例。它们都用空闲端口 + 临时数据目录，自起自停，因此**不需要**运行 Homebrew 服务或 `./scripts/run-mongodb-dev.sh`,也不与它们抢 27017。
 - **Python 3**:编译缓存配置/原生契约与 CI 兼容键使用标准库脚本；构建入口不自动安装。macOS 的 Xcode 工具链、Linux 开发环境及 CI 都应提供 `python3`。
 - **Ninja 1.11+**:构建图用例(`BuildGraphTest`、`BuildDirScriptTest.*`、`TestFastScriptTest.*`)会在临时目录里用 `dev` 预设配置小工程，验证 Ninja 门槛、原生链接池(含测试可执行文件出池)与 libsodium 安装产物(#123),因此即使主构建用 `--preset dev-make` 回退，全量 ctest 仍需要 PATH 上有真实的 `ninja`。macOS `brew install ninja`,Ubuntu `sudo apt-get install ninja-build`;缺失即用例失败，不跳过。
 - 快速子集(`test-fast.sh`、`ctest -L '^unit$'`)不拉起任何进程,无此前置条件。
@@ -70,8 +70,9 @@
 完整构建生成 `realmmesh_mongodb_fixture`：使用现有固定版本 C 驱动在独立进程中
 初始化真实单成员 `rs0` 并等待 `hello` 同时确认副本集名称与可写 Primary。
 使用 `MongodProcess` 的六个集成目标显式依赖它；DevServices 的 CTest 环境传入同一
-可执行路径。GTest 二进制内仍可共享本地 `mongod`、按每例独立数据库隔离；
-DevServices 每条用例自起实例。所有数据回读继续经真实 `mongosh`，辅助程序不进入
+可执行路径。一次完整 CTest 通过 `MongoCtestFixturePrepare` /
+`MongoCtestFixtureCleanup` 共享一个本地副本集，依赖声明也让定向 CTest 自动准备与回收。
+GTest 每例及 DevServices 每条用例使用独立数据库；后者的服务重启仍读同一用例数据库。所有数据回读继续经真实 `mongosh`，辅助程序不进入
 产品二进制，也不争用被测进程唯一的 C++ 驱动实例。
 
 `REALMMESH_TEST_MONGODB_INITIALIZER` 可覆盖测试初始化器；显式路径缺失或执行失败会
@@ -79,6 +80,25 @@ DevServices 每条用例自起实例。所有数据回读继续经真实 `mongos
 旧 `mongosh` 初始化。辅助程序的截止时间涵盖端口等待、驱动调用和 Primary 就绪；
 `MongodProcess` 将原 30 秒预算的剩余时间传入，回收时恢复暂停的服务，发送 TERM 后
 最多等待 2 秒再 KILL 并回收子进程。手动开发脚本仍使用原初始化流程。
+
+共享夹具的守护进程绑定启动它的 CTest PID 与进程出生时间。CTest 正常结束时，
+清理入口等待真实 `mongod` 退出并移除临时数据；CTest 被强制结束时，守护进程检测
+所有者消失并完成同样的回收。准备失败不会发布就绪状态，CTest 阻止依赖用例运行。
+多个 CTest 运行按所有者分别建目录，消费者借用前检查祖先关系，互不借用。
+`ctest --repeat until-fail:N` 会重复准备入口；相同所有者的就绪状态与后端匹配时，
+每次用真实初始化器重新验证 Primary 后复用。未就绪、失效或不匹配的状态不会被覆盖。
+准备被中断时等待守护进程完成清理；初始化器与后端各自保留 2 秒 TERM/KILL
+预算，守护进程拥有独立的 5 秒收尾预算。临时状态仅用于本地测试编排。
+
+`MongodProcess::shared()` 在 CTest 环境中借用已准备的副本集，在独立进程中仍自启；
+公开默认构造继续拥有独立实例，初始化失败/超时契约因此仍验证真实启动与回收。
+已指定的共享夹具未就绪或状态过期时失败，不静默启动另一个后端。DevServices 传递 CTest
+所有者给其子测试进程，进程祖先校验拒绝借用无关 CTest 的后端。
+
+`MongoCtestFixtureTest` 通过真实嵌套 CTest 和实际 MongoDB 验证准备与 Primary、
+跨进程独立数据库隔离、准备失败的依赖阻断，以及 SIGKILL CTest 后的进程与数据回收。
+契约还覆盖准备中断，以及重复三次消费者实际执行、同后端和最终完整回收。
+准备、清理和契约共三项串行 `integration` 测试，完整入口计时包含全部成本。
 
 `MongoFixtureTest` 是串行 `integration` 契约，使用真实本地后端验证初始化、Primary、
 初始化失败、超时回收与构造失败后的进程/目录清理。它也计入完整入口性能门槛。

@@ -95,12 +95,19 @@ function(realm_add_gtest name)
         add_dependencies(${name} ${ARG_DEPENDS})
     endif()
 
+    set(mongodb_properties "")
+    if(realmmesh_test_mongodb IN_LIST ARG_LIBS)
+        set(mongodb_properties
+            FIXTURES_REQUIRED realmmesh_mongodb
+            ENVIRONMENT "REALMMESH_TEST_MONGODB_SESSION_DIRECTORY=${CMAKE_BINARY_DIR}/mongodb-ctest-fixtures")
+    endif()
+
     # LABELS 不经 gtest_discover_tests 的 PROPERTIES 传:3.20 的发现脚本会把
     # 列表值拆平成多个参数。标签在其后追加的 CTest 脚本里按列表整体设置。
-    if(ARG_DISCOVER_PROPERTIES)
+    if(ARG_DISCOVER_PROPERTIES OR mongodb_properties)
         gtest_discover_tests(${name}
             WORKING_DIRECTORY "${REALMMESH_TEST_WORKING_DIRECTORY}"
-            PROPERTIES ${ARG_DISCOVER_PROPERTIES}
+            PROPERTIES ${ARG_DISCOVER_PROPERTIES} ${mongodb_properties}
         )
     else()
         gtest_discover_tests(${name}

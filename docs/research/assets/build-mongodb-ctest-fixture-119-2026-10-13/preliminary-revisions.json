@@ -1,0 +1,7 @@
+{
+  "base": "a420ee80bbdb38b73573da2bd2ed20a53808ec76",
+  "measured_head": "6ebce52271119528ec27e0ad1ca11097ccb8c901",
+  "r0": "4ffb58df9b8d20beec59f4b056d3e9c90859401f",
+  "pilot_head": "2a753cfa9948cb1a447e3797e679ba12ed9ea910",
+  "note": "Before differs from measured head only by disabling the two CMake consumer attachment sites; all new correctness guard costs count on both sides."
+}

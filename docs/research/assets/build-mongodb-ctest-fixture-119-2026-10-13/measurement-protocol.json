@@ -1,0 +1,47 @@
+{
+  "issue": 119,
+  "base": "a420ee80bbdb38b73573da2bd2ed20a53808ec76",
+  "r0": "4ffb58df9b8d20beec59f4b056d3e9c90859401f",
+  "r0_correctness_sha256": "e85bd84a2c93341b6e71a84aba9cf15827a9968ba7c805d400c34fae165408ac",
+  "formal_started": false,
+  "samples": 3,
+  "order": [
+    [
+      "r0",
+      "before",
+      "after"
+    ],
+    [
+      "after",
+      "before",
+      "r0"
+    ],
+    [
+      "before",
+      "r0",
+      "after"
+    ]
+  ],
+  "gate_current_same_cohort": "median(after)<median(before), every assertion and new contract counted",
+  "gate_r0": "median(after)<=1.05*median(r0) separately on Mac and Lima; disclose 649 vs current expanded cohort",
+  "entry": "continuous configure + ALL build + all serial CTest",
+  "cache": "OFF",
+  "benchmark_process_memory": "union of original command tree and active detached MongoDB guardian trees; one-second sampling, not absolute peak",
+  "current_cohort_note": "both sides contain the identical new preparation/cleanup/contract tests and unique per-case databases; only consumer fixture attachment differs",
+  "exclusions": "failed setup and diagnostic pilot kept separately; no selective exclusion of valid formal samples",
+  "measured_head": "7a881a860fc6ff3b11ec768b5e2d078cd7df98e8",
+  "tool_sha256": {
+    "paired-run.py": "9d3be6f9d4df71bdcb7757daab5383e81a6572e9c4bfae3c26f3fbd027afc529",
+    "tool/measure.py": "2748f5019b7b8b98739f7c0fa557b8b4ca9d520933b593d839d6c365559c3835",
+    "tool/launcher.cpp": "1374833a6c5e20d9d72f04055694ba4930c2066bc2147aa85116bf96d8f4034b",
+    "tool/README.md": "f1877269ce2b62c9bf20e4432b6d2d26f509f2877cd08c9c60401d85365b0ce3",
+    "collect-current.py": "76f3300b2497a3eebf61da98b45a06abafe39b9279f70bb47aaa123c67a8caf4",
+    "clock-monitor.py": "b8442ccf3342009e42eaf0af857156b71c8ae4d64d00aca6be2ad0f4d25bc1f2",
+    "clock-frequency.c": "68c3bed8125525fad6fc7bffea26321cb47bc937773c28bcc1e56ed3b0f3af27",
+    "linux-formal.py": "ccd60fe4c9cc1a2fa29780e83204426c424b0892803e49ca6ff0a7419f731667"
+  },
+  "minimum_samples": 3,
+  "max_samples": 5,
+  "extension_rule": "After all first three balanced groups, if any side spread (max-min)/median exceeds 0.05, add complete groups4 r0/after/before and5 before/after/r0; aggregate all valid groups, exclude none for speed.",
+  "prior_attempts": "failed-formal-quic-collision.tar.gz and aborted-formal-repeat-fix.tar.gz retained; final balanced series restarts with the CTest-repeat fix"
+}

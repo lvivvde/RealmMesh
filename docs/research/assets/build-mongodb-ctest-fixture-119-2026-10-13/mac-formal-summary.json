@@ -1,0 +1,303 @@
+{
+  "platform": "mac",
+  "revisions": {
+    "base": "a420ee80bbdb38b73573da2bd2ed20a53808ec76",
+    "measured_head": "7a881a860fc6ff3b11ec768b5e2d078cd7df98e8",
+    "r0": "4ffb58df9b8d20beec59f4b056d3e9c90859401f",
+    "pilot_head": "2a753cfa9948cb1a447e3797e679ba12ed9ea910",
+    "note": "Before differs from measured head only by disabling the two CMake consumer attachment sites; all new correctness guard costs count on both sides."
+  },
+  "same_current_collection": true,
+  "collection_counts": {
+    "r0": 649,
+    "before": 671,
+    "after": 671
+  },
+  "r0_collection_difference": {
+    "strict_same_collection": false,
+    "removed": [],
+    "added": [
+      "BuildDirScriptTest.PresetEntriesResolveRecordedBuildDirs",
+      "BuildGraphTest",
+      "CompilerCacheCISummaryTest",
+      "CompilerCacheConfigTest",
+      "CompilerCacheNativeTest",
+      "ConfigHeadersTest.ConfigValuesAreUsableWithoutLua",
+      "ConfigsLoadSmokeTest.MainConfigTopologyLoadsInDeclarationOrder",
+      "DependencyIsolationTest",
+      "DevServicesScriptTest.StopAfterInterruptedWorkerWait",
+      "DevServicesScriptTest.StopDuringProcessChecks",
+      "DevServicesScriptTest.StopDuringStartup",
+      "GatewayHeadersTest.EventsFlowThroughPrimaryTransportWithoutRuntime",
+      "LoadTopologyFileTest.LuaErrorIsALoadFailure",
+      "LoadTopologyFileTest.MissingFileIsALoadFailure",
+      "LoadTopologyFileTest.OmittedFieldsDefaultToNoDependenciesAndNotEntry",
+      "LoadTopologyFileTest.RejectsMalformedEntries",
+      "LoadTopologyFileTest.RejectsMissingOrEmptyServicesTable",
+      "MongoCtestFixtureCleanup",
+      "MongoCtestFixturePrepare",
+      "MongoCtestFixtureTest",
+      "MongoFixtureTest",
+      "TestFastScriptTest.FastEntryWatchAndJobsBudget"
+    ]
+  },
+  "stats": {
+    "r0": {
+      "n": 3,
+      "values": [
+        344.6568040000275,
+        345.95455875003245,
+        343.16175299999304
+      ],
+      "median": 344.6568040000275,
+      "min": 343.16175299999304,
+      "max": 345.95455875003245
+    },
+    "before": {
+      "n": 3,
+      "values": [
+        386.43506816698937,
+        378.91875145799713,
+        383.3866181250196
+      ],
+      "median": 383.3866181250196,
+      "min": 378.91875145799713,
+      "max": 386.43506816698937
+    },
+    "after": {
+      "n": 3,
+      "values": [
+        340.18880533298943,
+        338.9345763750025,
+        336.48618000000715
+      ],
+      "median": 338.9345763750025,
+      "min": 336.48618000000715,
+      "max": 340.18880533298943
+    }
+  },
+  "current_gain": {
+    "pairs": [
+      {
+        "group": 1,
+        "before_s": 386.43506816698937,
+        "after_s": 340.18880533298943,
+        "saved_s": 46.246262833999936
+      },
+      {
+        "group": 2,
+        "before_s": 378.91875145799713,
+        "after_s": 338.9345763750025,
+        "saved_s": 39.984175082994625
+      },
+      {
+        "group": 3,
+        "before_s": 383.3866181250196,
+        "after_s": 336.48618000000715,
+        "saved_s": 46.90043812501244
+      }
+    ],
+    "reduction": 0.11594573114578977,
+    "faster_pairs": 3,
+    "passed": true
+  },
+  "r0_cap": {
+    "limit_s": 361.88964420002884,
+    "ratio": 0.983397317103235,
+    "headroom_s": 22.955067825026333,
+    "passed": true
+  },
+  "resources": {
+    "max_tree_rss_mib": 445.40625,
+    "min_available_mib": 16323.484375,
+    "max_swap_growth_mib": 0.0,
+    "max_pressure_level": 1,
+    "oom_kills": null
+  },
+  "resource_passed": true,
+  "source_mismatches": {
+    "r0": [],
+    "before": [],
+    "after": []
+  },
+  "passed": true,
+  "formal_rows": {
+    "r0": [
+      {
+        "name": "hot-full-1",
+        "wall_s": 344.6568040000275,
+        "exit": 0,
+        "compile_count": 0,
+        "link_count": 0,
+        "tests_total": 649,
+        "tests_failed": 0,
+        "memory": {
+          "samples": 332,
+          "max_tree_rss_mib": 372.921875,
+          "min_available_mib": 16323.484375,
+          "swap_used_start_mib": 3.75,
+          "swap_used_max_mib": 3.75,
+          "swap_growth_mib": 0.0,
+          "max_pressure_level": 1,
+          "oom_kills": null
+        }
+      },
+      {
+        "name": "hot-full-2",
+        "wall_s": 345.95455875003245,
+        "exit": 0,
+        "compile_count": 0,
+        "link_count": 0,
+        "tests_total": 649,
+        "tests_failed": 0,
+        "memory": {
+          "samples": 333,
+          "max_tree_rss_mib": 347.40625,
+          "min_available_mib": 16335.71875,
+          "swap_used_start_mib": 3.75,
+          "swap_used_max_mib": 3.75,
+          "swap_growth_mib": 0.0,
+          "max_pressure_level": 1,
+          "oom_kills": null
+        }
+      },
+      {
+        "name": "hot-full-3",
+        "wall_s": 343.16175299999304,
+        "exit": 0,
+        "compile_count": 0,
+        "link_count": 0,
+        "tests_total": 649,
+        "tests_failed": 0,
+        "memory": {
+          "samples": 329,
+          "max_tree_rss_mib": 347.65625,
+          "min_available_mib": 17093.515625,
+          "swap_used_start_mib": 3.75,
+          "swap_used_max_mib": 3.75,
+          "swap_growth_mib": 0.0,
+          "max_pressure_level": 1,
+          "oom_kills": null
+        }
+      }
+    ],
+    "before": [
+      {
+        "name": "hot-full-1",
+        "wall_s": 386.43506816698937,
+        "exit": 0,
+        "compile_count": 0,
+        "link_count": 0,
+        "tests_total": 671,
+        "tests_failed": 0,
+        "memory": {
+          "samples": 371,
+          "max_tree_rss_mib": 360.234375,
+          "min_available_mib": 17449.796875,
+          "swap_used_start_mib": 3.75,
+          "swap_used_max_mib": 3.75,
+          "swap_growth_mib": 0.0,
+          "max_pressure_level": 1,
+          "oom_kills": null
+        }
+      },
+      {
+        "name": "hot-full-2",
+        "wall_s": 378.91875145799713,
+        "exit": 0,
+        "compile_count": 0,
+        "link_count": 0,
+        "tests_total": 671,
+        "tests_failed": 0,
+        "memory": {
+          "samples": 364,
+          "max_tree_rss_mib": 349.109375,
+          "min_available_mib": 16627.875,
+          "swap_used_start_mib": 3.75,
+          "swap_used_max_mib": 3.75,
+          "swap_growth_mib": 0.0,
+          "max_pressure_level": 1,
+          "oom_kills": null
+        }
+      },
+      {
+        "name": "hot-full-3",
+        "wall_s": 383.3866181250196,
+        "exit": 0,
+        "compile_count": 0,
+        "link_count": 0,
+        "tests_total": 671,
+        "tests_failed": 0,
+        "memory": {
+          "samples": 367,
+          "max_tree_rss_mib": 360.875,
+          "min_available_mib": 17047.125,
+          "swap_used_start_mib": 3.75,
+          "swap_used_max_mib": 3.75,
+          "swap_growth_mib": 0.0,
+          "max_pressure_level": 1,
+          "oom_kills": null
+        }
+      }
+    ],
+    "after": [
+      {
+        "name": "hot-full-1",
+        "wall_s": 340.18880533298943,
+        "exit": 0,
+        "compile_count": 0,
+        "link_count": 0,
+        "tests_total": 671,
+        "tests_failed": 0,
+        "memory": {
+          "samples": 326,
+          "max_tree_rss_mib": 443.8125,
+          "min_available_mib": 17620.59375,
+          "swap_used_start_mib": 3.75,
+          "swap_used_max_mib": 3.75,
+          "swap_growth_mib": 0.0,
+          "max_pressure_level": 1,
+          "oom_kills": null
+        }
+      },
+      {
+        "name": "hot-full-2",
+        "wall_s": 338.9345763750025,
+        "exit": 0,
+        "compile_count": 0,
+        "link_count": 0,
+        "tests_total": 671,
+        "tests_failed": 0,
+        "memory": {
+          "samples": 326,
+          "max_tree_rss_mib": 444.046875,
+          "min_available_mib": 17150.1875,
+          "swap_used_start_mib": 3.75,
+          "swap_used_max_mib": 3.75,
+          "swap_growth_mib": 0.0,
+          "max_pressure_level": 1,
+          "oom_kills": null
+        }
+      },
+      {
+        "name": "hot-full-3",
+        "wall_s": 336.48618000000715,
+        "exit": 0,
+        "compile_count": 0,
+        "link_count": 0,
+        "tests_total": 671,
+        "tests_failed": 0,
+        "memory": {
+          "samples": 323,
+          "max_tree_rss_mib": 445.40625,
+          "min_available_mib": 16992.734375,
+          "swap_used_start_mib": 3.75,
+          "swap_used_max_mib": 3.75,
+          "swap_growth_mib": 0.0,
+          "max_pressure_level": 1,
+          "oom_kills": null
+        }
+      }
+    ]
+  }
+}

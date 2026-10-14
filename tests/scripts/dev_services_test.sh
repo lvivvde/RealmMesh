@@ -214,18 +214,26 @@ if ! realmmesh_mongod_bin="$(realmmesh_mongod_binary)" ||
     realmmesh_mongodb_install_hint >&2
     exit 2
 fi
-realmmesh_mongod_data_dir="${realmmesh_scratch}/mongod-data"
-mkdir -p "${realmmesh_mongod_data_dir}"
-"${realmmesh_mongod_bin}" \
-    --replSet rs0 \
-    --bind_ip 127.0.0.1 \
-    --port "${realmmesh_mongod_port}" \
-    --dbpath "${realmmesh_mongod_data_dir}" \
-    --logpath "${realmmesh_scratch}/mongod.log" \
-    --nounixsocket \
-    --wiredTigerCacheSizeGB 0.25 > /dev/null 2>&1 &
-realmmesh_mongod_pid=$!
-realmmesh_mongod_member="127.0.0.1:${realmmesh_mongod_port}"
+realmmesh_mongodb_database="realmmesh_test_$(python3 -c 'import uuid; print(uuid.uuid4().hex)')"
+if [[ -n "${REALMMESH_TEST_MONGODB_SESSION_DIRECTORY:-}" ]]; then
+    export REALMMESH_TEST_MONGODB_OWNER="${REALMMESH_TEST_MONGODB_OWNER:-${PPID}}"
+    realmmesh_mongod_port="$(python3 "${realmmesh_source_root}/tests/scripts/mongodb_ctest_fixture.py" \
+        member "${REALMMESH_TEST_MONGODB_SESSION_DIRECTORY}" --owner "${REALMMESH_TEST_MONGODB_OWNER}")"
+    realmmesh_mongod_member="127.0.0.1:${realmmesh_mongod_port}"
+else
+    realmmesh_mongod_data_dir="${realmmesh_scratch}/mongod-data"
+    mkdir -p "${realmmesh_mongod_data_dir}"
+    "${realmmesh_mongod_bin}" \
+        --replSet rs0 \
+        --bind_ip 127.0.0.1 \
+        --port "${realmmesh_mongod_port}" \
+        --dbpath "${realmmesh_mongod_data_dir}" \
+        --logpath "${realmmesh_scratch}/mongod.log" \
+        --nounixsocket \
+        --wiredTigerCacheSizeGB 0.25 > /dev/null 2>&1 &
+    realmmesh_mongod_pid=$!
+    realmmesh_mongod_member="127.0.0.1:${realmmesh_mongod_port}"
+fi
 # 客户端端口可连 ≠ etcd 已能服务:选举窗口内它会直接关闭连接(实测
 # "Failed to read connection"),而网关的就绪探测正好会踩进去。用一次真实
 # 写入当就绪判据,而不是靠 sleep 猜——写入的 key 与用例无关,只证明
@@ -275,7 +283,7 @@ fi
 # 回读用例 mongod 里的 Player Data,用 print(...) 输出需要比对的值。
 player_data_eval() {
     "${realmmesh_mongosh_bin}" --quiet --norc \
-        "mongodb://${realmmesh_mongod_member}/realmmesh?replicaSet=rs0" \
+        "mongodb://${realmmesh_mongod_member}/${realmmesh_mongodb_database}?replicaSet=rs0" \
         --eval "$1"
 }
 
@@ -352,10 +360,16 @@ grep -q "etcd_endpoint = \"${realmmesh_etcd_endpoint}\"" \
 unset REALMMESH_MONGODB_URI
 rewrite_config "${realmmesh_test_root}/configs/common/player_data.lua" \
     -e "s|mongodb://127.0.0.1:27017/|mongodb://${realmmesh_mongod_member}/|" \
+    -e "s/database = \"realmmesh\"/database = \"${realmmesh_mongodb_database}\"/" \
     -e '/uri_environment[[:space:]]*=/d'
 grep -q "uri = \"mongodb://${realmmesh_mongod_member}/?replicaSet=rs0\"" \
     "${realmmesh_test_root}/configs/common/player_data.lua" || {
     printf 'failed to point player data at the test mongod\n' >&2
+    exit 1
+}
+grep -q "database = \"${realmmesh_mongodb_database}\"" \
+    "${realmmesh_test_root}/configs/common/player_data.lua" || {
+    printf 'failed to isolate the test player database\n' >&2
     exit 1
 }
 if grep -q 'uri_environment' "${realmmesh_test_root}/configs/common/player_data.lua"; then
@@ -822,7 +836,8 @@ PY
         run_full_login
         [[ "$(player_data_eval \
             'print(db.accounts.countDocuments({account_name: "robot-0"}))')" == 1 ]]
-        printf 'acceptance_data player_data_restart source=mongodb database=realmmesh restarted=gateway,realm,login_verify result=PASS\n'
+        printf 'acceptance_data player_data_restart source=mongodb database=%s restarted=gateway,realm,login_verify result=PASS\n' \
+            "${realmmesh_mongodb_database}"
 
         realmmesh_released_before="$(queue_released_number)"
         [[ "${realmmesh_released_before}" =~ ^[0-9]+$ ]]
