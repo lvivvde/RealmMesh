@@ -1,0 +1,9 @@
+{
+  "archive": "diagnostic-evidence.tar.gz",
+  "bytes": 551097,
+  "sha256": "09387658285382418b743bc69f87658b2fba0bbc96b739bb37f7b0a90c04685b",
+  "files_verified": 1798,
+  "file_manifest": "diagnostic-evidence.files.json.gz",
+  "file_manifest_sha256": "37ec82959e385a04eeb50046e5ba7ef98ba1fda85ad020520ec8157cfd1199bd",
+  "file_manifest_note": "independently enumerated existing immutable archive; original archive bytes unchanged"
+}

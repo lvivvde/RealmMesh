@@ -1,0 +1,17 @@
+{
+  "hot-full-1.memory": {
+    "total_samples": 326,
+    "samples_with_detached_roots": 270,
+    "largest_observed_root_count": 2
+  },
+  "hot-full-2.memory": {
+    "total_samples": 326,
+    "samples_with_detached_roots": 270,
+    "largest_observed_root_count": 2
+  },
+  "hot-full-3.memory": {
+    "total_samples": 323,
+    "samples_with_detached_roots": 268,
+    "largest_observed_root_count": 2
+  }
+}

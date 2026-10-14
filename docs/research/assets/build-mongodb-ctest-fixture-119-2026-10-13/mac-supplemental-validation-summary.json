@@ -1,0 +1,236 @@
+{
+  "platform": "mac",
+  "recovery": [
+    {
+      "name": "artifact-recovery",
+      "wall_s": 0.1506446250132285,
+      "exit": 0,
+      "compile_count": 0,
+      "link_count": 1,
+      "memory": {
+        "samples": 2,
+        "max_tree_rss_mib": 28.84375,
+        "min_available_mib": 17953.21875,
+        "swap_used_start_mib": 3.75,
+        "swap_used_max_mib": 3.75,
+        "swap_growth_mib": 0.0,
+        "max_pressure_level": 1,
+        "oom_kills": null
+      },
+      "tests_total": null,
+      "tests_failed": null
+    },
+    {
+      "name": "artifact-restored-noop-1",
+      "wall_s": 1.189571666996926,
+      "exit": 0,
+      "compile_count": 0,
+      "link_count": 0,
+      "memory": {
+        "samples": 3,
+        "max_tree_rss_mib": 83.703125,
+        "min_available_mib": 17930.3125,
+        "swap_used_start_mib": 3.75,
+        "swap_used_max_mib": 3.75,
+        "swap_growth_mib": 0.0,
+        "max_pressure_level": 1,
+        "oom_kills": null
+      },
+      "tests_total": null,
+      "tests_failed": null
+    },
+    {
+      "name": "artifact-restored-noop-2",
+      "wall_s": 0.9970517909969203,
+      "exit": 0,
+      "compile_count": 0,
+      "link_count": 0,
+      "memory": {
+        "samples": 2,
+        "max_tree_rss_mib": 37.359375,
+        "min_available_mib": 17927.09375,
+        "swap_used_start_mib": 3.75,
+        "swap_used_max_mib": 3.75,
+        "swap_growth_mib": 0.0,
+        "max_pressure_level": 1,
+        "oom_kills": null
+      },
+      "tests_total": null,
+      "tests_failed": null
+    },
+    {
+      "name": "artifact-restored-noop-3",
+      "wall_s": 0.9869415419525467,
+      "exit": 0,
+      "compile_count": 0,
+      "link_count": 0,
+      "memory": {
+        "samples": 2,
+        "max_tree_rss_mib": 36.265625,
+        "min_available_mib": 17920.671875,
+        "swap_used_start_mib": 3.75,
+        "swap_used_max_mib": 3.75,
+        "swap_growth_mib": 0.0,
+        "max_pressure_level": 1,
+        "oom_kills": null
+      },
+      "tests_total": null,
+      "tests_failed": null
+    },
+    {
+      "name": "artifact-restored-real-contracts",
+      "wall_s": 16.907967666047625,
+      "exit": 0,
+      "compile_count": 0,
+      "link_count": 0,
+      "memory": {
+        "samples": 18,
+        "max_tree_rss_mib": 268.703125,
+        "min_available_mib": 17451.421875,
+        "swap_used_start_mib": 3.75,
+        "swap_used_max_mib": 3.75,
+        "swap_growth_mib": 0.0,
+        "max_pressure_level": 1,
+        "oom_kills": null
+      },
+      "tests_total": 2,
+      "tests_failed": 0
+    },
+    {
+      "name": "unit-aggregate",
+      "wall_s": 9.41132433299208,
+      "exit": 0,
+      "compile_count": 0,
+      "link_count": 0,
+      "memory": {
+        "samples": 11,
+        "max_tree_rss_mib": 54.078125,
+        "min_available_mib": 17558.921875,
+        "swap_used_start_mib": 3.75,
+        "swap_used_max_mib": 3.75,
+        "swap_growth_mib": 0.0,
+        "max_pressure_level": 1,
+        "oom_kills": null
+      },
+      "tests_total": 504,
+      "tests_failed": 0
+    },
+    {
+      "name": "artifact-restored-direct-cpp-consumer",
+      "wall_s": 2.038907708018087,
+      "exit": 0,
+      "compile_count": 0,
+      "link_count": 0,
+      "memory": {
+        "samples": 3,
+        "max_tree_rss_mib": 187.703125,
+        "min_available_mib": 17638.0,
+        "swap_used_start_mib": 3.75,
+        "swap_used_max_mib": 3.75,
+        "swap_growth_mib": 0.0,
+        "max_pressure_level": 1,
+        "oom_kills": null
+      },
+      "tests_total": 3,
+      "tests_failed": 0
+    }
+  ],
+  "make": [
+    {
+      "name": "make-fallback-setup",
+      "wall_s": 72.19195558398496,
+      "exit": 0,
+      "compile_count": 779,
+      "link_count": 79,
+      "memory": {
+        "samples": 71,
+        "max_tree_rss_mib": 1849.09375,
+        "min_available_mib": 17294.140625,
+        "swap_used_start_mib": 3.75,
+        "swap_used_max_mib": 3.75,
+        "swap_growth_mib": 0.0,
+        "max_pressure_level": 1,
+        "oom_kills": null
+      },
+      "tests_total": null,
+      "tests_failed": null
+    },
+    {
+      "name": "make-fallback-stable-1",
+      "wall_s": 4.270276500028558,
+      "exit": 0,
+      "compile_count": 0,
+      "link_count": 0,
+      "memory": {
+        "samples": 6,
+        "max_tree_rss_mib": 183.1875,
+        "min_available_mib": 17895.921875,
+        "swap_used_start_mib": 3.75,
+        "swap_used_max_mib": 3.75,
+        "swap_growth_mib": 0.0,
+        "max_pressure_level": 1,
+        "oom_kills": null
+      },
+      "tests_total": null,
+      "tests_failed": null
+    },
+    {
+      "name": "make-fallback-stable-2",
+      "wall_s": 4.264765332976822,
+      "exit": 0,
+      "compile_count": 0,
+      "link_count": 0,
+      "memory": {
+        "samples": 6,
+        "max_tree_rss_mib": 186.625,
+        "min_available_mib": 17587.703125,
+        "swap_used_start_mib": 3.75,
+        "swap_used_max_mib": 3.75,
+        "swap_growth_mib": 0.0,
+        "max_pressure_level": 1,
+        "oom_kills": null
+      },
+      "tests_total": null,
+      "tests_failed": null
+    },
+    {
+      "name": "make-fallback-stable-3",
+      "wall_s": 4.269849083037116,
+      "exit": 0,
+      "compile_count": 0,
+      "link_count": 0,
+      "memory": {
+        "samples": 6,
+        "max_tree_rss_mib": 203.328125,
+        "min_available_mib": 17582.578125,
+        "swap_used_start_mib": 3.75,
+        "swap_used_max_mib": 3.75,
+        "swap_growth_mib": 0.0,
+        "max_pressure_level": 1,
+        "oom_kills": null
+      },
+      "tests_total": null,
+      "tests_failed": null
+    },
+    {
+      "name": "make-fallback-full",
+      "wall_s": 351.73204475000966,
+      "exit": 0,
+      "compile_count": 0,
+      "link_count": 0,
+      "memory": {
+        "samples": 338,
+        "max_tree_rss_mib": 464.09375,
+        "min_available_mib": 17114.8125,
+        "swap_used_start_mib": 3.75,
+        "swap_used_max_mib": 3.75,
+        "swap_growth_mib": 0.0,
+        "max_pressure_level": 1,
+        "oom_kills": null
+      },
+      "tests_total": 671,
+      "tests_failed": 0
+    }
+  ],
+  "passed": true
+}

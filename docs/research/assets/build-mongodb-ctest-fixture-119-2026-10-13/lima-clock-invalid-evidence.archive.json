@@ -1,0 +1,7 @@
+{
+  "archive": "lima-clock-invalid-evidence.tar.gz",
+  "bytes": 1989036,
+  "sha256": "d0d52539b263683805583303ccb5d14ac050b1c90444771d14a7f271a414247b",
+  "files_verified": 3044,
+  "acceptance": "excluded entire nine-run series: host sleep caused VM wall clock jumps"
+}

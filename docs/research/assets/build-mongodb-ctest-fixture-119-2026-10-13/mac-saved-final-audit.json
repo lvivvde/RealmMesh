@@ -1,0 +1,15 @@
+{
+  "platform": "mac",
+  "complete_groups": 3,
+  "median_s": {
+    "r0": 344.6568040000275,
+    "before": 383.3866181250196,
+    "after": 338.9345763750025
+  },
+  "gain": 0.11594573114578977,
+  "faster_pairs": 3,
+  "cap_s": 361.88964420002884,
+  "headroom_s": 22.955067825026333,
+  "raw_files_verified": 3044,
+  "passed": true
+}

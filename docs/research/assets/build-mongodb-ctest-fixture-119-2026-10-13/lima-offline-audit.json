@@ -1,0 +1,15 @@
+{
+  "platform": "lima",
+  "complete_groups": 3,
+  "median_s": {
+    "r0": 291.19366484700004,
+    "before": 319.9828502360033,
+    "after": 286.7804691779893
+  },
+  "gain": 0.10376300177814402,
+  "faster_pairs": 3,
+  "cap_s": 305.75334808935,
+  "headroom_s": 18.972878911360738,
+  "raw_files_verified": 86,
+  "passed": true
+}

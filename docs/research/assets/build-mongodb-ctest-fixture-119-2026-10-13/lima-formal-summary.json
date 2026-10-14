@@ -1,0 +1,245 @@
+{
+  "platform": "lima",
+  "revisions": {
+    "base": "a420ee80bbdb38b73573da2bd2ed20a53808ec76",
+    "measured_head": "7a881a860fc6ff3b11ec768b5e2d078cd7df98e8",
+    "r0": "4ffb58df9b8d20beec59f4b056d3e9c90859401f",
+    "pilot_head": "2a753cfa9948cb1a447e3797e679ba12ed9ea910",
+    "note": "Before differs from measured head only by disabling the two CMake consumer attachment sites; all new correctness guard costs count on both sides."
+  },
+  "collection_counts": {
+    "r0": 649,
+    "before": 671,
+    "after": 671
+  },
+  "same_current_collection": true,
+  "r0_collection_difference": {
+    "strict_same_collection": false,
+    "removed": [],
+    "added": [
+      "BuildDirScriptTest.PresetEntriesResolveRecordedBuildDirs",
+      "BuildGraphTest",
+      "CompilerCacheCISummaryTest",
+      "CompilerCacheConfigTest",
+      "CompilerCacheNativeTest",
+      "ConfigHeadersTest.ConfigValuesAreUsableWithoutLua",
+      "ConfigsLoadSmokeTest.MainConfigTopologyLoadsInDeclarationOrder",
+      "DependencyIsolationTest",
+      "DevServicesScriptTest.StopAfterInterruptedWorkerWait",
+      "DevServicesScriptTest.StopDuringProcessChecks",
+      "DevServicesScriptTest.StopDuringStartup",
+      "GatewayHeadersTest.EventsFlowThroughPrimaryTransportWithoutRuntime",
+      "LoadTopologyFileTest.LuaErrorIsALoadFailure",
+      "LoadTopologyFileTest.MissingFileIsALoadFailure",
+      "LoadTopologyFileTest.OmittedFieldsDefaultToNoDependenciesAndNotEntry",
+      "LoadTopologyFileTest.RejectsMalformedEntries",
+      "LoadTopologyFileTest.RejectsMissingOrEmptyServicesTable",
+      "MongoCtestFixtureCleanup",
+      "MongoCtestFixturePrepare",
+      "MongoCtestFixtureTest",
+      "MongoFixtureTest",
+      "TestFastScriptTest.FastEntryWatchAndJobsBudget"
+    ]
+  },
+  "stats": {
+    "r0": {
+      "n": 3,
+      "values": [
+        290.5117075549788,
+        291.90326755598653,
+        291.19366484700004
+      ],
+      "median": 291.19366484700004,
+      "min": 290.5117075549788,
+      "max": 291.90326755598653
+    },
+    "before": {
+      "n": 3,
+      "values": [
+        321.8271066530142,
+        317.2536462760181,
+        319.9828502360033
+      ],
+      "median": 319.9828502360033,
+      "min": 317.2536462760181,
+      "max": 321.8271066530142
+    },
+    "after": {
+      "n": 3,
+      "values": [
+        287.5105638449895,
+        283.9731633850024,
+        286.7804691779893
+      ],
+      "median": 286.7804691779893,
+      "min": 283.9731633850024,
+      "max": 287.5105638449895
+    }
+  },
+  "current_gain": {
+    "pairs": [
+      {
+        "group": 1,
+        "before_s": 321.8271066530142,
+        "after_s": 287.5105638449895,
+        "saved_s": 34.31654280802468
+      },
+      {
+        "group": 2,
+        "before_s": 317.2536462760181,
+        "after_s": 283.9731633850024,
+        "saved_s": 33.28048289101571
+      },
+      {
+        "group": 3,
+        "before_s": 319.9828502360033,
+        "after_s": 286.7804691779893,
+        "saved_s": 33.202381058014
+      }
+    ],
+    "reduction": 0.10376300177814402,
+    "faster_pairs": 3,
+    "passed": true
+  },
+  "r0_cap": {
+    "limit_s": 305.75334808935,
+    "ratio": 0.9848444653789789,
+    "headroom_s": 18.972878911360738,
+    "passed": true
+  },
+  "resources": {
+    "max_tree_rss_mib": 742.41015625,
+    "min_available_mib": 2391.703125,
+    "max_swap_growth_mib": 0.0,
+    "max_pressure_level": null,
+    "oom_kills": 0
+  },
+  "resource_passed": true,
+  "clock_passed": true,
+  "passed": true,
+  "clock_summary": {
+    "preflight": {
+      "samples": 434,
+      "elapsed_s": 45.063290355028585,
+      "backward_steps": 0,
+      "wall_steps_over_50ms": 0,
+      "frequency_readings": 2,
+      "all_frequency_zero_and_tick_10000": true
+    },
+    "monitor": {
+      "samples": 26470,
+      "elapsed_s": 2691.237553782994,
+      "backward_steps": 0,
+      "wall_steps_over_50ms": 0,
+      "frequency_readings": 46,
+      "all_frequency_zero_and_tick_10000": true
+    }
+  },
+  "samples": {
+    "r0": [
+      {
+        "name": "hot-full-1",
+        "wall_s": 290.5117075549788,
+        "exit": 0,
+        "compile_count": 0,
+        "link_count": 0,
+        "archive_count": 0,
+        "tests_total": 649,
+        "tests_failed": 0,
+        "skipped_log_lines": []
+      },
+      {
+        "name": "hot-full-2",
+        "wall_s": 291.90326755598653,
+        "exit": 0,
+        "compile_count": 0,
+        "link_count": 0,
+        "archive_count": 0,
+        "tests_total": 649,
+        "tests_failed": 0,
+        "skipped_log_lines": []
+      },
+      {
+        "name": "hot-full-3",
+        "wall_s": 291.19366484700004,
+        "exit": 0,
+        "compile_count": 0,
+        "link_count": 0,
+        "archive_count": 0,
+        "tests_total": 649,
+        "tests_failed": 0,
+        "skipped_log_lines": []
+      }
+    ],
+    "before": [
+      {
+        "name": "hot-full-1",
+        "wall_s": 321.8271066530142,
+        "exit": 0,
+        "compile_count": 0,
+        "link_count": 0,
+        "archive_count": 0,
+        "tests_total": 671,
+        "tests_failed": 0,
+        "skipped_log_lines": []
+      },
+      {
+        "name": "hot-full-2",
+        "wall_s": 317.2536462760181,
+        "exit": 0,
+        "compile_count": 0,
+        "link_count": 0,
+        "archive_count": 0,
+        "tests_total": 671,
+        "tests_failed": 0,
+        "skipped_log_lines": []
+      },
+      {
+        "name": "hot-full-3",
+        "wall_s": 319.9828502360033,
+        "exit": 0,
+        "compile_count": 0,
+        "link_count": 0,
+        "archive_count": 0,
+        "tests_total": 671,
+        "tests_failed": 0,
+        "skipped_log_lines": []
+      }
+    ],
+    "after": [
+      {
+        "name": "hot-full-1",
+        "wall_s": 287.5105638449895,
+        "exit": 0,
+        "compile_count": 0,
+        "link_count": 0,
+        "archive_count": 0,
+        "tests_total": 671,
+        "tests_failed": 0,
+        "skipped_log_lines": []
+      },
+      {
+        "name": "hot-full-2",
+        "wall_s": 283.9731633850024,
+        "exit": 0,
+        "compile_count": 0,
+        "link_count": 0,
+        "archive_count": 0,
+        "tests_total": 671,
+        "tests_failed": 0,
+        "skipped_log_lines": []
+      },
+      {
+        "name": "hot-full-3",
+        "wall_s": 286.7804691779893,
+        "exit": 0,
+        "compile_count": 0,
+        "link_count": 0,
+        "archive_count": 0,
+        "tests_total": 671,
+        "tests_failed": 0,
+        "skipped_log_lines": []
+      }
+    ]
+  }
+}

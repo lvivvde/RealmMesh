@@ -1,0 +1,10 @@
+{
+  "base": "a420ee80bbdb38b73573da2bd2ed20a53808ec76",
+  "head": "7a881a860fc6ff3b11ec768b5e2d078cd7df98e8",
+  "standards_remaining": 0,
+  "spec_remaining": 0,
+  "scope": "complete implementation including bounded teardown, owner borrowing and CTest repeated preparation",
+  "performance_gate_status": "Mac and Lima paired gain/R0 1.05 cap passed; all local supplementary hard gates passed; final publication checks required before merge",
+  "graph_status": "MCP graph unavailable; exact source fallback",
+  "offline_audit_incremental_review_remaining": 0
+}

@@ -1,0 +1,9 @@
+{
+  "after_manifest_files_verified": 852,
+  "before_source_files_verified": 852,
+  "generated_before_only_excluded": [
+    "tools/build-bench/__pycache__/measure.cpython-313.pyc"
+  ],
+  "source_mismatches": [],
+  "r0_manifest_files_verified": 429
+}
