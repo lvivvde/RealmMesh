@@ -1,7 +1,7 @@
 #include "realmmesh/game/common/edge_protocol.hpp"
 #include "realmmesh/game/gateway/admission_consumption_store.hpp"
 #include "realmmesh/game/gateway/gateway_admission.hpp"
-#include "realmmesh/game/gateway/gateway_ingress.hpp"
+#include "realmmesh/game/gateway/gateway_credential_ingress.hpp"
 #include "realmmesh/game/gateway/gateway_login_config.hpp"
 #include "realmmesh/game/gateway/gateway_login_pipeline.hpp"
 #include "realmmesh/game/gateway/gateway_primary_transport.hpp"

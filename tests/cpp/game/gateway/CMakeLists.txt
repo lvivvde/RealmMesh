@@ -33,9 +33,10 @@ realm_add_gtest(gateway_primary_transport_test
     LIBS realm_gateway_service
 )
 
-# Gateway 轻量头不经传递 include 引入 gateway_runtime.hpp(#128):编译即断言。
+# Gateway 轻量头不经传递 include 引入 gateway_runtime.hpp(#128),运行时头
+# 也不经传递 include 引入凭据入口(ADR-0014 第 2 步):编译即断言。
 realm_add_gtest(gateway_headers_test
-    SOURCES gateway_headers_test.cpp
+    SOURCES gateway_headers_test.cpp gateway_runtime_headers_test.cpp
     LIBS realm_gateway_service
 )
 
@@ -61,8 +62,13 @@ realm_add_gtest(gateway_login_config_test
     LIBS realm_gateway_service realm_scripting
 )
 
-realm_add_gtest(gateway_ingress_test
-    SOURCES gateway_ingress_test.cpp
+realm_add_gtest(gateway_source_address_test
+    SOURCES gateway_source_address_test.cpp
+    LIBS realm_gateway_service
+)
+
+realm_add_gtest(gateway_credential_ingress_test
+    SOURCES gateway_credential_ingress_test.cpp
     LIBS realm_gateway_service
 )
 

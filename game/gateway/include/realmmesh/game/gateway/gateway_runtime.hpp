@@ -2,9 +2,9 @@
 
 #include "realmmesh/concurrency/bounded_queue.hpp"
 #include "realmmesh/game/gateway/edge_session_table.hpp"
-#include "realmmesh/game/gateway/gateway_config.hpp"
 #include "realmmesh/game/gateway/gateway_event.hpp"
-#include "realmmesh/game/gateway/gateway_ingress.hpp"
+#include "realmmesh/game/gateway/gateway_runtime_options.hpp"
+#include "realmmesh/game/gateway/gateway_source_address.hpp"
 #include "realmmesh/network/transport/message_transport.hpp"
 #include "realmmesh/observability/logger.hpp"
 
@@ -22,6 +22,10 @@
 #include <vector>
 
 namespace realm::game::gateway {
+
+/// 启动配置只在按配置构造时需要;完整定义见 gateway_config.hpp,运行时头
+/// 因此不经传递 include 拿到登录配置与凭据入口(ADR-0014 第 2 步)。
+struct GatewayConfig;
 
 enum class QueueResult : std::uint8_t {
     Queued,

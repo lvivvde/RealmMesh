@@ -1,5 +1,6 @@
 #include "realmmesh/game/gateway/gateway_runtime.hpp"
 
+#include "realmmesh/game/gateway/gateway_config.hpp"
 #include "realmmesh/network/codec/length_field_codec.hpp"
 
 #include <gtest/gtest.h>

@@ -58,6 +58,6 @@
 
 | 倒挂 | 修复步骤 |
 |---|---|
-| `game/realm` → `game/gateway` | 2、3：拆 ingress 头文件，建 `framework/edge` |
+| `game/realm` → `game/gateway` | 3：建 `framework/edge`（第 2 步已把来源地址归一化与凭据入口拆成两个头，运行时头只依赖前者） |
 | `framework/service_host` → `game/*` | 4、5：`ServiceModule` 与模块注册 |
 | `framework/cluster` 的 `ServiceType` 枚举 | 4：改为字符串身份（守卫查不到，靠评审） |

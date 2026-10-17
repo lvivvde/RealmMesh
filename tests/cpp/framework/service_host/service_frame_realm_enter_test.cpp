@@ -8,6 +8,7 @@
 #include "realmmesh/game/common/player_data_store.hpp"
 #include "realmmesh/game/common/session_ticket.hpp"
 #include "realmmesh/game/common/realm_protocol.hpp"
+#include "realmmesh/game/gateway/gateway_config.hpp"
 #include "realmmesh/game/gateway/gateway_runtime.hpp"
 #include "realmmesh/game/realm/realm_sessions.hpp"
 #include "realmmesh/game/realm/training_rule.hpp"

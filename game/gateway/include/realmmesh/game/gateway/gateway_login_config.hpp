@@ -1,7 +1,7 @@
 #pragma once
 
 #include "realmmesh/game/common/session_ticket.hpp"
-#include "realmmesh/game/gateway/gateway_ingress.hpp"
+#include "realmmesh/game/gateway/gateway_credential_ingress.hpp"
 
 #include <chrono>
 #include <compare>

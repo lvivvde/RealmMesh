@@ -1,41 +1,14 @@
 #include "realmmesh/game/common/edge_protocol.hpp"
-#include "realmmesh/game/gateway/gateway_ingress.hpp"
+#include "realmmesh/game/gateway/gateway_credential_ingress.hpp"
 
 #include <gtest/gtest.h>
 
 #include <chrono>
 #include <cstddef>
-#include <string>
 #include <vector>
 
 namespace realm::game::gateway {
 namespace {
-
-using namespace std::chrono_literals;
-
-TEST(GatewaySourceNormalizerTest, IgnoresForwardingHeadersFromUntrustedPeer) {
-    GatewaySourceNormalizer normalizer({
-        .mode = GatewaySourceMode::TrustedXForwardedFor,
-        .trusted_proxy_cidrs = {"10.0.0.0/8"},
-    });
-    const auto normalized = normalizer.normalize({
-        .direct_peer = "192.0.2.10",
-        .x_forwarded_for = "198.51.100.20",
-    });
-    EXPECT_EQ(normalized, "192.0.2.10");
-}
-
-TEST(GatewaySourceNormalizerTest, UsesFirstUntrustedForwardedHop) {
-    GatewaySourceNormalizer normalizer({
-        .mode = GatewaySourceMode::TrustedXForwardedFor,
-        .trusted_proxy_cidrs = {"10.0.0.0/8"},
-    });
-    const auto normalized = normalizer.normalize({
-        .direct_peer = "10.1.2.3",
-        .x_forwarded_for = "198.51.100.20, 10.2.3.4",
-    });
-    EXPECT_EQ(normalized, "198.51.100.20");
-}
 
 TEST(GatewayCredentialIngressTest, RejectsMalformedBeforeVerification) {
     GatewayCredentialIngress ingress({
