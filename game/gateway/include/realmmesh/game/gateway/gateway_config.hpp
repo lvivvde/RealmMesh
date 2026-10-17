@@ -5,25 +5,18 @@
 // 装载见 gateway_config_loader.hpp,Lua 解析入口见 gateway_config_lua.hpp。
 #include "realmmesh/cluster/service_discovery_config.hpp"
 #include "realmmesh/game/common/player_data_config.hpp"
-#include "realmmesh/game/gateway/gateway_ingress.hpp"
 #include "realmmesh/game/gateway/gateway_login_config.hpp"
+#include "realmmesh/game/gateway/gateway_runtime_options.hpp"
+#include "realmmesh/game/gateway/gateway_source_address.hpp"
 #include "realmmesh/network/transport/transport_config.hpp"
 #include "realmmesh/observability/logger.hpp"
 
-#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <string>
 #include <vector>
 
 namespace realm::game::gateway {
-
-struct GatewayRuntimeOptions {
-    std::size_t inbound_capacity{65'536};
-    std::size_t outbound_capacity{65'536};
-    std::size_t max_commands_per_cycle{4'096};
-    std::chrono::milliseconds io_poll_interval{2};
-};
 
 struct GatewayConfig {
     std::vector<network::TransportConfig> transports;

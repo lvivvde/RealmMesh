@@ -5,11 +5,12 @@ add_library(realm_gateway_service
     src/gateway_admission.cpp
     src/gateway_config_loader.cpp
     src/gateway_config_lua.cpp
-    src/gateway_ingress.cpp
+    src/gateway_credential_ingress.cpp
     src/gateway_login_config.cpp
     src/gateway_login_pipeline.cpp
     src/gateway_primary_transport.cpp
     src/gateway_runtime.cpp
+    src/gateway_source_address.cpp
 )
 
 add_library(RealmMesh::GatewayService ALIAS realm_gateway_service)

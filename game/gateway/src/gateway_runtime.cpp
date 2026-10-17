@@ -1,5 +1,6 @@
 #include "realmmesh/game/gateway/gateway_runtime.hpp"
 
+#include "realmmesh/game/gateway/gateway_config.hpp"
 #include "realmmesh/network/transport/transport_factory.hpp"
 
 #include <algorithm>

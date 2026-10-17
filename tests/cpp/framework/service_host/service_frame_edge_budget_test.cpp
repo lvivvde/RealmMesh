@@ -11,6 +11,7 @@
 #include "realmmesh/game/gateway/account_fetch_port.hpp"
 #include "realmmesh/game/gateway/admission_consumption_store.hpp"
 #include "realmmesh/game/gateway/gateway_admission.hpp"
+#include "realmmesh/game/gateway/gateway_config.hpp"
 #include "realmmesh/game/gateway/gateway_login_config.hpp"
 #include "realmmesh/game/gateway/gateway_login_pipeline.hpp"
 #include "realmmesh/game/gateway/gateway_primary_transport.hpp"

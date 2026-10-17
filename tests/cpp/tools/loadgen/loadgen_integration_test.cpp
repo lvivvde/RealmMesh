@@ -544,7 +544,7 @@ void use_loadgen_free_ports(
                               "handoff_grace_ms = 30000");
     }
     if (relax_ingress_limits) {
-        // 硬上限:rate ≤ 10000、burst ≤ 20000(gateway_ingress.hpp)。
+        // 硬上限:rate ≤ 10000、burst ≤ 20000(gateway_credential_ingress.hpp)。
         gateway = replace_all(
             gateway, "source_rate_per_second = 20",
             "source_rate_per_second = 4000");
