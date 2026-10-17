@@ -1,4 +1,4 @@
-#include "realmmesh/client/login_chain.hpp"
+#include "realmmesh/game/client/login_chain.hpp"
 
 #include <gtest/gtest.h>
 
@@ -10,7 +10,7 @@
 #include <utility>
 #include <vector>
 
-namespace realm::client {
+namespace realm::game::client {
 namespace {
 
 using std::chrono::milliseconds;
@@ -932,4 +932,4 @@ TEST(LoginChainTest, StageNamesMatchSpecVocabulary) {
 }
 
 }  // namespace
-}  // namespace realm::client
+}  // namespace realm::game::client

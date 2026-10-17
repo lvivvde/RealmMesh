@@ -15,7 +15,7 @@ target_include_directories(realm_loadgen_core
 )
 
 target_link_libraries(realm_loadgen_core PUBLIC
-    RealmMesh::Client
+    RealmMesh::GameClient
     RealmMesh::Network
     RealmMesh::GameCommon
 )

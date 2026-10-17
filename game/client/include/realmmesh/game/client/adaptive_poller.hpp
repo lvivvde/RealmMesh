@@ -5,7 +5,7 @@
 #include <functional>
 #include <optional>
 
-namespace realm::client {
+namespace realm::game::client {
 
 /// 分档轮询参数(spec §7 初值):初始 2s;位次 >1000 → 5s;≤10 → 1s;
 /// 其余 2s;±20% 抖动;连续 3 次失败起指数退避、30s 封顶。
@@ -71,4 +71,4 @@ private:
     std::uint32_t consecutive_failures_{0};
 };
 
-}  // namespace realm::client
+}  // namespace realm::game::client

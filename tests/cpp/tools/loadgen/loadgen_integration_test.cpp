@@ -1,4 +1,4 @@
-#include "realmmesh/client/wire_login_transport.hpp"
+#include "realmmesh/game/client/wire_login_transport.hpp"
 #include "realmmesh/loadgen/loadgen.hpp"
 #include "realmmesh/loadgen/login_chain_adapter.hpp"
 #include "realmmesh/loadgen/login_chain_metrics.hpp"

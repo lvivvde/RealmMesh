@@ -14,7 +14,7 @@
 /// 兑换口对坏帧/超时/错误码的分型是帧级行为,由无 socket 的单测覆盖
 /// (wire_login_transport_test.cpp);这里只对撞真实服务端。
 
-#include "realmmesh/client/wire_login_transport.hpp"
+#include "realmmesh/game/client/wire_login_transport.hpp"
 #include "realmmesh/game/common/edge_protocol.hpp"
 #include "realmmesh/game/common/session_ticket.hpp"
 #include "realmmesh/game/gateway/gateway_runtime.hpp"
@@ -48,7 +48,7 @@
 #include <utility>
 #include <vector>
 
-namespace realm::client {
+namespace realm::game::client {
 namespace {
 
 namespace common = ::realm::game::common;
@@ -858,4 +858,4 @@ TEST(WireLoginTransportIntegrationTest, RealmApiRoundTripsOverRealTls) {
 }
 
 }  // namespace
-}  // namespace realm::client
+}  // namespace realm::game::client

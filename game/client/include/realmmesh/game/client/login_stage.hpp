@@ -2,7 +2,7 @@
 
 #include <string_view>
 
-namespace realm::client {
+namespace realm::game::client {
 
 /// 客户端登录链路七态(spec §7 客户端契约;Idle 为回退起点/终点):
 /// verifying → queued → admitted → gateway_connecting →
@@ -40,4 +40,4 @@ enum class ChainFailure {
 [[nodiscard]] std::string_view chain_failure_name(
     ChainFailure failure) noexcept;
 
-}  // namespace realm::client
+}  // namespace realm::game::client

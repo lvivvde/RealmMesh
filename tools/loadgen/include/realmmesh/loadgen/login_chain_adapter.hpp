@@ -1,7 +1,7 @@
 #pragma once
 
-#include "realmmesh/client/login_chain.hpp"
-#include "realmmesh/client/wire_login_transport.hpp"
+#include "realmmesh/game/client/login_chain.hpp"
+#include "realmmesh/game/client/wire_login_transport.hpp"
 #include "realmmesh/loadgen/stats.hpp"
 
 #include <chrono>
@@ -11,6 +11,8 @@
 #include <variant>
 
 namespace realm::loadgen {
+
+namespace client = ::realm::game::client;
 
 enum class LoadgenLoginTarget {
     Verify,
