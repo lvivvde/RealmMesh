@@ -76,6 +76,6 @@ status: accepted
 
 - 新功能的归属按 [code-layout](../agents/code-layout.md) 查，不再凭感觉判断。
 - 与 [ADR-0003](0003-lean-tree-no-speculative-placeholders.md) 的冲突：它把 `realm::cluster::ServiceType` 枚举定为服务身份的权威列表。第 4 步之后，权威列表改为 `apps/mesh_host` 的模块注册表。"只为已实现代码建立目录与身份"的原则不变。
-- [ADR-0008](0008-client-login-chain-shared-wire-and-redeemer-seam.md) 中 `framework/client` 的位置由第 1 步改为 `game/client`。线客户端留在 `framework/network/client`，`realm_client` 只依赖 Network 与 GameCommon，这两条仍然成立。
+- [ADR-0008](0008-client-login-chain-shared-wire-and-redeemer-seam.md) 中 `framework/client` 的位置已由第 1 步改为 `game/client`：目标改名 `realm_game_client`（别名 `RealmMesh::GameClient`），include 前缀改为 `realmmesh/game/client/`，命名空间改为 `realm::game::client`，守卫白名单删去 `framework/client` → `game/common`。线客户端留在 `framework/network/client`，客户端库只依赖 Network 与 GameCommon，这两条仍然成立。
 - [architecture.md](../architecture.md) 里"gateway 与 realm 在 `framework/service_host` 中共用 `game::gateway::GatewayRuntime`"的描述，随第 3、5 步更新。
 - 白名单只减不增，新服务不能再往 `framework/service_host` 里接线。Scene、Chat 等新服务必须等第 4 步提供 `ServiceModule` 之后再接入宿主。

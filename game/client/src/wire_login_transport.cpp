@@ -1,4 +1,4 @@
-#include "realmmesh/client/wire_login_transport.hpp"
+#include "realmmesh/game/client/wire_login_transport.hpp"
 
 #include "realmmesh/game/common/edge_protocol.hpp"
 #include "realmmesh/game/common/realm_protocol.hpp"
@@ -14,7 +14,7 @@
 #include <utility>
 #include <vector>
 
-namespace realm::client {
+namespace realm::game::client {
 namespace {
 
 namespace common = ::realm::game::common;
@@ -844,4 +844,4 @@ PortStatus WireLoginTransport::enter_realm(RealmSession& session,
                             deadline);
 }
 
-}  // namespace realm::client
+}  // namespace realm::game::client

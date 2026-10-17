@@ -1,7 +1,7 @@
 #pragma once
 
-#include "realmmesh/client/adaptive_poller.hpp"
-#include "realmmesh/client/login_stage.hpp"
+#include "realmmesh/game/client/adaptive_poller.hpp"
+#include "realmmesh/game/client/login_stage.hpp"
 #include "realmmesh/network/client/preferred_transport_connector.hpp"
 
 #include <chrono>
@@ -14,7 +14,7 @@
 #include <variant>
 #include <vector>
 
-namespace realm::client {
+namespace realm::game::client {
 
 using Clock = std::chrono::steady_clock;
 using TimePoint = Clock::time_point;
@@ -405,4 +405,4 @@ private:
     PollingProfile polling_profile_{PollingProfile::ClientRealistic};
 };
 
-}  // namespace realm::client
+}  // namespace realm::game::client

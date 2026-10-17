@@ -1,19 +1,19 @@
 realm_add_gtest(adaptive_poller_test
     SOURCES adaptive_poller_test.cpp
-    LIBS realm_client
+    LIBS realm_game_client
 )
 
 # 七态链路与回退规则:脚本化传输口,不占端口 → unit(缺省)。
 realm_add_gtest(login_chain_test
     SOURCES login_chain_test.cpp
-    LIBS realm_client
+    LIBS realm_game_client
 )
 
 # 兑换口的帧级处理:罐头字节替身,不起 socket → unit(缺省)。
 realm_add_gtest(wire_login_transport_test
     SOURCES wire_login_transport_test.cpp
     LIBS
-        realm_client
+        realm_game_client
         RealmMesh::GameCommon
 )
 
@@ -23,7 +23,7 @@ realm_add_gtest(wire_login_transport_integration_test
     SOURCES wire_login_transport_integration_test.cpp
     INCLUDE_DIRS ${PROJECT_SOURCE_DIR}/tests/cpp/support/include
     LIBS
-        realm_client
+        realm_game_client
         realm_service_host
         RealmMesh::GameCommon
     DEFINITIONS

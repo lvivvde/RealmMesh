@@ -3,7 +3,7 @@
 /// 落到哪个 `ChainFailure`、detail 是什么。真实服务端的对撞在集成档
 /// (wire_login_transport_integration_test)。
 
-#include "realmmesh/client/wire_login_transport.hpp"
+#include "realmmesh/game/client/wire_login_transport.hpp"
 #include "realmmesh/common/v1/envelope.pb.h"
 #include "realmmesh/game/common/edge_protocol.hpp"
 #include "realmmesh/network/client/edge_client_connection.hpp"
@@ -21,7 +21,7 @@
 #include <string>
 #include <vector>
 
-namespace realm::client {
+namespace realm::game::client {
 namespace {
 
 namespace common = ::realm::game::common;
@@ -170,4 +170,4 @@ TEST(WireEnterRealmRedeemerTest, MapsTimeoutToEnterRealmRejected) {
 }
 
 }  // namespace
-}  // namespace realm::client
+}  // namespace realm::game::client

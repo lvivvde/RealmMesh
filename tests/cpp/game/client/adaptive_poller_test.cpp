@@ -1,4 +1,4 @@
-#include "realmmesh/client/adaptive_poller.hpp"
+#include "realmmesh/game/client/adaptive_poller.hpp"
 
 #include <gtest/gtest.h>
 
@@ -8,7 +8,7 @@
 #include <memory>
 #include <vector>
 
-namespace realm::client {
+namespace realm::game::client {
 namespace {
 
 using std::chrono::milliseconds;
@@ -112,4 +112,4 @@ TEST(AdaptivePollerTest, DefaultJitterSourceVariesWithinUnitInterval) {
 }
 
 }  // namespace
-}  // namespace realm::client
+}  // namespace realm::game::client

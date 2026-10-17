@@ -111,8 +111,6 @@ struct KnownInversion {
 // 与 ADR-0014「四处倒挂的修法」一一对应;framework/cluster 的 ServiceType
 // 枚举不是 include/链接依赖，不在此列。
 constexpr std::array known_inversions{
-    KnownInversion{"framework/client", "game/common",
-                   "第 1 步：整体搬到 game/client"},
     KnownInversion{"game/realm", "game/gateway",
                    "第 2、3 步：拆 ingress 头，建 framework/edge"},
     KnownInversion{"framework/service_host", "game/common",
@@ -315,7 +313,7 @@ bool is_known(const Edge& edge) {
 
 TEST(LayeringRulesTest, DependenciesFlowDownward) {
     EXPECT_TRUE(allowed("apps/mesh_host", "game/realm"));
-    EXPECT_TRUE(allowed("tools/loadgen", "framework/client"));
+    EXPECT_TRUE(allowed("tools/loadgen", "game/client"));
     EXPECT_TRUE(allowed("game/realm", "game/common"));
     EXPECT_TRUE(allowed("game/realm", "proto"));
     EXPECT_TRUE(allowed("game/realm", "framework/network"));
@@ -329,7 +327,7 @@ TEST(LayeringRulesTest, DependenciesFlowDownward) {
     EXPECT_FALSE(allowed("game/common", "game/gateway"));
     EXPECT_FALSE(allowed("game/common", "game/client"));
     EXPECT_FALSE(allowed("framework/service_host", "game/queue"));
-    EXPECT_FALSE(allowed("framework/client", "game/common"));
+    EXPECT_FALSE(allowed("framework/network", "game/common"));
     EXPECT_FALSE(allowed("framework/network", "proto"));
     EXPECT_FALSE(allowed("framework/network", "apps/mesh_host"));
     EXPECT_FALSE(allowed("proto", "game/common"));
