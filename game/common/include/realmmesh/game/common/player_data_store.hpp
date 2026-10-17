@@ -1,6 +1,7 @@
 #pragma once
 
 #include "realmmesh/game/common/account_store.hpp"
+#include "realmmesh/game/common/scene_store.hpp"
 
 #include <chrono>
 #include <cstdint>
@@ -152,7 +153,8 @@ struct PlayerDataConfig final {
 /// 副本集。线程安全：内部持有连接池，可被多个线程同时调用。
 class MongoPlayerDataStore final : public AccountStore,
                                    public PlayerDataReader,
-                                   public RealmCharacterStore {
+                                   public RealmCharacterStore,
+                                   public RealmSceneStore {
 public:
     /// 连接失败、不是副本集或 schema 版本高于本二进制时抛 PlayerDataError。
     MongoPlayerDataStore(
@@ -188,6 +190,17 @@ public:
         std::uint64_t character_id) const;
     [[nodiscard]] std::optional<TrainingWriteResult> record_training(
         const TrainingWrite& write) override;
+
+    [[nodiscard]] std::optional<SceneStateRecord> initialize_scene(
+        const SceneCharacterKey& character) override;
+    [[nodiscard]] std::optional<SceneStateRecord> scene_state(
+        const SceneCharacterKey& character) const override;
+    [[nodiscard]] SceneWriteResult commit_scene(
+        const SceneWrite& write) override;
+    [[nodiscard]] bool revoke_scene(
+        const SceneCharacterKey& character,
+        std::uint64_t expected_epoch,
+        const SceneOwner& expected_owner) override;
 
     /// Provisioning 写路径；服务热路径只使用上面的只读边界。
     void provision_account(const AccountProvisioning& account);

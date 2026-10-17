@@ -55,6 +55,14 @@ QUIC 在一个客户端发起的长期可靠双向流上承载该字节流；不
 | 1407 | C2S | `Train` |
 | 1408 | S2C | `TrainResult` |
 | 1409 | S2C | `RealmSessionDisplaced` |
+| 1501 | C2S | `EnterScene`（仅线契约，S2 接线） |
+| 1502 | S2C | `SceneCommandResult` |
+| 1503 | C2S | `MoveInScene`（仅线契约，S2 接线） |
+| 1504 | C2S | `GetSceneState`（仅线契约，S2 接线） |
+| 1505 | S2C | `SceneState` |
+| 1506 | S2C | `SceneEvent` |
+| 1507 | C2S | `TransferScene`（仅线契约，S3 接线） |
+| 1508 | S2C | `SceneUnavailable` |
 | 1999 | S2C | `EdgeError` |
 
 1101–1305 定义在 `edge/v1/edge.proto`，1401–1409 定义在 `realm/v1/realm.proto`；两者共用
@@ -175,6 +183,81 @@ Login Verifier 的 HTTPS 错误体为 `{code, message, retry_after_seconds?}`：
 
 证书链/主机名、ALPN、业务鉴权和协议版本错误属于终止错误。当前规则只覆盖初次
 建连；已建立 QUIC 连接断开后需重新走候选选择和鉴权。
+
+## Scene 线契约（#161，服务尚未接线）
+
+1501–1508 已定义于 `scene/v1/scene.proto`，共用 Envelope v1，编解码在
+`game/common/scene_protocol`；当前 Realm 仍按未知业务消息拒绝，不能以协议定义宣称双人
+闭环已上线。[Scene 规格](specs/2026-10-17-scene-reference-loop.md)中的 S2 才接线进入、移动
+与查询，S3 才接线转场。请求/响应的 `request_id` 必须非零，1506/1508 推送必须为 0。
+
+`EnterScene{scene_seq}` 不传账号或目标；`MoveInScene{scene_seq,x,y}` 为绝对整数坐标，
+范围 0..10000；`TransferScene{scene_seq,target_shard_id}` 只能指定非零目标分片。
+场景序号取 1..INT64_MAX，独立于训练序号；`request_id` 不作幂等键。
+`SceneCommandResult` 返回操作类型、序号、落点、绑定版本与回放标志。
+`SceneState` 返回阶段、最后已提交序号/结果、确认落点、当前版本，以及可用时的快照；
+首次进入前序号与版本为 0 且无落点。撤销后保留最后结果但版本可比该结果更新。
+
+快照包含稳定 shard_id、分片 incarnation、事件水位和至多 16 个互不重复的角色成员；每个
+成员只有角色 id、绑定版本与位置，位置必须属于该分片。事件带递增序号、加入/移动/离场
+类型及成员，`SceneUnavailable` 带分片、绑定版本及 1..5 秒重试建议。游戏中 active 状态
+必须含快照；接收者仍须核对水位、绑定版本和本地当前路由，结构解码不代替状态机校验。
+所有 Scene Envelope（含头）上限 64KiB；坏帧、版本不符、错误消息编号、缺必需值、未知
+枚举、越界坐标、错分片或重复成员均拒绝。
+
+规划业务接线后使用 1999 `EdgeError` 的以下错误，当前已提供常量但尚无 Scene 处理器：
+
+| 错误码 | 含义 |
+|---|---|
+| 3101 | 尚未进入或正在切换 |
+| 3102 | 位置或目标参数不合法 |
+| 3103 | 序号非法或同序号不同参数 |
+| 3104 | 确定未提交且 Scene 暂不可用 |
+| 3105 | 结果不确定，必须查询或以同一业务指令重试 |
+| 3106 | 绑定失效，需重新进入 |
+
+### Realm 与 Scene 内部契约
+
+`scene_internal/v1/scene_internal.proto` 独立于客户端线；计划监听使用 TLS/TCP、双向
+服务身份校验及 ALPN `realmmesh-scene/1`（网络接线在 S2），不接收客户端票据。
+内部帧同样使用长度帧与 Envelope v1：1601 `SceneRequest`、1602 `SceneReply`、
+1603 `ScenePush`，由 `scene_internal_protocol` 编解码。两组消息不会互相认领。
+所有内部消息带 `realm_incarnation`、`scene_instance_id`、`scene_incarnation`（各为
+1..128 个非空白可打印 ASCII 字节），用于认证后再核对进程代次；字段不能替代 TLS 身份。
+Route 含非零 realm_id、character_id、binding_epoch、session_binding 与 shard_id。
+
+| operation | 请求必需内容 | STATUS_OK 回复必需内容 |
+|---|---|---|
+| 1 PREPARE | Route、scene_seq、32 字节 command_digest、location | Route、scene_seq、location（暂存，不可见） |
+| 2 PROPOSE_MOVE | Route、scene_seq、command_digest、location | Route、scene_seq、合法候选 location |
+| 3 CONFIRM | Route、scene_seq、command_digest、已持久 location | Route、scene_seq、location（已应用） |
+| 4 ACTIVATE | Route、scene_seq、command_digest，不带 location | Route、scene_seq、原子快照 |
+| 5 SNAPSHOT | shard_id，无 Route/序号/摘要 | 快照，无 Route/序号 |
+| 6 REMOVE | Route，无序号/摘要/location | Route，无序号 |
+| 7 SET_DRAINING | draining 布尔值，无角色字段 | draining 与 active_members |
+
+成功值为 1 OK；拒绝值为 2 INVALID、3 STALE_BINDING、4 BUSY、5 DRAINING、
+6 NOT_FOUND、7 UNAVAILABLE。拒绝回复只回身份、操作和关联 ID，不夹带半份候选或快照。
+请求/回复关联 ID 非零，1603 推送 ID 为 0、携带完整 `SceneEvent`。角色操作的 location、
+快照 shard_id 必须与 Route 一致。字节摘要是规范业务参数 SHA-256；数据库使用等价的
+64 字符 hex 表示，摘要不含 request_id、序号或传输身份，重放还要核对序号与原结果。
+
+### 已实现的持久边界
+
+`RealmSceneStore` 由既有 `MongoPlayerDataStore` 实现：`initialize_scene` 惰性建立空状态，
+`scene_state` 回读，`commit_scene` 原子推进指令结果，`revoke_scene` 条件撤销绑定。
+`character_scenes` 使用复合 `_id{realm_id,character_id}` 保证唯一；读写均先核对不可转移的
+角色归属。与训练字段分离，不修改 AccountStore 或登录读路径。
+进入/重绑和转场递增 binding_epoch；移动保留版本；撤销只递增版本、清除 owner，保留
+确认落点及最后序号。绑定与场景序号不允许 INT64_MAX 回绕；域 id 仍保留完整 uint64。
+
+提交的过滤条件包括当前版本、完整旧 owner 与前一场景序号；owner 包含 Realm incarnation、
+会话绑定、Scene 实例与 incarnation。进入不能改变既有落点，移动不能改承载者或分片，
+转场不能换 Realm 会话；合法移动判定仍由未来 Scene 处理器负责。
+相同序号只有业务参数、结果位置、结果版本与结果 owner 全部相同才回放，不重复写。
+已发出的写若驱动或结果解析失败，抛 `SceneWriteUncertain`；调用方不得宣称未生效。
+`resolve_scene_write` 只在回读到精确结果时确认已提交，缺记录、旧值或被覆盖历史都仍是
+Unknown；禁止把一次旧值回读当作允许重新编号的依据。
 
 ## 演进规则
 

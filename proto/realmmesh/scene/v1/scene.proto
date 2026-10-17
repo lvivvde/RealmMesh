@@ -1,0 +1,91 @@
+syntax = "proto3";
+package realmmesh.protocol.scene.v1;
+option optimize_for = LITE_RUNTIME;
+
+// #161: 已定义线契约，Realm 在 S2 接线前仍拒绝这些业务消息。
+enum MessageId {
+    MESSAGE_ID_UNSPECIFIED = 0;
+    MESSAGE_ID_C2S_ENTER_SCENE = 1501;
+    MESSAGE_ID_S2C_SCENE_COMMAND_RESULT = 1502;
+    MESSAGE_ID_C2S_MOVE_IN_SCENE = 1503;
+    MESSAGE_ID_C2S_GET_SCENE_STATE = 1504;
+    MESSAGE_ID_S2C_SCENE_STATE = 1505;
+    MESSAGE_ID_S2C_SCENE_EVENT = 1506;
+    MESSAGE_ID_C2S_TRANSFER_SCENE = 1507;
+    MESSAGE_ID_S2C_SCENE_UNAVAILABLE = 1508;
+}
+enum CommandKind {
+    COMMAND_KIND_UNSPECIFIED = 0;
+    COMMAND_KIND_ENTER = 1;
+    COMMAND_KIND_MOVE = 2;
+    COMMAND_KIND_TRANSFER = 3;
+}
+enum Phase {
+    PHASE_UNSPECIFIED = 0;
+    PHASE_OUTSIDE = 1;
+    PHASE_ENTERING = 2;
+    PHASE_ACTIVE = 3;
+    PHASE_TRANSFERRING = 4;
+    PHASE_UNAVAILABLE = 5;
+}
+message Location {
+    uint64 shard_id = 1;
+    int32 x = 2;
+    int32 y = 3;
+}
+message Member {
+    uint64 character_id = 1;
+    uint64 binding_epoch = 2;
+    Location location = 3;
+}
+message Snapshot {
+    uint64 shard_id = 1;
+    string shard_incarnation = 2;
+    uint64 event_seq = 3;
+    repeated Member members = 4;
+}
+message EnterScene { uint64 scene_seq = 1; }
+message MoveInScene {
+    uint64 scene_seq = 1;
+    int32 x = 2;
+    int32 y = 3;
+}
+message TransferScene {
+    uint64 scene_seq = 1;
+    uint64 target_shard_id = 2;
+}
+message GetSceneState {}
+message SceneCommandResult {
+    CommandKind kind = 1;
+    uint64 scene_seq = 2;
+    Location location = 3;
+    uint64 binding_epoch = 4;
+    bool replayed = 5;
+}
+message SceneState {
+    Phase phase = 1;
+    uint64 last_scene_seq = 2;
+    // 未曾确认指令时无 last_result / confirmed_location。
+    SceneCommandResult last_result = 3;
+    Location confirmed_location = 4;
+    uint64 binding_epoch = 5;
+    Snapshot snapshot = 6;
+}
+message SceneEvent {
+    enum Kind {
+        KIND_UNSPECIFIED = 0;
+        KIND_JOIN = 1;
+        KIND_MOVE = 2;
+        KIND_LEAVE = 3;
+    }
+    uint64 shard_id = 1;
+    string shard_incarnation = 2;
+    uint64 event_seq = 3;
+    Kind kind = 4;
+    Member member = 5;
+}
+message SceneUnavailable {
+    uint64 shard_id = 1;
+    uint64 binding_epoch = 2;
+    uint32 retry_after_seconds = 3;
+}

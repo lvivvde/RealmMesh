@@ -308,6 +308,265 @@ struct BootstrapAccount final {
 
 }  // namespace
 
+namespace {
+constexpr std::string_view scenes_collection = "character_scenes";
+
+bool valid_scene_text(std::string_view value) {
+    return !value.empty() && value.size() <= 128 &&
+           std::ranges::all_of(value, [](unsigned char c) {
+               return c >= 33 && c <= 126;
+           });
+}
+
+bool valid_scene_owner(const SceneOwner& owner) {
+    return valid_scene_text(owner.realm_incarnation) &&
+           owner.session_binding != 0 &&
+           valid_scene_text(owner.scene_instance_id) &&
+           valid_scene_text(owner.scene_incarnation);
+}
+
+bool valid_scene_location(const SceneLocation& location) {
+    return location.shard_id != 0 && location.x >= 0 &&
+           location.x <= scene_coordinate_max && location.y >= 0 &&
+           location.y <= scene_coordinate_max;
+}
+
+bool valid_scene_command(const SceneCommand& command) {
+    if (command.seq == 0 || command.seq > scene_counter_max) return false;
+    switch (command.type) {
+    case SceneCommandType::Enter:
+        return command.x == 0 && command.y == 0 && command.target_shard_id == 0;
+    case SceneCommandType::Move:
+        return command.target_shard_id == 0 && command.x >= 0 &&
+               command.x <= scene_coordinate_max && command.y >= 0 &&
+               command.y <= scene_coordinate_max;
+    case SceneCommandType::Transfer:
+        return command.x == 0 && command.y == 0 && command.target_shard_id != 0;
+    }
+    return false;
+}
+
+bsoncxx::document::value scene_identity(const SceneCharacterKey& key) {
+    return make_document(
+        kvp("realm_id", std::int64_t{key.realm_id}),
+        kvp("character_id", database_id(key.character_id, "character_id")));
+}
+
+bsoncxx::document::value scene_filter(const SceneCharacterKey& key) {
+    if (key.realm_id == 0) throw PlayerDataError("realm_id must be non-zero");
+    return make_document(
+        kvp("_id", scene_identity(key)),
+        kvp("account_id", database_id(key.account_id, "account_id")));
+}
+
+bsoncxx::document::value scene_owner_document(const SceneOwner& owner) {
+    return make_document(
+        kvp("realm_incarnation", owner.realm_incarnation),
+        kvp("session_binding",
+            database_id(owner.session_binding, "session_binding")),
+        kvp("scene_instance_id", owner.scene_instance_id),
+        kvp("scene_incarnation", owner.scene_incarnation));
+}
+
+bsoncxx::document::value scene_location_document(
+    const SceneLocation& location) {
+    return make_document(
+        kvp("shard_id", database_id(location.shard_id, "shard_id")),
+        kvp("x", std::int64_t{location.x}),
+        kvp("y", std::int64_t{location.y}));
+}
+
+bsoncxx::document::value scene_result_document(
+    const SceneStoredResult& result) {
+    return make_document(
+        kvp("type", static_cast<std::int64_t>(result.command.type)),
+        kvp("seq", database_counter(result.command.seq, "scene_seq")),
+        kvp("x", std::int64_t{result.command.x}),
+        kvp("y", std::int64_t{result.command.y}),
+        kvp("target_shard_id",
+            std::bit_cast<std::int64_t>(result.command.target_shard_id)),
+        kvp("digest", scene_command_digest(result.command)),
+        kvp("binding_epoch",
+            database_counter(result.binding_epoch, "binding_epoch")),
+        kvp("owner", scene_owner_document(result.owner)),
+        kvp("location", scene_location_document(result.location)));
+}
+
+bsoncxx::document::value scene_fields(const SceneStateRecord& state) {
+    bsoncxx::builder::basic::document fields;
+    fields.append(
+        kvp("scene_schema", std::int64_t{1}),
+        kvp("account_id",
+            database_id(state.character.account_id, "account_id")),
+        kvp("binding_epoch",
+            database_counter(state.binding_epoch, "binding_epoch")));
+    if (state.owner)
+        fields.append(kvp("owner", scene_owner_document(*state.owner)));
+    else
+        fields.append(kvp("owner", bsoncxx::types::b_null{}));
+    if (state.confirmed_location)
+        fields.append(kvp(
+            "location", scene_location_document(*state.confirmed_location)));
+    else
+        fields.append(kvp("location", bsoncxx::types::b_null{}));
+    if (state.last_result)
+        fields.append(
+            kvp("last_result", scene_result_document(*state.last_result)));
+    else
+        fields.append(kvp("last_result", bsoncxx::types::b_null{}));
+    fields.append(
+        kvp("last_scene_seq",
+            database_counter(
+                state.last_result ? state.last_result->command.seq : 0,
+                "scene_seq")));
+    return fields.extract();
+}
+
+bsoncxx::document::view scene_document(
+    const bsoncxx::document::element& field) {
+    if (!field || field.type() != bsoncxx::type::k_document)
+        throw PlayerDataError("invalid scene document");
+    return field.get_document().value;
+}
+
+std::int32_t scene_coordinate(const bsoncxx::document::element& field) {
+    const auto value = domain_counter(field);
+    if (value > static_cast<std::uint64_t>(scene_coordinate_max))
+        throw PlayerDataError("invalid scene coordinate");
+    return static_cast<std::int32_t>(value);
+}
+
+SceneOwner scene_owner_from(bsoncxx::document::view view) {
+    SceneOwner owner{
+        domain_string(view["realm_incarnation"]),
+        domain_id(view["session_binding"]),
+        domain_string(view["scene_instance_id"]),
+        domain_string(view["scene_incarnation"])};
+    if (!valid_scene_owner(owner)) throw PlayerDataError("invalid scene owner");
+    return owner;
+}
+
+SceneLocation scene_location_from(bsoncxx::document::view view) {
+    return {
+        domain_id(view["shard_id"]),
+        scene_coordinate(view["x"]),
+        scene_coordinate(view["y"])};
+}
+
+SceneStateRecord scene_state_from(
+    const SceneCharacterKey& key, bsoncxx::document::view view) {
+    if (domain_counter(view["scene_schema"]) != 1 ||
+        domain_id(view["account_id"]) != key.account_id) {
+        throw PlayerDataError("invalid scene schema or ownership");
+    }
+    SceneStateRecord state{
+        .character = key,
+        .binding_epoch = domain_counter(view["binding_epoch"])};
+    if (!view["owner"] || !view["location"] || !view["last_result"])
+        throw PlayerDataError("missing scene fields");
+    if (view["owner"].type() != bsoncxx::type::k_null)
+        state.owner = scene_owner_from(scene_document(view["owner"]));
+    if (view["location"].type() != bsoncxx::type::k_null)
+        state.confirmed_location =
+            scene_location_from(scene_document(view["location"]));
+    if (view["last_result"].type() != bsoncxx::type::k_null) {
+        const auto receipt = scene_document(view["last_result"]);
+        const auto type = domain_counter(receipt["type"]);
+        if (type < 1 || type > 3)
+            throw PlayerDataError("invalid scene command type");
+        SceneStoredResult result{
+            .command =
+                {static_cast<SceneCommandType>(type),
+                 domain_counter(receipt["seq"]),
+                 scene_coordinate(receipt["x"]),
+                 scene_coordinate(receipt["y"]),
+                 std::bit_cast<std::uint64_t>(
+                     receipt["target_shard_id"].get_int64().value)},
+            .location =
+                scene_location_from(scene_document(receipt["location"])),
+            .binding_epoch = domain_counter(receipt["binding_epoch"]),
+            .owner = scene_owner_from(scene_document(receipt["owner"]))};
+        if (!valid_scene_command(result.command) || result.binding_epoch == 0 ||
+            result.binding_epoch > state.binding_epoch ||
+            domain_string(receipt["digest"]) !=
+                scene_command_digest(result.command)) {
+            throw PlayerDataError("invalid scene receipt");
+        }
+        state.last_result = std::move(result);
+    }
+    const auto seq = state.last_result ? state.last_result->command.seq : 0;
+    if (domain_counter(view["last_scene_seq"]) != seq ||
+        state.confirmed_location.has_value() != state.last_result.has_value() ||
+        (state.last_result &&
+         *state.confirmed_location != state.last_result->location) ||
+        (state.owner &&
+         (!state.last_result ||
+          state.binding_epoch != state.last_result->binding_epoch ||
+          *state.owner != state.last_result->owner)) ||
+        (state.binding_epoch == 0 && state.last_result)) {
+        throw PlayerDataError("inconsistent scene state");
+    }
+    return state;
+}
+
+bsoncxx::document::value scene_cas_filter(
+    const SceneCharacterKey& key,
+    std::uint64_t epoch,
+    const std::optional<SceneOwner>& owner) {
+    bsoncxx::builder::basic::document filter;
+    filter.append(
+        bsoncxx::builder::basic::concatenate(scene_filter(key).view()),
+        kvp("binding_epoch", database_counter(epoch, "binding_epoch")));
+    if (owner)
+        filter.append(kvp("owner", scene_owner_document(*owner)));
+    else
+        filter.append(kvp("owner", bsoncxx::types::b_null{}));
+    return filter.extract();
+}
+
+SceneWriteOutcome check_scene_transition(
+    const SceneStateRecord& state, const SceneWrite& write) {
+    const auto seq = state.last_result ? state.last_result->command.seq : 0;
+    if (resolve_scene_write(write, state) == SceneWriteResolution::Committed &&
+        state.owner == write.owner &&
+        state.binding_epoch == state.last_result->binding_epoch) {
+        return SceneWriteOutcome::Replayed;
+    }
+    if (state.binding_epoch != write.expected_epoch ||
+        state.owner != write.expected_owner)
+        return SceneWriteOutcome::StaleBinding;
+    if (seq == scene_counter_max || write.command.seq != seq + 1)
+        return SceneWriteOutcome::InvalidSequence;
+    if (write.command.type == SceneCommandType::Enter) {
+        if (state.confirmed_location &&
+            *state.confirmed_location != write.location)
+            return SceneWriteOutcome::InvalidCommand;
+    } else {
+        if (!state.owner || !state.confirmed_location)
+            return SceneWriteOutcome::StaleBinding;
+        if (write.command.type == SceneCommandType::Move) {
+            if (write.owner != *state.owner ||
+                write.location.shard_id != state.confirmed_location->shard_id ||
+                write.location.x != write.command.x ||
+                write.location.y != write.command.y)
+                return SceneWriteOutcome::InvalidCommand;
+        } else {
+            if (write.owner.realm_incarnation !=
+                    state.owner->realm_incarnation ||
+                write.owner.session_binding != state.owner->session_binding ||
+                write.location.shard_id != write.command.target_shard_id ||
+                write.location.shard_id == state.confirmed_location->shard_id)
+                return SceneWriteOutcome::InvalidCommand;
+        }
+    }
+    if (write.command.type != SceneCommandType::Move &&
+        state.binding_epoch == scene_counter_max) {
+        throw PlayerDataError("scene binding epoch exhausted");
+    }
+    return SceneWriteOutcome::Committed;
+}
+}  // namespace
+
 class MongoPlayerDataStore::Impl final {
 public:
     Impl(std::string uri, std::string database, MongoPlayerDataOptions options)
@@ -612,6 +871,152 @@ public:
             write.account_id, write.realm_id, write.character_id);
         if (!current.has_value()) return std::nullopt;
         return TrainingWriteResult{.committed = false, .character = *current};
+    }
+
+    [[nodiscard]] std::optional<SceneStateRecord> scene_state(
+        const SceneCharacterKey& key) const {
+        const auto filter = scene_filter(key);
+        if (!realm_character(key.account_id, key.realm_id, key.character_id))
+            return std::nullopt;
+        return translate_driver_errors(
+            [&]() -> std::optional<SceneStateRecord> {
+                auto client = pool_->acquire();
+                const auto stored = collection(*client, scenes_collection)
+                                        .find_one(filter.view());
+                if (!stored) return std::nullopt;
+                return scene_state_from(key, stored->view());
+            });
+    }
+
+    [[nodiscard]] std::optional<SceneStateRecord> initialize_scene(
+        const SceneCharacterKey& key) {
+        const auto filter = scene_filter(key);
+        if (!realm_character(key.account_id, key.realm_id, key.character_id))
+            return std::nullopt;
+        return translate_driver_errors(
+            [&]() -> std::optional<SceneStateRecord> {
+                auto client = pool_->acquire();
+                mongocxx::options::find_one_and_update after;
+                after.upsert(true);
+                after.return_document(
+                    mongocxx::options::return_document::k_after);
+                try {
+                    const auto stored =
+                        collection(*client, scenes_collection)
+                            .find_one_and_update(
+                                filter.view(),
+                                make_document(kvp(
+                                    "$setOnInsert",
+                                    scene_fields(
+                                        SceneStateRecord{.character = key}))),
+                                after);
+                    if (!stored)
+                        throw PlayerDataError(
+                            "scene initialization returned no state");
+                    return scene_state_from(key, stored->view());
+                } catch (const mongocxx::operation_exception& error) {
+                    if (!is_duplicate_key(error)) throw;
+                    // 并发惰性初始化只创建一条记录；回读获胜者，不能覆盖已有状态。
+                    const auto stored = collection(*client, scenes_collection)
+                                            .find_one(filter.view());
+                    if (!stored)
+                        throw PlayerDataError(
+                            "scene initialization ownership conflict");
+                    return scene_state_from(key, stored->view());
+                }
+            });
+    }
+
+    [[nodiscard]] SceneWriteResult commit_scene(const SceneWrite& write) {
+        if (!valid_scene_owner(write.owner) ||
+            (write.expected_owner &&
+             !valid_scene_owner(*write.expected_owner)) ||
+            !valid_scene_location(write.location) ||
+            !valid_scene_command(write.command) ||
+            write.expected_epoch > scene_counter_max) {
+            throw PlayerDataError("invalid scene write");
+        }
+        auto current = scene_state(write.character);
+        if (!current) current = initialize_scene(write.character);
+        if (!current) return {.outcome = SceneWriteOutcome::NotOwned};
+        const auto decision = check_scene_transition(*current, write);
+        if (decision != SceneWriteOutcome::Committed)
+            return {decision, std::move(current)};
+        const auto epoch =
+            write.expected_epoch +
+            (write.command.type == SceneCommandType::Move ? 0U : 1U);
+        SceneStateRecord next{
+            .character = write.character,
+            .binding_epoch = epoch,
+            .owner = write.owner,
+            .confirmed_location = write.location,
+            .last_result = SceneStoredResult{
+                write.command, write.location, epoch, write.owner}};
+        bsoncxx::builder::basic::document filter;
+        filter.append(
+            bsoncxx::builder::basic::concatenate(
+                scene_cas_filter(
+                    write.character, write.expected_epoch, write.expected_owner)
+                    .view()),
+            kvp("last_scene_seq",
+                database_counter(write.command.seq - 1, "scene_seq")));
+        const auto update = make_document(kvp("$set", scene_fields(next)));
+        try {
+            auto client = pool_->acquire();
+            mongocxx::options::find_one_and_update after;
+            after.return_document(mongocxx::options::return_document::k_after);
+            const auto stored =
+                collection(*client, scenes_collection)
+                    .find_one_and_update(filter.view(), update.view(), after);
+            if (stored)
+                return {
+                    SceneWriteOutcome::Committed,
+                    scene_state_from(write.character, stored->view())};
+        } catch (const mongocxx::exception& error) {
+            throw SceneWriteUncertain(
+                std::string("scene commit outcome unknown: ") + error.what());
+        } catch (const bsoncxx::exception& error) {
+            throw SceneWriteUncertain(
+                std::string("scene commit result unreadable: ") + error.what());
+        } catch (const PlayerDataError& error) {
+            throw SceneWriteUncertain(
+                std::string("scene committed result invalid: ") + error.what());
+        }
+        // CAS
+        // 明确未命中；只接受精确回放，绝不根据一次旧值回读推断另一笔超时写未提交。
+        current = scene_state(write.character);
+        if (!current) return {.outcome = SceneWriteOutcome::NotOwned};
+        const auto conflict = check_scene_transition(*current, write);
+        if (conflict == SceneWriteOutcome::Committed)
+            return {SceneWriteOutcome::StaleBinding, std::move(current)};
+        return {conflict, std::move(current)};
+    }
+
+    [[nodiscard]] bool revoke_scene(
+        const SceneCharacterKey& key,
+        std::uint64_t epoch,
+        const SceneOwner& owner) {
+        if (epoch == 0 || epoch >= scene_counter_max ||
+            !valid_scene_owner(owner))
+            throw PlayerDataError("invalid scene revocation");
+        const auto filter = scene_cas_filter(key, epoch, owner);
+        if (!realm_character(key.account_id, key.realm_id, key.character_id))
+            return false;
+        const auto update = make_document(
+            kvp("$set", make_document(kvp("owner", bsoncxx::types::b_null{}))),
+            kvp("$inc", make_document(kvp("binding_epoch", std::int64_t{1}))));
+        try {
+            auto client = pool_->acquire();
+            const auto result = collection(*client, scenes_collection)
+                                    .update_one(filter.view(), update.view());
+            return result && result->matched_count() == 1;
+        } catch (const mongocxx::exception& error) {
+            throw SceneWriteUncertain(
+                std::string("scene revoke outcome unknown: ") + error.what());
+        } catch (const bsoncxx::exception& error) {
+            throw SceneWriteUncertain(
+                std::string("scene revoke result unreadable: ") + error.what());
+        }
     }
 
     void provision_account(const AccountProvisioning& account) {
@@ -1025,6 +1430,24 @@ std::optional<RealmCharacter> MongoPlayerDataStore::realm_character(
 std::optional<TrainingWriteResult> MongoPlayerDataStore::record_training(
     const TrainingWrite& write) {
     return impl_->record_training(write);
+}
+
+std::optional<SceneStateRecord> MongoPlayerDataStore::initialize_scene(
+    const SceneCharacterKey& character) {
+    return impl_->initialize_scene(character);
+}
+std::optional<SceneStateRecord> MongoPlayerDataStore::scene_state(
+    const SceneCharacterKey& character) const {
+    return impl_->scene_state(character);
+}
+SceneWriteResult MongoPlayerDataStore::commit_scene(const SceneWrite& write) {
+    return impl_->commit_scene(write);
+}
+bool MongoPlayerDataStore::revoke_scene(
+    const SceneCharacterKey& character,
+    std::uint64_t epoch,
+    const SceneOwner& owner) {
+    return impl_->revoke_scene(character, epoch, owner);
 }
 
 void MongoPlayerDataStore::provision_account(
