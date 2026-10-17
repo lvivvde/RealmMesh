@@ -43,7 +43,7 @@
 ## 前置条件
 
 - **etcd 二进制**:跨进程集成用例(`new_chain_flow_test`、`realm_journey_test`、`loadgen_integration_test`、`DevServicesScriptTest.*`)会各自拉起一个**真实单节点 etcd** —— 网关的准入消费存储是线性一致存储,attach 路径真实依赖它(ADR-0009),用假 CAS 替身去证明外部系统契约无法归因缺陷。先跑 `./scripts/install-etcd.sh`(安装到 `.tools/etcd-v3.6.14/`,可用 `REALMMESH_ETCD_BINARY` 覆盖路径);二进制缺失即用例失败并提示安装命令,不静默跳过。用例自带的 etcd 用空闲端口 + 临时数据目录,自起自停,因此**不需要**开发机上长期运行 `./scripts/run-etcd-dev.sh`,也不与它抢 2379。
-- **MongoDB 二进制**:Player Data 用例(`player_data_store_test`、`login_verify_service_test`、`realm_journey_test`、`loadgen_integration_test`、`DevServicesScriptTest.*`)会拉起**真实单节点副本集 `rs0`** —— 准入事实的 majority 读写与事务只有在真副本集上才有意义(ADR-0011),内存替身只用在不涉及存储契约的单元测试(网关拉取口、Realm 角色存储)。macOS 用 Homebrew 安装 `brew tap mongodb/brew && brew trust mongodb/brew && brew install mongodb-community mongosh`;Linux 跑 `./scripts/install-mongodb.sh`(安装到 `.tools/`,CI 自动执行)。用例永远不连远程共享开发库:改写配置时会删掉 `uri_environment`,shell 里设置了 `REALMMESH_MONGODB_URI` 也不受影响。夹具按 `REALMMESH_MONGOD_BINARY` / `REALMMESH_MONGOSH_BINARY` → PATH → `.tools/` 的顺序查找,缺失即失败并提示安装命令。完整 CTest 通过夹具依赖共享一个真实 mongod，GTest 与每条 `DevServicesScriptTest.*` 使用独立库名；独立运行时仍自启实例。它们都用空闲端口 + 临时数据目录，自起自停，因此**不需要**运行 Homebrew 服务或 `./scripts/run-mongodb-dev.sh`,也不与它们抢 27017。
+- **MongoDB 二进制**:Player Data 用例(`player_data_store_test`、`scene_store_test`、`login_verify_service_test`、`realm_journey_test`、`loadgen_integration_test`、`DevServicesScriptTest.*`)会拉起**真实单节点副本集 `rs0`** —— 准入事实的 majority 读写与事务只有在真副本集上才有意义(ADR-0011),内存替身只用在不涉及存储契约的单元测试(网关拉取口、Realm 角色存储)。macOS 用 Homebrew 安装 `brew tap mongodb/brew && brew trust mongodb/brew && brew install mongodb-community mongosh`;Linux 跑 `./scripts/install-mongodb.sh`(安装到 `.tools/`,CI 自动执行)。用例永远不连远程共享开发库:改写配置时会删掉 `uri_environment`,shell 里设置了 `REALMMESH_MONGODB_URI` 也不受影响。夹具按 `REALMMESH_MONGOD_BINARY` / `REALMMESH_MONGOSH_BINARY` → PATH → `.tools/` 的顺序查找,缺失即失败并提示安装命令。完整 CTest 通过夹具依赖共享一个真实 mongod，GTest 与每条 `DevServicesScriptTest.*` 使用独立库名；独立运行时仍自启实例。它们都用空闲端口 + 临时数据目录，自起自停，因此**不需要**运行 Homebrew 服务或 `./scripts/run-mongodb-dev.sh`,也不与它们抢 27017。
 - **Python 3**:编译缓存配置/原生契约与 CI 兼容键使用标准库脚本；构建入口不自动安装。macOS 的 Xcode 工具链、Linux 开发环境及 CI 都应提供 `python3`。
 - **Ninja 1.11+**:构建图用例(`BuildGraphTest`、`BuildDirScriptTest.*`、`TestFastScriptTest.*`)会在临时目录里用 `dev` 预设配置小工程，验证 Ninja 门槛、原生链接池(含测试可执行文件出池)与 libsodium 安装产物(#123),因此即使主构建用 `--preset dev-make` 回退，全量 ctest 仍需要 PATH 上有真实的 `ninja`。macOS `brew install ninja`,Ubuntu `sudo apt-get install ninja-build`;缺失即用例失败，不跳过。
 - 快速子集(`test-fast.sh`、`ctest -L '^unit$'`)不拉起任何进程,无此前置条件。
@@ -69,7 +69,7 @@
 
 完整构建生成 `realmmesh_mongodb_fixture`：使用现有固定版本 C 驱动在独立进程中
 初始化真实单成员 `rs0` 并等待 `hello` 同时确认副本集名称与可写 Primary。
-使用 `MongodProcess` 的六个集成目标显式依赖它；DevServices 的 CTest 环境传入同一
+使用 `MongodProcess` 的真实后端集成目标显式依赖它；DevServices 的 CTest 环境传入同一
 可执行路径。一次完整 CTest 通过 `MongoCtestFixturePrepare` /
 `MongoCtestFixtureCleanup` 共享一个本地副本集，依赖声明也让定向 CTest 自动准备与回收。
 GTest 每例及 DevServices 每条用例使用独立数据库；后者的服务重启仍读同一用例数据库。所有数据回读继续经真实 `mongosh`，辅助程序不进入
@@ -98,6 +98,15 @@ GTest 每例及 DevServices 每条用例使用独立数据库；后者的服务�
 `MongoCtestFixtureTest` 通过真实嵌套 CTest 和实际 MongoDB 验证准备与 Primary、
 跨进程独立数据库隔离、准备失败的依赖阻断，以及 SIGKILL CTest 后的进程与数据回收。
 契约还覆盖准备中断，以及重复三次消费者实际执行、同后端和最终完整回收。
+
+`scene_store_test` 复用上述隔离夹具验证角色场景记录的归属条件写、序号重放、重绑/撤销与
+训练写入隔离（#161）。其中确认失败注入用例独占另一个临时副本集，通过显式
+`MongodProcess::TestCommands::Enabled` 启用服务端测试命令，注入一次 findAndModify 的
+writeConcernError；验证旧值仍为 Unknown、majority 回读精确结果后才能确认及回放。
+共享 CTest 后端与默认独占夹具都不启用测试命令，避免故障注入影响其他用例。
+`realmmesh_test_mongodb` 同时传递源码根定义，确保所有消费者都能回退到 Linux 安装器的
+`.tools` 路径；Linux 的 `SceneToolDiscoveryTest` 在工具不在 PATH、无显式覆盖时真实启动
+副本集并运行 mongosh，防止只有 Homebrew 环境能通过的回归。
 准备、清理和契约共三项串行 `integration` 测试，完整入口计时包含全部成本。
 
 `MongoFixtureTest` 是串行 `integration` 契约，使用真实本地后端验证初始化、Primary、

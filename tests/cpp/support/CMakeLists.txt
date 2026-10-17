@@ -7,7 +7,10 @@ target_include_directories(realmmesh_mongodb_fixture PRIVATE include)
 # The driver remains in the separate process, outside the tested executable.
 add_library(realmmesh_test_mongodb INTERFACE)
 add_dependencies(realmmesh_test_mongodb realmmesh_mongodb_fixture)
+# 所有真实 MongoDB 夹具消费者都需要源码根，才能在 Linux 的非 PATH
+# 安装布局中找到 .tools/mongod 与 mongosh；不再依赖逐个目标手工声明。
 target_compile_definitions(realmmesh_test_mongodb INTERFACE
+    REALMMESH_TEST_SOURCE_DIR="${PROJECT_SOURCE_DIR}"
     REALMMESH_TEST_MONGODB_INITIALIZER_PATH="$<TARGET_FILE:realmmesh_mongodb_fixture>")
 
 add_executable(realmmesh_mongod_fixture_probe mongod_fixture_probe.cpp)

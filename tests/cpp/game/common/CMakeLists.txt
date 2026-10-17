@@ -99,3 +99,16 @@ realm_add_gtest(new_chain_flow_test
     LABELS integration
     DISCOVER_PROPERTIES RUN_SERIAL TRUE TIMEOUT 30
 )
+
+realm_add_gtest(scene_protocol_test
+    SOURCES scene_protocol_test.cpp
+    LIBS realm_game_common
+)
+
+realm_add_gtest(scene_store_test
+    SOURCES scene_store_test.cpp
+    LIBS realmmesh_test_mongodb realm_game_common
+    INCLUDE_DIRS ${PROJECT_SOURCE_DIR}/tests/cpp/support/include
+    LABELS integration
+    DISCOVER_PROPERTIES TIMEOUT 60
+)

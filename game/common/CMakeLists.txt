@@ -11,6 +11,9 @@ add_library(realm_game_common
     src/player_data_config_lua.cpp
     src/player_data_store.cpp
     src/queue_number_v2.cpp
+    src/scene_store.cpp
+    src/scene_protocol.cpp
+    src/scene_internal_protocol.cpp
     src/realm_protocol.cpp
     src/session_ticket.cpp
 )

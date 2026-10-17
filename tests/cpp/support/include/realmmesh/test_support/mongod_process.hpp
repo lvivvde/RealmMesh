@@ -36,8 +36,15 @@
 namespace realm::test_support {
 
 class MongodProcess final {
+public:
+    /// 只供独占的故障注入用例；共享 CTest 副本集始终关闭服务端测试命令。
+    enum class TestCommands { Disabled, Enabled };
+
+private:
     enum class Ownership { Private, Ctest };
-    explicit MongodProcess(Ownership ownership) {
+    explicit MongodProcess(
+        Ownership ownership,
+        TestCommands test_commands = TestCommands::Disabled) {
         if (ownership == Ownership::Ctest && borrow_ctest_fixture()) return;
         const auto binary = tool_binary(
             "REALMMESH_MONGOD_BINARY", "mongodb-8.0.32", "mongod");
@@ -56,6 +63,28 @@ class MongodProcess final {
         pid_ = ::fork();
         if (pid_ < 0) throw std::runtime_error("fork failed");
         if (pid_ == 0) {
+            if (test_commands == TestCommands::Enabled) {
+                ::execlp(
+                    binary.c_str(),
+                    binary.c_str(),
+                    "--replSet",
+                    "rs0",
+                    "--bind_ip",
+                    "127.0.0.1",
+                    "--port",
+                    port.c_str(),
+                    "--dbpath",
+                    data_dir_.c_str(),
+                    "--logpath",
+                    log.c_str(),
+                    "--nounixsocket",
+                    "--wiredTigerCacheSizeGB",
+                    "0.25",
+                    "--setParameter",
+                    "enableTestCommands=1",
+                    static_cast<char*>(nullptr));
+                _exit(127);
+            }
             ::execlp(
                 binary.c_str(),
                 binary.c_str(),
@@ -82,8 +111,11 @@ class MongodProcess final {
             throw;
         }
     }
+
 public:
     MongodProcess() : MongodProcess(Ownership::Private) {}
+    explicit MongodProcess(TestCommands test_commands)
+        : MongodProcess(Ownership::Private, test_commands) {}
     ~MongodProcess() { stop(); }
     MongodProcess(const MongodProcess&) = delete;
     MongodProcess& operator=(const MongodProcess&) = delete;

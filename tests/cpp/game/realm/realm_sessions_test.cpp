@@ -2,6 +2,7 @@
 
 #include "realmmesh/game/common/edge_protocol.hpp"
 #include "realmmesh/game/common/realm_protocol.hpp"
+#include "realmmesh/game/common/scene_protocol.hpp"
 #include "realmmesh/game/realm/training_rule.hpp"
 #include "realmmesh/test_support/in_memory_character_store.hpp"
 
@@ -136,6 +137,20 @@ protected:
     RecordingOutbox outbox_;
     std::optional<RealmSessions> sessions_;
 };
+
+TEST_F(RealmSessionsTest, SceneWireContractsAreNotHandledBeforeServiceWiring) {
+    auto& realm = sessions();
+    common::EnterScene enter;
+    enter.set_scene_seq(1);
+    realm.enter(first, account);
+    EXPECT_FALSE(realm.handle(first, common::encode(enter, 1)));
+    EXPECT_EQ(realm.phase(first), RealmSessionPhase::Selecting);
+    static_cast<void>(enter_game(first));
+    const auto count = outbox_.sent.size();
+    EXPECT_FALSE(realm.handle(first, common::encode(enter, 3)));
+    EXPECT_EQ(outbox_.sent.size(), count);
+    EXPECT_EQ(realm.phase(first), RealmSessionPhase::InGame);
+}
 
 TEST_F(RealmSessionsTest, NewAccountListsEmptyRosterInSelection) {
     auto& realm = sessions();

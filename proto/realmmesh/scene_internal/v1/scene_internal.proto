@@ -1,0 +1,74 @@
+syntax = "proto3";
+package realmmesh.protocol.scene_internal.v1;
+option optimize_for = LITE_RUNTIME;
+import "realmmesh/scene/v1/scene.proto";
+
+// 只用于认证后的 realmmesh-scene/1，不接受客户端票据。
+enum MessageId {
+    MESSAGE_ID_UNSPECIFIED = 0;
+    MESSAGE_ID_SCENE_REQUEST = 1601;
+    MESSAGE_ID_SCENE_REPLY = 1602;
+    MESSAGE_ID_SCENE_PUSH = 1603;
+}
+enum Operation {
+    OPERATION_UNSPECIFIED = 0;
+    OPERATION_PREPARE = 1;
+    OPERATION_PROPOSE_MOVE = 2;
+    OPERATION_CONFIRM = 3;
+    OPERATION_ACTIVATE = 4;
+    OPERATION_SNAPSHOT = 5;
+    OPERATION_REMOVE = 6;
+    OPERATION_SET_DRAINING = 7;
+}
+enum Status {
+    STATUS_UNSPECIFIED = 0;
+    STATUS_OK = 1;
+    STATUS_INVALID = 2;
+    STATUS_STALE_BINDING = 3;
+    STATUS_BUSY = 4;
+    STATUS_DRAINING = 5;
+    STATUS_NOT_FOUND = 6;
+    STATUS_UNAVAILABLE = 7;
+}
+message Route {
+    uint32 realm_id = 1;
+    uint64 character_id = 2;
+    uint64 binding_epoch = 3;
+    uint64 session_binding = 4;
+    uint64 shard_id = 5;
+}
+message SceneRequest {
+    string realm_incarnation = 1;
+    string scene_instance_id = 2;
+    string scene_incarnation = 3;
+    Operation operation = 4;
+    Route route = 5;
+    uint64 scene_seq = 6;
+    // PREPARE/PROPOSE_MOVE/CONFIRM 的候选或已提交位置。
+    realmmesh.protocol.scene.v1.Location location = 7;
+    // PREPARE/PROPOSE_MOVE/CONFIRM/ACTIVATE：固定 32 字节业务指令摘要。
+    bytes command_digest = 8;
+    // SNAPSHOT 无 Route，只指定分片。SET_DRAINING 针对整个实例。
+    uint64 shard_id = 9;
+    bool draining = 10;
+}
+message SceneReply {
+    string realm_incarnation = 1;
+    string scene_instance_id = 2;
+    string scene_incarnation = 3;
+    Operation operation = 4;
+    Status status = 5;
+    Route route = 6;
+    uint64 scene_seq = 7;
+    realmmesh.protocol.scene.v1.Location location = 8;
+    // ACTIVATE/SNAPSHOT 成功必须给出原子快照及事件水位。
+    realmmesh.protocol.scene.v1.Snapshot snapshot = 9;
+    bool draining = 10;
+    uint32 active_members = 11;
+}
+message ScenePush {
+    string realm_incarnation = 1;
+    string scene_instance_id = 2;
+    string scene_incarnation = 3;
+    realmmesh.protocol.scene.v1.SceneEvent event = 4;
+}

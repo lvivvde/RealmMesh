@@ -7,6 +7,25 @@
 
 ## 已有基础与边界
 
+### 2026-10-17 进度校准
+
+阶段 0–1 已按既有记录完成；阶段 2 的 #91 已关闭，但 Linux M1–M4 仍只有
+[规格列明的 CI 缩减基线](../specs/2026-10-01-linux-login-chain-m1-m4.md)，不代表专用容量或
+跨机器验收。阶段 3 的 #92、#93、#98、#99 已落地：生产接线使用 MongoDB，Realm 已有
+选角与训练。四层依赖迁移（#152）也已完成，当前基线见 README 实施状态与 ADR-0014。
+下文“现有代码”与文件路径记录的是 2026-09-27 至 09-30 的历史基线，不能当作当前待办。
+
+下一项业务交付为[阶段 4 Scene 规格](../specs/2026-10-17-scene-reference-loop.md)，按
+协议与持久边界、单实例双人闭环、双实例转场与恢复、动态加入与排空、总验收逐步交付。
+S1 的协议与持久边界已实现（#161），Scene 服务及 S2–S5 仍待交付；Chat 和 M5 留在后续阶段。
+
+Scene 跟踪父票为 [#160](https://github.com/lvivvde/RealmMesh/issues/160)，实施任务按
+[#161](https://github.com/lvivvde/RealmMesh/issues/161) → [#162](https://github.com/lvivvde/RealmMesh/issues/162)
+→ [#163](https://github.com/lvivvde/RealmMesh/issues/163) → [#164](https://github.com/lvivvde/RealmMesh/issues/164)
+→ [#165](https://github.com/lvivvde/RealmMesh/issues/165) 顺序推进。
+
+### 初始基线（历史记录）
+
 现有代码覆盖 Login Verifier、Queue Scheduler、Gateway Login Pipeline、Realm 的 EnterRealm 兑换，以及客户端 Login Chain。Gateway 的生产接线使用 etcd 共享的 Admission Grant 消费存储；存储不可用时拒绝新的准入，遵循 [ADR-0009](../adr/0009-identity-bound-admission-grant.md)。Admission Grant 迁移已在 2026-09-30 重新构建并跑通全量测试（真实 etcd、真实 TLS/TCP 的多进程服务组），此前的旧构建产物不再作为验收依据。
 
 仍需面对的实际边界：
@@ -54,7 +73,11 @@
 
 **完成条件：** 账号和角色不依赖进程内样例数据；Gateway 实际读取并校验，同一账号能在 Realm 列出、创建、选择自己的角色；重启与数据故障均有测试及指标。
 
-### 4. 多实例 Scene 参考业务（待拆 Spec）
+### 4. 多实例 Scene 参考业务（已拆 Spec，尚未实现）
+
+执行契约与依赖顺序见 [2026-10-17 Scene 参考业务规格](../specs/2026-10-17-scene-reference-loop.md)。
+首版的持久写入边界见 [ADR-0015](../adr/0015-scene-confirmed-location-and-binding.md)，
+不把 Redis 接入作为本阶段前置条件。
 
 Realm 保持客户端长连接和角色入口，将场景指令路由到独立的 `scene` 服务身份。一个
 `scene` 身份可启动多个实例，各自承载场景分片；地图本身不成为服务身份。先明确角色、
