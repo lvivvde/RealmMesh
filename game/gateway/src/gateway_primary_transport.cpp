@@ -1,6 +1,6 @@
 #include "realmmesh/game/gateway/gateway_primary_transport.hpp"
 
-#include "realmmesh/game/gateway/gateway_runtime.hpp"
+#include "realmmesh/edge/edge_runtime.hpp"
 
 #include <algorithm>
 #include <utility>
@@ -8,13 +8,13 @@
 namespace realm::game::gateway {
 namespace {
 
-[[nodiscard]] PrimaryTransportResult translate(QueueResult result) {
+[[nodiscard]] PrimaryTransportResult translate(edge::QueueResult result) {
     switch (result) {
-    case QueueResult::Queued:
+    case edge::QueueResult::Queued:
         return PrimaryTransportResult::Queued;
-    case QueueResult::Full:
+    case edge::QueueResult::Full:
         return PrimaryTransportResult::Full;
-    case QueueResult::Stopped:
+    case edge::QueueResult::Stopped:
         return PrimaryTransportResult::Stopped;
     }
     return PrimaryTransportResult::Stopped;
@@ -26,32 +26,32 @@ namespace {
 
 }  // namespace
 
-std::vector<GatewayEvent> GatewayRuntimePrimaryTransport::drain_events(
+std::vector<edge::EdgeEvent> EdgeRuntimePrimaryTransport::drain_events(
     std::size_t max_events) {
     return runtime_->drain_events(max_events);
 }
 
-PrimaryTransportResult GatewayRuntimePrimaryTransport::accept(
-    EdgeSessionId session_id, std::span<const std::byte> response) {
+PrimaryTransportResult EdgeRuntimePrimaryTransport::accept(
+    edge::EdgeConnectionId session_id, std::span<const std::byte> response) {
     return translate(runtime_->try_accept(session_id, response));
 }
 
-PrimaryTransportResult GatewayRuntimePrimaryTransport::decline(
-    EdgeSessionId session_id, std::span<const std::byte> response) {
+PrimaryTransportResult EdgeRuntimePrimaryTransport::decline(
+    edge::EdgeConnectionId session_id, std::span<const std::byte> response) {
     return translate(runtime_->try_decline(session_id, response));
 }
 
-PrimaryTransportResult GatewayRuntimePrimaryTransport::send_handoff(
-    EdgeSessionId session_id, std::span<const std::byte> message) {
+PrimaryTransportResult EdgeRuntimePrimaryTransport::send_handoff(
+    edge::EdgeConnectionId session_id, std::span<const std::byte> message) {
     return translate(runtime_->try_send(session_id, message));
 }
 
-PrimaryTransportResult GatewayRuntimePrimaryTransport::close(
-    EdgeSessionId session_id) {
+PrimaryTransportResult EdgeRuntimePrimaryTransport::close(
+    edge::EdgeConnectionId session_id) {
     return translate(runtime_->try_close(session_id));
 }
 
-void InMemoryGatewayPrimaryTransport::push_event(GatewayEvent event) {
+void InMemoryGatewayPrimaryTransport::push_event(edge::EdgeEvent event) {
     events_.push_back(std::move(event));
 }
 
@@ -61,10 +61,10 @@ void InMemoryGatewayPrimaryTransport::script_result(
     results_[index(kind)] = std::move(results);
 }
 
-std::vector<GatewayEvent> InMemoryGatewayPrimaryTransport::drain_events(
+std::vector<edge::EdgeEvent> InMemoryGatewayPrimaryTransport::drain_events(
     std::size_t max_events) {
     const auto count = std::min(max_events, events_.size());
-    std::vector<GatewayEvent> drained;
+    std::vector<edge::EdgeEvent> drained;
     drained.reserve(count);
     for (std::size_t position = 0; position < count; ++position) {
         drained.push_back(std::move(events_.front()));
@@ -74,29 +74,29 @@ std::vector<GatewayEvent> InMemoryGatewayPrimaryTransport::drain_events(
 }
 
 PrimaryTransportResult InMemoryGatewayPrimaryTransport::accept(
-    EdgeSessionId session_id, std::span<const std::byte> response) {
+    edge::EdgeConnectionId session_id, std::span<const std::byte> response) {
     return execute(PrimaryTransportCommandKind::Accept, session_id, response);
 }
 
 PrimaryTransportResult InMemoryGatewayPrimaryTransport::decline(
-    EdgeSessionId session_id, std::span<const std::byte> response) {
+    edge::EdgeConnectionId session_id, std::span<const std::byte> response) {
     return execute(PrimaryTransportCommandKind::Decline, session_id, response);
 }
 
 PrimaryTransportResult InMemoryGatewayPrimaryTransport::send_handoff(
-    EdgeSessionId session_id, std::span<const std::byte> message) {
+    edge::EdgeConnectionId session_id, std::span<const std::byte> message) {
     return execute(
         PrimaryTransportCommandKind::SendHandoff, session_id, message);
 }
 
 PrimaryTransportResult InMemoryGatewayPrimaryTransport::close(
-    EdgeSessionId session_id) {
+    edge::EdgeConnectionId session_id) {
     return execute(PrimaryTransportCommandKind::Close, session_id, {});
 }
 
 PrimaryTransportResult InMemoryGatewayPrimaryTransport::execute(
     PrimaryTransportCommandKind kind,
-    EdgeSessionId session_id,
+    edge::EdgeConnectionId session_id,
     std::span<const std::byte> payload) {
     if (stopped_) return PrimaryTransportResult::Stopped;
     auto& script = results_[index(kind)];

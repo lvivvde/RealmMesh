@@ -28,7 +28,7 @@
 
 `unit-entry`、`cpp-entry`、`hot-full`、`cold-entry` 的 CTest 串行（测试并行 1）；`fast-*` 场景的测试并行由 `test-fast.sh` 决定（默认 4）。
 
-探针：`lua-cpp`（`lua_runtime.cpp`）、`lua-hpp`（`lua_runtime.hpp`，Lua 重头内部变化）、`gateway-hpp`（`gateway_runtime.hpp`）、`player-data-hpp`（`player_data_store.hpp`）、`proto`（`envelope.proto`）、`private-hpp`（`game/common/src/envelope_codec.hpp`，私有头）。变体都追加在文件末尾、由原始字节派生，第 N 次与其他次内容不同：
+探针：`lua-cpp`（`lua_runtime.cpp`）、`lua-hpp`（`lua_runtime.hpp`，Lua 重头内部变化）、`gateway-hpp`（`edge_runtime.hpp`，ADR-0014 第 3 步前为 `gateway_runtime.hpp`）、`player-data-hpp`（`player_data_store.hpp`）、`proto`（`envelope.proto`）、`private-hpp`（`game/common/src/envelope_codec.hpp`，私有头）。变体都追加在文件末尾、由原始字节派生，第 N 次与其他次内容不同：
 
 - token 变体改变预处理结果、不改行为：C++ 追加 `inline constexpr int realmmesh_build_bench_<探针>_variant = N;`（外部链接，不触发未使用告警），proto 追加 `message BuildBenchVariantN {}`。
 - 注释变体追加 `// build-bench <探针> content-change sample N`，预处理后不变，只用于和旧数据对照。

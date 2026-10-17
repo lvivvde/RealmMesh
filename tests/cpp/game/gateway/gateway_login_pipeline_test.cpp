@@ -149,16 +149,16 @@ protected:
             &metrics_));
     }
 
-    void open(EdgeSessionId session_id) {
+    void open(edge::EdgeConnectionId session_id) {
         transport_.push_event({
-            .kind = GatewayEventKind::SessionOpened,
-            .session_id = session_id,
+            .kind = edge::EdgeEventKind::ConnectionOpened,
+            .connection_id = session_id,
             .source = "127.0.0.1",
         });
     }
 
     void attach(
-        EdgeSessionId session_id,
+        edge::EdgeConnectionId session_id,
         std::string_view jti,
         std::uint64_t request_id = 1) {
         attach_with_tokens(
@@ -171,7 +171,7 @@ protected:
 
     static void attach_with_tokens(
         InMemoryGatewayPrimaryTransport& transport,
-        EdgeSessionId session_id,
+        edge::EdgeConnectionId session_id,
         std::string_view identity,
         std::string_view number,
         std::uint64_t request_id = 1) {
@@ -179,17 +179,17 @@ protected:
         attach.set_identity_token(identity);
         attach.set_admission_grant(number);
         transport.push_event({
-            .kind = GatewayEventKind::MessageReceived,
-            .session_id = session_id,
+            .kind = edge::EdgeEventKind::MessageReceived,
+            .connection_id = session_id,
             .established = false,
             .payload = common::encode(attach, request_id),
         });
     }
 
-    void close(EdgeSessionId session_id, bool established = false) {
+    void close(edge::EdgeConnectionId session_id, bool established = false) {
         transport_.push_event({
-            .kind = GatewayEventKind::SessionClosed,
-            .session_id = session_id,
+            .kind = edge::EdgeEventKind::ConnectionClosed,
+            .connection_id = session_id,
             .established = established,
         });
     }
@@ -271,8 +271,8 @@ TEST_F(
          PrimaryTransportResult::Full,
          PrimaryTransportResult::Queued});
 
-    open(EdgeSessionId{1});
-    attach(EdgeSessionId{1}, jti_a);
+    open(edge::EdgeConnectionId{1});
+    attach(edge::EdgeConnectionId{1}, jti_a);
     auto result = advance();
     EXPECT_EQ(result.local_budget.fetch_free, 0U);
     EXPECT_EQ(command_count(PrimaryTransportCommandKind::Accept), 0U);
@@ -281,8 +281,8 @@ TEST_F(
         std::string::npos);
     EXPECT_EQ(metrics_.render().find("accept_pending"), std::string::npos);
 
-    open(EdgeSessionId{2});
-    attach(EdgeSessionId{2}, jti_b, 2);
+    open(edge::EdgeConnectionId{2});
+    attach(edge::EdgeConnectionId{2}, jti_b, 2);
     result = advance(1ms, 1ms);
     EXPECT_EQ(result.local_budget.fetch_free, 0U);
     ASSERT_EQ(command_count(PrimaryTransportCommandKind::Decline), 1U);
@@ -298,7 +298,7 @@ TEST_F(
 
     static_cast<void>(advance(3ms, 3ms));
     ASSERT_EQ(fetch_.submitted_requests().size(), 1U);
-    EXPECT_EQ(fetch_.submitted_requests()[0].session_id, EdgeSessionId{1});
+    EXPECT_EQ(fetch_.submitted_requests()[0].session_id, edge::EdgeConnectionId{1});
 }
 
 TEST_F(
@@ -310,12 +310,12 @@ TEST_F(
         {PrimaryTransportResult::Full,
          PrimaryTransportResult::Full,
          PrimaryTransportResult::Queued});
-    open(EdgeSessionId{1});
-    attach(EdgeSessionId{1}, jti_a);
+    open(edge::EdgeConnectionId{1});
+    attach(edge::EdgeConnectionId{1}, jti_a);
     static_cast<void>(advance());
 
-    open(EdgeSessionId{2});
-    attach(EdgeSessionId{2}, jti_a, 2);
+    open(edge::EdgeConnectionId{2});
+    attach(edge::EdgeConnectionId{2}, jti_a, 2);
     static_cast<void>(advance(1ms, 1ms));
     ASSERT_EQ(command_count(PrimaryTransportCommandKind::Decline), 1U);
     auto rejected = common::decode_edge_error(
@@ -330,8 +330,8 @@ TEST_F(
 
     static_cast<void>(advance(2ms, 2ms));
     ASSERT_EQ(command_count(PrimaryTransportCommandKind::Accept), 1U);
-    open(EdgeSessionId{3});
-    attach(EdgeSessionId{3}, jti_a, 3);
+    open(edge::EdgeConnectionId{3});
+    attach(edge::EdgeConnectionId{3}, jti_a, 3);
     static_cast<void>(advance(3ms, 3ms));
     EXPECT_EQ(command_count(PrimaryTransportCommandKind::Decline), 2U);
     // 已提交消费之后的重放是终态:对外统一收敛为凭据无效,内部留下重放
@@ -357,10 +357,10 @@ TEST_F(
             ->validate(bob_identity, "realmmesh/login-verify", system_origin)
             .has_value());
 
-    open(EdgeSessionId{1});
+    open(edge::EdgeConnectionId{1});
     attach_with_tokens(
         transport_,
-        EdgeSessionId{1},
+        edge::EdgeConnectionId{1},
         alice_identity,
         grant_obtained_by_bob);
     static_cast<void>(advance());
@@ -379,20 +379,20 @@ TEST_F(
     const auto identity = identity_token(jti_a);
     const auto grant = grant_token(jti_a);
 
-    open(EdgeSessionId{1});
+    open(edge::EdgeConnectionId{1});
     attach_with_tokens(
-        transport_, EdgeSessionId{1}, identity, grant);
+        transport_, edge::EdgeConnectionId{1}, identity, grant);
     auto result = advance();
     EXPECT_EQ(result.local_budget.fetch_free, 0U);
     EXPECT_EQ(command_count(PrimaryTransportCommandKind::Accept), 0U);
 
-    close(EdgeSessionId{1});
+    close(edge::EdgeConnectionId{1});
     result = advance(1ms, 1ms);
     EXPECT_EQ(result.local_budget.fetch_free, 1U);
 
-    open(EdgeSessionId{2});
+    open(edge::EdgeConnectionId{2});
     attach_with_tokens(
-        transport_, EdgeSessionId{2}, identity, grant, 2);
+        transport_, edge::EdgeConnectionId{2}, identity, grant, 2);
     result = advance(2ms, 2ms);
     EXPECT_EQ(command_count(PrimaryTransportCommandKind::Accept), 1U);
     EXPECT_EQ(result.local_budget.fetch_free, 0U);
@@ -432,12 +432,12 @@ TEST_F(
     const auto grant = grant_token(jti_a);
     for (auto* transport : {&first_transport, &second_transport}) {
         transport->push_event({
-            .kind = GatewayEventKind::SessionOpened,
-            .session_id = EdgeSessionId{1},
+            .kind = edge::EdgeEventKind::ConnectionOpened,
+            .connection_id = edge::EdgeConnectionId{1},
             .source = "127.0.0.1",
         });
         attach_with_tokens(
-            *transport, EdgeSessionId{1}, identity, grant);
+            *transport, edge::EdgeConnectionId{1}, identity, grant);
     }
 
     const GatewayLoginFrame input{
@@ -464,10 +464,10 @@ TEST_F(
     GatewayLoginPipelineTest,
     AdmissionRejectsCrossIdentitySpliceBeforeTransportAccept) {
     create_admission(config(1, 1));
-    open(EdgeSessionId{1});
+    open(edge::EdgeConnectionId{1});
     attach_with_tokens(
         transport_,
-        EdgeSessionId{1},
+        edge::EdgeConnectionId{1},
         identity_token(jti_a, 42),
         grant_token(jti_b));
 
@@ -485,10 +485,10 @@ TEST_F(
     GatewayLoginPipelineTest,
     AdmissionStoreOutageFailsNewAttachClosedWithoutStoppingExistingFetch) {
     create_admission(config(2, 2));
-    open(EdgeSessionId{1});
+    open(edge::EdgeConnectionId{1});
     attach_with_tokens(
         transport_,
-        EdgeSessionId{1},
+        edge::EdgeConnectionId{1},
         identity_token(jti_a),
         grant_token(jti_a));
     static_cast<void>(advance());
@@ -497,10 +497,10 @@ TEST_F(
     const auto active = fetch_.submitted_requests()[0].attempt_id;
 
     consumption_store_->set_available(false);
-    open(EdgeSessionId{2});
+    open(edge::EdgeConnectionId{2});
     attach_with_tokens(
         transport_,
-        EdgeSessionId{2},
+        edge::EdgeConnectionId{2},
         identity_token(jti_b),
         grant_token(jti_b, jti_a),
         2);
@@ -563,10 +563,10 @@ TEST_F(
         fetch_,
         nullptr,
         &metrics_));
-    open(EdgeSessionId{1});
+    open(edge::EdgeConnectionId{1});
     attach_with_tokens(
         transport_,
-        EdgeSessionId{1},
+        edge::EdgeConnectionId{1},
         identity_token(jti_a),
         grant_token(jti_a));
 
@@ -590,18 +590,18 @@ TEST_F(
     create(config(2, 1));
     transport_.script_result(
         PrimaryTransportCommandKind::Accept, {PrimaryTransportResult::Full});
-    open(EdgeSessionId{1});
-    attach(EdgeSessionId{1}, jti_a);
+    open(edge::EdgeConnectionId{1});
+    attach(edge::EdgeConnectionId{1}, jti_a);
     auto result = advance();
     EXPECT_EQ(result.local_budget.fetch_free, 0U);
 
-    close(EdgeSessionId{1});
+    close(edge::EdgeConnectionId{1});
     result = advance(1ms, 1ms);
     EXPECT_EQ(result.local_budget.fetch_free, 1U);
     EXPECT_EQ(result.local_budget.conn_free, 2U);
 
-    open(EdgeSessionId{2});
-    attach(EdgeSessionId{2}, jti_a);
+    open(edge::EdgeConnectionId{2});
+    attach(edge::EdgeConnectionId{2}, jti_a);
     result = advance(2ms, 2ms);
     EXPECT_EQ(command_count(PrimaryTransportCommandKind::Accept), 1U);
     EXPECT_EQ(result.local_budget.fetch_free, 0U);
@@ -614,14 +614,14 @@ TEST_F(
     GatewayLoginPipelineTest,
     SameFrameCloseWinsOverFetchSuccessAndLateDuplicateCompletions) {
     create(config(1, 1));
-    open(EdgeSessionId{1});
-    attach(EdgeSessionId{1}, jti_a);
+    open(edge::EdgeConnectionId{1});
+    attach(edge::EdgeConnectionId{1}, jti_a);
     static_cast<void>(advance());
     static_cast<void>(advance(1ms, 1ms));
     ASSERT_EQ(fetch_.submitted_requests().size(), 1U);
     const auto attempt = fetch_.submitted_requests()[0].attempt_id;
 
-    close(EdgeSessionId{1}, true);
+    close(edge::EdgeConnectionId{1}, true);
     fetch_.push_completion({attempt, true, 5ms});
     fetch_.push_completion({attempt, true, 6ms});
     fetch_.push_completion({AccountFetchAttemptId{999}, true, 7ms});
@@ -635,8 +635,8 @@ TEST_F(
 
 TEST_F(GatewayLoginPipelineTest, DestructionCancelsAcceptedFetchWork) {
     create(config(1, 1));
-    open(EdgeSessionId{1});
-    attach(EdgeSessionId{1}, jti_a);
+    open(edge::EdgeConnectionId{1});
+    attach(edge::EdgeConnectionId{1}, jti_a);
     static_cast<void>(advance());
     static_cast<void>(advance(1ms, 1ms));
     ASSERT_EQ(fetch_.submitted_requests().size(), 1U);
@@ -653,8 +653,8 @@ TEST_F(
     auto pipeline_config = config(1, 1);
     pipeline_config.fetch_retry_base = 100ms;
     create(std::move(pipeline_config));
-    open(EdgeSessionId{1});
-    attach(EdgeSessionId{1}, jti_a);
+    open(edge::EdgeConnectionId{1});
+    attach(edge::EdgeConnectionId{1}, jti_a);
     static_cast<void>(advance());
     fetch_.script_submit_results(
         {AccountFetchSubmitResult::Full,
@@ -690,8 +690,8 @@ TEST_F(
     transport_.script_result(
         PrimaryTransportCommandKind::SendHandoff,
         {PrimaryTransportResult::Full, PrimaryTransportResult::Queued});
-    open(EdgeSessionId{1});
-    attach(EdgeSessionId{1}, jti_a);
+    open(edge::EdgeConnectionId{1});
+    attach(edge::EdgeConnectionId{1}, jti_a);
     static_cast<void>(advance());
     static_cast<void>(advance(1ms, 1ms));
     ASSERT_EQ(fetch_.submitted_requests().size(), 1U);
@@ -744,8 +744,8 @@ TEST_F(
     GatewayLoginPipelineTest,
     GraceCloseFullRetainsDeadlineStageAndConnectionUntilSessionClosed) {
     create(config(1, 1));
-    open(EdgeSessionId{1});
-    attach(EdgeSessionId{1}, jti_a);
+    open(edge::EdgeConnectionId{1});
+    attach(edge::EdgeConnectionId{1}, jti_a);
     static_cast<void>(advance());
     static_cast<void>(advance(1ms, 1ms));
     fetch_.push_completion(
@@ -772,7 +772,7 @@ TEST_F(
     EXPECT_EQ(command_count(PrimaryTransportCommandKind::Close), 1U);
     EXPECT_EQ(result.local_budget.conn_free, 0U);
 
-    close(EdgeSessionId{1}, true);
+    close(edge::EdgeConnectionId{1}, true);
     result = advance(5'004ms, 5'004ms);
     EXPECT_EQ(result.local_budget.conn_free, 1U);
     EXPECT_NE(
@@ -786,8 +786,8 @@ TEST_F(
     auto pipeline_config = config(1, 1);
     pipeline_config.static_realm.reset();
     create(std::move(pipeline_config));
-    open(EdgeSessionId{1});
-    attach(EdgeSessionId{1}, jti_a);
+    open(edge::EdgeConnectionId{1});
+    attach(edge::EdgeConnectionId{1}, jti_a);
     static_cast<void>(advance());
     static_cast<void>(advance(1ms, 1ms));
     fetch_.push_completion(
@@ -808,8 +808,8 @@ TEST_F(
     auto pipeline_config = config(1, 1);
     pipeline_config.fetch_retry_max = 1;
     create(std::move(pipeline_config));
-    open(EdgeSessionId{1});
-    attach(EdgeSessionId{1}, jti_a);
+    open(edge::EdgeConnectionId{1});
+    attach(edge::EdgeConnectionId{1}, jti_a);
     static_cast<void>(advance());
     static_cast<void>(advance(1ms, 1ms));
     fetch_.push_completion(
@@ -840,8 +840,8 @@ TEST_F(
     GatewayLoginPipelineTest,
     NotEligibleFetchDeclinesImmediatelyWithoutRetry) {
     create(config(1, 1));
-    open(EdgeSessionId{1});
-    attach(EdgeSessionId{1}, jti_a);
+    open(edge::EdgeConnectionId{1});
+    attach(edge::EdgeConnectionId{1}, jti_a);
     static_cast<void>(advance());
     static_cast<void>(advance(1ms, 1ms));
     ASSERT_EQ(fetch_.submitted_requests().size(), 1U);
@@ -879,8 +879,8 @@ TEST_F(
     pipeline_config.fetch_timeout = 500ms;
     pipeline_config.fetch_retry_base = 100ms;
     create(std::move(pipeline_config));
-    open(EdgeSessionId{1});
-    attach(EdgeSessionId{1}, jti_a);
+    open(edge::EdgeConnectionId{1});
+    attach(edge::EdgeConnectionId{1}, jti_a);
     static_cast<void>(advance());
     static_cast<void>(advance(1ms, 1ms));
     ASSERT_EQ(fetch_.submitted_requests().size(), 1U);
@@ -915,8 +915,8 @@ TEST_F(
     create(config(1, 1));
     transport_.script_result(
         PrimaryTransportCommandKind::Accept, {PrimaryTransportResult::Stopped});
-    open(EdgeSessionId{1});
-    attach(EdgeSessionId{1}, jti_a);
+    open(edge::EdgeConnectionId{1});
+    attach(edge::EdgeConnectionId{1}, jti_a);
 
     const auto result = advance();
     EXPECT_EQ(result.health, GatewayPipelineHealth::Unhealthy);
@@ -927,8 +927,8 @@ TEST_F(
     GatewayLoginPipelineTest,
     StoppedFetchPortMakesPipelineUnhealthyAndBudgetUnavailable) {
     create(config(1, 1));
-    open(EdgeSessionId{1});
-    attach(EdgeSessionId{1}, jti_a);
+    open(edge::EdgeConnectionId{1});
+    attach(edge::EdgeConnectionId{1}, jti_a);
     static_cast<void>(advance());
     fetch_.stop();
 

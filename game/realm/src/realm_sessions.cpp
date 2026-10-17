@@ -1,7 +1,7 @@
 #include "realmmesh/game/realm/realm_sessions.hpp"
 
+#include "realmmesh/edge/edge_runtime.hpp"
 #include "realmmesh/game/common/edge_protocol.hpp"
-#include "realmmesh/game/gateway/gateway_runtime.hpp"
 #include "realmmesh/game/realm/character_name.hpp"
 #include "realmmesh/game/realm/training_rule.hpp"
 #include "realmmesh/observability/logger.hpp"
@@ -22,13 +22,13 @@ Overloaded(Visitors...) -> Overloaded<Visitors...>;
 
 }  // namespace
 
-void GatewayRuntimeRealmOutbox::send(
-    gateway::EdgeSessionId session, std::vector<std::byte> payload) {
+void EdgeRuntimeRealmOutbox::send(
+    edge::EdgeConnectionId session, std::vector<std::byte> payload) {
     // 出站队列满时回包丢失,客户端按请求超时处理;会话不因此关闭。
     static_cast<void>(runtime_.try_send(session, payload));
 }
 
-void GatewayRuntimeRealmOutbox::close(gateway::EdgeSessionId session) {
+void EdgeRuntimeRealmOutbox::close(edge::EdgeConnectionId session) {
     static_cast<void>(runtime_.try_close(session));
 }
 
@@ -48,7 +48,7 @@ RealmSessions::RealmSessions(
 RealmSessions::~RealmSessions() = default;
 
 void RealmSessions::enter(
-    gateway::EdgeSessionId session, std::uint64_t account_id) {
+    edge::EdgeConnectionId session, std::uint64_t account_id) {
     if (const auto online = online_.find(account_id);
         online != online_.end() && online->second != session) {
         const auto displaced = online->second;
@@ -60,7 +60,7 @@ void RealmSessions::enter(
     sessions_[session] = Session{.account_id = account_id};
 }
 
-void RealmSessions::closed(gateway::EdgeSessionId session) {
+void RealmSessions::closed(edge::EdgeConnectionId session) {
     const auto found = sessions_.find(session);
     if (found == sessions_.end()) return;
     if (const auto online = online_.find(found->second.account_id);
@@ -70,19 +70,19 @@ void RealmSessions::closed(gateway::EdgeSessionId session) {
     sessions_.erase(found);
 }
 
-bool RealmSessions::contains(gateway::EdgeSessionId session) const {
+bool RealmSessions::contains(edge::EdgeConnectionId session) const {
     return sessions_.contains(session);
 }
 
 std::optional<RealmSessionPhase> RealmSessions::phase(
-    gateway::EdgeSessionId session) const {
+    edge::EdgeConnectionId session) const {
     const auto found = sessions_.find(session);
     if (found == sessions_.end()) return std::nullopt;
     return found->second.phase;
 }
 
 bool RealmSessions::handle(
-    gateway::EdgeSessionId id, std::span<const std::byte> payload) {
+    edge::EdgeConnectionId id, std::span<const std::byte> payload) {
     const auto message = common::realm_message_id(payload);
     const auto found = sessions_.find(id);
     if (!message.has_value() || found == sessions_.end()) return false;
@@ -158,7 +158,7 @@ void RealmSessions::complete(std::size_t max_completions) {
     }
 }
 
-void RealmSessions::process_next(gateway::EdgeSessionId id, Session& session) {
+void RealmSessions::process_next(edge::EdgeConnectionId id, Session& session) {
     while (!session.busy && !session.waiting.empty()) {
         const auto request = std::move(session.waiting.front());
         session.waiting.pop_front();
@@ -169,7 +169,7 @@ void RealmSessions::process_next(gateway::EdgeSessionId id, Session& session) {
 
 template <typename Step>
 bool RealmSessions::guarded(
-    gateway::EdgeSessionId id, const Request& request, Step&& step) {
+    edge::EdgeConnectionId id, const Request& request, Step&& step) {
     // 训练规则在帧线程执行,Lua 报错或返回值形状不对时抛异常;
     // 收敛为该请求的 3010,会话与进程都保持。
     try {
@@ -192,7 +192,7 @@ bool RealmSessions::guarded(
 }
 
 bool RealmSessions::process(
-    gateway::EdgeSessionId id, Session& session, const Request& request) {
+    edge::EdgeConnectionId id, Session& session, const Request& request) {
     const bool selecting = session.phase == RealmSessionPhase::Selecting;
     const auto account_id = session.account_id;
     auto& store = store_;
@@ -300,7 +300,7 @@ bool RealmSessions::process(
 }
 
 bool RealmSessions::submit(
-    gateway::EdgeSessionId id,
+    edge::EdgeConnectionId id,
     const Session& session,
     const Request& request,
     concurrency::BoundedWorkPool<DataResult>::Job job) {
@@ -349,7 +349,7 @@ bool RealmSessions::submit(
 }
 
 void RealmSessions::finish(
-    gateway::EdgeSessionId id,
+    edge::EdgeConnectionId id,
     Session& session,
     const Request& request,
     const DataResult& result) {
@@ -441,7 +441,7 @@ void RealmSessions::finish(
 }
 
 void RealmSessions::finish_train(
-    gateway::EdgeSessionId id,
+    edge::EdgeConnectionId id,
     Session& session,
     const Request& request,
     std::uint64_t seq,
@@ -470,7 +470,7 @@ void RealmSessions::finish_train(
 }
 
 void RealmSessions::send_error(
-    gateway::EdgeSessionId id,
+    edge::EdgeConnectionId id,
     std::uint64_t request_id,
     int code,
     std::string_view message,
@@ -483,7 +483,7 @@ void RealmSessions::send_error(
 }
 
 void RealmSessions::send_train_result(
-    gateway::EdgeSessionId id,
+    edge::EdgeConnectionId id,
     std::uint64_t request_id,
     const common::RealmCharacter& character,
     bool replayed) {

@@ -31,7 +31,7 @@ NOISE_FLOOR = 0.05
 PROBES = {
     'lua-cpp': 'framework/scripting/src/lua_runtime.cpp',
     'lua-hpp': 'framework/scripting/include/realmmesh/scripting/lua_runtime.hpp',
-    'gateway-hpp': 'game/gateway/include/realmmesh/game/gateway/gateway_runtime.hpp',
+    'gateway-hpp': 'framework/edge/include/realmmesh/edge/edge_runtime.hpp',
     'player-data-hpp': 'game/common/include/realmmesh/game/common/player_data_store.hpp',
     'proto': 'proto/realmmesh/common/v1/envelope.proto',
     'private-hpp': 'game/common/src/envelope_codec.hpp',

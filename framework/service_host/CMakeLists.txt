@@ -17,6 +17,7 @@ target_include_directories(realm_service_host
 
 target_link_libraries(realm_service_host PUBLIC
     realm_cluster
+    realm_edge
     realm_game_common
     realm_gateway_service
     realm_login_verify_service

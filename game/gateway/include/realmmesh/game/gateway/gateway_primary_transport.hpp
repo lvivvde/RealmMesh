@@ -1,9 +1,9 @@
 #pragma once
 
-// 主传输边界只需事件与 runtime 指针(#128):GatewayRuntime 仅前置声明，
+// 主传输边界只需事件与 runtime 指针(#128):EdgeRuntime 仅前置声明，
 // 完整定义留在生产适配器的实现文件。
-#include "realmmesh/game/gateway/edge_session_table.hpp"
-#include "realmmesh/game/gateway/gateway_event.hpp"
+#include "realmmesh/edge/edge_connection_table.hpp"
+#include "realmmesh/edge/edge_event.hpp"
 
 #include <array>
 #include <cstddef>
@@ -12,9 +12,11 @@
 #include <span>
 #include <vector>
 
-namespace realm::game::gateway {
+namespace realm::edge {
+class EdgeRuntime;
+}  // namespace realm::edge
 
-class GatewayRuntime;
+namespace realm::game::gateway {
 
 enum class PrimaryTransportResult : std::uint8_t {
     Queued,
@@ -31,7 +33,7 @@ enum class PrimaryTransportCommandKind : std::uint8_t {
 
 struct PrimaryTransportCommand {
     PrimaryTransportCommandKind kind{PrimaryTransportCommandKind::Close};
-    EdgeSessionId session_id{invalid_edge_session_id};
+    edge::EdgeConnectionId session_id{edge::invalid_edge_connection_id};
     std::vector<std::byte> payload;
 };
 
@@ -41,47 +43,47 @@ class GatewayPrimaryTransport {
 public:
     virtual ~GatewayPrimaryTransport() = default;
 
-    [[nodiscard]] virtual std::vector<GatewayEvent> drain_events(
+    [[nodiscard]] virtual std::vector<edge::EdgeEvent> drain_events(
         std::size_t max_events) = 0;
     [[nodiscard]] virtual PrimaryTransportResult accept(
-        EdgeSessionId session_id, std::span<const std::byte> response) = 0;
+        edge::EdgeConnectionId session_id, std::span<const std::byte> response) = 0;
     [[nodiscard]] virtual PrimaryTransportResult decline(
-        EdgeSessionId session_id, std::span<const std::byte> response) = 0;
+        edge::EdgeConnectionId session_id, std::span<const std::byte> response) = 0;
     [[nodiscard]] virtual PrimaryTransportResult send_handoff(
-        EdgeSessionId session_id, std::span<const std::byte> message) = 0;
+        edge::EdgeConnectionId session_id, std::span<const std::byte> message) = 0;
     [[nodiscard]] virtual PrimaryTransportResult close(
-        EdgeSessionId session_id) = 0;
+        edge::EdgeConnectionId session_id) = 0;
 };
 
-/// 生产适配器只翻译 GatewayRuntime 的事件与命令结果，不持有管线状态。
-class GatewayRuntimePrimaryTransport final : public GatewayPrimaryTransport {
+/// 生产适配器只翻译 EdgeRuntime 的事件与命令结果，不持有管线状态。
+class EdgeRuntimePrimaryTransport final : public GatewayPrimaryTransport {
 public:
-    explicit GatewayRuntimePrimaryTransport(GatewayRuntime& runtime)
+    explicit EdgeRuntimePrimaryTransport(edge::EdgeRuntime& runtime)
         : runtime_(&runtime) {}
 
-    [[nodiscard]] std::vector<GatewayEvent> drain_events(
+    [[nodiscard]] std::vector<edge::EdgeEvent> drain_events(
         std::size_t max_events) override;
     [[nodiscard]] PrimaryTransportResult accept(
-        EdgeSessionId session_id,
+        edge::EdgeConnectionId session_id,
         std::span<const std::byte> response) override;
     [[nodiscard]] PrimaryTransportResult decline(
-        EdgeSessionId session_id,
+        edge::EdgeConnectionId session_id,
         std::span<const std::byte> response) override;
     [[nodiscard]] PrimaryTransportResult send_handoff(
-        EdgeSessionId session_id,
+        edge::EdgeConnectionId session_id,
         std::span<const std::byte> message) override;
     [[nodiscard]] PrimaryTransportResult close(
-        EdgeSessionId session_id) override;
+        edge::EdgeConnectionId session_id) override;
 
 private:
-    GatewayRuntime* runtime_;
+    edge::EdgeRuntime* runtime_;
 };
 
 /// 可脚本化内存适配器：测试只观察与生产适配器相同的公共契约。
 class InMemoryGatewayPrimaryTransport final
     : public GatewayPrimaryTransport {
 public:
-    void push_event(GatewayEvent event);
+    void push_event(edge::EdgeEvent event);
     void script_result(
         PrimaryTransportCommandKind kind,
         std::deque<PrimaryTransportResult> results);
@@ -91,27 +93,27 @@ public:
         return owned_commands_;
     }
 
-    [[nodiscard]] std::vector<GatewayEvent> drain_events(
+    [[nodiscard]] std::vector<edge::EdgeEvent> drain_events(
         std::size_t max_events) override;
     [[nodiscard]] PrimaryTransportResult accept(
-        EdgeSessionId session_id,
+        edge::EdgeConnectionId session_id,
         std::span<const std::byte> response) override;
     [[nodiscard]] PrimaryTransportResult decline(
-        EdgeSessionId session_id,
+        edge::EdgeConnectionId session_id,
         std::span<const std::byte> response) override;
     [[nodiscard]] PrimaryTransportResult send_handoff(
-        EdgeSessionId session_id,
+        edge::EdgeConnectionId session_id,
         std::span<const std::byte> message) override;
     [[nodiscard]] PrimaryTransportResult close(
-        EdgeSessionId session_id) override;
+        edge::EdgeConnectionId session_id) override;
 
 private:
     [[nodiscard]] PrimaryTransportResult execute(
         PrimaryTransportCommandKind kind,
-        EdgeSessionId session_id,
+        edge::EdgeConnectionId session_id,
         std::span<const std::byte> payload);
 
-    std::deque<GatewayEvent> events_;
+    std::deque<edge::EdgeEvent> events_;
     std::array<std::deque<PrimaryTransportResult>, 4> results_;
     std::vector<PrimaryTransportCommand> owned_commands_;
     bool stopped_{false};

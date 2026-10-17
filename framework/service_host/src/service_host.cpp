@@ -5,16 +5,16 @@
 #include "realmmesh/cluster/service_bootstrap.hpp"
 #include "realmmesh/cluster/service_publisher.hpp"
 #include "realmmesh/cluster/service_resolver.hpp"
+#include "realmmesh/edge/edge_runtime.hpp"
+#include "realmmesh/game/common/admission_grant.hpp"
+#include "realmmesh/game/common/compact_jws.hpp"
+#include "realmmesh/game/common/identity_token.hpp"
+#include "realmmesh/game/common/player_data_store.hpp"
 #include "realmmesh/game/gateway/account_fetch_port.hpp"
 #include "realmmesh/game/gateway/admission_consumption_store.hpp"
 #include "realmmesh/game/gateway/gateway_admission.hpp"
 #include "realmmesh/game/gateway/gateway_login_pipeline.hpp"
 #include "realmmesh/game/gateway/gateway_primary_transport.hpp"
-#include "realmmesh/game/gateway/gateway_runtime.hpp"
-#include "realmmesh/game/common/admission_grant.hpp"
-#include "realmmesh/game/common/compact_jws.hpp"
-#include "realmmesh/game/common/identity_token.hpp"
-#include "realmmesh/game/common/player_data_store.hpp"
 #include "realmmesh/game/login_verify/login_verify_service.hpp"
 #include "realmmesh/game/queue/queue_service.hpp"
 #include "realmmesh/game/realm/realm_sessions.hpp"
@@ -145,8 +145,11 @@ ServiceHost::ServiceHost(
     budget_policy_.conn_capacity = conn_capacity;
     budget_policy_.fetch_capacity =
         is_gateway ? gateway_login_config.fetch_capacity : 0;
-    runtime_ = std::make_unique<game::gateway::GatewayRuntime>(
-        std::move(config), logger_.get());
+    runtime_ = std::make_unique<edge::EdgeRuntime>(
+        config.transports,
+        config.runtime,
+        std::move(config.ingress_source),
+        logger_.get());
     if (is_gateway) {
         const auto consumption_key =
             game::gateway::parse_admission_consumption_digest_key(
@@ -182,7 +185,7 @@ ServiceHost::ServiceHost(
                  .grant_window = gateway_login_config.admission_grant_window}),
             *admission_consumption_store_);
         gateway_primary_transport_ =
-            std::make_unique<game::gateway::GatewayRuntimePrimaryTransport>(
+            std::make_unique<game::gateway::EdgeRuntimePrimaryTransport>(
                 *runtime_);
         if (player_data.uri.empty()) {
             account_fetch_ =
@@ -223,7 +226,7 @@ ServiceHost::ServiceHost(
         realm_characters_ = std::make_unique<game::common::MongoPlayerDataStore>(
             player_data.uri, player_data.database, player_data.options);
         realm_outbox_ =
-            std::make_unique<game::realm::GatewayRuntimeRealmOutbox>(*runtime_);
+            std::make_unique<game::realm::EdgeRuntimeRealmOutbox>(*runtime_);
         realm_sessions_ = std::make_unique<game::realm::RealmSessions>(
             *realm_characters_,
             *training_rule_,
@@ -377,7 +380,7 @@ void ServiceHost::stop() {
     }
 }
 
-game::gateway::GatewayRuntime& ServiceHost::runtime() noexcept {
+edge::EdgeRuntime& ServiceHost::runtime() noexcept {
     return *runtime_;
 }
 

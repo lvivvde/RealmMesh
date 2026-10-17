@@ -1,37 +1,33 @@
-#include "realmmesh/game/gateway/gateway_runtime.hpp"
+#include "realmmesh/edge/edge_runtime.hpp"
 
-#include "realmmesh/game/gateway/gateway_config.hpp"
 #include "realmmesh/network/transport/transport_factory.hpp"
 
 #include <algorithm>
 #include <stdexcept>
 #include <utility>
 
-namespace realm::game::gateway {
+namespace realm::edge {
 
-GatewayRuntime::GatewayRuntime(
-    GatewayConfig config, observability::Logger* logger)
-    : GatewayRuntime(config, config.runtime, logger) {}
-
-GatewayRuntime::GatewayRuntime(
-    GatewayConfig config,
-    GatewayRuntimeOptions options,
+EdgeRuntime::EdgeRuntime(
+    const std::vector<network::TransportConfig>& transports,
+    EdgeRuntimeOptions options,
+    EdgeSourceConfig source_config,
     observability::Logger* logger)
-    : GatewayRuntime(
-          network::TransportFactory::create_enabled(config.transports, logger),
+    : EdgeRuntime(
+          network::TransportFactory::create_enabled(transports, logger),
           options,
-          std::move(config.ingress_source)) {}
+          std::move(source_config)) {}
 
-GatewayRuntime::GatewayRuntime(
+EdgeRuntime::EdgeRuntime(
     std::vector<std::unique_ptr<network::IMessageTransport>> transports,
-    GatewayRuntimeOptions options)
-    : GatewayRuntime(
-          std::move(transports), options, GatewaySourceConfig{}) {}
+    EdgeRuntimeOptions options)
+    : EdgeRuntime(
+          std::move(transports), options, EdgeSourceConfig{}) {}
 
-GatewayRuntime::GatewayRuntime(
+EdgeRuntime::EdgeRuntime(
     std::vector<std::unique_ptr<network::IMessageTransport>> transports,
-    GatewayRuntimeOptions options,
-    GatewaySourceConfig source_config)
+    EdgeRuntimeOptions options,
+    EdgeSourceConfig source_config)
     : transports_(std::move(transports)),
       options_(options),
       source_normalizer_(std::move(source_config)),
@@ -39,10 +35,10 @@ GatewayRuntime::GatewayRuntime(
       outbound_(options_.outbound_capacity) {
     if (transports_.empty()) {
         throw std::invalid_argument(
-            "gateway must have at least one enabled transport");
+            "edge runtime must have at least one enabled transport");
     }
     for (const auto& transport : transports_) {
-        sessions_.register_transport(*transport);
+        connections_.register_transport(*transport);
     }
     local_port_ = transports_.front()->local_endpoint().port;
     local_endpoints_.reserve(transports_.size());
@@ -58,9 +54,9 @@ GatewayRuntime::GatewayRuntime(
     }
 }
 
-GatewayRuntime::~GatewayRuntime() { stop(); }
+EdgeRuntime::~EdgeRuntime() { stop(); }
 
-void GatewayRuntime::start() {
+void EdgeRuntime::start() {
     bool expected = false;
     if (!running_.compare_exchange_strong(expected, true)) {
         return;
@@ -75,7 +71,7 @@ void GatewayRuntime::start() {
     }
 }
 
-void GatewayRuntime::stop() noexcept {
+void EdgeRuntime::stop() noexcept {
     running_.store(false);
     if (io_thread_.joinable()) {
         io_thread_.request_stop();
@@ -83,13 +79,13 @@ void GatewayRuntime::stop() noexcept {
     }
 }
 
-bool GatewayRuntime::running() const noexcept { return running_.load(); }
+bool EdgeRuntime::running() const noexcept { return running_.load(); }
 
-std::uint16_t GatewayRuntime::local_port() const noexcept {
+std::uint16_t EdgeRuntime::local_port() const noexcept {
     return local_port_;
 }
 
-std::optional<network::TransportEndpoint> GatewayRuntime::local_endpoint(
+std::optional<network::TransportEndpoint> EdgeRuntime::local_endpoint(
     std::string_view transport_name) const {
     const auto iterator = std::ranges::find_if(
         local_endpoints_, [transport_name](const auto& endpoint) {
@@ -101,63 +97,63 @@ std::optional<network::TransportEndpoint> GatewayRuntime::local_endpoint(
     return *iterator;
 }
 
-const std::vector<network::TransportEndpoint>& GatewayRuntime::local_endpoints()
+const std::vector<network::TransportEndpoint>& EdgeRuntime::local_endpoints()
     const noexcept {
     return local_endpoints_;
 }
 
-std::optional<GatewayEvent> GatewayRuntime::try_receive() {
+std::optional<EdgeEvent> EdgeRuntime::try_receive() {
     return inbound_.try_pop();
 }
 
-std::vector<GatewayEvent> GatewayRuntime::drain_events(std::size_t max_events) {
+std::vector<EdgeEvent> EdgeRuntime::drain_events(std::size_t max_events) {
     return inbound_.drain(max_events);
 }
 
-QueueResult GatewayRuntime::try_send(
-    EdgeSessionId session_id, std::span<const std::byte> payload) {
+QueueResult EdgeRuntime::try_send(
+    EdgeConnectionId connection_id, std::span<const std::byte> payload) {
     return enqueue({
         .kind = CommandKind::Send,
-        .session_id = session_id,
+        .connection_id = connection_id,
         .payload = std::vector<std::byte>(payload.begin(), payload.end()),
     });
 }
 
-QueueResult GatewayRuntime::try_accept(
-    EdgeSessionId session_id, std::span<const std::byte> response) {
+QueueResult EdgeRuntime::try_accept(
+    EdgeConnectionId connection_id, std::span<const std::byte> response) {
     return enqueue({
         .kind = CommandKind::Accept,
-        .session_id = session_id,
+        .connection_id = connection_id,
         .payload = std::vector<std::byte>(response.begin(), response.end()),
     });
 }
 
-QueueResult GatewayRuntime::try_decline(
-    EdgeSessionId session_id, std::span<const std::byte> response) {
+QueueResult EdgeRuntime::try_decline(
+    EdgeConnectionId connection_id, std::span<const std::byte> response) {
     return enqueue({
         .kind = CommandKind::Decline,
-        .session_id = session_id,
+        .connection_id = connection_id,
         .payload = std::vector<std::byte>(response.begin(), response.end()),
     });
 }
 
-QueueResult GatewayRuntime::try_close(EdgeSessionId session_id) {
+QueueResult EdgeRuntime::try_close(EdgeConnectionId connection_id) {
     return enqueue({
         .kind = CommandKind::Close,
-        .session_id = session_id,
+        .connection_id = connection_id,
         .payload = {},
     });
 }
 
-QueueResult GatewayRuntime::try_reload_credentials() {
+QueueResult EdgeRuntime::try_reload_credentials() {
     return enqueue({
         .kind = CommandKind::ReloadCredentials,
-        .session_id = invalid_edge_session_id,
+        .connection_id = invalid_edge_connection_id,
         .payload = {},
     });
 }
 
-GatewayRuntimeStats GatewayRuntime::stats() const noexcept {
+EdgeRuntimeStats EdgeRuntime::stats() const noexcept {
     return {
         .overload_disconnects = overload_disconnects_.load(),
         .rejected_outbound_commands = rejected_outbound_commands_.load(),
@@ -168,12 +164,12 @@ GatewayRuntimeStats GatewayRuntime::stats() const noexcept {
     };
 }
 
-std::optional<std::string> GatewayRuntime::terminal_error() const {
+std::optional<std::string> EdgeRuntime::terminal_error() const {
     std::scoped_lock lock(terminal_error_mutex_);
     return terminal_error_;
 }
 
-QueueResult GatewayRuntime::enqueue(OutboundCommand command) {
+QueueResult EdgeRuntime::enqueue(OutboundCommand command) {
     if (!running()) {
         return QueueResult::Stopped;
     }
@@ -184,7 +180,7 @@ QueueResult GatewayRuntime::enqueue(OutboundCommand command) {
     return QueueResult::Queued;
 }
 
-void GatewayRuntime::io_loop(std::stop_token stop_token) noexcept {
+void EdgeRuntime::io_loop(std::stop_token stop_token) noexcept {
     try {
         while (!stop_token.stop_requested()) {
             process_outbound_commands();
@@ -202,57 +198,57 @@ void GatewayRuntime::io_loop(std::stop_token stop_token) noexcept {
     } catch (...) {
         {
             std::scoped_lock lock(terminal_error_mutex_);
-            terminal_error_ = "unknown exception in gateway I/O loop";
+            terminal_error_ = "unknown exception in edge runtime I/O loop";
         }
         failed_deliveries_.fetch_add(1);
     }
     running_.store(false);
 }
 
-void GatewayRuntime::process_outbound_commands() {
+void EdgeRuntime::process_outbound_commands() {
     for (auto& command : outbound_.drain(options_.max_commands_per_cycle)) {
         process_command(std::move(command));
     }
 }
 
-void GatewayRuntime::process_command(OutboundCommand command) {
+void EdgeRuntime::process_command(OutboundCommand command) {
     switch (command.kind) {
     case CommandKind::Send: {
-        // established-only 契约:pending 或未知会话的发送都是契约违例。
-        const auto record = sessions_.record(command.session_id);
+        // established-only 契约:pending 或未知连接的发送都是契约违例。
+        const auto record = connections_.record(command.connection_id);
         if (!record.has_value() || !record->established) {
             unknown_session_commands_.fetch_add(1);
             break;
         }
-        if (sessions_.send(command.session_id, command.payload) ==
+        if (connections_.send(command.connection_id, command.payload) ==
             SendResult::Sent) {
             successful_deliveries_.fetch_add(1);
         } else {
             failed_deliveries_.fetch_add(1);
             // Queued 只代表 Runtime 已接管命令；实际交付失败必须让上层
-            // 最终观察到 SessionClosed，避免管线永久保留会话与额度。
-            static_cast<void>(finish_close(command.session_id));
+            // 最终观察到 ConnectionClosed，避免管线永久保留会话与额度。
+            static_cast<void>(finish_close(command.connection_id));
         }
         break;
     }
     case CommandKind::Accept: {
-        const auto record = sessions_.record(command.session_id);
+        const auto record = connections_.record(command.connection_id);
         if (!record.has_value() || record->established) {
             unknown_session_commands_.fetch_add(1);
             break;
         }
-        if (sessions_.send(command.session_id, command.payload) !=
+        if (connections_.send(command.connection_id, command.payload) !=
             SendResult::Sent) {
             failed_deliveries_.fetch_add(1);
-            // 响应发不出去,会话不可用:终结并通知业务层。
-            static_cast<void>(finish_close(command.session_id));
+            // 响应发不出去,连接不可用:终结并通知业务层。
+            static_cast<void>(finish_close(command.connection_id));
             break;
         }
-        static_cast<void>(sessions_.establish(command.session_id));
+        static_cast<void>(connections_.establish(command.connection_id));
         successful_deliveries_.fetch_add(1);
         publish_event({
-            .kind = GatewayEventKind::SessionEstablished,
-            .session_id = command.session_id,
+            .kind = EdgeEventKind::ConnectionEstablished,
+            .connection_id = command.connection_id,
             .protocol = record->primary.protocol,
             .established = true,
             .payload = {},
@@ -260,24 +256,24 @@ void GatewayRuntime::process_command(OutboundCommand command) {
         break;
     }
     case CommandKind::Decline: {
-        const auto record = sessions_.record(command.session_id);
+        const auto record = connections_.record(command.connection_id);
         if (!record.has_value()) {
             unknown_session_commands_.fetch_add(1);
             break;
         }
         if (!command.payload.empty()) {
-            if (sessions_.send(command.session_id, command.payload) ==
+            if (connections_.send(command.connection_id, command.payload) ==
                 SendResult::Sent) {
                 successful_deliveries_.fetch_add(1);
             } else {
                 failed_deliveries_.fetch_add(1);
             }
         }
-        static_cast<void>(finish_close(command.session_id));
+        static_cast<void>(finish_close(command.connection_id));
         break;
     }
     case CommandKind::Close:
-        if (!finish_close(command.session_id)) {
+        if (!finish_close(command.connection_id)) {
             unknown_session_commands_.fetch_add(1);
         }
         break;
@@ -291,18 +287,18 @@ void GatewayRuntime::process_command(OutboundCommand command) {
     }
 }
 
-bool GatewayRuntime::finish_close(EdgeSessionId session_id) {
-    const auto record = sessions_.record(session_id);
+bool EdgeRuntime::finish_close(EdgeConnectionId connection_id) {
+    const auto record = connections_.record(connection_id);
     if (!record.has_value()) {
         return false;
     }
-    const auto closed = sessions_.close_session(session_id);
+    const auto closed = connections_.close(connection_id);
     if (!closed.has_value()) {
         return false;
     }
     publish_event({
-        .kind = GatewayEventKind::SessionClosed,
-        .session_id = closed->session_id,
+        .kind = EdgeEventKind::ConnectionClosed,
+        .connection_id = closed->connection_id,
         .protocol = record->primary.protocol,
         .established = closed->established,
         .payload = {},
@@ -311,13 +307,13 @@ bool GatewayRuntime::finish_close(EdgeSessionId session_id) {
     return true;
 }
 
-std::vector<GatewayEvent> GatewayRuntime::poll_events(
+std::vector<EdgeEvent> EdgeRuntime::poll_events(
     std::chrono::milliseconds timeout) {
     const auto count =
         static_cast<std::chrono::milliseconds::rep>(transports_.size());
     const auto per_transport_timeout =
         count == 0 ? std::chrono::milliseconds::zero() : timeout / count;
-    std::vector<GatewayEvent> gateway_events;
+    std::vector<EdgeEvent> edge_events;
 
     for (const auto& transport : transports_) {
         const auto events = transport->poll_once(per_transport_timeout);
@@ -330,9 +326,9 @@ std::vector<GatewayEvent> GatewayRuntime::poll_events(
                     static_cast<void>(transport->close(event.session_id));
                     break;
                 }
-                gateway_events.push_back({
-                    .kind = GatewayEventKind::SessionOpened,
-                    .session_id = sessions_.open(
+                edge_events.push_back({
+                    .kind = EdgeEventKind::ConnectionOpened,
+                    .connection_id = connections_.open(
                         transport->name(), event.session_id, *source),
                     .protocol = transport->protocol(),
                     .established = false,
@@ -342,14 +338,14 @@ std::vector<GatewayEvent> GatewayRuntime::poll_events(
                 break;
             }
             case network::TransportEventKind::SessionClosed: {
-                // 已被本地关闭的会话此处查不到记录:终结已由 finish_close
+                // 已被本地关闭的连接此处查不到记录:终结已由 finish_close
                 // 的合成事件上报,不重复发布。
-                const auto closed = sessions_.on_transport_closed(
+                const auto closed = connections_.on_transport_closed(
                     transport->name(), event.session_id);
                 if (closed.has_value()) {
-                    gateway_events.push_back({
-                        .kind = GatewayEventKind::SessionClosed,
-                        .session_id = closed->session_id,
+                    edge_events.push_back({
+                        .kind = EdgeEventKind::ConnectionClosed,
+                        .connection_id = closed->connection_id,
                         .protocol = transport->protocol(),
                         .established = closed->established,
                         .payload = {},
@@ -360,12 +356,12 @@ std::vector<GatewayEvent> GatewayRuntime::poll_events(
             }
             case network::TransportEventKind::MessageReceived:
             case network::TransportEventKind::PeerAddressChanged: {
-                const auto session_id =
-                    sessions_.find(transport->name(), event.session_id);
-                if (!session_id.has_value()) {
-                    break;  // 会话已终结,丢弃迟到帧
+                const auto connection_id =
+                    connections_.find(transport->name(), event.session_id);
+                if (!connection_id.has_value()) {
+                    break;  // 连接已终结,丢弃迟到帧
                 }
-                const auto record = sessions_.record(*session_id);
+                const auto record = connections_.record(*connection_id);
                 if (!record.has_value()) {
                     break;
                 }
@@ -376,20 +372,20 @@ std::vector<GatewayEvent> GatewayRuntime::poll_events(
                         source_normalizer_.normalize(event.source);
                     if (!normalized.has_value()) {
                         invalid_source_disconnects_.fetch_add(1U);
-                        static_cast<void>(finish_close(*session_id));
+                        static_cast<void>(finish_close(*connection_id));
                         break;
                     }
                     source = *normalized;
                     static_cast<void>(
-                        sessions_.update_source(*session_id, source));
+                        connections_.update_source(*connection_id, source));
                 }
-                gateway_events.push_back({
+                edge_events.push_back({
                     .kind =
                         event.kind ==
                                 network::TransportEventKind::MessageReceived
-                            ? GatewayEventKind::MessageReceived
-                            : GatewayEventKind::PeerAddressChanged,
-                    .session_id = *session_id,
+                            ? EdgeEventKind::MessageReceived
+                            : EdgeEventKind::PeerAddressChanged,
+                    .connection_id = *connection_id,
                     .protocol = transport->protocol(),
                     .established = record->established,
                     .payload = std::move(event.payload),
@@ -400,22 +396,22 @@ std::vector<GatewayEvent> GatewayRuntime::poll_events(
             }
         }
     }
-    return gateway_events;
+    return edge_events;
 }
 
-void GatewayRuntime::publish_event(GatewayEvent event) {
+void EdgeRuntime::publish_event(EdgeEvent event) {
     const auto kind = event.kind;
-    const auto session_id = event.session_id;
+    const auto connection_id = event.connection_id;
     if (inbound_.try_push(std::move(event))) {
         return;
     }
 
-    if (kind != GatewayEventKind::SessionClosed) {
-        // 队列满即视为该会话不可再服务;由此产生的终结事件同样进不了
+    if (kind != EdgeEventKind::ConnectionClosed) {
+        // 队列满即视为该连接不可再服务;由此产生的终结事件同样进不了
         // 队列,业务层以超时断连兜底。
         overload_disconnects_.fetch_add(1);
-        static_cast<void>(sessions_.close_session(session_id));
+        static_cast<void>(connections_.close(connection_id));
     }
 }
 
-}  // namespace realm::game::gateway
+}  // namespace realm::edge

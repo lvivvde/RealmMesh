@@ -20,11 +20,14 @@ class ServicePublisher;
 class ServiceResolver;
 }  // namespace realm::cluster
 
+namespace realm::edge {
+class EdgeRuntime;
+}  // namespace realm::edge
+
 namespace realm::game::gateway {
 class AccountFetchPort;
 class GatewayLoginPipeline;
 class GatewayPrimaryTransport;
-class GatewayRuntime;
 class GatewayAdmission;
 class AdmissionConsumptionStore;
 }  // namespace realm::game::gateway
@@ -79,8 +82,8 @@ public:
     /// 优雅关停:停 runtime → 注销发现 → logger flush(2s)。
     void stop();
 
-    [[nodiscard]] game::gateway::GatewayRuntime& runtime() noexcept;
-    /// 模式 1 主循环的存活探测(形态无关):消息服务看 GatewayRuntime
+    [[nodiscard]] edge::EdgeRuntime& runtime() noexcept;
+    /// 模式 1 主循环的存活探测(形态无关):消息服务看 EdgeRuntime
     /// 是否存活,login_verify 形态没有 runtime,看 HTTPS 服务边的 running。
     [[nodiscard]] bool healthy() const noexcept;
     /// 业务体终态错误;login_verify 形态恒 nullopt(启动失败直接抛错)。
@@ -112,7 +115,7 @@ private:
     observability::MetricsRegistry metrics_registry_;
     std::unique_ptr<observability::Logger> logger_;
     std::unique_ptr<observability::LoggerMetricsServer> metrics_;
-    std::unique_ptr<game::gateway::GatewayRuntime> runtime_;
+    std::unique_ptr<edge::EdgeRuntime> runtime_;
     std::unique_ptr<game::gateway::GatewayPrimaryTransport>
         gateway_primary_transport_;
     std::unique_ptr<game::gateway::AccountFetchPort> account_fetch_;

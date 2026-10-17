@@ -111,8 +111,6 @@ struct KnownInversion {
 // 与 ADR-0014「四处倒挂的修法」一一对应;framework/cluster 的 ServiceType
 // 枚举不是 include/链接依赖，不在此列。
 constexpr std::array known_inversions{
-    KnownInversion{"game/realm", "game/gateway",
-                   "第 2、3 步：拆 ingress 头，建 framework/edge"},
     KnownInversion{"framework/service_host", "game/common",
                    "第 4、5 步:ServiceModule 与模块注册"},
     KnownInversion{"framework/service_host", "game/gateway",

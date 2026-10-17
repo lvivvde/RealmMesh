@@ -463,7 +463,7 @@ Loki 大规模生产采用 distributed 模式和对象存储：
 - `configs/`：分层服务日志配置（`common/logging.lua` 与 `services/*.lua`）。
 - `game/common/session_ticket.*`：票据 v2 和 `correlation_id`。
 - `apps/mesh_host/main.cpp`：初始化、上下文和调用点。
-- `game/gateway/src/gateway_runtime.cpp`：记录当前被吞掉的 I/O 异常。
+- `framework/edge/src/edge_runtime.cpp`：记录当前被吞掉的 I/O 异常。
 - `tests/cpp/`：日志、票据、过载、故障和入场流程测试。
 - 新的部署目录：本地 Compose、Vector、Loki、Grafana 和 Prometheus 配置。
 

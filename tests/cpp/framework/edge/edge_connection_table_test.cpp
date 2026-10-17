@@ -1,4 +1,4 @@
-#include "realmmesh/game/gateway/edge_session_table.hpp"
+#include "realmmesh/edge/edge_connection_table.hpp"
 
 #include <gtest/gtest.h>
 
@@ -13,7 +13,7 @@
 #include <unordered_set>
 #include <vector>
 
-namespace realm::game::gateway {
+namespace realm::edge {
 namespace {
 
 class FakeTransport final : public network::IMessageTransport {
@@ -71,16 +71,16 @@ std::vector<std::byte> bytes(std::string_view text) {
     return result;
 }
 
-TEST(EdgeSessionTableTest, SendsOnlyThroughThePrimaryTransport) {
+TEST(EdgeConnectionTableTest, SendsOnlyThroughThePrimaryTransport) {
     FakeTransport primary("client_primary", network::TransportProtocol::Quic);
     primary.add_session(41);
-    EdgeSessionTable table;
+    EdgeConnectionTable table;
     table.register_transport(primary);
 
     const auto session = table.open("client_primary", 41, "192.0.2.10");
     const auto payload = bytes("combat");
 
-    EXPECT_NE(session, invalid_edge_session_id);
+    EXPECT_NE(session, invalid_edge_connection_id);
     ASSERT_TRUE(table.record(session).has_value());
     EXPECT_FALSE(table.record(session)->established);
     EXPECT_EQ(table.record(session)->primary.protocol,
@@ -92,10 +92,10 @@ TEST(EdgeSessionTableTest, SendsOnlyThroughThePrimaryTransport) {
     EXPECT_EQ(primary.sent_payloads.front(), payload);
 }
 
-TEST(EdgeSessionTableTest, EstablishMovesPendingToEstablished) {
+TEST(EdgeConnectionTableTest, EstablishMovesPendingToEstablished) {
     FakeTransport primary("client_primary", network::TransportProtocol::Quic);
     primary.add_session(41);
-    EdgeSessionTable table;
+    EdgeConnectionTable table;
     table.register_transport(primary);
 
     const auto session = table.open("client_primary", 41, "192.0.2.10");
@@ -104,13 +104,13 @@ TEST(EdgeSessionTableTest, EstablishMovesPendingToEstablished) {
     EXPECT_TRUE(table.record(session)->established);
     // 重复迁移与未知句柄都不是 established 迁移。
     EXPECT_FALSE(table.establish(session));
-    EXPECT_FALSE(table.establish(EdgeSessionId{999}));
+    EXPECT_FALSE(table.establish(EdgeConnectionId{999}));
 }
 
-TEST(EdgeSessionTableTest, FindResolvesOnlyLiveSessions) {
+TEST(EdgeConnectionTableTest, FindResolvesOnlyLiveSessions) {
     FakeTransport primary("client_primary", network::TransportProtocol::Quic);
     primary.add_session(41);
-    EdgeSessionTable table;
+    EdgeConnectionTable table;
     table.register_transport(primary);
 
     const auto session = table.open("client_primary", 41, "192.0.2.10");
@@ -118,31 +118,31 @@ TEST(EdgeSessionTableTest, FindResolvesOnlyLiveSessions) {
     EXPECT_EQ(table.find("client_primary", 999), std::nullopt);
     EXPECT_EQ(table.find("other_transport", 41), std::nullopt);
 
-    static_cast<void>(table.close_session(session));
+    static_cast<void>(table.close(session));
     EXPECT_EQ(table.find("client_primary", 41), std::nullopt);
 }
 
-TEST(EdgeSessionTableTest, CloseNotifiesTransportAndRemovesTheRecord) {
+TEST(EdgeConnectionTableTest, CloseNotifiesTransportAndRemovesTheRecord) {
     FakeTransport primary("client_primary", network::TransportProtocol::Quic);
     primary.add_session(41);
-    EdgeSessionTable table;
+    EdgeConnectionTable table;
     table.register_transport(primary);
 
     const auto session = table.open("client_primary", 41, "192.0.2.10");
-    const auto closed = table.close_session(session);
+    const auto closed = table.close(session);
 
     ASSERT_TRUE(closed.has_value());
-    EXPECT_EQ(closed->session_id, session);
+    EXPECT_EQ(closed->connection_id, session);
     EXPECT_FALSE(closed->established);
     EXPECT_EQ(primary.sent_sessions, std::vector<network::SessionId>{});
     EXPECT_EQ(table.record(session), std::nullopt);
-    EXPECT_EQ(table.close_session(session), std::nullopt);
+    EXPECT_EQ(table.close(session), std::nullopt);
 }
 
-TEST(EdgeSessionTableTest, TransportReportedCloseRemovesAndSnapshots) {
+TEST(EdgeConnectionTableTest, TransportReportedCloseRemovesAndSnapshots) {
     FakeTransport primary("client_primary", network::TransportProtocol::Quic);
     primary.add_session(41);
-    EdgeSessionTable table;
+    EdgeConnectionTable table;
     table.register_transport(primary);
 
     const auto session = table.open("client_primary", 41, "192.0.2.10");
@@ -150,7 +150,7 @@ TEST(EdgeSessionTableTest, TransportReportedCloseRemovesAndSnapshots) {
     const auto closed = table.on_transport_closed("client_primary", 41);
 
     ASSERT_TRUE(closed.has_value());
-    EXPECT_EQ(closed->session_id, session);
+    EXPECT_EQ(closed->connection_id, session);
     EXPECT_TRUE(closed->established);
     EXPECT_EQ(table.record(session), std::nullopt);
     EXPECT_EQ(table.on_transport_closed("client_primary", 41), std::nullopt);
@@ -158,19 +158,19 @@ TEST(EdgeSessionTableTest, TransportReportedCloseRemovesAndSnapshots) {
     EXPECT_EQ(table.on_transport_closed("other_transport", 41), std::nullopt);
 }
 
-TEST(EdgeSessionTableTest, UnknownSessionCommandsNeverTouchTransports) {
+TEST(EdgeConnectionTableTest, UnknownSessionCommandsNeverTouchTransports) {
     FakeTransport primary("client_primary", network::TransportProtocol::Quic);
     primary.add_session(41);
-    EdgeSessionTable table;
+    EdgeConnectionTable table;
     table.register_transport(primary);
 
-    EXPECT_EQ(table.send(invalid_edge_session_id, bytes("x")),
+    EXPECT_EQ(table.send(invalid_edge_connection_id, bytes("x")),
               SendResult::UnknownSession);
-    EXPECT_EQ(table.send(EdgeSessionId{999}, bytes("x")),
+    EXPECT_EQ(table.send(EdgeConnectionId{999}, bytes("x")),
               SendResult::UnknownSession);
-    EXPECT_EQ(table.close_session(EdgeSessionId{999}), std::nullopt);
+    EXPECT_EQ(table.close(EdgeConnectionId{999}), std::nullopt);
     EXPECT_EQ(primary.sent_sessions, std::vector<network::SessionId>{});
 }
 
 }  // namespace
-}  // namespace realm::game::gateway
+}  // namespace realm::edge

@@ -147,18 +147,18 @@ protected:
             fetch_));
     }
 
-    void open(EdgeSessionId session_id) {
+    void open(edge::EdgeConnectionId session_id) {
         transport_.push_event({
-            .kind = GatewayEventKind::SessionOpened,
-            .session_id = session_id,
+            .kind = edge::EdgeEventKind::ConnectionOpened,
+            .connection_id = session_id,
             .source = "127.0.0.1",
         });
     }
 
-    void attach(EdgeSessionId session_id, std::uint64_t request_id) {
+    void attach(edge::EdgeConnectionId session_id, std::uint64_t request_id) {
         transport_.push_event({
-            .kind = GatewayEventKind::MessageReceived,
-            .session_id = session_id,
+            .kind = edge::EdgeEventKind::MessageReceived,
+            .connection_id = session_id,
             .established = false,
             .payload = attach_payload(request_id),
             .source = "127.0.0.1",
@@ -178,7 +178,7 @@ protected:
 
     [[nodiscard]] std::optional<PrimaryTransportCommand> last_command(
         PrimaryTransportCommandKind kind,
-        EdgeSessionId session_id) const {
+        edge::EdgeConnectionId session_id) const {
         std::optional<PrimaryTransportCommand> found;
         for (const auto& command : transport_.owned_commands()) {
             if (command.kind == kind && command.session_id == session_id) {
@@ -190,7 +190,7 @@ protected:
 
     [[nodiscard]] bool has_command(
         PrimaryTransportCommandKind kind,
-        EdgeSessionId session_id) const {
+        edge::EdgeConnectionId session_id) const {
         return last_command(kind, session_id).has_value();
     }
 
@@ -208,19 +208,19 @@ TEST_F(
     ThrottleIsRetryableErrorAndAbuseClosesConnection) {
     // 会话 1 用掉桶里唯一一枚令牌:凭据是垃圾,后续按凭据无效拒——但入口
     // 守卫这一关是放行的(限量已被消耗)。
-    open(EdgeSessionId{1});
-    attach(EdgeSessionId{1}, 11);
+    open(edge::EdgeConnectionId{1});
+    attach(edge::EdgeConnectionId{1}, 11);
     advance();
-    EXPECT_TRUE(has_command(PrimaryTransportCommandKind::Decline, EdgeSessionId{1}));
+    EXPECT_TRUE(has_command(PrimaryTransportCommandKind::Decline, edge::EdgeConnectionId{1}));
     EXPECT_FALSE(
-        has_command(PrimaryTransportCommandKind::Close, EdgeSessionId{1}));
+        has_command(PrimaryTransportCommandKind::Close, edge::EdgeConnectionId{1}));
 
     // 会话 2:桶已空 → 429 + Retry-After ≥ 1s。
-    open(EdgeSessionId{2});
-    attach(EdgeSessionId{2}, 12);
+    open(edge::EdgeConnectionId{2});
+    attach(edge::EdgeConnectionId{2}, 12);
     advance();
     const auto throttled =
-        last_command(PrimaryTransportCommandKind::Decline, EdgeSessionId{2});
+        last_command(PrimaryTransportCommandKind::Decline, edge::EdgeConnectionId{2});
     ASSERT_TRUE(throttled.has_value());
     const auto error = common::decode_edge_error(throttled->payload);
     ASSERT_TRUE(error.has_value());
@@ -229,15 +229,15 @@ TEST_F(
         static_cast<std::uint32_t>(common::edge_error_throttled));
     EXPECT_GE(error->retry_after_seconds(), 1U);
     EXPECT_FALSE(
-        has_command(PrimaryTransportCommandKind::Close, EdgeSessionId{2}));
+        has_command(PrimaryTransportCommandKind::Close, edge::EdgeConnectionId{2}));
 
     // 会话 3:同来源再次超限 → sustained abuse → 关闭,没有 429 回包。
-    open(EdgeSessionId{3});
-    attach(EdgeSessionId{3}, 13);
+    open(edge::EdgeConnectionId{3});
+    attach(edge::EdgeConnectionId{3}, 13);
     advance();
-    EXPECT_TRUE(has_command(PrimaryTransportCommandKind::Close, EdgeSessionId{3}));
+    EXPECT_TRUE(has_command(PrimaryTransportCommandKind::Close, edge::EdgeConnectionId{3}));
     EXPECT_FALSE(
-        has_command(PrimaryTransportCommandKind::Decline, EdgeSessionId{3}));
+        has_command(PrimaryTransportCommandKind::Decline, edge::EdgeConnectionId{3}));
 }
 
 }  // namespace

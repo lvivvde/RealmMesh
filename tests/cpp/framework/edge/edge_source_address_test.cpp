@@ -1,13 +1,13 @@
-#include "realmmesh/game/gateway/gateway_source_address.hpp"
+#include "realmmesh/edge/edge_source_address.hpp"
 
 #include <gtest/gtest.h>
 
-namespace realm::game::gateway {
+namespace realm::edge {
 namespace {
 
-TEST(GatewaySourceNormalizerTest, IgnoresForwardingHeadersFromUntrustedPeer) {
-    GatewaySourceNormalizer normalizer({
-        .mode = GatewaySourceMode::TrustedXForwardedFor,
+TEST(EdgeSourceNormalizerTest, IgnoresForwardingHeadersFromUntrustedPeer) {
+    EdgeSourceNormalizer normalizer({
+        .mode = EdgeSourceMode::TrustedXForwardedFor,
         .trusted_proxy_cidrs = {"10.0.0.0/8"},
     });
     const auto normalized = normalizer.normalize({
@@ -17,9 +17,9 @@ TEST(GatewaySourceNormalizerTest, IgnoresForwardingHeadersFromUntrustedPeer) {
     EXPECT_EQ(normalized, "192.0.2.10");
 }
 
-TEST(GatewaySourceNormalizerTest, UsesFirstUntrustedForwardedHop) {
-    GatewaySourceNormalizer normalizer({
-        .mode = GatewaySourceMode::TrustedXForwardedFor,
+TEST(EdgeSourceNormalizerTest, UsesFirstUntrustedForwardedHop) {
+    EdgeSourceNormalizer normalizer({
+        .mode = EdgeSourceMode::TrustedXForwardedFor,
         .trusted_proxy_cidrs = {"10.0.0.0/8"},
     });
     const auto normalized = normalizer.normalize({
@@ -30,4 +30,4 @@ TEST(GatewaySourceNormalizerTest, UsesFirstUntrustedForwardedHop) {
 }
 
 }  // namespace
-}  // namespace realm::game::gateway
+}  // namespace realm::edge

@@ -1,6 +1,6 @@
 #include "realmmesh/service_host/service_host.hpp"
 
-#include "realmmesh/game/gateway/gateway_runtime.hpp"
+#include "realmmesh/edge/edge_runtime.hpp"
 #include "realmmesh/network/tcp/tcp_listener.hpp"
 #include "realmmesh/test_support/mongod_process.hpp"
 

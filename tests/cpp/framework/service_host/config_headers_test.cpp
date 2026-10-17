@@ -3,7 +3,7 @@
 // 入口是各模块的 *_config_lua.hpp,由解析实现、分层装载器与解析测试显式选择。
 // 训练规则头只前置声明 LuaRuntime(#127),同样受本守卫约束。
 // Gateway 启动配置单独成头(#128):配置值消费者也不经传递 include 拿到
-// GatewayRuntime 的完整定义(私有队列、线程与锁布局)。
+// EdgeRuntime 的完整定义(私有队列、线程与锁布局)。
 #include "realmmesh/game/common/player_data_config.hpp"
 #include "realmmesh/game/gateway/gateway_config.hpp"
 #include "realmmesh/game/gateway/gateway_config_loader.hpp"
@@ -26,7 +26,7 @@
 #include <filesystem>
 
 namespace realm::game::gateway {
-class GatewayRuntime;
+class EdgeRuntime;
 }  // namespace realm::game::gateway
 
 namespace realm::service_host {
@@ -36,8 +36,8 @@ template <typename T>
 concept CompleteType = requires { sizeof(T); };
 
 static_assert(
-    !CompleteType<game::gateway::GatewayRuntime>,
-    "plain configuration headers must not include gateway_runtime.hpp");
+    !CompleteType<edge::EdgeRuntime>,
+    "plain configuration headers must not include edge_runtime.hpp");
 
 TEST(ConfigHeadersTest, ConfigValuesAreUsableWithoutLua) {
     LayeredConfigLoader::RealmServiceConfig realm;
