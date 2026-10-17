@@ -67,7 +67,8 @@ jobs:
         run: ./scripts/install-etcd.sh
 
       # Player Data 的权威来源是 MongoDB 副本集(ADR-0011):存储层与跨进程
-      # 集成用例各自拉起单节点 rs0。macOS 与开发机一致，用 Homebrew 安装;
+      # 集成用例使用真实单节点 rs0:完整 CTest 经夹具共享一个副本集，每例
+      # 独立数据库，单独运行时自启自停。macOS 与开发机一致，用 Homebrew 安装;
       # 夹具与脚本从 PATH 找 mongod/mongosh,缺失即失败而不是跳过。
       # 新版 Homebrew 拒绝加载未信任第三方 tap 的公式，须先 brew trust。
       - name: Install MongoDB
