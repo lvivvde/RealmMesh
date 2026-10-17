@@ -1,10 +1,14 @@
 #include "realmmesh/service_host/layered_config_loader.hpp"
 #include "realmmesh/observability/logger.hpp"
-#include "realmmesh/service_host/frame_service_modules.hpp"
+#include "realmmesh/game/common/player_data_config.hpp"
+#include "realmmesh/game/common/player_data_config_lua.hpp"
+#include "realmmesh/game/realm/realm_module.hpp"
+#include "realmmesh/service_host/layered_config_lua.hpp"
 
 #include <gtest/gtest.h>
 
 #include <chrono>
+#include <cstddef>
 #include <cstdint>
 #include <cstdlib>
 #include <filesystem>
@@ -65,20 +69,23 @@ protected:
         std::ofstream output(path);
         output << text;
     }
-    /// 宿主层 + realm 帧节段(tick_rate、player_data)一并装载。
-    [[nodiscard]] game::gateway::GatewayConfig load_frame(
-        const CliOverrides& overrides = {}) const {
-        return load_gateway_config(
-            LayeredConfigLoader::load(root_, "realm", overrides));
+    /// 经分层装载后从合并根表解析共享 player_data 节段(与各服务模块
+    /// 装载入口同一路径),相对路径按 config_root 落为绝对路径。
+    [[nodiscard]] game::common::PlayerDataConfig load_player_data() const {
+        const auto layered = LayeredConfigLoader::load(root_, "realm");
+        auto config = game::common::parse_player_data_config(lua_root(layered));
+        game::common::resolve_player_data_paths(config, layered.config_root());
+        return config;
     }
 };
 
 /// 宿主层节段经 LayeredConfig::host() 读取;服务专属节段(此处借 realm 的
-/// tick_rate)由模块装载入口从同一合并根表解析。
+/// max_events_per_frame)由模块装载入口从同一合并根表解析。
 TEST_F(LayeredConfigTest, ServiceLayerOverridesCommon) {
     write(
         root_ / "services" / "realm.lua",
-        "return { logging = { level = \"debug\" }, tick_rate = 30 }");
+        "return { logging = { level = \"debug\" }, max_events_per_frame = 30, "
+        "realm = { training_rule_file = \"services/realm/training.lua\" } }");
     const auto layered = LayeredConfigLoader::load(root_, "realm");
     EXPECT_EQ(layered.service_name(), "realm");
     EXPECT_EQ(
@@ -87,7 +94,9 @@ TEST_F(LayeredConfigTest, ServiceLayerOverridesCommon) {
     EXPECT_EQ(
         layered.host().service_discovery.lease_ttl,
         std::chrono::seconds(9));  // 公共层保留
-    EXPECT_EQ(load_gateway_config(layered).tick_rate, std::uint32_t{30});
+    EXPECT_EQ(
+        game::realm::load_realm_config(layered).max_events_per_frame,
+        std::size_t{30});
 }
 
 TEST_F(LayeredConfigTest, CliOverridesInstanceIdentity) {
@@ -118,22 +127,21 @@ TEST_F(LayeredConfigTest, ParsesSharedPlayerDataDeployment) {
         "credential_hash_cost = \"minimum\" } }");
     write(root_ / "services" / "realm.lua", "return {}");
 
-    const auto config = load_frame();
+    const auto config = load_player_data();
 
+    EXPECT_EQ(config.uri, "mongodb://127.0.0.1:27017/?replicaSet=rs0");
+    EXPECT_EQ(config.database, "realmmesh");
     EXPECT_EQ(
-        config.player_data.uri, "mongodb://127.0.0.1:27017/?replicaSet=rs0");
-    EXPECT_EQ(config.player_data.database, "realmmesh");
-    EXPECT_EQ(
-        config.player_data.options.server_selection_timeout,
+        config.options.server_selection_timeout,
         std::chrono::milliseconds{750});
     EXPECT_EQ(
-        config.player_data.options.socket_timeout,
+        config.options.socket_timeout,
         std::chrono::milliseconds{1500});
     EXPECT_EQ(
-        config.player_data.options.bootstrap_accounts_file,
+        config.options.bootstrap_accounts_file,
         root_ / "common" / "accounts.lua");
     EXPECT_EQ(
-        config.player_data.options.credential_hash_cost,
+        config.options.credential_hash_cost,
         game::common::CredentialHashCost::Minimum);
 }
 
@@ -145,7 +153,7 @@ TEST_F(LayeredConfigTest, RequiresDatabaseWhenUriIsSet) {
     write(root_ / "services" / "realm.lua", "return {}");
 
     EXPECT_THROW(
-        static_cast<void>(load_frame()),
+        static_cast<void>(load_player_data()),
         std::invalid_argument);
 }
 
@@ -156,7 +164,7 @@ TEST_F(LayeredConfigTest, PrivatePlayerDataUriOverridesDefaultWithoutLuaOsAccess
           "return { player_data = { uri = 'mongodb://127.0.0.1:27017/', "
           "uri_environment = 'REALMMESH_TEST_MONGODB_URI', database = 'realmmesh' } }");
     write(root_ / "services" / "realm.lua", "return {}");
-    EXPECT_EQ(load_frame().player_data.uri,
+    EXPECT_EQ(load_player_data().uri,
               std::getenv(ScopedPlayerDataUri::name));
 }
 
@@ -166,7 +174,7 @@ TEST_F(LayeredConfigTest, UnsetPlayerDataUriEnvironmentPreservesLocalDefault) {
           "return { player_data = { uri = 'mongodb://127.0.0.1:27017/', "
           "uri_environment = 'REALMMESH_TEST_MONGODB_URI', database = 'realmmesh' } }");
     write(root_ / "services" / "realm.lua", "return {}");
-    EXPECT_EQ(load_frame().player_data.uri,
+    EXPECT_EQ(load_player_data().uri,
               "mongodb://127.0.0.1:27017/");
 }
 
@@ -176,7 +184,7 @@ TEST_F(LayeredConfigTest, MissingPrivatePlayerDataUriFailsWithoutDefault) {
           "return { player_data = { uri_environment = 'REALMMESH_TEST_MONGODB_URI', "
           "database = 'realmmesh' } }");
     write(root_ / "services" / "realm.lua", "return {}");
-    EXPECT_THROW(static_cast<void>(load_frame()),
+    EXPECT_THROW(static_cast<void>(load_player_data()),
                  std::invalid_argument);
 }
 
@@ -186,7 +194,7 @@ TEST_F(LayeredConfigTest, EmptyPrivatePlayerDataUriFailsInsteadOfConnectingLocal
           "return { player_data = { uri = 'mongodb://127.0.0.1:27017/', "
           "uri_environment = 'REALMMESH_TEST_MONGODB_URI', database = 'realmmesh' } }");
     write(root_ / "services" / "realm.lua", "return {}");
-    EXPECT_THROW(static_cast<void>(load_frame()),
+    EXPECT_THROW(static_cast<void>(load_player_data()),
                  std::invalid_argument);
 }
 
@@ -199,7 +207,7 @@ TEST_F(LayeredConfigTest, RejectsRetiredSqlitePlayerDataKeys) {
     write(root_ / "services" / "realm.lua", "return {}");
 
     EXPECT_THROW(
-        static_cast<void>(load_frame()),
+        static_cast<void>(load_player_data()),
         std::invalid_argument);
 }
 
@@ -210,7 +218,7 @@ TEST_F(LayeredConfigTest, RejectsUnknownCredentialHashCost) {
     write(root_ / "services" / "realm.lua", "return {}");
 
     EXPECT_THROW(
-        static_cast<void>(load_frame()),
+        static_cast<void>(load_player_data()),
         std::invalid_argument);
 }
 

@@ -1,4 +1,4 @@
-#include "realmmesh/service_host/service_frame.hpp"
+#include "realmmesh/game/gateway/gateway_frame.hpp"
 
 #include "realmmesh/cluster/budget_publisher.hpp"
 #include "realmmesh/cluster/service_registry.hpp"
@@ -50,7 +50,7 @@
 #include <utility>
 #include <vector>
 
-namespace realm::service_host {
+namespace realm::game::gateway {
 namespace {
 
 using cluster::InstanceBudgetSnapshot;
@@ -371,7 +371,7 @@ private:
         pending_;
 };
 
-class ServiceFrameEdgeBudgetTest : public ::testing::Test {
+class GatewayFrameTest : public ::testing::Test {
 protected:
     void SetUp() override {
         environment_.emplace();
@@ -498,7 +498,7 @@ protected:
                 *fetch_port_,
                 &*logger_,
                 &metrics_));
-        frame_.emplace("gateway", "", 0, 64, 4, &*pipeline_);
+        frame_.emplace(*pipeline_);
     }
 
     /// 客户端连接并发送 attach 帧;返回保持连接的客户端(析构即断开)。
@@ -631,7 +631,7 @@ protected:
     std::unique_ptr<game::gateway::GatewayAdmission> admission_;
     std::optional<cluster::ServiceResolver> realm_resolver_;
     AttachClient* client_{nullptr};
-    std::optional<ServiceFrame> frame_;
+    std::optional<GatewayFrame> frame_;
     observability::MetricsRegistry metrics_;
     std::optional<game::common::IdentityTokenCodec> identity_codec_;
     std::optional<game::common::AdmissionGrantIssuer> grant_issuer_;
@@ -662,7 +662,7 @@ protected:
     }
 };
 
-TEST_F(ServiceFrameEdgeBudgetTest, PublishesCapacityThenConsumesOnAttach) {
+TEST_F(GatewayFrameTest, PublishesCapacityThenConsumesOnAttach) {
     frame_->tick(*logger_, *runtime_, nullptr, &*reporter_);
     const auto initial = observed_budget();
     ASSERT_TRUE(initial.has_value());
@@ -680,7 +680,7 @@ TEST_F(ServiceFrameEdgeBudgetTest, PublishesCapacityThenConsumesOnAttach) {
 /// #75 保留线契约:Gateway 受理 attach 时回 1302、复用请求的
 /// request_id,并携带拉取账号。后续 Pipeline 内部如何保留
 /// Runtime intent 不应改变这三个外部事实。
-TEST_F(ServiceFrameEdgeBudgetTest, AttachAcceptancePreservesWireContract) {
+TEST_F(GatewayFrameTest, AttachAcceptancePreservesWireContract) {
     constexpr std::uint64_t request_id = 0x1020'3040;
     const auto client =
         attach("aaaa000000000013aaaa000000000013", request_id);
@@ -700,7 +700,7 @@ TEST_F(ServiceFrameEdgeBudgetTest, AttachAcceptancePreservesWireContract) {
 /// **只暴露一个外部结果**(ADR-0009:invalid signature / schema / binding /
 /// deployment / expiry / Consumed 全部收敛为 1001),不告诉攻击者两支
 /// 凭据里哪一支是好的。#79 替换准入凭据类型后这条线契约不变。
-TEST_F(ServiceFrameEdgeBudgetTest, AttachRejectionsPreserveWireContract) {
+TEST_F(GatewayFrameTest, AttachRejectionsPreserveWireContract) {
     constexpr std::uint64_t identity_request_id = 41;
     const auto invalid_identity = attach_with_tokens(
         "not-an-identity-token", "not-a-grant", identity_request_id);
@@ -747,7 +747,7 @@ TEST_F(ServiceFrameEdgeBudgetTest, AttachRejectionsPreserveWireContract) {
 // #79 replacement point: rejection diagnostics may expose the failure class,
 // but not bearer material or identity correlation values.
 TEST_F(
-    ServiceFrameEdgeBudgetTest,
+    GatewayFrameTest,
     CredentialFailuresKeepRawCredentialsAndJtiOutOfTelemetry) {
     const std::string raw_identity = "raw-secret-identity-token";
     const std::string raw_grant = "raw-secret-admission-grant-token";
@@ -782,7 +782,7 @@ TEST_F(
     }
 }
 
-TEST_F(ServiceFrameEdgeBudgetTest, ReplayedJtiPreservesWireRejection) {
+TEST_F(GatewayFrameTest, ReplayedJtiPreservesWireRejection) {
     const auto first = attach("aaaa000000000002aaaa000000000002");
     ASSERT_TRUE(drive_until(
         [](const std::optional<InstanceBudgetSnapshot>& budget) {
@@ -816,7 +816,7 @@ TEST_F(ServiceFrameEdgeBudgetTest, ReplayedJtiPreservesWireRejection) {
 
 /// 已退役编号(#50):1101 曾在旧链承载 Realm 认证;未 attach 的会话发它
 /// (或任何非 1301 消息)一律未认证拒绝并终结,不当业务消息处理。
-TEST_F(ServiceFrameEdgeBudgetTest, RetiredMessageIdIsRefused) {
+TEST_F(GatewayFrameTest, RetiredMessageIdIsRefused) {
     auto client = std::make_unique<AttachClient>(
         static_cast<std::uint16_t>(runtime_->local_endpoints().front().port));
     client_ = client.get();
@@ -839,7 +839,7 @@ TEST_F(ServiceFrameEdgeBudgetTest, RetiredMessageIdIsRefused) {
 }
 
 TEST_F(
-    ServiceFrameEdgeBudgetTest, OutOfBudgetAttachIsRejectedWithoutConsuming) {
+    GatewayFrameTest, OutOfBudgetAttachIsRejectedWithoutConsuming) {
     const auto first = attach("aaaa000000000003aaaa000000000003");
     ASSERT_TRUE(drive_until(
         [](const std::optional<InstanceBudgetSnapshot>& budget) {
@@ -880,7 +880,7 @@ TEST_F(
 }
 
 TEST_F(
-    ServiceFrameEdgeBudgetTest,
+    GatewayFrameTest,
     StoppedFetchPublishesUnavailableBudgetAndStopsGateway) {
     fetch_port_->stop();
     const auto client = attach("aaaa000000000017aaaa000000000017");
@@ -899,7 +899,7 @@ TEST_F(
 /// #75 不在旧 ServiceFrame seam 固化「fetch 先于已到达 close」
 /// 的错误次序;#77 必须在新 Pipeline seam 另加 close-wins 的
 /// 确定性场景。
-TEST_F(ServiceFrameEdgeBudgetTest, FetchSuccessTransitionsToHandedOff) {
+TEST_F(GatewayFrameTest, FetchSuccessTransitionsToHandedOff) {
     register_realm_endpoint();
     rebuild_frame(true, std::chrono::milliseconds{0}, std::chrono::seconds{2});
 
@@ -919,7 +919,7 @@ TEST_F(ServiceFrameEdgeBudgetTest, FetchSuccessTransitionsToHandedOff) {
 /// 到期未迁移由管线关闭,conn 预算归还。使用最小合法 1ms 宽限，
 /// 保持真实配置校验与生产时序一致；精确边界由 Pipeline 单测的
 /// GatewayLoginFrame.now 覆盖。
-TEST_F(ServiceFrameEdgeBudgetTest, GrantIssuedThenGraceCloses) {
+TEST_F(GatewayFrameTest, GrantIssuedThenGraceCloses) {
     register_realm_endpoint();
     rebuild_frame(
         true,
@@ -986,9 +986,9 @@ TEST_F(ServiceFrameEdgeBudgetTest, GrantIssuedThenGraceCloses) {
     EXPECT_TRUE(client->saw_close(std::chrono::seconds{2}));
 }
 
-/// 真实 Primary Transport 的 SessionClosed 必须流经 ServiceFrame,
+/// 真实 Primary Transport 的 SessionClosed 必须流经 GatewayFrame,
 /// 从 fetching 同时归还 conn 与 fetch 两份 Admission Budget。
-TEST_F(ServiceFrameEdgeBudgetTest, RealPeerCloseReturnsBothBudgets) {
+TEST_F(GatewayFrameTest, RealPeerCloseReturnsBothBudgets) {
     auto client = attach("aaaa000000000016aaaa000000000016");
     ASSERT_TRUE(drive_until(
         [](const std::optional<InstanceBudgetSnapshot>& budget) {
@@ -1009,7 +1009,7 @@ TEST_F(ServiceFrameEdgeBudgetTest, RealPeerCloseReturnsBothBudgets) {
 
 /// 降级路径(#45):发现缺失且未配置静态下游 → 不签发票据,告警后
 /// 直接断开,双预算归还。
-TEST_F(ServiceFrameEdgeBudgetTest, NoEndpointClosesWithoutGrant) {
+TEST_F(GatewayFrameTest, NoEndpointClosesWithoutGrant) {
     rebuild_frame(true, std::chrono::milliseconds{0}, std::chrono::seconds{2});
 
     const auto client = attach("aaaa000000000009aaaa000000000009");
@@ -1034,7 +1034,7 @@ TEST_F(ServiceFrameEdgeBudgetTest, NoEndpointClosesWithoutGrant) {
 /// 静态兜底下游(#45):无 Realm 解析器(发现关闭)时,handoff 回退
 /// 帧构造注入的静态下游,仍下发 1303 —— 用户故事「无 etcd 拓扑也能
 /// 走通」。
-TEST_F(ServiceFrameEdgeBudgetTest, StaticDownstreamGrantsWithoutDiscovery) {
+TEST_F(GatewayFrameTest, StaticDownstreamGrantsWithoutDiscovery) {
     rebuild_frame(
         true,
         std::chrono::milliseconds{0},
@@ -1069,7 +1069,7 @@ TEST_F(ServiceFrameEdgeBudgetTest, StaticDownstreamGrantsWithoutDiscovery) {
 /// #75 保留端点优先级:同一帧同时有动态发现与静态兜底时,
 /// 动态 Realm 端点胜出;静态值只在发现缺失时使用。
 TEST_F(
-    ServiceFrameEdgeBudgetTest, DiscoveredRealmEndpointWinsOverStaticFallback) {
+    GatewayFrameTest, DiscoveredRealmEndpointWinsOverStaticFallback) {
     register_realm_endpoint("127.0.0.2", 7101);
     rebuild_frame(
         true,
@@ -1097,7 +1097,7 @@ TEST_F(
 
 /// 重试耗尽(#44):基数 30ms 连挂 4 次(首发 + 3 次重试)后上报耗尽,
 /// 调用方断开会话 —— conn 与 fetch 双预算随 #43 关闭路径归还。
-TEST_F(ServiceFrameEdgeBudgetTest, ExhaustedFetchClosesAndReturnsBudgets) {
+TEST_F(GatewayFrameTest, ExhaustedFetchClosesAndReturnsBudgets) {
     rebuild_frame(
         false, std::chrono::milliseconds{0}, std::chrono::milliseconds{30});
 
@@ -1122,7 +1122,7 @@ TEST_F(ServiceFrameEdgeBudgetTest, ExhaustedFetchClosesAndReturnsBudgets) {
 
 /// 帧尾指标发布(#47):慢拉取源下会话可见 fetching 水位与 fetch_free
 /// 消耗;成功交付后迁 handed-off,拉取耗时进直方图,重试计数为 0。
-TEST_F(ServiceFrameEdgeBudgetTest, MetricsFollowPipelineStagesAndFetch) {
+TEST_F(GatewayFrameTest, MetricsFollowPipelineStagesAndFetch) {
     register_realm_endpoint();
     rebuild_frame(
         true, std::chrono::milliseconds{600}, std::chrono::seconds{2});
@@ -1195,7 +1195,7 @@ TEST_F(ServiceFrameEdgeBudgetTest, MetricsFollowPipelineStagesAndFetch) {
 /// 重试与重放计数(#47):30ms 基数耗尽(3 次重试)计入
 /// edge_fetch_retry_total;同 jti 新连接重放被拒后计入
 /// edge_jti_replay_rejected_total。
-TEST_F(ServiceFrameEdgeBudgetTest, MetricsCountRetriesAndReplayRejections) {
+TEST_F(GatewayFrameTest, MetricsCountRetriesAndReplayRejections) {
     rebuild_frame(
         false, std::chrono::milliseconds{0}, std::chrono::milliseconds{30});
 
@@ -1226,4 +1226,4 @@ TEST_F(ServiceFrameEdgeBudgetTest, MetricsCountRetriesAndReplayRejections) {
 }
 
 }  // namespace
-}  // namespace realm::service_host
+}  // namespace realm::game::gateway

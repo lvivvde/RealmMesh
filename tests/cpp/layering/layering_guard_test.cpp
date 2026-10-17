@@ -1,12 +1,11 @@
 // 四层依赖方向守卫(ADR-0014):扫描源码树的 #include "realmmesh/…" 与各模块
-// CMakeLists.txt 引用的本仓目标，反向依赖只允许出现在已知倒挂白名单里。
-// 白名单只减不增：修掉一条后它不再出现，测试同样失败并提示删除该条。
+// CMakeLists.txt 引用的本仓目标，任何反向依赖都失败。ADR-0014 第 5 步后
+// 过渡期倒挂白名单已清空，不再保留。
 // 归属判定见 docs/agents/code-layout.md。
 
 #include <gtest/gtest.h>
 
 #include <algorithm>
-#include <array>
 #include <cctype>
 #include <filesystem>
 #include <fstream>
@@ -101,23 +100,6 @@ std::string module_of_include(const PrefixMap& prefixes, std::string_view path) 
     }
     return best;
 }
-
-struct KnownInversion {
-    std::string_view from;
-    std::string_view to;
-    std::string_view fix;
-};
-
-// 与 ADR-0014「四处倒挂的修法」一一对应;第 4 步后 framework/cluster 的
-// ServiceType 已是开放字符串,LoginVerify 与 Queue 模块已迁入各自服务目录。
-constexpr std::array known_inversions{
-    KnownInversion{"framework/service_host", "game/common",
-                   "第 5 步：随 Gateway/Realm 帧迁出"},
-    KnownInversion{"framework/service_host", "game/gateway",
-                   "第 5 步：迁 Gateway 模块"},
-    KnownInversion{"framework/service_host", "game/realm",
-                   "第 5 步：迁 Realm 模块"},
-};
 
 using Edge = std::pair<std::string, std::string>;
 
@@ -299,12 +281,6 @@ const SourceTree& source_tree() {
     return tree;
 }
 
-bool is_known(const Edge& edge) {
-    return std::ranges::any_of(known_inversions, [&](const auto& known) {
-        return known.from == edge.first && known.to == edge.second;
-    });
-}
-
 TEST(LayeringRulesTest, DependenciesFlowDownward) {
     EXPECT_TRUE(allowed("apps/mesh_host", "game/realm"));
     EXPECT_TRUE(allowed("tools/loadgen", "game/client"));
@@ -371,24 +347,14 @@ TEST(LayeringGuardTest, ScanSeesTheSourceTree) {
     EXPECT_TRUE(tree.edges.contains({"game/common", "proto"}));
 }
 
-TEST(LayeringGuardTest, NoInversionsBeyondTheKnownList) {
+TEST(LayeringGuardTest, NoInversions) {
     for (const auto& [edge, evidence] : source_tree().edges) {
-        if (allowed(edge.first, edge.second) || is_known(edge)) {
+        if (allowed(edge.first, edge.second)) {
             continue;
         }
         ADD_FAILURE() << edge.first << " 依赖 " << edge.second
                       << ",违反 ADR-0014 的依赖方向(" << evidence
-                      << ")。归属判定见 docs/agents/code-layout.md;白名单只减不增。";
-    }
-}
-
-TEST(LayeringGuardTest, KnownInversionsAreStillPresent) {
-    for (const auto& known : known_inversions) {
-        EXPECT_TRUE(source_tree().edges.contains(
-            {std::string(known.from), std::string(known.to)}))
-            << known.from << " → " << known.to << " 已不再出现(" << known.fix
-            << "),请从 known_inversions 删除该条，并同步 ADR-0014 与 "
-               "docs/agents/code-layout.md 的过渡期表。";
+                      << ")。归属判定见 docs/agents/code-layout.md。";
     }
 }
 

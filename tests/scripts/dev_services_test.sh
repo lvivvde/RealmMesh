@@ -316,7 +316,6 @@ rewrite_config() {
 
 rewrite_config "${realmmesh_test_root}/configs/services/realm.lua" \
     -e "s/listen_port = 7100/listen_port = ${realmmesh_realm_port}/" \
-    -e "s/downstream_port = 8000/downstream_port = ${realmmesh_gateway_port}/" \
     -e "s/metrics_port = 9102/metrics_port = ${realmmesh_realm_metrics_port}/"
 # gateway 的静态兜底下游就是 realm:必须一起改写,否则 handoff 签发的
 # 端点会指向配置里的固定 7100。

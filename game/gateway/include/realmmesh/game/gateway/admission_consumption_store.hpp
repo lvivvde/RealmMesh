@@ -68,7 +68,7 @@ enum class AdmissionMutationStatus : std::uint8_t {
 
 /// Gateway Login Pipeline 的内部存储 seam。Pipeline 只保留一个外部
 /// advance() 接口；reserve/commit/release 的两阶段顺序不会泄漏给
-/// ServiceFrame 或传输层。
+/// GatewayFrame 或传输层。
 class AdmissionConsumptionStore {
 public:
     virtual ~AdmissionConsumptionStore() = default;

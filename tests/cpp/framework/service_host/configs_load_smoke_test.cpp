@@ -1,8 +1,9 @@
 #include "realmmesh/scripting/lua_runtime.hpp"
 #include "realmmesh/game/common/admission_grant.hpp"
+#include "realmmesh/game/gateway/gateway_module.hpp"
 #include "realmmesh/game/login_verify/login_verify_module.hpp"
 #include "realmmesh/game/queue/queue_module.hpp"
-#include "realmmesh/service_host/frame_service_modules.hpp"
+#include "realmmesh/game/realm/realm_module.hpp"
 #include "realmmesh/service_host/layered_config_loader.hpp"
 #include "realmmesh/service_host/startup_topology.hpp"
 
@@ -71,10 +72,9 @@ protected:
     static void load_service_sections(const std::string& name) {
         const auto layered = LayeredConfigLoader::load(configs_root(), name);
         if (name == "gateway") {
-            static_cast<void>(load_gateway_config(layered));
+            static_cast<void>(game::gateway::load_gateway_config(layered));
         } else if (name == "realm") {
-            static_cast<void>(load_gateway_config(layered));
-            static_cast<void>(load_realm_config(layered));
+            static_cast<void>(game::realm::load_realm_config(layered));
         } else if (name == "login_verify") {
             static_cast<void>(
                 game::login_verify::load_login_verify_config(layered));
@@ -169,7 +169,7 @@ TEST_F(ConfigsLoadSmokeTest, QueueConfigLoadsThroughDedicatedLoader) {
 /// 每条都指名公钥环境变量、窗口在协议上限内,且与 Queue 的 admit_grace 一致
 /// —— 两边窗口不一致会让合法 Grant 在网关侧被误判为过期。
 TEST_F(ConfigsLoadSmokeTest, GatewayAdmissionConfigLoadsAndValidates) {
-    const auto config = load_gateway_config(
+    const auto config = game::gateway::load_gateway_config(
         LayeredConfigLoader::load(configs_root(), "gateway"));
     ASSERT_FALSE(config.login.admission_grant_keys.empty());
     EXPECT_EQ(

@@ -33,8 +33,8 @@
 1. **冻结修订与配置**：记录源码修订、`configs/services/queue.lua`、`configs/services/gateway.lua`（含 `admission.deployment_id`、`grant_keys` 的 kid 列表、`grant_window_seconds`、`consumption_prefix`）以及排队服的 `admit_grace_seconds`。切换窗口内不得再改这些值。
 2. **生成并分发密钥**（每项一个来源，见 [README 运行段](../../README.md)）：
    - 排队服进程环境：`REALMMESH_QUEUE_NUMBER_KEY_SEED`、`REALMMESH_ADMISSION_GRANT_KEY_SEED`、`REALMMESH_IDENTITY_KEY_SEED`（`game/queue/src/queue_service.cpp`）。
-   - 网关进程环境：`REALMMESH_ADMISSION_GRANT_PUBLIC_KEY`（与排队服 Grant 种子配对的公钥 hex，变量名由 `grant_keys[].public_key_environment` 指定）、`REALMMESH_ADMISSION_CONSUMPTION_DIGEST_KEY`、`REALMMESH_IDENTITY_KEY_SEED`、`REALMMESH_SESSION_TICKET_KEY`（`framework/service_host/src/service_host.cpp`）。
-   - Realm 进程环境：`REALMMESH_SESSION_TICKET_KEY`（`framework/service_host/src/service_frame.cpp`）。
+   - 网关进程环境：`REALMMESH_ADMISSION_GRANT_PUBLIC_KEY`（与排队服 Grant 种子配对的公钥 hex，变量名由 `grant_keys[].public_key_environment` 指定）、`REALMMESH_ADMISSION_CONSUMPTION_DIGEST_KEY`、`REALMMESH_IDENTITY_KEY_SEED`、`REALMMESH_SESSION_TICKET_KEY`（`game/gateway/src/gateway_module.cpp`）。
+   - Realm 进程环境：`REALMMESH_SESSION_TICKET_KEY`（`game/realm/src/realm_frame.cpp`）。
    - 密钥规则：每个签发方**恰好一把活动签名密钥**；验证方用静态加载的 kid 索引键环，未知 kid 直接拒绝、不试遍全环；退休验证键保留到该凭据最大寿命 + 时钟容差之后。
 3. **备份将被作废的状态**（etcd，端点见 `queue.etcd_endpoint`；`etcdctl` 由 `./scripts/install-etcd.sh` 安装到 `.tools/etcd-v3.6.14/`）：
    ```bash

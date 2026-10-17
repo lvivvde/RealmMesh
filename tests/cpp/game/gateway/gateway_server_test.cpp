@@ -1,4 +1,4 @@
-#include "realmmesh/service_host/frame_service_modules.hpp"
+#include "realmmesh/game/gateway/gateway_module.hpp"
 #include "realmmesh/service_host/layered_config_loader.hpp"
 #include "realmmesh/test_support/temporary_directory.hpp"
 
@@ -72,7 +72,7 @@ TEST(LayeredConfigLoaderTest, MergesAuthoritativeGatewayTreeFieldByField) {
         service_host::LayeredConfigLoader::load(configs.path(), "gateway");
     const auto& host = layered.host();
     const auto& edge = layered.edge();
-    const auto config = service_host::load_gateway_config(layered);
+    const auto config = load_gateway_config(layered);
 
     // 公共层(configs/common/logging.lua)提供的基础字段。
     EXPECT_EQ(host.logging.min_severity, observability::Severity::Info);
@@ -174,7 +174,7 @@ TEST(LayeredConfigLoaderTest, MergesAuthoritativeGatewayTreeFieldByField) {
 
 /// 分层装载 gateway 并解析其节段:越界取值在任一层抛 invalid_argument。
 void load_gateway(const std::filesystem::path& configs_root) {
-    static_cast<void>(service_host::load_gateway_config(
+    static_cast<void>(load_gateway_config(
         service_host::LayeredConfigLoader::load(configs_root, "gateway")));
 }
 

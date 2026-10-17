@@ -4,7 +4,7 @@
 ///
 /// 两端的「真实」程度:#49 时 Realm 侧兑换协议(#46)未落地,故用桩注入
 /// 兑换内容。现在 Realm 段的服务端就是**真实 realm 服务**(EdgeRuntime +
-/// ServiceFrame + 共享票据键),网关桩签发的也是真实 EnterRealm 票据;客户端
+/// RealmFrame + 共享票据键),网关桩签发的也是真实 EnterRealm 票据;客户端
 /// 不再有兑换桩——跑的就是生产 WireEnterRealmRedeemer。
 ///
 /// 帧约定说明:TlsTcpTransport 自带 4 字节长度前缀(message 语义:
@@ -18,12 +18,12 @@
 #include "realmmesh/game/client/wire_login_transport.hpp"
 #include "realmmesh/game/common/edge_protocol.hpp"
 #include "realmmesh/game/common/session_ticket.hpp"
+#include "realmmesh/game/realm/realm_frame.hpp"
 #include "realmmesh/game/realm/realm_sessions.hpp"
 #include "realmmesh/game/realm/training_rule.hpp"
 #include "realmmesh/network/http/http_server.hpp"
 #include "realmmesh/network/transport/transport_factory.hpp"
 #include "realmmesh/observability/logger.hpp"
-#include "realmmesh/service_host/service_frame.hpp"
 #include "realmmesh/test_support/in_memory_character_store.hpp"
 #include "realmmesh/test_support/temporary_directory.hpp"
 
@@ -342,7 +342,7 @@ private:
 /// 共享的票据键,监听真实 TLS。ALPN 与网关段一致 —— Realm 段就是 edge 段,
 /// 所以这里不配 `.alpn`,取传输层默认值。
 ///
-/// 自持 Logger 与临时日志目录;构造期要求共享票据键在环境里(ServiceFrame
+/// 自持 Logger 与临时日志目录;构造期要求共享票据键在环境里(RealmFrame
 /// 缺失即抛),故构造/析构自己管好这个 env(单进程内同一时刻至多一个实例)。
 class RealmServiceFixture final {
 public:
@@ -367,8 +367,7 @@ public:
         outbox_.emplace(*runtime_);
         sessions_.emplace(
             characters_, rule_, *outbox_, game::realm::RealmConfig{});
-        frame_.emplace(
-            "realm", "127.0.0.1", 8443, 64, 4, nullptr, &*sessions_);
+        frame_.emplace(64, 4, *sessions_);
     }
 
     ~RealmServiceFixture() {
@@ -388,7 +387,7 @@ public:
     /// 驱动一帧业务(runtime 自己的 IO 线程负责传输轮询)。
     void poll(milliseconds timeout) {
         static_cast<void>(timeout);
-        frame_->tick(*logger_, *runtime_, nullptr);
+        frame_->tick(*logger_, *runtime_);
     }
 
 private:
@@ -417,7 +416,7 @@ private:
         "services" / "realm" / "training.lua"};
     std::optional<game::realm::EdgeRuntimeRealmOutbox> outbox_;
     std::optional<game::realm::RealmSessions> sessions_;
-    std::optional<service_host::ServiceFrame> frame_;
+    std::optional<game::realm::RealmFrame> frame_;
 };
 
 /// 三个端共用一个驱动线程:HttpServer、网关传输与 realm 服务帧都是轮询
@@ -451,7 +450,7 @@ private:
 
 /// 网关桩的传输配置(真实 TLS;ALPN 取传输层默认的 edge 线)。Realm 段的
 /// 服务端由 RealmServiceFixture 自持 —— 它要挂真实
-/// ServiceFrame,不是一条裸传输。
+/// RealmFrame,不是一条裸传输。
 [[nodiscard]] network::TransportConfig gateway_config() {
     network::TransportConfig gateway{
         .name = "gateway-stub",

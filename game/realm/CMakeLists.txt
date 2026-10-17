@@ -1,6 +1,8 @@
 add_library(realm_game_realm
     src/character_name.cpp
     src/realm_config_lua.cpp
+    src/realm_frame.cpp
+    src/realm_module.cpp
     src/realm_sessions.cpp
     src/training_rule.cpp
 )
@@ -13,15 +15,17 @@ target_include_directories(realm_game_realm
         $<INSTALL_INTERFACE:include>
 )
 
-# Realm 跑在 framework/edge 的 EdgeRuntime 上(连接编号与出站命令),角色数据
-# 与线协议在 game/common。
+# Realm 跑在 framework/edge 的 EdgeRuntime 上(连接编号与出站命令),经
+# framework/service_host 的服务模块接入宿主;角色数据与线协议在 game/common。
 target_link_libraries(realm_game_realm PUBLIC
+    realm_cluster
     realm_concurrency
     realm_edge
     realm_game_common
     realm_observability
+    realm_service_host
 )
-# Lua 只用在训练规则与配置解析实现:training_rule.hpp 前置声明 LuaRuntime
+# Lua 只用在训练规则、配置解析与服务模块实现:training_rule.hpp 前置声明 LuaRuntime
 # (#127),配置头不带 Lua(#126)。包含 realm_config_lua.hpp 的目标自行链接
 # realm_scripting。
 target_link_libraries(realm_game_realm PRIVATE realm_scripting)

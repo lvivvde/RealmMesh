@@ -1,5 +1,7 @@
 #include "realmmesh/game/realm/realm_config_lua.hpp"
 
+#include "realmmesh/game/common/player_data_config_lua.hpp"
+
 #include <sol/sol.hpp>
 
 #include <stdexcept>
@@ -48,6 +50,9 @@ RealmConfig parse_realm_config(const sol::table& root) {
             table,
             "retry_after_seconds",
             static_cast<std::size_t>(config.retry_after.count())))};
+    config.max_events_per_frame = optional_positive(
+        root, "max_events_per_frame", config.max_events_per_frame);
+    config.player_data = common::parse_player_data_config(root);
     return config;
 }
 

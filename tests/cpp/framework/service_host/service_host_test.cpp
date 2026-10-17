@@ -213,7 +213,7 @@ TEST_F(ServiceHostTest, RequiredRegistrationFailureThrows) {
     write(
         root_ / "services" / "realm.lua",
         "return { " + transport_lua() +
-            ", downstream_address = \"127.0.0.1\", downstream_port = 8000, " +
+            ", " +
             realm_section_lua() +
             "player_data = { uri = \"" + mongod.uri() + "\", database = \"" +
             test_support::MongodProcess::fresh_database() + "\" }, "
@@ -240,7 +240,7 @@ TEST_F(ServiceHostTest, RealmWithoutPlayerDataThrows) {
     write(
         root_ / "services" / "realm.lua",
         "return { " + transport_lua() +
-            ", downstream_address = \"127.0.0.1\", downstream_port = 8000, " +
+            ", " +
             realm_section_lua() + "}");
     EXPECT_THROW(ServiceHost(root_, "realm", modules_), std::invalid_argument);
 }

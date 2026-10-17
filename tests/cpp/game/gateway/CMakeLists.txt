@@ -1,9 +1,9 @@
 realm_add_gtest(gateway_server_test
     SOURCES gateway_server_test.cpp
     INCLUDE_DIRS ${PROJECT_SOURCE_DIR}/tests/cpp/support/include
-    # 分层装载与 gateway 节段解析(load_gateway_config)都只返回配置值,
-    # 不带 Lua 头;realm_service_host 公开依赖 realm_gateway_service。
-    LIBS realm_service_host
+    # 分层装载与 gateway 节段解析(load_gateway_config,Gateway 服务模块的
+    # 装载入口)都只返回配置值，不带 Lua 头。
+    LIBS realm_gateway_service
     DEFINITIONS
         REALMMESH_TEST_SOURCE_DIR="${PROJECT_SOURCE_DIR}"
         REALMMESH_TEST_TLS_CERTIFICATE="${REALMMESH_TEST_TLS_CERTIFICATE}"
@@ -58,4 +58,23 @@ realm_add_gtest(gateway_login_pipeline_test
 realm_add_gtest(gateway_ingress_throttle_test
     SOURCES gateway_ingress_throttle_test.cpp
     LIBS realm_gateway_service
+)
+
+# 网关业务帧(GatewayFrame)对撞真实 TLS loopback:占临时端口、依赖 setenv,
+# 属集成测试，串行跑。
+realm_add_gtest(gateway_frame_test
+    SOURCES
+        gateway_frame_test.cpp
+        ${PROJECT_SOURCE_DIR}/tests/cpp/support/src/fake_service_registry.cpp
+    INCLUDE_DIRS ${PROJECT_SOURCE_DIR}/tests/cpp/support/include
+    LIBS realm_gateway_service
+        realm_cluster
+        nlohmann_json::nlohmann_json
+    DEFINITIONS
+        REALMMESH_TEST_SOURCE_DIR="${PROJECT_SOURCE_DIR}"
+        REALMMESH_TEST_TLS_CERTIFICATE="${REALMMESH_TEST_TLS_CERTIFICATE}"
+        REALMMESH_TEST_TLS_PRIVATE_KEY="${REALMMESH_TEST_TLS_PRIVATE_KEY}"
+    DEPENDS realmmesh_test_tls_identity
+    LABELS integration
+    DISCOVER_PROPERTIES RUN_SERIAL TRUE
 )
