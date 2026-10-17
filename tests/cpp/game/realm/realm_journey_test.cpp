@@ -1,5 +1,5 @@
-#include "realmmesh/client/login_chain.hpp"
-#include "realmmesh/client/wire_login_transport.hpp"
+#include "realmmesh/game/client/login_chain.hpp"
+#include "realmmesh/game/client/wire_login_transport.hpp"
 #include "realmmesh/cluster/etcd_service_registry.hpp"
 #include "realmmesh/game/common/player_data_store.hpp"
 #include "realmmesh/test_support/etcd_process.hpp"

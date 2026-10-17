@@ -1,9 +1,9 @@
-#include "realmmesh/client/adaptive_poller.hpp"
+#include "realmmesh/game/client/adaptive_poller.hpp"
 
 #include <algorithm>
 #include <random>
 
-namespace realm::client {
+namespace realm::game::client {
 namespace {
 
 [[nodiscard]] std::chrono::milliseconds clamp_interval(
@@ -93,4 +93,4 @@ std::optional<std::chrono::seconds> AdaptivePoller::estimate_eta(
     return std::chrono::seconds{std::max<std::int64_t>(seconds, 0)};
 }
 
-}  // namespace realm::client
+}  // namespace realm::game::client

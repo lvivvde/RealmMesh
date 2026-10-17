@@ -8,7 +8,7 @@
 // Realm 段 1304 兑换 / 1305 入场成功。信封编解码共用 game/common,帧
 // 收发共用 network/client/EdgeClientConnection——不另起第二份线协议。
 
-#include "realmmesh/client/login_chain.hpp"
+#include "realmmesh/game/client/login_chain.hpp"
 #include "realmmesh/network/client/edge_client_connection.hpp"
 #include "realmmesh/network/client/http1_client_connection.hpp"
 #include "realmmesh/network/client/preferred_transport_connector.hpp"
@@ -22,7 +22,7 @@
 #include <string_view>
 #include <vector>
 
-namespace realm::client {
+namespace realm::game::client {
 
 /// HTTP 段端点(登录健全服 / 排队调度服)。
 struct WireEndpoints final {
@@ -152,4 +152,4 @@ private:
     std::unique_ptr<network::client::Http1ClientConnection> queue_connection_;
 };
 
-}  // namespace realm::client
+}  // namespace realm::game::client

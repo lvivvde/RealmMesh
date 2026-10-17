@@ -78,6 +78,7 @@ flowchart LR
 | 构建优化 P6：双平台最终复测与有界后续（#129） | 已复测；首批未验收通过，热完整入口超过回退上限，Linux VM 时钟异常已定位并按完整组重跑；测试合集变化与后续范围见[阶段报告](docs/research/build-optimization-results.md#p6双平台最终复测与有界后续决策129) |
 | MongoDB 测试夹具初始化与 CTest 运行内复用（#119） | 真实副本集按 CTest 运行复用、每例数据库隔离；完整同合集中位缩短 Mac 11.59% / Lima 10.38%，两平台同期 R0 × 1.05 上限通过；保留全部守卫、截止时间与回退，采用已确认的双重收束口径，见[报告](docs/research/build-mongodb-ctest-fixture-119.md) |
 | 开发 Supervisor 停止信号与进程回收（#143/#129） | 已修复解析竞态及 wait 再次中断后的提前清理；逆序停止与真实进程回收证据见[诊断记录](docs/research/dev-services-signal-stop.md) |
+| 四层依赖方向（ADR-0014）第 1 步：客户端库 `framework/client` 迁入 `game/client`（#152） | 已迁移；`layering_guard_test` 白名单剩余倒挂按 ADR 顺序修复 |
 
 旧 `Login → Realm 选角 → Gateway 入场` 链路已整体退役：`login` 服务身份、7000 端口与
 旧入场消息编号都已删除，线名 `login` 永不复用（见[架构文档](docs/architecture.md)）。
@@ -482,7 +483,7 @@ ctest --preset dev -L '^lua$' # 只筛 Lua 用例（标签筛选是正则，要�
 压测工具 `realm_mesh_loadgen`（#48）以真实服务回环驱动机器人，按阶段
 （`--phase verify|tickets|poll|gateway|gateway_soak|full`，旧 `all` 是
 `gateway_soak` 的 CLI 别名）与内置档（`--profile soak|m2`）跑定向压测。
-所有目标与应用客户端共用 `framework/client` 的 Login Chain；工具层只负责配置转换、
+所有目标与应用客户端共用 `game/client` 的 Login Chain；工具层只负责配置转换、
 既有五相位指标和报告汇总，不保留独立登录状态机，也不进入服务拓扑。测试证书和私钥
 只生成在 `build/` 中。push / PR 时 GitHub
 Actions 在 macOS 与 Linux 双平台跑全量 `ctest --preset dev`

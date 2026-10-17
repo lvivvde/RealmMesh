@@ -1,11 +1,13 @@
 #pragma once
 
-#include "realmmesh/client/login_chain.hpp"
+#include "realmmesh/game/client/login_chain.hpp"
 #include "realmmesh/loadgen/stats.hpp"
 
 #include <optional>
 
 namespace realm::loadgen {
+
+namespace client = ::realm::game::client;
 
 struct LoginChainCounters final {
     PhaseCounters& verify;

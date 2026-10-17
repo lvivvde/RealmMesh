@@ -1,10 +1,10 @@
-#include "realmmesh/client/login_chain.hpp"
+#include "realmmesh/game/client/login_chain.hpp"
 
 #include <algorithm>
 #include <thread>
 #include <utility>
 
-namespace realm::client {
+namespace realm::game::client {
 namespace {
 
 [[nodiscard]] std::chrono::milliseconds time_left(TimePoint deadline) {
@@ -493,4 +493,4 @@ LoginResult LoginChain::run(LoginRun request) {
     }
 }
 
-}  // namespace realm::client
+}  // namespace realm::game::client

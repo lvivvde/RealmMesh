@@ -1,6 +1,6 @@
-#include "realmmesh/client/login_stage.hpp"
+#include "realmmesh/game/client/login_stage.hpp"
 
-namespace realm::client {
+namespace realm::game::client {
 
 std::string_view login_stage_name(LoginStage stage) noexcept {
     switch (stage) {
@@ -54,4 +54,4 @@ std::string_view chain_failure_name(ChainFailure failure) noexcept {
     return "unknown";
 }
 
-}  // namespace realm::client
+}  // namespace realm::game::client

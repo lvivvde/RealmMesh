@@ -4,7 +4,7 @@
 status: accepted
 ---
 
-`framework/client` 承载登录链路(七态状态机 + 分档轮询),但它不自己实现线协议:线客户端(HTTPS / 网关长度帧 / JSON 取字段)从 `tools/loadgen` 提升到 `framework/network/client/`,两份消费者共用同一实现。于是 loadgen 压测的线行为与客户端真实登录的线行为不可能分叉——压测测的就是客户端要跑的那条线。
+`game/client`(原 `framework/client`,按 ADR-0014 第 1 步迁入)承载登录链路(七态状态机 + 分档轮询),但它不自己实现线协议:线客户端(HTTPS / 网关长度帧 / JSON 取字段)从 `tools/loadgen` 提升到 `framework/network/client/`,两份消费者共用同一实现。于是 loadgen 压测的线行为与客户端真实登录的线行为不可能分叉——压测测的就是客户端要跑的那条线。
 
 两段建连(连网关、直连业务服)复用同一套竞速语义:0ms 起跑 QUIC + 350ms 起跑 TLS/TCP,各自独立的拨号器与 QUIC 负缓存。两条链路是两段独立竞速(`Segment::Gateway` / `Segment::Realm`),不是一次竞速复用两次。本仓没有 QUIC 客户端实现(ADR-0002:QUIC 仅 Linux 服务端),QUIC 候选即时判 `ConnectFailure::Unsupported`,该失败属于 `permits_transport_fallback`,竞速据此立即让 TLS/TCP 起跑。
 
@@ -19,6 +19,6 @@ Realm 段的 EnterRealm 兑换口是注入 seam `EnterRealmRedeemer`,生产实�
 ## Consequences
 
 - 兑换口曾是为 #46 留的唯一一个洞,且如约只换了实现:`EnterRealmRedeemer::redeem` 拿到的是已竞速建好的字节流,协议落地时实现该接口即可,七态、回退规则与断言结构都没动。
-- `realm_client` 只依赖 `RealmMesh::Network` 与 `RealmMesh::GameCommon`;线客户端在 network 层,不反向依赖 client。
+- `realm_game_client`(`RealmMesh::GameClient`)只依赖 `RealmMesh::Network` 与 `RealmMesh::GameCommon`;线客户端在 network 层,不反向依赖 client。
 - 凭据(身份 Token / 号牌 / EnterRealm 票据)纯内存持有,进程重启等于重新登录排队;落盘需求出现时是独立决策,不在本 ADR 范围内。
 - 集成测试用真实 TLS 回环验证两段竞速与帧交互;Realm 段的服务端已是真实 realm 服务(`GatewayRuntime` + `ServiceFrame` + 共享票据键),不再是桩。

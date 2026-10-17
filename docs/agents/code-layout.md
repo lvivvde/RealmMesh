@@ -21,7 +21,7 @@
 2. **它是线格式吗？** 是则放 `proto/realmmesh/<域>/v1/*.proto`，再在 [protocol.md](../protocol.md) 登记消息号与错误码。
 3. **两个以上服务、或者服务与客户端，共用这段本游戏代码吗？** 共用则放 `game/common`，例如 Envelope 编解码、身份 Token、号牌、票据、玩家数据存储。
 4. **它只属于一个服务吗？** 是则放 `game/<service>`。
-5. **它是客户端侧的登录链或业务调用吗？** 是则放 `game/client`。迁移完成前，这部分仍在 `framework/client`，见下方的过渡期说明。
+5. **它是客户端侧的登录链或业务调用吗？** 是则放 `game/client`。
 6. **它是进程入口或装配吗？** 是则放 `apps/mesh_host`。开发、压测、测量工具放 `tools/<工具>`，运维脚本放 `scripts/`。
 
 ## 我要加 X → 放在 Y
@@ -58,7 +58,6 @@
 
 | 倒挂 | 修复步骤 |
 |---|---|
-| `framework/client` → `game/common` | 1：搬到 `game/client` |
 | `game/realm` → `game/gateway` | 2、3：拆 ingress 头文件，建 `framework/edge` |
 | `framework/service_host` → `game/*` | 4、5：`ServiceModule` 与模块注册 |
 | `framework/cluster` 的 `ServiceType` 枚举 | 4：改为字符串身份（守卫查不到，靠评审） |
