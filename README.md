@@ -78,7 +78,7 @@ flowchart LR
 | 构建优化 P6：双平台最终复测与有界后续（#129） | 已复测；首批未验收通过，热完整入口超过回退上限，Linux VM 时钟异常已定位并按完整组重跑；测试合集变化与后续范围见[阶段报告](docs/research/build-optimization-results.md#p6双平台最终复测与有界后续决策129) |
 | MongoDB 测试夹具初始化与 CTest 运行内复用（#119） | 真实副本集按 CTest 运行复用、每例数据库隔离；完整同合集中位缩短 Mac 11.59% / Lima 10.38%，两平台同期 R0 × 1.05 上限通过；保留全部守卫、截止时间与回退，采用已确认的双重收束口径，见[报告](docs/research/build-mongodb-ctest-fixture-119.md) |
 | 开发 Supervisor 停止信号与进程回收（#143/#129） | 已修复解析竞态及 wait 再次中断后的提前清理；逆序停止与真实进程回收证据见[诊断记录](docs/research/dev-services-signal-stop.md) |
-| 四层依赖方向（ADR-0014）第 1–3 步：客户端库 `framework/client` 迁入 `game/client`；Gateway 来源地址归一化与凭据入口拆头；边缘连接运行时迁入 `framework/edge`（`EdgeRuntime`、Edge Connection）（#152） | 已迁移，Realm 不再依赖 `game/gateway`；`layering_guard_test` 白名单只剩 `framework/service_host` → `game/*`，由第 4、5 步修复 |
+| 四层依赖方向（ADR-0014）第 1–4 步：客户端库 `framework/client` 迁入 `game/client`；Gateway 来源地址归一化与凭据入口拆头；边缘连接运行时迁入 `framework/edge`（`EdgeRuntime`、Edge Connection）；通用 `ServiceHost` + `ServiceModule` 注册表，`ServiceType` 改为字符串，LoginVerify 与 Queue 模块迁入各自服务目录（#152） | 已迁移，Realm 不再依赖 `game/gateway`，`framework/service_host` 不再链接 LoginVerify/Queue；`layering_guard_test` 白名单只剩 `framework/service_host` → `game/common`、`game/gateway`、`game/realm`，由第 5 步修复 |
 
 旧 `Login → Realm 选角 → Gateway 入场` 链路已整体退役：`login` 服务身份、7000 端口与
 旧入场消息编号都已删除，线名 `login` 永不复用（见[架构文档](docs/architecture.md)）。

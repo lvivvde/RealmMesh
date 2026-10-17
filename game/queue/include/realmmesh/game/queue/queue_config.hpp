@@ -9,7 +9,7 @@
 namespace realm::game::queue {
 
 /// 排队调度服专属配置节(根表 `queue`);宿主级节段(logging、
-/// service_discovery、metrics)仍由 parse_gateway_config 承载。
+/// service_discovery、metrics)由宿主分层装载解析为 HostConfig(ADR-0014)。
 /// TLS 路径支持配置直填或经环境变量名解析(先例同 login_verify)。
 struct QueueConfig {
     network::TransportConfig::TlsServerIdentity tls;

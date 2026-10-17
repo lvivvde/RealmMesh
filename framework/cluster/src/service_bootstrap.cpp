@@ -21,7 +21,7 @@ ServiceInstance make_service_instance(
     std::span<const network::TransportEndpoint> local_endpoints,
     std::string_view version) {
     ServiceInstance instance{
-        .type = type,
+        .type = std::move(type),
         .instance_id = config.instance_id,
         .node_id = config.node_id,
         .zone = config.zone,

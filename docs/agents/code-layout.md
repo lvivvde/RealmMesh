@@ -41,11 +41,11 @@
 
 ## 新服务清单
 
-`ServiceModule` 就位之前（ADR-0014 第 4 步），新服务不能接入宿主。就位之后按以下步骤接入：
+`ServiceModule` 已随 ADR-0014 第 4 步就位（`framework/service_host/service_module.hpp`，LoginVerify 与 Queue 为参照实现）。新服务按以下步骤接入：
 
 - [ ] `game/<service>/` 下建 `include/realmmesh/game/<service>/`、`src/`、`CMakeLists.txt`，CMake 别名为 `RealmMesh::<Service>Service`，由根 `CMakeLists.txt` 引入。
-- [ ] 实现该服务的 `ServiceModule`：自己解析配置节、持有自己的对象，只依赖 `game/common`、`proto` 与 `framework/*`。
-- [ ] 在 `apps/mesh_host` 登记服务名 → 模块工厂，服务名就是 etcd 线名。已退役的线名（如 `login`）不得复用。
+- [ ] 实现该服务的 `ServiceModule`（监听边协议的派生 `EdgeServiceModule`）与 `load_<service>_config(const LayeredConfig&)`：自己从合并根表解析配置节、持有自己的对象，只依赖 `game/common`、`proto` 与 `framework/*`。
+- [ ] 在 `apps/mesh_host` 的 `game_service_modules()` 登记服务名 → 模块工厂（及依赖服务），服务名就是 etcd 线名，须满足 `cluster::is_valid_service_type`。已退役的线名（如 `login`）不得复用。
 - [ ] 默认配置写进 `configs/services/<service>.lua`；若服务需要进入启动拓扑，同步 `configs/main.config` 的 `services` 表。
 - [ ] 客户端可见的消息进 `proto/realmmesh/<service>/v1/` 与 `docs/protocol.md`。
 - [ ] 测试放在 `tests/cpp/game/<service>/`。占端口或会拉起 `realm_mesh` 的测试加 `LABELS integration`。
@@ -58,5 +58,6 @@
 
 | 倒挂 | 修复步骤 |
 |---|---|
-| `framework/service_host` → `game/*` | 4、5：`ServiceModule` 与模块注册 |
-| `framework/cluster` 的 `ServiceType` 枚举 | 4：改为字符串身份（守卫查不到，靠评审） |
+| `framework/service_host` → `game/common`、`game/gateway`、`game/realm` | 5：Gateway 与 Realm 模块迁入各自服务目录 |
+
+第 4 步已删去 `framework/service_host` → `game/login_verify`、`game/queue`，`ServiceType` 已改为字符串身份。

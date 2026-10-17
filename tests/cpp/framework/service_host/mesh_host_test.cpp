@@ -1,6 +1,7 @@
 #include "realmmesh/service_host/mesh_host.hpp"
 
 #include "realmmesh/edge/edge_runtime.hpp"
+#include "test_service_modules.hpp"
 
 #include <gtest/gtest.h>
 
@@ -15,6 +16,8 @@
 
 namespace realm::service_host {
 namespace {
+
+using test_modules::edge_runtime;
 
 /// TLS 证书环境变量守护:指向 CMake 预生成的自签证书,析构时还原。
 class ScopedTlsEnvironment final {
@@ -75,6 +78,11 @@ protected:
                "\"REALMMESH_TLS_PRIVATE_KEY_FILE\" } }";
     }
 
+    /// 用例里的服务名都挂空转的接入面模块。
+    static ServiceModuleRegistry modules() {
+        return test_modules::test_service_modules({"a", "b", "entry"});
+    }
+
     static void write(
         const std::filesystem::path& path, std::string_view text) {
         std::ofstream output(path);
@@ -87,34 +95,34 @@ TEST_F(MeshHostTest, StartsWavesAndGatesEntryUntilAllReady) {
     const std::vector<ServiceSpec> specs{
         {"a", {}, false}, {"b", {"a"}, true},  // b 为 entry
     };
-    MeshHost mesh(root_, specs);
+    MeshHost mesh(root_, specs, modules());
     // 启动前门禁关闭。
     EXPECT_FALSE(mesh.entry_ready());
     ASSERT_TRUE(mesh.start_all());
     EXPECT_TRUE(mesh.entry_ready());
-    EXPECT_TRUE(mesh.service("a").runtime().running());
-    EXPECT_TRUE(mesh.service("b").runtime().running());
+    EXPECT_TRUE(edge_runtime(mesh.service("a")).running());
+    EXPECT_TRUE(edge_runtime(mesh.service("b")).running());
     mesh.tick();  // 发现禁用时为无害轮询。
     mesh.shutdown();
-    EXPECT_FALSE(mesh.service("a").runtime().running());
-    EXPECT_FALSE(mesh.service("b").runtime().running());
+    EXPECT_FALSE(edge_runtime(mesh.service("a")).running());
+    EXPECT_FALSE(edge_runtime(mesh.service("b")).running());
     EXPECT_FALSE(mesh.entry_ready());
 }
 
 TEST_F(MeshHostTest, FailureRecyclesStartedServicesInReverse) {
     const ScopedTlsEnvironment tls_environment;
-    // b 的 tick_rate 为非法字符串值,使 LayeredConfigLoader/parse 抛异常。
+    // b 的 runtime 节为非表值,使 LayeredConfigLoader 抛异常。
     write(
         root_ / "services" / "b.lua",
-        "return { " + transport_lua() + ", tick_rate = \"broken\" }");
+        "return { " + transport_lua() + ", runtime = \"broken\" }");
     const std::vector<ServiceSpec> specs{
         {"a", {}, false},
         {"b", {"a"}, true},
     };
-    MeshHost mesh(root_, specs);
+    MeshHost mesh(root_, specs, modules());
     EXPECT_FALSE(mesh.start_all());
     // a 已启动但被反序回收。
-    EXPECT_FALSE(mesh.service("a").runtime().running());
+    EXPECT_FALSE(edge_runtime(mesh.service("a")).running());
     // b 从未装配成功,不可访问。
     EXPECT_THROW(static_cast<void>(mesh.service("b")), std::out_of_range);
 }
@@ -123,7 +131,7 @@ TEST_F(MeshHostTest, FailureBeforeFinalWaveNeverConstructsEntry) {
     const ScopedTlsEnvironment tls_environment;
     write(
         root_ / "services" / "b.lua",
-        "return { " + transport_lua() + ", tick_rate = \"broken\" }");
+        "return { " + transport_lua() + ", runtime = \"broken\" }");
     write(
         root_ / "services" / "entry.lua", "return { " + transport_lua() + " }");
     const std::vector<ServiceSpec> specs{
@@ -132,14 +140,15 @@ TEST_F(MeshHostTest, FailureBeforeFinalWaveNeverConstructsEntry) {
         {"b", {"a"}, false},
     };
 
-    MeshHost mesh(root_, specs);
+    MeshHost mesh(root_, specs, modules());
     EXPECT_FALSE(mesh.start_all());
     EXPECT_THROW(static_cast<void>(mesh.service("entry")), std::out_of_range);
 }
 
 TEST_F(MeshHostTest, ServiceLookupThrowsForUnknownName) {
     const ScopedTlsEnvironment tls_environment;
-    MeshHost mesh(root_, std::vector<ServiceSpec>{{"a", {}, false}});
+    MeshHost mesh(
+        root_, std::vector<ServiceSpec>{{"a", {}, false}}, modules());
     EXPECT_THROW(static_cast<void>(mesh.service("ghost")), std::out_of_range);
     ASSERT_TRUE(mesh.start_all());
     EXPECT_NO_THROW(static_cast<void>(mesh.service("a")));

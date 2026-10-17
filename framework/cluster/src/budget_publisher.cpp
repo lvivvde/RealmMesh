@@ -38,9 +38,8 @@ std::string encode_budget_value(
 
 }  // namespace
 
-std::string budget_key(ServiceType type, std::string_view instance_id) {
-    return std::string(budget_key_prefix) + "/" +
-           std::string(service_type_name(type)) + "/" +
+std::string budget_key(const ServiceType& type, std::string_view instance_id) {
+    return std::string(budget_key_prefix) + "/" + type + "/" +
            std::string(instance_id) + "/budget";
 }
 
@@ -87,7 +86,7 @@ InstanceBudgetReporter::InstanceBudgetReporter(
     BudgetPublishPolicy policy)
     : registry_(&registry),
       registration_id_(registration_id),
-      type_(type),
+      type_(std::move(type)),
       instance_id_(std::move(instance_id)),
       policy_(policy) {}
 

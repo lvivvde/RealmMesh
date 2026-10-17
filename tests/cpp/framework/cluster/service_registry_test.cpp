@@ -37,8 +37,8 @@ TEST(ServiceRegistryTest, RegistersAndDiscoversByServiceType) {
 
     test_support::FakeServiceRegistry registry;
     const auto gateway =
-        make_instance(ServiceType::Gateway, "gateway-01", 8100);
-    const auto realm = make_instance(ServiceType::Realm, "realm-01", 8200);
+        make_instance("gateway", "gateway-01", 8100);
+    const auto realm = make_instance("realm", "realm-01", 8200);
 
     const auto gateway_registration = registry.register_instance(gateway, 10s);
     const auto realm_registration = registry.register_instance(realm, 10s);
@@ -46,9 +46,9 @@ TEST(ServiceRegistryTest, RegistersAndDiscoversByServiceType) {
     ASSERT_EQ(gateway_registration.status, RegistryStatus::Success);
     ASSERT_EQ(realm_registration.status, RegistryStatus::Success);
     EXPECT_NE(gateway_registration.id, realm_registration.id);
-    EXPECT_EQ(registry.discover(ServiceType::Gateway), std::vector{gateway});
-    EXPECT_EQ(registry.discover(ServiceType::Realm), std::vector{realm});
-    EXPECT_TRUE(registry.discover(ServiceType::LoginVerify).empty());
+    EXPECT_EQ(registry.discover("gateway"), std::vector{gateway});
+    EXPECT_EQ(registry.discover("realm"), std::vector{realm});
+    EXPECT_TRUE(registry.discover("login_verify").empty());
 }
 
 TEST(ServiceRegistryTest, RejectsDuplicateServiceInstanceKey) {
@@ -56,7 +56,7 @@ TEST(ServiceRegistryTest, RejectsDuplicateServiceInstanceKey) {
 
     test_support::FakeServiceRegistry registry;
     const auto instance =
-        make_instance(ServiceType::Gateway, "gateway-01", 8100);
+        make_instance("gateway", "gateway-01", 8100);
 
     ASSERT_EQ(
         registry.register_instance(instance, 10s).status,
@@ -73,11 +73,11 @@ TEST(ServiceRegistryTest, PublishesAddedAndRemovedWatchEvents) {
     test_support::FakeServiceRegistry registry;
     std::vector<ServiceEvent> events;
     const auto watch = registry.watch(
-        ServiceType::Gateway, [&events](const ServiceEvent& event) {
+        "gateway", [&events](const ServiceEvent& event) {
             events.push_back(event);
         });
     const auto instance =
-        make_instance(ServiceType::Gateway, "gateway-01", 8100);
+        make_instance("gateway", "gateway-01", 8100);
 
     const auto registration = registry.register_instance(instance, 10s);
     ASSERT_EQ(registration.status, RegistryStatus::Success);
@@ -93,19 +93,19 @@ TEST(ServiceRegistryTest, ExpiredRegistrationDisappearsAndCannotRefresh) {
     using namespace std::chrono_literals;
 
     test_support::FakeServiceRegistry registry;
-    const auto instance = make_instance(ServiceType::Realm, "realm-01", 8200);
+    const auto instance = make_instance("realm", "realm-01", 8200);
     const auto registration = registry.register_instance(instance, 10s);
     ASSERT_EQ(registration.status, RegistryStatus::Success);
 
     EXPECT_TRUE(registry.refresh_registration(registration.id));
     EXPECT_TRUE(registry.expire_registration(registration.id));
     EXPECT_FALSE(registry.refresh_registration(registration.id));
-    EXPECT_TRUE(registry.discover(ServiceType::Realm).empty());
+    EXPECT_TRUE(registry.discover("realm").empty());
 }
 
 TEST(ServiceRegistryTest, RejectsNonPositiveLeaseTtl) {
     test_support::FakeServiceRegistry registry;
-    const auto instance = make_instance(ServiceType::Realm, "realm-01", 8200);
+    const auto instance = make_instance("realm", "realm-01", 8200);
 
     const auto registration =
         registry.register_instance(instance, std::chrono::seconds::zero());
@@ -119,9 +119,9 @@ TEST(ServiceRegistryTest, ResolverTracksAddedAndRemovedEndpoints) {
 
     test_support::FakeServiceRegistry registry;
     ServiceResolver resolver(
-        registry, ServiceType::Gateway, network::TransportProtocol::TlsTcp);
+        registry, "gateway", network::TransportProtocol::TlsTcp);
     const auto instance =
-        make_instance(ServiceType::Gateway, "gateway-01", 8100);
+        make_instance("gateway", "gateway-01", 8100);
     const auto registration = registry.register_instance(instance, 10s);
     ASSERT_EQ(registration.status, RegistryStatus::Success);
 
@@ -139,13 +139,13 @@ TEST(ServiceRegistryTest, ResolverReceivesInstancesPresentBeforeSubscription) {
 
     test_support::FakeServiceRegistry registry;
     const auto instance =
-        make_instance(ServiceType::Gateway, "gateway-01", 8100);
+        make_instance("gateway", "gateway-01", 8100);
     ASSERT_EQ(
         registry.register_instance(instance, 10s).status,
         RegistryStatus::Success);
 
     ServiceResolver resolver(
-        registry, ServiceType::Gateway, network::TransportProtocol::TlsTcp);
+        registry, "gateway", network::TransportProtocol::TlsTcp);
 
     ASSERT_TRUE(resolver.endpoint().has_value());
     EXPECT_EQ(resolver.endpoint()->port, 8100);
@@ -156,16 +156,29 @@ TEST(ServiceRegistryTest, PublisherRegistersAndUnregistersWithItsLifetime) {
 
     test_support::FakeServiceRegistry registry;
     const auto instance =
-        make_instance(ServiceType::LoginVerify, "login-verify-01", 7002);
+        make_instance("login_verify", "login-verify-01", 7002);
     {
         ServicePublisher publisher(registry, instance, 10s);
         EXPECT_TRUE(publisher.tick());
         EXPECT_TRUE(publisher.registered());
         EXPECT_EQ(
-            registry.discover(ServiceType::LoginVerify), std::vector{instance});
+            registry.discover("login_verify"), std::vector{instance});
     }
 
-    EXPECT_TRUE(registry.discover(ServiceType::LoginVerify).empty());
+    EXPECT_TRUE(registry.discover("login_verify").empty());
+}
+
+/// ServiceType 是开放字符串(ADR-0014):只接受非空的 [a-z0-9_],
+/// 保证它能安全拼进 etcd key 与日志字段。
+TEST(ServiceRegistryTest, ValidatesServiceTypeCharacters) {
+    EXPECT_TRUE(is_valid_service_type("gateway"));
+    EXPECT_TRUE(is_valid_service_type("login_verify"));
+    EXPECT_TRUE(is_valid_service_type("shard2"));
+    EXPECT_FALSE(is_valid_service_type(""));
+    EXPECT_FALSE(is_valid_service_type("Gateway"));
+    EXPECT_FALSE(is_valid_service_type("login-verify"));
+    EXPECT_FALSE(is_valid_service_type("realm/1"));
+    EXPECT_FALSE(is_valid_service_type("queue "));
 }
 
 }  // namespace

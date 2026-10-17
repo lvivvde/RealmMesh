@@ -27,7 +27,7 @@ struct InstanceBudgetSnapshot {
 
 /// 额度 key:`<budget_key_prefix>/<type>/<instance_id>/budget`。
 [[nodiscard]] std::string budget_key(
-    ServiceType type, std::string_view instance_id);
+    const ServiceType& type, std::string_view instance_id);
 
 /// 阈值发布策略(主 spec §5.2:±10% 或 ≥1s 间隔),纯域策略(不含 IO):
 /// 首次发布恒发布;无变化不发布;变化超阈值立即发布;归零/回满(free

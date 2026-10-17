@@ -16,7 +16,7 @@ namespace {
 
 // 统一使用 sol::lua_nil 而非 sol::nil:sol2 在 macOS 上会因 nil 宏已定义
 // (version.hpp)导致 sol::nil 在同一工程的不同翻译单元里时有时无。
-// 与 gateway_config_loader.cpp 同一处理。
+// 与 gateway_config_lua.cpp 同一处理。
 
 [[nodiscard]] std::string optional_string(
     const sol::table& table, std::string_view field, std::string fallback) {

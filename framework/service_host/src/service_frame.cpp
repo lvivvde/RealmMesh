@@ -28,16 +28,23 @@ namespace {
     return game::common::parse_ticket_key_hex(value);
 }
 
-/// 未知服务无业务帧,ticket 门面仅为成员占位(不会被调用);
+/// Gateway 不兑换票据,ticket 门面仅为成员占位(不会被调用);
 /// codec 拒绝全零 key,故填非零哑值。
-[[nodiscard]] game::common::SessionTicketKey service_ticket_key(
-    const std::optional<cluster::ServiceType>& identity) {
-    if (identity == cluster::ServiceType::Realm) {
+[[nodiscard]] game::common::SessionTicketKey service_ticket_key(bool realm) {
+    if (realm) {
         return load_ticket_key();
     }
     game::common::SessionTicketKey placeholder{};
     placeholder.fill(std::byte{1});
     return placeholder;
+}
+
+/// 帧角色只认 gateway/realm;其余服务名不经 ServiceFrame。
+[[nodiscard]] bool is_realm_frame(std::string_view service_name) {
+    if (service_name == "realm") return true;
+    if (service_name == "gateway") return false;
+    throw std::invalid_argument(
+        "unsupported service frame: " + std::string(service_name));
 }
 
 /// 入场拒绝的统一出口:未建立会话 decline,已建立会话回包后 close。
@@ -86,16 +93,6 @@ void log_claim_mismatch(
 
 }  // namespace
 
-std::optional<cluster::ServiceType> parse_service_identity(
-    std::string_view service_name) {
-    if (service_name == "gateway") return cluster::ServiceType::Gateway;
-    if (service_name == "realm") return cluster::ServiceType::Realm;
-    if (service_name == "login_verify")
-        return cluster::ServiceType::LoginVerify;
-    if (service_name == "queue") return cluster::ServiceType::Queue;
-    return std::nullopt;
-}
-
 ServiceFrame::ServiceFrame(
     std::string_view service_name,
     std::string downstream_address,
@@ -106,22 +103,22 @@ ServiceFrame::ServiceFrame(
     game::realm::RealmSessions* realm_sessions)
     : service_name_(service_name),
       max_events_per_frame_(max_events_per_frame),
-      identity_(parse_service_identity(service_name)),
-      tickets_(service_ticket_key(identity_)),
+      role_(is_realm_frame(service_name) ? Role::Realm : Role::Gateway),
+      tickets_(service_ticket_key(role_ == Role::Realm)),
       gateway_login_pipeline_(gateway_login_pipeline),
       realm_sessions_(realm_sessions),
       conn_capacity_(conn_capacity) {
-    if (identity_.has_value() && identity_ != cluster::ServiceType::Gateway &&
+    if (role_ == Role::Realm &&
         (downstream_address.empty() || downstream_port == 0)) {
         throw std::invalid_argument(
             service_name_ + " downstream endpoint is required");
     }
-    if (identity_ == cluster::ServiceType::Gateway &&
+    if (role_ == Role::Gateway &&
         gateway_login_pipeline_ == nullptr) {
         throw std::invalid_argument(
             "gateway login pipeline is required for gateway frame");
     }
-    if (identity_ == cluster::ServiceType::Realm && realm_sessions_ == nullptr) {
+    if (role_ == Role::Realm && realm_sessions_ == nullptr) {
         throw std::invalid_argument("realm sessions are required for realm frame");
     }
 }
@@ -146,7 +143,7 @@ bool ServiceFrame::absorb_lifecycle(const edge::EdgeEvent& event) {
 void ServiceFrame::started(
     observability::Logger& logger,
     const edge::EdgeRuntime& runtime) const {
-    if (identity_ == cluster::ServiceType::Gateway) {
+    if (role_ == Role::Gateway) {
         for (const auto& endpoint : runtime.local_endpoints()) {
             static_cast<void>(logger.info(
                 "listener_started",
@@ -161,7 +158,6 @@ void ServiceFrame::started(
             logger.info("service_started", "gateway service started"));
         return;
     }
-    if (!identity_.has_value()) return;
     static_cast<void>(logger.info(
         "service_started",
         service_name_ + " service started",
@@ -174,20 +170,12 @@ void ServiceFrame::tick(
     edge::EdgeRuntime& runtime,
     cluster::ServiceResolver* resolver,
     cluster::InstanceBudgetReporter* budget_reporter) {
-    if (!identity_.has_value()) {
-        return;
-    }
-    switch (*identity_) {
-    case cluster::ServiceType::Realm:
+    switch (role_) {
+    case Role::Realm:
         handle_realm_events(logger, runtime, budget_reporter);
         break;
-    case cluster::ServiceType::Gateway:
+    case Role::Gateway:
         handle_gateway_events(logger, runtime, resolver, budget_reporter);
-        break;
-    case cluster::ServiceType::LoginVerify:
-    case cluster::ServiceType::Queue:
-        // HTTPS 请求循环形态不经 ServiceFrame(见 ServiceHost 装配),
-        // 这里不可达;保持空转以穷尽枚举。
         break;
     }
 }
@@ -195,8 +183,7 @@ void ServiceFrame::tick(
 void ServiceFrame::stopped(
     observability::Logger& logger,
     const edge::EdgeRuntime& runtime) const {
-    if (!identity_.has_value()) return;
-    if (identity_ == cluster::ServiceType::Gateway) {
+    if (role_ == Role::Gateway) {
         const auto stats = runtime.stats();
         static_cast<void>(logger.info(
             "service_stopped",

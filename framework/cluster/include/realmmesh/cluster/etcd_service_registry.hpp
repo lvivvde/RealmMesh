@@ -55,9 +55,9 @@ public:
     [[nodiscard]] bool unregister_instance(
         RegistrationId registration_id) override;
     [[nodiscard]] std::vector<ServiceInstance> discover(
-        ServiceType type) const override;
+        const ServiceType& type) const override;
     [[nodiscard]] WatchId watch(
-        ServiceType type, ServiceEventHandler handler) override;
+        const ServiceType& type, ServiceEventHandler handler) override;
     [[nodiscard]] bool cancel_watch(WatchId watch_id) override;
 
     void poll_once();

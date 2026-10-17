@@ -5,57 +5,19 @@
 #include "realmmesh/cluster/service_bootstrap.hpp"
 #include "realmmesh/cluster/service_publisher.hpp"
 #include "realmmesh/cluster/service_resolver.hpp"
-#include "realmmesh/edge/edge_runtime.hpp"
-#include "realmmesh/game/common/admission_grant.hpp"
-#include "realmmesh/game/common/compact_jws.hpp"
-#include "realmmesh/game/common/identity_token.hpp"
-#include "realmmesh/game/common/player_data_store.hpp"
-#include "realmmesh/game/gateway/account_fetch_port.hpp"
-#include "realmmesh/game/gateway/admission_consumption_store.hpp"
-#include "realmmesh/game/gateway/gateway_admission.hpp"
-#include "realmmesh/game/gateway/gateway_login_pipeline.hpp"
-#include "realmmesh/game/gateway/gateway_primary_transport.hpp"
-#include "realmmesh/game/login_verify/login_verify_service.hpp"
-#include "realmmesh/game/queue/queue_service.hpp"
-#include "realmmesh/game/realm/realm_sessions.hpp"
-#include "realmmesh/game/realm/training_rule.hpp"
 #include "realmmesh/observability/logger.hpp"
-#include "realmmesh/service_host/service_frame.hpp"
 
 #include <chrono>
-#include <cstdlib>
 #include <optional>
 #include <stdexcept>
 #include <string>
 #include <utility>
-#include <vector>
 
 namespace realm::service_host {
 namespace {
 
 /// 注册到发现中心的服务版本(与原 main 装配一致)。
 constexpr std::string_view service_version = "0.1.0";
-
-[[nodiscard]] std::string_view required_environment(const char* name) {
-    const char* value = std::getenv(name);
-    if (value == nullptr || *value == '\0') {
-        throw std::runtime_error(std::string(name) + " is not set");
-    }
-    return value;
-}
-
-/// 依赖解析对象映射:gateway→Realm(#45:handoff 直连端点来自 Realm
-/// 发现,缺失退回静态下游)、realm→Gateway;login_verify/queue 无下游
-/// 依赖(HTTPS 服务,状态经 etcd 而非服务依赖)。
-[[nodiscard]] std::optional<cluster::ServiceType> dependency_service_type(
-    std::string_view service_name) {
-    if (service_name == "gateway") return cluster::ServiceType::Realm;
-    if (service_name == "realm") return cluster::ServiceType::Gateway;
-    if (service_name == "login_verify") return std::nullopt;
-    if (service_name == "queue") return std::nullopt;
-    throw std::invalid_argument(
-        "unsupported service name: " + std::string(service_name));
-}
 
 /// 转义 Prometheus 标签值中的 \ " 与换行,保证指标输出格式合法
 /// (与 observability 内部 prometheus_label 逻辑一致,该助手未导出)。
@@ -86,190 +48,50 @@ constexpr std::string_view service_version = "0.1.0";
 ServiceHost::ServiceHost(
     const std::filesystem::path& config_root,
     std::string_view service_name,
+    const ServiceModuleRegistry& modules,
     const CliOverrides& overrides)
     : service_name_(service_name) {
-    // login_verify 与 queue 是 HTTPS 请求循环形态:宿主级节段仍走
-    // GatewayConfig 的解析面,业务体换成各自的 Service(无 ServiceFrame)。
-    std::unique_ptr<game::login_verify::LoginVerifyService> login_verify;
-    std::unique_ptr<game::queue::QueueService> queue;
-    std::optional<game::realm::RealmConfig> realm_config;
-    game::gateway::GatewayConfig config;
-    if (service_name_ == "login_verify") {
-        auto login_verify_config = LayeredConfigLoader::load_login_verify(
-            config_root, service_name, overrides);
-        login_verify = std::make_unique<game::login_verify::LoginVerifyService>(
-            std::move(login_verify_config.login_verify), &metrics_registry_);
-        config = std::move(login_verify_config.host);
-    } else if (service_name_ == "queue") {
-        auto queue_config = LayeredConfigLoader::load_queue(
-            config_root, service_name, overrides);
-        queue = std::make_unique<game::queue::QueueService>(
-            std::move(queue_config.queue), &metrics_registry_);
-        config = std::move(queue_config.host);
-    } else if (service_name_ == "realm") {
-        auto loaded =
-            LayeredConfigLoader::load_realm(config_root, service_name, overrides);
-        realm_config = std::move(loaded.realm);
-        config = std::move(loaded.host);
-    } else {
-        config =
-            LayeredConfigLoader::load(config_root, service_name, overrides);
+    // 纯配置校验先行:未注册服务名在装载配置或触碰 etcd 前即失败。
+    const ServiceModuleRegistration* registration = modules.find(service_name);
+    if (registration == nullptr) {
+        throw std::invalid_argument(
+            "unsupported service name: " + service_name_);
     }
-    discovery_config_ = config.service_discovery;
+    dependency_ = registration->dependency;
+    const LayeredConfig config =
+        LayeredConfigLoader::load(config_root, service_name, overrides);
+    const HostConfig& host = config.host();
+    discovery_config_ = host.service_discovery;
     // 实例标识默认值与 LayeredConfigLoader 的日志文件命名保持一致。
     instance_ = discovery_config_.instance_id.empty()
                     ? service_name_ + "-01"
                     : discovery_config_.instance_id;
     logger_ = std::make_unique<observability::Logger>(
-        config.logging, config.logging_identity);
-    if (config.logging_metrics.port != 0) {
+        host.logging, host.logging_identity);
+    if (host.logging_metrics.port != 0) {
         metrics_ = std::make_unique<observability::LoggerMetricsServer>(
             [this] {
                 return prometheus_metrics();
             },
-            config.logging_metrics);
+            host.logging_metrics);
     }
-    if (login_verify != nullptr || queue != nullptr) {
-        login_verify_ = std::move(login_verify);
-        queue_ = std::move(queue);
-        return;
+    module_ = registration->factory(ServiceModuleContext{
+        .config = config,
+        .instance_id = instance_,
+        .logger = *logger_,
+        .metrics = metrics_registry_,
+    });
+    if (module_ == nullptr) {
+        throw std::runtime_error(
+            "service module factory returned null: " + service_name_);
     }
-    const bool is_gateway = service_name_ == "gateway";
-    const auto frame_downstream_address = config.downstream_address;
-    const auto frame_downstream_port = config.downstream_port;
-    const auto max_events_per_frame = config.max_events_per_frame;
-    const auto conn_capacity = config.login.conn_capacity;
-    const auto player_data = config.player_data;
-    auto gateway_login_config = config.login;
-
-    budget_policy_.conn_capacity = conn_capacity;
-    budget_policy_.fetch_capacity =
-        is_gateway ? gateway_login_config.fetch_capacity : 0;
-    runtime_ = std::make_unique<edge::EdgeRuntime>(
-        config.transports,
-        config.runtime,
-        std::move(config.ingress_source),
-        logger_.get());
-    if (is_gateway) {
-        const auto consumption_key =
-            game::gateway::parse_admission_consumption_digest_key(
-                required_environment("REALMMESH_ADMISSION_CONSUMPTION_DIGEST_KEY"));
-        admission_consumption_store_ =
-            std::make_unique<game::gateway::EtcdAdmissionConsumptionStore>(
-                game::gateway::AdmissionConsumptionOptions{
-                    .key_prefix = gateway_login_config.admission_consumption_prefix,
-                    .reservation_ttl = gateway_login_config.admission_reservation_ttl,
-                    .digest_key = consumption_key},
-                cluster::make_etcd_http_client(
-                    discovery_config_.endpoint, std::chrono::milliseconds{500}));
-        // 验证键环逐把装载:轮换重叠期允许活动键与退休键同时存在,未知 kid
-        // 仍由验证器直接拒绝,不试遍全环。
-        std::vector<game::common::AdmissionGrantVerificationKey> admission_keys;
-        admission_keys.reserve(gateway_login_config.admission_grant_keys.size());
-        for (const auto& source : gateway_login_config.admission_grant_keys) {
-            admission_keys.push_back(
-                {.kid = source.kid,
-                 .public_key = game::common::parse_ed25519_public_key_hex(
-                     required_environment(
-                         source.public_key_environment.c_str()))});
-        }
-        gateway_admission_ = std::make_unique<game::gateway::GatewayAdmission>(
-            game::common::IdentityTokenCodec(
-                game::common::seed_from_environment("REALMMESH_IDENTITY_KEY_SEED"),
-                gateway_login_config.identity_kid),
-            gateway_login_config.identity_issuer,
-            game::common::AdmissionGrantVerifier(
-                std::move(admission_keys),
-                {.issuer = gateway_login_config.admission_grant_issuer,
-                 .deployment_id = gateway_login_config.deployment_id,
-                 .grant_window = gateway_login_config.admission_grant_window}),
-            *admission_consumption_store_);
-        gateway_primary_transport_ =
-            std::make_unique<game::gateway::EdgeRuntimePrimaryTransport>(
-                *runtime_);
-        if (player_data.uri.empty()) {
-            account_fetch_ =
-                std::make_unique<game::gateway::DelayedAccountFetchPort>(
-                    std::chrono::milliseconds{100},
-                    gateway_login_config.fetch_capacity);
-        } else {
-            account_fetch_ =
-                std::make_unique<game::gateway::PlayerDataAccountFetchPort>(
-                    std::make_unique<game::common::MongoPlayerDataStore>(
-                        player_data.uri,
-                        player_data.database,
-                        player_data.options),
-                    gateway_login_config.fetch_capacity,
-                    gateway_login_config.fetch_workers);
-        }
-        gateway_login_pipeline_ =
-            std::make_unique<game::gateway::GatewayLoginPipeline>(
-                game::gateway::GatewayLoginPipeline::create(
-                    std::move(gateway_login_config),
-                    game::common::parse_ticket_key_hex(required_environment(
-                        "REALMMESH_SESSION_TICKET_KEY")),
-                    *gateway_admission_,
-                    instance_,
-                    *gateway_primary_transport_,
-                    *account_fetch_,
-                    logger_.get(),
-                    &metrics_registry_));
-    }
-    if (realm_config.has_value()) {
-        // 选角与训练读写权威角色数据,没有「无存储」的 Realm 装配。训练
-        // 规则加载失败即启动失败(#93)。
-        if (player_data.uri.empty()) {
-            throw std::invalid_argument("realm requires player_data.uri");
-        }
-        training_rule_ = std::make_unique<game::realm::TrainingRule>(
-            realm_config->training_rule_file);
-        realm_characters_ = std::make_unique<game::common::MongoPlayerDataStore>(
-            player_data.uri, player_data.database, player_data.options);
-        realm_outbox_ =
-            std::make_unique<game::realm::EdgeRuntimeRealmOutbox>(*runtime_);
-        realm_sessions_ = std::make_unique<game::realm::RealmSessions>(
-            *realm_characters_,
-            *training_rule_,
-            *realm_outbox_,
-            *realm_config,
-            logger_.get());
-    }
-    frame_ = std::make_unique<ServiceFrame>(
-        service_name_,
-        frame_downstream_address,
-        frame_downstream_port,
-        max_events_per_frame,
-        conn_capacity,
-        gateway_login_pipeline_.get(),
-        realm_sessions_.get());
 }
 
 ServiceHost::~ServiceHost() { stop(); }
 
 bool ServiceHost::start() {
-    std::optional<cluster::ServiceType> self_type;
-    std::optional<cluster::ServiceType> dependency_type;
-    if (discovery_config_.enabled) {
-        // 纯配置校验先行:未知服务名在启动 I/O 或触碰 etcd 前即失败。
-        self_type = parse_service_identity(service_name_);
-        if (!self_type.has_value()) {
-            throw std::invalid_argument(
-                "unsupported service name: " + service_name_);
-        }
-        dependency_type = dependency_service_type(service_name_);
-    }
-    bool running = false;
-    if (login_verify_ != nullptr) {
-        login_verify_->start(logger_.get());
-        running = login_verify_->running();
-    } else if (queue_ != nullptr) {
-        queue_->start(logger_.get());
-        running = queue_->running();
-    } else {
-        runtime_->start();
-        running = runtime_->running();
-    }
-    if (!running) return false;
+    module_->start();
+    if (!module_->running()) return false;
     try {
         if (discovery_config_.enabled) {
             // 重启场景按引用链反序清理旧装配,避免 publisher 悬挂 registry。
@@ -279,21 +101,12 @@ bool ServiceHost::start() {
             registry_.reset();
             registry_ = std::make_unique<cluster::EtcdServiceRegistry>(
                 cluster::make_etcd_registry_options(discovery_config_));
-            // 服务注册端点:HTTPS 形态来自各自 Service,消息形态来自 runtime。
-            std::span<const network::TransportEndpoint> registered_endpoints;
-            if (login_verify_ != nullptr) {
-                registered_endpoints = login_verify_->local_endpoints();
-            } else if (queue_ != nullptr) {
-                registered_endpoints = queue_->local_endpoints();
-            } else {
-                registered_endpoints = runtime_->local_endpoints();
-            }
             publisher_ = std::make_unique<cluster::ServicePublisher>(
                 *registry_,
                 cluster::make_service_instance(
-                    *self_type,
+                    service_name_,
                     discovery_config_,
-                    registered_endpoints,
+                    module_->local_endpoints(),
                     service_version),
                 discovery_config_.lease_ttl);
             const bool registered = publisher_->tick();
@@ -311,33 +124,24 @@ bool ServiceHost::start() {
                      observability::field(
                          "error_message", registry_->last_error())}));
             }
-            if (dependency_type.has_value()) {
+            if (dependency_.has_value()) {
                 resolver_ = std::make_unique<cluster::ServiceResolver>(
                     *registry_,
-                    *dependency_type,
+                    *dependency_,
                     network::TransportProtocol::TlsTcp);
             }
         }
-        if (frame_ != nullptr) {
-            frame_->started(*logger_, *runtime_);
-        }
+        module_->started();
         // 重启场景:成功启动后复位停机标志,允许再次 stop() 写出事件。
         started_ = true;
         stopped_ = false;
         const bool discovery_ready =
             !discovery_config_.enabled ||
             (publisher_ != nullptr && publisher_->registered());
-        const bool frame_ready = frame_ == nullptr || frame_->ready();
-        ready_.store(discovery_ready && frame_ready);
+        ready_.store(discovery_ready && module_->ready());
         return ready_.load();
     } catch (...) {
-        if (login_verify_ != nullptr) {
-            login_verify_->stop();
-        } else if (queue_ != nullptr) {
-            queue_->stop();
-        } else if (runtime_ != nullptr) {
-            runtime_->stop();
-        }
+        module_->stop();
         budget_reporter_.reset();
         resolver_.reset();
         publisher_.reset();
@@ -354,19 +158,9 @@ void ServiceHost::stop() {
     // 未写过 service_started 的失败启动不补写无配对的 service_stopped。
     if (stopped_) return;
     stopped_ = true;
-    if (login_verify_ != nullptr) {
-        login_verify_->stop();
-    }
-    if (queue_ != nullptr) queue_->stop();
-    if (runtime_ != nullptr) runtime_->stop();
-    if (started_ && logger_ != nullptr) {
-        if (frame_ != nullptr && runtime_ != nullptr) {
-            frame_->stopped(*logger_, *runtime_);
-        } else if (login_verify_ != nullptr || queue_ != nullptr) {
-            // HTTPS 形态没有 frame,生命周期事件在此补齐配对。
-            static_cast<void>(logger_->info(
-                "service_stopped", service_name_ + " service stopped"));
-        }
+    if (module_ != nullptr) {
+        module_->stop();
+        if (started_) module_->stopped();
     }
     // 注销发现:budget_reporter/publisher/resolver 持有 registry 引用,
     // 须先行析构。
@@ -380,21 +174,12 @@ void ServiceHost::stop() {
     }
 }
 
-edge::EdgeRuntime& ServiceHost::runtime() noexcept {
-    return *runtime_;
-}
+ServiceModule& ServiceHost::module() noexcept { return *module_; }
 
-bool ServiceHost::healthy() const noexcept {
-    if (login_verify_ != nullptr) return login_verify_->running();
-    if (queue_ != nullptr) return queue_->running();
-    return runtime_ != nullptr && runtime_->running();
-}
+bool ServiceHost::healthy() const noexcept { return module_->running(); }
 
 std::optional<std::string> ServiceHost::terminal_error() const {
-    if (login_verify_ != nullptr || queue_ != nullptr || runtime_ == nullptr) {
-        return std::nullopt;
-    }
-    return runtime_->terminal_error();
+    return module_->terminal_error();
 }
 
 observability::Logger& ServiceHost::logger() noexcept { return *logger_; }
@@ -404,52 +189,42 @@ cluster::ServiceResolver* ServiceHost::resolver() noexcept {
 }
 
 void ServiceHost::tick() {
-    if (login_verify_ != nullptr) {
-        login_verify_->tick();
-    } else if (queue_ != nullptr) {
-        queue_->tick();
-    } else if (frame_ != nullptr && runtime_ != nullptr) {
-        frame_->tick(
-            *logger_, *runtime_, resolver_.get(), budget_reporter_.get());
-    }
-    const bool running = login_verify_ != nullptr ? login_verify_->running()
-                         : queue_ != nullptr
-                             ? queue_->running()
-                             : runtime_ != nullptr && runtime_->running();
+    module_->tick(ServiceTickContext{
+        .resolver = resolver_.get(),
+        .budget_reporter = budget_reporter_.get(),
+    });
+    const bool running = module_->running();
     if (!running) {
         ready_.store(false);
     }
     if (publisher_ != nullptr && publisher_->tick()) {
         // 注册成功后装配额度上报器(#43 gateway / #46 realm):required=false
-        // 时首注册可能失败,注册成功后的首个 tick 补齐。名字→身份的映射
-        // 只由 parse_service_identity 持有,这里按身份判定上报资格。
-        auto budget_type = parse_service_identity(service_name_);
-        if (budget_type != cluster::ServiceType::Gateway &&
-            budget_type != cluster::ServiceType::Realm) {
-            budget_type.reset();
-        }
-        if (budget_reporter_ == nullptr && budget_type.has_value() &&
-            publisher_->registered()) {
-            budget_reporter_ =
-                std::make_unique<cluster::InstanceBudgetReporter>(
-                    *registry_,
-                    publisher_->registration_id(),
-                    *budget_type,
-                    instance_,
-                    budget_policy_);
-            budget_reporter_->set_failure_sink([this](const std::string& key) {
-                static_cast<void>(logger_->warn(
-                    "instance_budget_publish_failed",
-                    "instance budget publish failed; will retry when policy allows",
-                    {observability::field("key", key)}));
-            });
+        // 时首注册可能失败,注册成功后的首个 tick 补齐。上报资格由模块的
+        // 额度策略声明。
+        if (budget_reporter_ == nullptr && publisher_->registered()) {
+            if (auto policy = module_->budget_policy(); policy.has_value()) {
+                budget_reporter_ =
+                    std::make_unique<cluster::InstanceBudgetReporter>(
+                        *registry_,
+                        publisher_->registration_id(),
+                        service_name_,
+                        instance_,
+                        *policy);
+                budget_reporter_->set_failure_sink(
+                    [this](const std::string& key) {
+                        static_cast<void>(logger_->warn(
+                            "instance_budget_publish_failed",
+                            "instance budget publish failed; will retry when "
+                            "policy allows",
+                            {observability::field("key", key)}));
+                    });
+            }
         }
     }
     const bool discovery_ready =
         !discovery_config_.enabled ||
         (publisher_ != nullptr && publisher_->registered());
-    const bool frame_ready = frame_ == nullptr || frame_->ready();
-    ready_.store(running && discovery_ready && frame_ready);
+    ready_.store(running && discovery_ready && module_->ready());
 }
 
 std::string ServiceHost::prometheus_metrics() const {

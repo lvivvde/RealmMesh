@@ -285,7 +285,7 @@ protected:
             observability::ServiceIdentity{.service_name = "realm"});
 
         cluster::ServiceInstance instance{
-            .type = cluster::ServiceType::Realm,
+            .type = std::string{"realm"},
             .instance_id = instance_id_,
             .node_id = "test-node",
             .zone = "test-zone",
@@ -303,7 +303,7 @@ protected:
         reporter_.emplace(
             registry_,
             registration_id_,
-            cluster::ServiceType::Realm,
+            std::string{"realm"},
             instance_id_);
 
         runtime_.emplace(
@@ -413,7 +413,7 @@ protected:
         const {
         const auto leased = registry_.leased_keys(registration_id_);
         const auto found = leased.find(
-            cluster::budget_key(cluster::ServiceType::Realm, instance_id_));
+            cluster::budget_key(std::string{"realm"}, instance_id_));
         if (found == leased.end()) {
             return std::nullopt;
         }

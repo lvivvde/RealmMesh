@@ -2,6 +2,7 @@
 
 #include "realmmesh/service_host/layered_config_loader.hpp"
 #include "realmmesh/service_host/service_host.hpp"
+#include "realmmesh/service_host/service_module.hpp"
 #include "realmmesh/service_host/startup_topology.hpp"
 
 #include <filesystem>
@@ -14,7 +15,8 @@
 namespace realm::service_host {
 
 /// 编排器:按拓扑波次构造 ServiceHost,entry 服务在全员 ready 后放行;
-/// 关停按拓扑反序。
+/// 关停按拓扑反序。服务名到模块的映射由调用方经 ServiceModuleRegistry
+/// 注入。
 /// 控制器裁定:不另造 MeshServiceSpec,直接复用 startup_topology.hpp 的
 /// ServiceSpec。
 class MeshHost final {
@@ -27,6 +29,7 @@ public:
     MeshHost(
         std::filesystem::path config_root,
         std::vector<ServiceSpec> specs,
+        ServiceModuleRegistry modules,
         CliOverrides overrides = {});
 
     /// 波次启动;任一失败 → 已启动者反序回收后返回 false。
@@ -49,9 +52,13 @@ public:
     [[nodiscard]] ServiceHost& service(std::string_view name);
 
 private:
-    [[nodiscard]] bool mode2_gateway_dependencies_ready() const;
+    /// 模式 2 单服务:注册项声明 mode2_waits_for_dependency 时,启动前
+    /// 等待依赖服务可连(发现开启查其 TLS 端点,关闭则探测其静态监听)。
+    [[nodiscard]] bool mode2_dependency_ready(
+        const std::string& name, const std::string& dependency) const;
 
     std::filesystem::path config_root_;
+    ServiceModuleRegistry modules_;
     CliOverrides overrides_;
     StartupTopology topology_;
     std::map<std::string, std::unique_ptr<ServiceHost>> hosts_;

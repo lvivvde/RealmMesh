@@ -25,8 +25,12 @@ _Avoid_: driver、provider
 ### Cluster
 
 **Service Instance**:
-一个服务进程在 etcd 里的一次注册:身份(取自 `realm::cluster::ServiceType` 枚举,线名 gateway/realm/login_verify/queue)、instance_id 与端点列表,随租约存活。
+一个服务进程在 etcd 里的一次注册:身份(服务名即 `realm::cluster::ServiceType` 字符串,当前线名 gateway/realm/login_verify/queue)、instance_id 与端点列表,随租约存活。
 _Avoid_: node(node_id 指承载它的机器)、endpoint(端点只是实例的字段)
+
+**Service Module**:
+一个服务的业务体(`realm::service_host::ServiceModule`),由进程入口按服务名注册进 `ServiceModuleRegistry`,通用 `ServiceHost` 只负责日志、指标、发现注册与额度上报的装配,不认识具体服务(ADR-0014)。
+_Avoid_: plugin、service(单说 service 指运行中的服务进程或其身份)、handler
 
 **Service Registry**:
 服务实例的注册、续约、注销与按身份发现的统一接口;生产实现落在 etcd。

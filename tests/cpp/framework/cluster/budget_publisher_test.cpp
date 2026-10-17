@@ -61,10 +61,10 @@ public:
     }
     bool refresh_registration(RegistrationId) override { return true; }
     bool unregister_instance(RegistrationId) override { return true; }
-    std::vector<ServiceInstance> discover(ServiceType) const override {
+    std::vector<ServiceInstance> discover(const ServiceType&) const override {
         return {};
     }
-    WatchId watch(ServiceType, ServiceEventHandler) override { return 1; }
+    WatchId watch(const ServiceType&, ServiceEventHandler) override { return 1; }
     bool cancel_watch(WatchId) override { return true; }
 
     bool put_leased(
@@ -198,22 +198,22 @@ TEST(BudgetPublishPolicyTest, ReturnToFullPublishesImmediately) {
 
 TEST(BudgetKeyTest, BuildsBudgetKeyFromTypeAndInstance) {
     EXPECT_EQ(
-        budget_key(ServiceType::Gateway, "gateway-01"),
+        budget_key("gateway", "gateway-01"),
         "/realmmesh/budgets/service/gateway/gateway-01/budget");
     EXPECT_EQ(
-        budget_key(ServiceType::Realm, "realm-01"),
+        budget_key("realm", "realm-01"),
         "/realmmesh/budgets/service/realm/realm-01/budget");
 }
 
 TEST(InstanceBudgetReporterTest, PublishesFirstSnapshotUnderRegistrationLease) {
     FakeServiceRegistry registry;
     const auto registration = registry.register_instance(
-        minimal_instance(ServiceType::Gateway, "gateway-01"),
+        minimal_instance("gateway", "gateway-01"),
         std::chrono::seconds(9));
     ASSERT_EQ(registration.status, RegistryStatus::Success);
 
     InstanceBudgetReporter reporter(
-        registry, registration.id, ServiceType::Gateway, "gateway-01");
+        registry, registration.id, "gateway", "gateway-01");
     EXPECT_TRUE(reporter.publish(gateway_snapshot(98, 10), t0));
 
     const auto keys = registry.leased_keys(registration.id);
@@ -228,12 +228,12 @@ TEST(InstanceBudgetReporterTest, PublishesFirstSnapshotUnderRegistrationLease) {
 TEST(InstanceBudgetReporterTest, SkipsUnchangedSnapshot) {
     FakeServiceRegistry registry;
     const auto registration = registry.register_instance(
-        minimal_instance(ServiceType::Gateway, "gateway-01"),
+        minimal_instance("gateway", "gateway-01"),
         std::chrono::seconds(9));
     ASSERT_EQ(registration.status, RegistryStatus::Success);
 
     InstanceBudgetReporter reporter(
-        registry, registration.id, ServiceType::Gateway, "gateway-01");
+        registry, registration.id, "gateway", "gateway-01");
     ASSERT_TRUE(reporter.publish(gateway_snapshot(98, 10), t0));
     EXPECT_FALSE(
         reporter.publish(gateway_snapshot(98, 10), t0 + std::chrono::hours(1)));
@@ -244,12 +244,12 @@ TEST(InstanceBudgetReporterTest, SkipsUnchangedSnapshot) {
 TEST(InstanceBudgetReporterTest, HoldsSubThresholdChangeWithinInterval) {
     FakeServiceRegistry registry;
     const auto registration = registry.register_instance(
-        minimal_instance(ServiceType::Gateway, "gateway-01"),
+        minimal_instance("gateway", "gateway-01"),
         std::chrono::seconds(9));
     ASSERT_EQ(registration.status, RegistryStatus::Success);
 
     InstanceBudgetReporter reporter(
-        registry, registration.id, ServiceType::Gateway, "gateway-01");
+        registry, registration.id, "gateway", "gateway-01");
     ASSERT_TRUE(reporter.publish(gateway_snapshot(100, 10), t0));
     EXPECT_FALSE(reporter.publish(
         gateway_snapshot(95, 10), t0 + std::chrono::milliseconds(500)));
@@ -265,12 +265,12 @@ TEST(InstanceBudgetReporterTest, HoldsSubThresholdChangeWithinInterval) {
 TEST(InstanceBudgetReporterTest, RepublishesBeyondThresholdImmediately) {
     FakeServiceRegistry registry;
     const auto registration = registry.register_instance(
-        minimal_instance(ServiceType::Gateway, "gateway-01"),
+        minimal_instance("gateway", "gateway-01"),
         std::chrono::seconds(9));
     ASSERT_EQ(registration.status, RegistryStatus::Success);
 
     InstanceBudgetReporter reporter(
-        registry, registration.id, ServiceType::Gateway, "gateway-01");
+        registry, registration.id, "gateway", "gateway-01");
     ASSERT_TRUE(reporter.publish(gateway_snapshot(100, 10), t0));
     EXPECT_TRUE(reporter.publish(
         gateway_snapshot(50, 10), t0 + std::chrono::milliseconds(1)));
@@ -279,7 +279,7 @@ TEST(InstanceBudgetReporterTest, RepublishesBeyondThresholdImmediately) {
 TEST(InstanceBudgetReporterTest, RetriesFailedPublishAfterInterval) {
     FlakyRegistry registry({false, true});
     InstanceBudgetReporter reporter(
-        registry, 1, ServiceType::Gateway, "gateway-01");
+        registry, 1, "gateway", "gateway-01");
 
     EXPECT_FALSE(reporter.publish(gateway_snapshot(98, 10), t0));
     EXPECT_FALSE(
@@ -296,11 +296,11 @@ TEST(InstanceBudgetReporterTest, RetriesFailedPublishAfterInterval) {
 TEST(InstanceBudgetReporterTest, RealmReporterOmitsFetchFree) {
     FakeServiceRegistry registry;
     const auto registration = registry.register_instance(
-        minimal_instance(ServiceType::Realm, "realm-01"), std::chrono::seconds(9));
+        minimal_instance("realm", "realm-01"), std::chrono::seconds(9));
     ASSERT_EQ(registration.status, RegistryStatus::Success);
 
     InstanceBudgetReporter reporter(
-        registry, registration.id, ServiceType::Realm, "realm-01");
+        registry, registration.id, "realm", "realm-01");
     EXPECT_TRUE(reporter.publish(
         InstanceBudgetSnapshot{.conn_free = 50, .has_fetch = false}, t0));
 
@@ -312,7 +312,7 @@ TEST(InstanceBudgetReporterTest, RealmReporterOmitsFetchFree) {
 TEST(InstanceBudgetReporterTest, UnknownRegistrationFailsWithoutRetry) {
     FakeServiceRegistry registry;
     InstanceBudgetReporter reporter(
-        registry, 999, ServiceType::Gateway, "gateway-01");
+        registry, 999, "gateway", "gateway-01");
 
     EXPECT_FALSE(reporter.publish(gateway_snapshot(98, 10), t0));
     EXPECT_FALSE(
@@ -322,7 +322,7 @@ TEST(InstanceBudgetReporterTest, UnknownRegistrationFailsWithoutRetry) {
 TEST(InstanceBudgetReporterTest, FailedWriteNotifiesSinkNotThrottledRetries) {
     FlakyRegistry registry({false, true, false});
     InstanceBudgetReporter reporter(
-        registry, 1, ServiceType::Gateway, "gateway-01");
+        registry, 1, "gateway", "gateway-01");
     std::vector<std::string> failures;
     reporter.set_failure_sink(
         [&failures](const std::string& key) { failures.push_back(key); });

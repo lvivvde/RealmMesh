@@ -3,6 +3,7 @@
 #include "realmmesh/edge/edge_runtime.hpp"
 #include "realmmesh/network/tcp/tcp_listener.hpp"
 #include "realmmesh/test_support/mongod_process.hpp"
+#include "test_service_modules.hpp"
 
 #include <gtest/gtest.h>
 #include <httplib.h>
@@ -18,6 +19,8 @@
 
 namespace realm::service_host {
 namespace {
+
+using test_modules::edge_runtime;
 
 [[nodiscard]] std::string read_file(const std::filesystem::path& path) {
     std::ifstream input(path);
@@ -83,6 +86,7 @@ public:
 class ServiceHostTest : public ::testing::Test {
 protected:
     std::filesystem::path root_;
+    ServiceModuleRegistry modules_ = test_modules::test_service_modules({"host_test"});
 
     void SetUp() override {
         root_ =
@@ -131,7 +135,7 @@ protected:
 
 TEST_F(ServiceHostTest, StartsRuntimeAndReadiesWithoutDiscovery) {
     const ScopedTlsEnvironment tls_environment;
-    ServiceHost host(root_, "host_test");
+    ServiceHost host(root_, "host_test", modules_);
 
     // 启动前 ready gauge 为 0。
     EXPECT_NE(
@@ -142,7 +146,7 @@ TEST_F(ServiceHostTest, StartsRuntimeAndReadiesWithoutDiscovery) {
 
     EXPECT_TRUE(host.start());
     EXPECT_TRUE(host.ready());
-    EXPECT_NE(host.runtime().local_port(), std::uint16_t{0});
+    EXPECT_NE(edge_runtime(host).local_port(), std::uint16_t{0});
 
     // 指标为 logger 文本 + realmmesh_service_ready gauge 拼接。
     const auto metrics = host.prometheus_metrics();
@@ -155,18 +159,18 @@ TEST_F(ServiceHostTest, StartsRuntimeAndReadiesWithoutDiscovery) {
         std::string::npos);
 
     host.stop();
-    EXPECT_FALSE(host.runtime().running());
+    EXPECT_FALSE(edge_runtime(host).running());
     host.stop();  // 幂等:重复关停无害。
 }
 
 TEST_F(ServiceHostTest, RuntimeStopClearsReadinessOnNextTick) {
     const ScopedTlsEnvironment tls_environment;
-    ServiceHost host(root_, "host_test");
+    ServiceHost host(root_, "host_test", modules_);
 
     ASSERT_TRUE(host.start());
     ASSERT_TRUE(host.ready());
 
-    host.runtime().stop();
+    edge_runtime(host).stop();
     host.tick();
 
     EXPECT_FALSE(host.ready());
@@ -176,7 +180,7 @@ TEST_F(ServiceHostTest, RuntimeStopClearsReadinessOnNextTick) {
 /// Admission 消费摘要键、验证键环里每个 kid 指名的公钥、身份 Token 种子
 /// 与会话票据键。本用例只抽掉身份种子,断言失败信息点到该变量——即前置
 /// 的 admission 材料已经就绪,失败点是确定的那一个。
-TEST_F(ServiceHostTest, GatewayIdentitySeedFailsBeforeRuntimeConstruction) {
+TEST_F(ServiceHostTest, GatewayIdentitySeedFailsModuleConstruction) {
     const ScopedTlsEnvironment tls_environment;
     write(
         root_ / "services" / "gateway.lua",
@@ -184,7 +188,7 @@ TEST_F(ServiceHostTest, GatewayIdentitySeedFailsBeforeRuntimeConstruction) {
     ASSERT_EQ(::unsetenv("REALMMESH_IDENTITY_KEY_SEED"), 0);
 
     try {
-        ServiceHost host(root_, "gateway");
+        ServiceHost host(root_, "gateway", modules_);
         FAIL() << "missing Gateway signing material must fail construction";
     } catch (const std::runtime_error& error) {
         EXPECT_NE(
@@ -194,15 +198,10 @@ TEST_F(ServiceHostTest, GatewayIdentitySeedFailsBeforeRuntimeConstruction) {
     }
 }
 
-TEST_F(ServiceHostTest, UnknownServiceNameWithDiscoveryThrows) {
-    const ScopedTlsEnvironment tls_environment;
-    write(
-        root_ / "services" / "mystery.lua",
-        "return { " + transport_lua() +
-            ", service_discovery = { enabled = true, instance_id = "
-            "\"mystery-01\" } }");
-    ServiceHost host(root_, "mystery");
-    EXPECT_THROW(static_cast<void>(host.start()), std::invalid_argument);
+/// 未注册的服务名在装载配置前即失败:连服务层配置文件都不需要。
+TEST_F(ServiceHostTest, UnregisteredServiceNameThrows) {
+    EXPECT_THROW(
+        ServiceHost(root_, "mystery", modules_), std::invalid_argument);
 }
 
 /// 注册被声明为必需而 etcd 不可达 → 启动抛错,且不留下半启动的日志痕迹。
@@ -222,7 +221,7 @@ TEST_F(ServiceHostTest, RequiredRegistrationFailureThrows) {
             "instance_id = \"realm-test-01\", endpoint = "
             "\"http://127.0.0.1:1\", request_timeout_ms = 200, "
             "watch_interval_ms = 200 } }");
-    ServiceHost host(root_, "realm");
+    ServiceHost host(root_, "realm", modules_);
     EXPECT_THROW(static_cast<void>(host.start()), std::runtime_error);
     EXPECT_FALSE(host.ready());
     host.stop();  // 抛出后仍可安全关停。
@@ -243,7 +242,7 @@ TEST_F(ServiceHostTest, RealmWithoutPlayerDataThrows) {
         "return { " + transport_lua() +
             ", downstream_address = \"127.0.0.1\", downstream_port = 8000, " +
             realm_section_lua() + "}");
-    EXPECT_THROW(ServiceHost(root_, "realm"), std::invalid_argument);
+    EXPECT_THROW(ServiceHost(root_, "realm", modules_), std::invalid_argument);
 }
 
 TEST_F(ServiceHostTest, EscapesGaugeLabelSpecialCharacters) {
@@ -254,7 +253,7 @@ TEST_F(ServiceHostTest, EscapesGaugeLabelSpecialCharacters) {
         "return { " + transport_lua() +
             ", service_discovery = { enabled = false, instance_id = "
             "\"we\\\"ird\\\\name\" } }");
-    ServiceHost host(root_, "host_test");
+    ServiceHost host(root_, "host_test", modules_);
 
     EXPECT_TRUE(host.start());
     // 标签值特殊字符转义为 \" 与 \\,保证 Prometheus 文本合法且值为 1。
@@ -284,7 +283,7 @@ TEST_F(ServiceHostTest, HttpMetricsExposeServiceReadiness) {
             "metrics_port = " +
             std::to_string(metrics_port) + " } }");
 
-    ServiceHost host(root_, "host_test");
+    ServiceHost host(root_, "host_test", modules_);
     ASSERT_TRUE(host.start());
     httplib::Client client("127.0.0.1", metrics_port);
     const auto response = client.Get("/metrics");

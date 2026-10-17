@@ -10,8 +10,8 @@
 namespace realm::game::login_verify {
 
 /// 健全服专属配置节(根表 `login_verify`);宿主级节段(logging、
-/// service_discovery)仍由 parse_gateway_config 承载,ServiceHost
-/// 装配时两路合流。TLS 路径支持配置直填或经环境变量名解析(先例同
+/// service_discovery)由宿主分层装载解析为 HostConfig(ADR-0014),本节
+/// 经 load_login_verify_config 从同一合并根表读取。TLS 路径支持配置直填或经环境变量名解析(先例同
 /// gateway 传输配置)。
 struct LoginVerifyConfig {
     network::TransportConfig::TlsServerIdentity tls;

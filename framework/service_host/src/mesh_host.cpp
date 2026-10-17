@@ -2,7 +2,6 @@
 
 #include "realmmesh/cluster/etcd_service_registry.hpp"
 #include "realmmesh/cluster/service_bootstrap.hpp"
-#include "realmmesh/game/gateway/gateway_config.hpp"
 #include "realmmesh/observability/logger.hpp"
 
 #include <arpa/inet.h>
@@ -45,7 +44,7 @@ namespace {
 }
 
 [[nodiscard]] std::optional<network::TransportEndpoint> tls_listener(
-    const game::gateway::GatewayConfig& config) {
+    const edge::EdgeConfig& config) {
     const auto found = std::ranges::find_if(
         config.transports, [](const network::TransportConfig& transport) {
             return transport.enabled &&
@@ -91,23 +90,32 @@ std::vector<ServiceSpec> MeshHost::narrow_single_service(
 MeshHost::MeshHost(
     std::filesystem::path config_root,
     std::vector<ServiceSpec> specs,
+    ServiceModuleRegistry modules,
     CliOverrides overrides)
     : config_root_(std::move(config_root)),
+      modules_(std::move(modules)),
       overrides_(std::move(overrides)),
       topology_(std::move(specs)) {}
 
 bool MeshHost::start_all() {
-    if (topology_.all_names().size() == 1 &&
-        topology_.all_names().front() == "gateway") {
-        try {
-            if (!mode2_gateway_dependencies_ready()) {
-                std::cerr << "realm_mesh: gateway dependencies are not ready\n";
+    if (topology_.all_names().size() == 1) {
+        const auto& name = topology_.all_names().front();
+        const auto* registration = modules_.find(name);
+        if (registration != nullptr &&
+            registration->mode2_waits_for_dependency &&
+            registration->dependency.has_value()) {
+            try {
+                if (!mode2_dependency_ready(name, *registration->dependency)) {
+                    std::cerr << "realm_mesh: " << name
+                              << " dependencies are not ready\n";
+                    return false;
+                }
+            } catch (const std::exception& error) {
+                std::cerr << "realm_mesh: " << name
+                          << " dependency check failed: " << error.what()
+                          << '\n';
                 return false;
             }
-        } catch (const std::exception& error) {
-            std::cerr << "realm_mesh: gateway dependency check failed: "
-                      << error.what() << '\n';
-            return false;
         }
     }
     for (const auto& wave : topology_.waves()) {
@@ -115,7 +123,7 @@ bool MeshHost::start_all() {
             std::unique_ptr<ServiceHost> host;
             try {
                 host = std::make_unique<ServiceHost>(
-                    config_root_, name, overrides_);
+                    config_root_, name, modules_, overrides_);
                 if (!host->start()) {
                     throw std::runtime_error(name + " not ready");
                 }
@@ -175,17 +183,17 @@ ServiceHost& MeshHost::service(std::string_view name) {
     return *host->second;
 }
 
-bool MeshHost::mode2_gateway_dependencies_ready() const {
-    const auto gateway =
-        LayeredConfigLoader::load(config_root_, "gateway", overrides_);
-    const auto deadline = std::chrono::steady_clock::now() +
-                          gateway.service_discovery.startup_timeout;
-    if (gateway.service_discovery.enabled) {
+bool MeshHost::mode2_dependency_ready(
+    const std::string& name, const std::string& dependency) const {
+    const auto self = LayeredConfigLoader::load(config_root_, name, overrides_);
+    const auto& discovery = self.host().service_discovery;
+    const auto deadline =
+        std::chrono::steady_clock::now() + discovery.startup_timeout;
+    if (discovery.enabled) {
         cluster::EtcdServiceRegistry registry(
-            cluster::make_etcd_registry_options(gateway.service_discovery));
+            cluster::make_etcd_registry_options(discovery));
         do {
-            if (has_tls_endpoint(
-                    registry.discover(cluster::ServiceType::Realm))) {
+            if (has_tls_endpoint(registry.discover(dependency))) {
                 return true;
             }
             std::this_thread::sleep_for(std::chrono::milliseconds(25));
@@ -193,12 +201,12 @@ bool MeshHost::mode2_gateway_dependencies_ready() const {
         return false;
     }
 
-    const auto realm_config =
-        LayeredConfigLoader::load(config_root_, "realm", overrides_);
-    const auto realm_endpoint = tls_listener(realm_config);
-    if (!realm_endpoint.has_value()) return false;
+    const auto dependency_config =
+        LayeredConfigLoader::load(config_root_, dependency, overrides_);
+    const auto endpoint = tls_listener(dependency_config.edge());
+    if (!endpoint.has_value()) return false;
     do {
-        if (endpoint_is_reachable(*realm_endpoint)) return true;
+        if (endpoint_is_reachable(*endpoint)) return true;
         std::this_thread::sleep_for(std::chrono::milliseconds(25));
     } while (std::chrono::steady_clock::now() < deadline);
     return false;

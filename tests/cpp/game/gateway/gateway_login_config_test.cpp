@@ -16,24 +16,22 @@ namespace {
 
 using namespace std::chrono_literals;
 
-/// 解析一段 Lua 根表:走与生产同一入口 parse_gateway_config,
-/// 不复制字段名。transports 与 logging 是 loader 的必填节,给最小合法值
-/// (TLS 路径在 parse 期只解析不打开文件);其余字段吃生产默认值。
+/// 解析一段 Lua 根表:走与生产同一入口 parse_gateway_config,不复制字段名;
+/// 其余字段吃生产默认值。conn_capacity 生产上来自接入面配置,这里给一个
+/// 合法值,好让解析结果直接过 validate。
 [[nodiscard]] GatewayConfig parse_lua(
     std::string_view admission_block, std::string_view root_fields = "") {
     const std::string source =
-        "return { " + std::string{root_fields} + " transports = { { name = \"client_tls_tcp\", protocol = "
-        "\"tls_tcp\", enabled = true, max_sessions = 16, "
-        "certificate_chain_file = \"/dev/null\", private_key_file = "
-        "\"/dev/null\" } }, logging = { service_name = \"gateway\", file_path "
-        "= \"/tmp/realmmesh-gateway-config-test.jsonl\" }, admission = {" +
+        "return { " + std::string{root_fields} + " admission = {" +
         std::string{admission_block} + "} }";
     scripting::LuaRuntime runtime;
     std::string error;
     if (!runtime.load_module_source("gateway_config", source, &error)) {
         throw std::runtime_error("lua load failed: " + error);
     }
-    return parse_gateway_config(runtime.module("gateway_config"));
+    GatewayConfig config = parse_gateway_config(runtime.module("gateway_config"));
+    config.login.conn_capacity = 16;
+    return config;
 }
 
 /// 一份能通过校验的完整登录配置:负例只在它之上改一个字段,免得断言

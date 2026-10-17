@@ -384,7 +384,7 @@ protected:
             observability::ServiceIdentity{.service_name = "gateway"});
 
         cluster::ServiceInstance instance{
-            .type = cluster::ServiceType::Gateway,
+            .type = std::string{"gateway"},
             .instance_id = instance_id_,
             .node_id = "test-node",
             .zone = "test-zone",
@@ -402,7 +402,7 @@ protected:
         reporter_.emplace(
             registry_,
             registration_id_,
-            cluster::ServiceType::Gateway,
+            std::string{"gateway"},
             instance_id_);
 
         runtime_.emplace(
@@ -544,7 +544,7 @@ protected:
     void register_realm_endpoint(
         std::string address = "127.0.0.1", std::uint16_t port = 7100) {
         cluster::ServiceInstance instance{
-            .type = cluster::ServiceType::Realm,
+            .type = std::string{"realm"},
             .instance_id = "realm-test-01",
             .node_id = "test-node",
             .zone = "test-zone",
@@ -560,14 +560,14 @@ protected:
         EXPECT_EQ(registration.status, cluster::RegistryStatus::Success);
         realm_resolver_.emplace(
             registry_,
-            cluster::ServiceType::Realm,
+            std::string{"realm"},
             network::TransportProtocol::TlsTcp);
     }
 
     [[nodiscard]] std::optional<InstanceBudgetSnapshot> observed_budget() {
         const auto leased = registry_.leased_keys(registration_id_);
         const auto found = leased.find(
-            cluster::budget_key(cluster::ServiceType::Gateway, instance_id_));
+            cluster::budget_key(std::string{"gateway"}, instance_id_));
         if (found == leased.end()) {
             return std::nullopt;
         }
