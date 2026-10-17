@@ -59,8 +59,8 @@ status: accepted
 
 规则如下：
 
-- 出现白名单之外的反向依赖，测试失败；
-- 白名单里的某条已经修掉、不再出现，测试同样失败，提示删除该条，白名单只减不增；
+- 出现反向依赖，测试失败；
+- 迁移期间守卫带一份已知倒挂白名单：某条修掉、不再出现时测试同样失败，提示删除该条，白名单只减不增。第 5 步删完最后三条后白名单清空，这套机制随之删除；
 - `ServiceType` 枚举属于"framework 知道游戏服务身份"，不是 include 或链接依赖，守卫查不到。它由第 4 步消除，在此记录。
 
 ## Considered Options
@@ -80,5 +80,5 @@ status: accepted
 - 第 2 步已把 `gateway_ingress.hpp` 拆成 `gateway_source_address.hpp`（来源地址归一化，只依赖 framework 与标准库）与 `gateway_credential_ingress.hpp`（凭据入口）。为使连接运行时头不经 `gateway_config.hpp` 传递拿到凭据入口，`GatewayRuntimeOptions` 同步移入 `gateway_runtime_options.hpp`，即第 3 步要迁入 `framework/edge` 的运行时参数。本步不删白名单条目：Realm 仍包含 `gateway_runtime.hpp`，`game/realm` → `game/gateway` 由第 3 步消除。
 - 第 3 步已新建 `framework/edge`（目标 `realm_edge`，别名 `RealmMesh::Edge`，命名空间 `realm::edge`，include 前缀 `realmmesh/edge/`），迁入 `EdgeRuntime`、`EdgeConnectionTable`、`EdgeEvent`、`EdgeRuntimeOptions` 与 `EdgeSourceNormalizer`。`EdgeRuntime` 改为按传输配置、运行时参数与来源地址配置构造，不再认识 `GatewayConfig`。Primary Transport 适配改名 `EdgeRuntimePrimaryTransport`，与凭据入口、登录管线一起留在 `game/gateway`。Realm 改为链接 `realm_edge`，守卫白名单删去 `game/realm` → `game/gateway`。第 2 步留下的编译期断言 `gateway_runtime_headers_test.cpp`（运行时头拿不到凭据入口）随之删除：运行时已在 framework，凭据入口在 `game/gateway`，这条边界改由守卫保证。
 - 第 4 步已把 `framework/service_host` 改为通用宿主：`LayeredConfigLoader::load` 只解析宿主级节段（`HostConfig`）与接入面节段（`edge::EdgeConfig`），返回持有合并根表的 `LayeredConfig`；`ServiceHost` 按服务名从入口传入的 `ServiceModuleRegistry` 取模块工厂，未注册的名字构造期抛错。`ServiceType` 改为字符串，`is_valid_service_type` 只校验 `[a-z0-9_]`，etcd 解码对非法类型按损坏记录丢弃。LoginVerify 与 Queue 的模块与配置装载入口迁入各自服务目录，`apps/mesh_host` 的 `realm_mesh_modules` 负责注册，`GatewayConfigLoader` 删除；守卫白名单删去 `framework/service_host` → `game/login_verify`、`game/queue`。Gateway 与 Realm 的模块（`frame_service_modules.hpp`）仍共用 `ServiceFrame`，暂留 `framework/service_host`，白名单另三条由第 5 步删除。
-- [architecture.md](../architecture.md) 里"gateway 与 realm 在 `framework/service_host` 中共用运行时"的描述，随第 5 步更新。
-- 白名单只减不增，新服务不能再往 `framework/service_host` 里接线。Scene、Chat 等新服务实现自己的 `ServiceModule`，在 `apps/mesh_host` 注册后接入宿主（第 4 步已提供）。
+- 第 5 步已把 `ServiceFrame` 按服务拆开：Gateway 一半成为 `game/gateway` 的 `GatewayFrame`（解析 Realm 端点、驱动登录管线、上报额度），Realm 一半成为 `game/realm` 的 `RealmFrame`（EnterRealm 兑换、心跳、转交 `RealmSessions`、上报 `conn_free`）。两个服务各自的 `EdgeServiceModule` 与配置装载入口（`load_gateway_config`、`load_realm_config`）迁入本服务目录，`frame_service_modules.hpp` 删除，`framework/service_host` 只链接 `realm_cluster`、`realm_edge` 与 `realm_observability`。Realm 不再借 `GatewayConfig` 读帧参数：`max_events_per_frame` 与 `player_data` 并入 `RealmConfig`，用不到的 `downstream_*` 与 `tick_rate` 从 `configs/services/realm.lua` 删除，`realm` 的注册项也不再声明依赖 `gateway`（Realm 从不解析 Gateway 端点）。守卫白名单删去最后三条并整体移除，[architecture.md](../architecture.md) 同步更新。
+- 新服务不能再往 `framework/service_host` 里接线。Scene、Chat 等新服务实现自己的 `ServiceModule`，在 `apps/mesh_host` 注册后接入宿主（第 4 步已提供）。

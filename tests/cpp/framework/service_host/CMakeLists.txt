@@ -5,16 +5,16 @@ realm_add_gtest(service_host_test
         mesh_host_test.cpp
         mode2_test.cpp
         observability_artifacts_test.cpp
-        service_frame_edge_budget_test.cpp
-        service_frame_realm_enter_test.cpp
         service_host_test.cpp
         startup_topology_test.cpp
-        ${PROJECT_SOURCE_DIR}/tests/cpp/support/src/fake_service_registry.cpp
     INCLUDE_DIRS ${PROJECT_SOURCE_DIR}/tests/cpp/support/include
     LIBS realmmesh_test_mongodb
         httplib::httplib
         nlohmann_json::nlohmann_json
         realm_mesh_modules
+        realm_game_realm
+        # layered_config_loader_test 直接驱动 player_data 的 Lua 解析入口(#126)。
+        realm_scripting
         realm_service_host
     DEFINITIONS
         REALMMESH_SOURCE_DIR="${PROJECT_SOURCE_DIR}"
@@ -31,15 +31,21 @@ realm_add_gtest(service_host_test
 # 普通配置头不经传递 include 引入 sol2(#126):编译即断言。
 realm_add_gtest(config_headers_test
     SOURCES config_headers_test.cpp
-    LIBS realm_service_host realm_login_verify_service realm_queue_service
+    LIBS realm_service_host
+        realm_gateway_service
+        realm_game_realm
+        realm_login_verify_service
+        realm_queue_service
 )
 
 # 真实 configs/ 树的生产加载冒烟:不占端口、不起进程,留在快速子集。
-# 用例直接驱动 LuaRuntime:显式链接 realm_scripting(#126);LoginVerify 与
-# Queue 节段经各自服务模块的装载入口读取(ADR-0014)。
+# 用例直接驱动 LuaRuntime:显式链接 realm_scripting(#126);
+# 各服务节段经各自服务模块的装载入口读取(ADR-0014)。
 realm_add_gtest(configs_load_smoke_test
     SOURCES configs_load_smoke_test.cpp
     LIBS realm_service_host
+        realm_gateway_service
+        realm_game_realm
         realm_login_verify_service
         realm_queue_service
         realm_scripting

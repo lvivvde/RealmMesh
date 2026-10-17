@@ -150,8 +150,6 @@ void prepare_config(
             "metrics_port = 0");
     rewrite(services / "realm.lua", "listen_port = 7100",
             "listen_port = " + std::to_string(ports.realm));
-    rewrite(services / "realm.lua", "downstream_port = 8000",
-            "downstream_port = " + std::to_string(ports.gateway));
     rewrite(services / "realm.lua", "metrics_port = 9102", "metrics_port = 0");
     rewrite(root / "common" / "discovery.lua", "http://127.0.0.1:2379",
             etcd_endpoint);

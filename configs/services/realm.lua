@@ -18,10 +18,7 @@ return {
         max_pending_per_session = 16,
         retry_after_seconds = 1,
     },
-    tick_rate = 20,
     max_events_per_frame = 4096,
-    downstream_address = "127.0.0.1",
-    downstream_port = 8000,
     runtime = {
         inbound_capacity = 16384,
         outbound_capacity = 16384,

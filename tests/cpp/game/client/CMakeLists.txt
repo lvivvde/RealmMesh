@@ -24,7 +24,7 @@ realm_add_gtest(wire_login_transport_integration_test
     INCLUDE_DIRS ${PROJECT_SOURCE_DIR}/tests/cpp/support/include
     LIBS
         realm_game_client
-        realm_service_host
+        realm_game_realm
         RealmMesh::GameCommon
     DEFINITIONS
         REALMMESH_TEST_SOURCE_DIR="${PROJECT_SOURCE_DIR}"

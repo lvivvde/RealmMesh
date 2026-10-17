@@ -1,4 +1,4 @@
-#include "realmmesh/service_host/service_frame.hpp"
+#include "realmmesh/game/realm/realm_frame.hpp"
 
 #include "realmmesh/cluster/budget_publisher.hpp"
 #include "realmmesh/cluster/service_registry.hpp"
@@ -47,7 +47,7 @@
 #include <utility>
 #include <vector>
 
-namespace realm::service_host {
+namespace realm::game::realm {
 namespace {
 
 using cluster::InstanceBudgetSnapshot;
@@ -272,7 +272,7 @@ private:
     };
 }
 
-class ServiceFrameRealmEnterTest : public ::testing::Test {
+class RealmFrameTest : public ::testing::Test {
 protected:
     void SetUp() override {
         environment_.emplace();
@@ -319,8 +319,7 @@ protected:
             "services" / "realm" / "training.lua");
         outbox_.emplace(*runtime_);
         sessions_.emplace(store_, *rule_, *outbox_, game::realm::RealmConfig{});
-        frame_.emplace(
-            "realm", "127.0.0.1", 8443, 64, 4, nullptr, &*sessions_);
+        frame_.emplace(64, 4, *sessions_);
 
         tickets_.emplace(
             game::common::parse_ticket_key_hex(
@@ -374,7 +373,7 @@ protected:
         std::chrono::milliseconds budget) {
         const auto deadline = std::chrono::steady_clock::now() + budget;
         while (std::chrono::steady_clock::now() < deadline) {
-            frame_->tick(*logger_, *runtime_, nullptr, &*reporter_);
+            frame_->tick(*logger_, *runtime_, &*reporter_);
             if (auto frame = client_->receive(std::chrono::milliseconds{20})) {
                 return frame;
             }
@@ -387,7 +386,7 @@ protected:
         RealmTestClient& client, std::chrono::milliseconds budget) {
         const auto deadline = std::chrono::steady_clock::now() + budget;
         while (std::chrono::steady_clock::now() < deadline) {
-            frame_->tick(*logger_, *runtime_, nullptr, &*reporter_);
+            frame_->tick(*logger_, *runtime_, &*reporter_);
             if (auto frame = client.receive(std::chrono::milliseconds{20})) {
                 return frame;
             }
@@ -431,7 +430,7 @@ protected:
     bool drive_until_budget(Pred matches, std::chrono::milliseconds budget) {
         const auto deadline = std::chrono::steady_clock::now() + budget;
         while (std::chrono::steady_clock::now() < deadline) {
-            frame_->tick(*logger_, *runtime_, nullptr, &*reporter_);
+            frame_->tick(*logger_, *runtime_, &*reporter_);
             if (matches(observed_budget())) {
                 return true;
             }
@@ -454,12 +453,12 @@ protected:
     std::optional<game::realm::EdgeRuntimeRealmOutbox> outbox_;
     std::optional<game::realm::RealmSessions> sessions_;
     RealmTestClient* client_{nullptr};
-    std::optional<ServiceFrame> frame_;
+    std::optional<RealmFrame> frame_;
 };
 
 /// 兑换成功(#46):1304 → 1305 受理并迁入 established,会话心跳可用;
 /// 兑换不读数据库(ADR-0013)。
-TEST_F(ServiceFrameRealmEnterTest, EnterRealmRedeemsTicketAndAcceptsSession) {
+TEST_F(RealmFrameTest, EnterRealmRedeemsTicketAndAcceptsSession) {
     const auto ticket = enter_ticket(42);
     auto client = connect();
     client_ = client.get();
@@ -487,7 +486,7 @@ TEST_F(ServiceFrameRealmEnterTest, EnterRealmRedeemsTicketAndAcceptsSession) {
 }
 
 /// 一次性消费(#46):同票据第二连接兑换被拒(回放),先入场会话不受影响。
-TEST_F(ServiceFrameRealmEnterTest, EnterRealmTicketIsSingleConsume) {
+TEST_F(RealmFrameTest, EnterRealmTicketIsSingleConsume) {
     const auto ticket = enter_ticket(42);
     auto first = connect();
     client_ = first.get();
@@ -503,7 +502,7 @@ TEST_F(ServiceFrameRealmEnterTest, EnterRealmTicketIsSingleConsume) {
     const auto deadline =
         std::chrono::steady_clock::now() + std::chrono::seconds{2};
     while (std::chrono::steady_clock::now() < deadline) {
-        frame_->tick(*logger_, *runtime_, nullptr, &*reporter_);
+        frame_->tick(*logger_, *runtime_, &*reporter_);
         if (auto frame = second->receive(std::chrono::milliseconds{20})) {
             replayed = std::move(frame);
             break;
@@ -527,7 +526,7 @@ TEST_F(ServiceFrameRealmEnterTest, EnterRealmTicketIsSingleConsume) {
 }
 
 /// 已入场会话重复提交 1304:同连接回放同样被拒并关闭(回包后终结)。
-TEST_F(ServiceFrameRealmEnterTest, ResubmissionOnSameSessionCloses) {
+TEST_F(RealmFrameTest, ResubmissionOnSameSessionCloses) {
     const auto ticket = enter_ticket(42);
     auto client = connect();
     client_ = client.get();
@@ -542,7 +541,7 @@ TEST_F(ServiceFrameRealmEnterTest, ResubmissionOnSameSessionCloses) {
     const auto deadline =
         std::chrono::steady_clock::now() + std::chrono::seconds{2};
     while (std::chrono::steady_clock::now() < deadline) {
-        frame_->tick(*logger_, *runtime_, nullptr, &*reporter_);
+        frame_->tick(*logger_, *runtime_, &*reporter_);
         if (auto frame = client->receive(std::chrono::milliseconds{20})) {
             resubmitted = std::move(frame);
             break;
@@ -557,7 +556,7 @@ TEST_F(ServiceFrameRealmEnterTest, ResubmissionOnSameSessionCloses) {
 }
 
 /// 无效票据(构造合法但验签不过的字节)→ 3002 + 未入会话终结。
-TEST_F(ServiceFrameRealmEnterTest, InvalidTicketBytesDecline) {
+TEST_F(RealmFrameTest, InvalidTicketBytesDecline) {
     auto client = connect();
     client_ = client.get();
     submit_enter_realm(*client, std::vector<std::byte>(32, std::byte{0xAB}), 7);
@@ -574,7 +573,7 @@ TEST_F(ServiceFrameRealmEnterTest, InvalidTicketBytesDecline) {
 /// 已退役编号(#50):1101 曾在旧链承载 Realm 认证,新代码在解码层不再
 /// 识别它 —— 未入场会话发它落未认证/拒绝,而不是被当成业务消息处理。
 /// request_id 随编号一起解不出,回包恒 0。
-TEST_F(ServiceFrameRealmEnterTest, RetiredMessageIdIsRefused) {
+TEST_F(RealmFrameTest, RetiredMessageIdIsRefused) {
     auto client = connect();
     client_ = client.get();
     const network::LengthFieldCodec codec(1024);
@@ -591,7 +590,7 @@ TEST_F(ServiceFrameRealmEnterTest, RetiredMessageIdIsRefused) {
 
 /// 未入场会话只受理 1304(#50 后不变):编号仍现役的心跳在入场前同样
 /// 落未认证/拒绝分支,不得被当成业务消息处理。
-TEST_F(ServiceFrameRealmEnterTest, MessageBeforeEnterRealmIsRefused) {
+TEST_F(RealmFrameTest, MessageBeforeEnterRealmIsRefused) {
     auto client = connect();
     client_ = client.get();
     game::common::HeartbeatRequest heartbeat;
@@ -609,7 +608,7 @@ TEST_F(ServiceFrameRealmEnterTest, MessageBeforeEnterRealmIsRefused) {
 
 /// 用途不符(已退役的入场票据用途数值 2)→ 3002,不烧票不迁移。
 /// 枚举里已无该取值,只能用整数构造:退役数值不得被当作活用途接受。
-TEST_F(ServiceFrameRealmEnterTest, WrongPurposeTicketDeclines) {
+TEST_F(RealmFrameTest, WrongPurposeTicketDeclines) {
     const auto ticket = tickets_->issue(
         static_cast<game::common::TicketPurpose>(2),
         42,
@@ -629,7 +628,7 @@ TEST_F(ServiceFrameRealmEnterTest, WrongPurposeTicketDeclines) {
 }
 
 /// realm 声明不符(≠1)→ 3002:redeem 侧的 realm 不变量。
-TEST_F(ServiceFrameRealmEnterTest, ForeignRealmClaimDeclines) {
+TEST_F(RealmFrameTest, ForeignRealmClaimDeclines) {
     const auto ticket = enter_ticket(42, 2);
     auto client = connect();
     client_ = client.get();
@@ -646,7 +645,7 @@ TEST_F(ServiceFrameRealmEnterTest, ForeignRealmClaimDeclines) {
 
 /// 过期票据 → 3002。过期判定含跨机时钟容差(now ≤ expires_at + leeway),
 /// 所以「过期」必须越过容差窗口才算:签发于 60s 期限 + 容差 + 1s 之前。
-TEST_F(ServiceFrameRealmEnterTest, ExpiredTicketDeclines) {
+TEST_F(RealmFrameTest, ExpiredTicketDeclines) {
     constexpr auto ttl = std::chrono::seconds{60};
     const auto ticket = enter_ticket(
         42,
@@ -667,15 +666,8 @@ TEST_F(ServiceFrameRealmEnterTest, ExpiredTicketDeclines) {
     EXPECT_TRUE(client->saw_close(std::chrono::seconds{2}));
 }
 
-/// Realm 帧必须注入 RealmSessions:缺失即构造失败。
-TEST_F(ServiceFrameRealmEnterTest, RealmFrameRequiresRealmSessions) {
-    EXPECT_THROW(
-        ServiceFrame("realm", "127.0.0.1", 8443, 64, 4, nullptr, nullptr),
-        std::invalid_argument);
-}
-
 /// 已入场会话的 Realm 消息交给 RealmSessions:新账号列表为空,选角阶段。
-TEST_F(ServiceFrameRealmEnterTest, EnteredSessionDispatchesRealmMessages) {
+TEST_F(RealmFrameTest, EnteredSessionDispatchesRealmMessages) {
     auto client = enter(42);
     const network::LengthFieldCodec codec(1024);
     client->send(codec.encode(
@@ -691,7 +683,7 @@ TEST_F(ServiceFrameRealmEnterTest, EnteredSessionDispatchesRealmMessages) {
 
 /// 已入场会话发来不认识的消息(此处为服务端方向的 1402):回 2002,
 /// 会话保持,心跳仍应答。
-TEST_F(ServiceFrameRealmEnterTest, UnsupportedMessageKeepsEnteredSession) {
+TEST_F(RealmFrameTest, UnsupportedMessageKeepsEnteredSession) {
     auto client = enter(42);
     const network::LengthFieldCodec codec(1024);
     client->send(codec.encode(
@@ -710,7 +702,7 @@ TEST_F(ServiceFrameRealmEnterTest, UnsupportedMessageKeepsEnteredSession) {
 }
 
 /// 同账号新会话入场:旧会话收到 1409 后被关闭,新会话在选角阶段可用。
-TEST_F(ServiceFrameRealmEnterTest, SecondSessionDisplacesFirst) {
+TEST_F(RealmFrameTest, SecondSessionDisplacesFirst) {
     auto first = enter(42);
     auto second = enter(42);
 
@@ -731,8 +723,8 @@ TEST_F(ServiceFrameRealmEnterTest, SecondSessionDisplacesFirst) {
 
 /// conn_free 额度上报(#46):首帧发布容量;入场扣减;断开归还。
 /// fetch 维度缺席(§5.2:realm 仅 conn_free)。
-TEST_F(ServiceFrameRealmEnterTest, ConnFreeBudgetTracksConnections) {
-    frame_->tick(*logger_, *runtime_, nullptr, &*reporter_);
+TEST_F(RealmFrameTest, ConnFreeBudgetTracksConnections) {
+    frame_->tick(*logger_, *runtime_, &*reporter_);
     const auto initial = observed_budget();
     ASSERT_TRUE(initial.has_value());
     EXPECT_EQ(*initial, InstanceBudgetSnapshot({4, 0, false}));
@@ -760,4 +752,4 @@ TEST_F(ServiceFrameRealmEnterTest, ConnFreeBudgetTracksConnections) {
 }
 
 }  // namespace
-}  // namespace realm::service_host
+}  // namespace realm::game::realm

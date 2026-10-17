@@ -1,8 +1,9 @@
 #include "realmmesh/mesh_host/service_modules.hpp"
 
+#include "realmmesh/game/gateway/gateway_module.hpp"
 #include "realmmesh/game/login_verify/login_verify_module.hpp"
 #include "realmmesh/game/queue/queue_module.hpp"
-#include "realmmesh/service_host/frame_service_modules.hpp"
+#include "realmmesh/game/realm/realm_module.hpp"
 
 namespace realm::mesh_host {
 
@@ -11,13 +12,11 @@ service_host::ServiceModuleRegistry game_service_modules() {
     // #45:handoff 直连端点来自 Realm 发现,缺失退回静态下游。
     modules.add(
         "gateway",
-        {.factory = service_host::make_gateway_module,
+        {.factory = game::gateway::make_gateway_module,
          .dependency = "realm",
          .mode2_waits_for_dependency = true});
-    modules.add(
-        "realm",
-        {.factory = service_host::make_realm_module, .dependency = "gateway"});
-    // HTTPS 服务无下游依赖:状态经 etcd 而非服务依赖。
+    // Realm 与 HTTPS 服务都不解析其他服务的端点:状态经 etcd 而非服务依赖。
+    modules.add("realm", {.factory = game::realm::make_realm_module});
     modules.add(
         "login_verify",
         {.factory = game::login_verify::make_login_verify_module});

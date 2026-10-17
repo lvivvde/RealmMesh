@@ -146,8 +146,6 @@ void use_free_ports(
     auto realm = read_file(realm_path);
     realm = replace_all(realm, "listen_port = 7100",
                         "listen_port = " + std::to_string(realm_port));
-    realm = replace_all(realm, "downstream_port = 8000",
-                        "downstream_port = " + std::to_string(gateway_port));
     realm = replace_all(realm, "metrics_port = 9102", "metrics_port = 0");
     ASSERT_TRUE(write_file(realm_path, realm));
 

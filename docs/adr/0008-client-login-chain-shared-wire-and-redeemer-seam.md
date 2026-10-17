@@ -21,4 +21,4 @@ Realm 段的 EnterRealm 兑换口是注入 seam `EnterRealmRedeemer`,生产实�
 - 兑换口曾是为 #46 留的唯一一个洞,且如约只换了实现:`EnterRealmRedeemer::redeem` 拿到的是已竞速建好的字节流,协议落地时实现该接口即可,七态、回退规则与断言结构都没动。
 - `realm_game_client`(`RealmMesh::GameClient`)只依赖 `RealmMesh::Network` 与 `RealmMesh::GameCommon`;线客户端在 network 层,不反向依赖 client。
 - 凭据(身份 Token / 号牌 / EnterRealm 票据)纯内存持有,进程重启等于重新登录排队;落盘需求出现时是独立决策,不在本 ADR 范围内。
-- 集成测试用真实 TLS 回环验证两段竞速与帧交互;Realm 段的服务端已是真实 realm 服务(`GatewayRuntime` + `ServiceFrame` + 共享票据键),不再是桩。
+- 集成测试用真实 TLS 回环验证两段竞速与帧交互;Realm 段的服务端已是真实 realm 服务(`GatewayRuntime` + `ServiceFrame` + 共享票据键;ADR-0014 第 3、5 步后为 `EdgeRuntime` + `RealmFrame`),不再是桩。

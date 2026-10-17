@@ -41,7 +41,7 @@
 
 ## 新服务清单
 
-`ServiceModule` 已随 ADR-0014 第 4 步就位（`framework/service_host/service_module.hpp`，LoginVerify 与 Queue 为参照实现）。新服务按以下步骤接入：
+`ServiceModule` 已随 ADR-0014 第 4 步就位（`framework/service_host/service_module.hpp`）。LoginVerify 与 Queue 是 HTTPS 服务的参照实现，Gateway 与 Realm 是 `EdgeServiceModule` 的参照实现。新服务按以下步骤接入：
 
 - [ ] `game/<service>/` 下建 `include/realmmesh/game/<service>/`、`src/`、`CMakeLists.txt`，CMake 别名为 `RealmMesh::<Service>Service`，由根 `CMakeLists.txt` 引入。
 - [ ] 实现该服务的 `ServiceModule`（监听边协议的派生 `EdgeServiceModule`）与 `load_<service>_config(const LayeredConfig&)`：自己从合并根表解析配置节、持有自己的对象，只依赖 `game/common`、`proto` 与 `framework/*`。
@@ -50,14 +50,8 @@
 - [ ] 客户端可见的消息进 `proto/realmmesh/<service>/v1/` 与 `docs/protocol.md`。
 - [ ] 测试放在 `tests/cpp/game/<service>/`。占端口或会拉起 `realm_mesh` 的测试加 `LABELS integration`。
 - [ ] 同一个 PR 里更新 `docs/architecture.md`、`CONTEXT.md` 与 README 实施状态。
-- [ ] `layering_guard_test` 通过，且没有往白名单里新增条目。
+- [ ] `layering_guard_test` 通过（守卫没有白名单，任何反向依赖都会失败）。
 
-## 过渡期的已知倒挂
+## 已知倒挂
 
-下列倒挂按 ADR-0014 的顺序逐个修复，守卫白名单与之一一对应，修完一条就删一条。迁移期间不要在这些依赖上继续叠加新代码：
-
-| 倒挂 | 修复步骤 |
-|---|---|
-| `framework/service_host` → `game/common`、`game/gateway`、`game/realm` | 5：Gateway 与 Realm 模块迁入各自服务目录 |
-
-第 4 步已删去 `framework/service_host` → `game/login_verify`、`game/queue`，`ServiceType` 已改为字符串身份。
+无。ADR-0014 第 5 步已把 Gateway 与 Realm 模块迁入各自服务目录，`framework/service_host` 不再依赖任何 `game/*`，守卫的白名单随之删除：任何反向依赖都直接让 `layering_guard_test` 失败。

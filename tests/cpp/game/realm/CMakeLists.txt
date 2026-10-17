@@ -33,3 +33,22 @@ realm_add_gtest(realm_journey_test
     LABELS integration
     DISCOVER_PROPERTIES RUN_SERIAL TRUE TIMEOUT 120
 )
+
+# Realm 业务帧(RealmFrame)直连入场对撞真实 TLS loopback:占临时端口、
+# 依赖 setenv,属集成测试，串行跑。
+realm_add_gtest(realm_frame_test
+    SOURCES
+        realm_frame_test.cpp
+        ${PROJECT_SOURCE_DIR}/tests/cpp/support/src/fake_service_registry.cpp
+    INCLUDE_DIRS ${PROJECT_SOURCE_DIR}/tests/cpp/support/include
+    LIBS realm_game_realm
+        realm_cluster
+        nlohmann_json::nlohmann_json
+    DEFINITIONS
+        REALMMESH_TEST_SOURCE_DIR="${PROJECT_SOURCE_DIR}"
+        REALMMESH_TEST_TLS_CERTIFICATE="${REALMMESH_TEST_TLS_CERTIFICATE}"
+        REALMMESH_TEST_TLS_PRIVATE_KEY="${REALMMESH_TEST_TLS_PRIVATE_KEY}"
+    DEPENDS realmmesh_test_tls_identity
+    LABELS integration
+    DISCOVER_PROPERTIES RUN_SERIAL TRUE
+)

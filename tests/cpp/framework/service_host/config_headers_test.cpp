@@ -3,10 +3,12 @@
 // 入口是各模块的 *_config_lua.hpp,由解析实现、分层装载器与解析测试显式选择。
 // 训练规则头只前置声明 LuaRuntime(#127),同样受本守卫约束。
 // Gateway 启动配置单独成头(#128):配置值消费者也不经传递 include 拿到
-// EdgeRuntime 的完整定义(私有队列、线程与锁布局);服务模块与通用宿主头
-// (ADR-0014)同样只前置声明它。
+// EdgeRuntime 的完整定义(私有队列、线程与锁布局);服务模块、业务帧与通用
+// 宿主头(ADR-0014)同样只前置声明它。
 #include "realmmesh/game/common/player_data_config.hpp"
 #include "realmmesh/game/gateway/gateway_config.hpp"
+#include "realmmesh/game/gateway/gateway_frame.hpp"
+#include "realmmesh/game/gateway/gateway_module.hpp"
 #include "realmmesh/game/login_verify/login_verify_config.hpp"
 #include "realmmesh/game/login_verify/login_verify_module.hpp"
 #include "realmmesh/game/login_verify/login_verify_service.hpp"
@@ -14,11 +16,12 @@
 #include "realmmesh/game/queue/queue_module.hpp"
 #include "realmmesh/game/queue/queue_service.hpp"
 #include "realmmesh/game/realm/realm_config.hpp"
+#include "realmmesh/game/realm/realm_frame.hpp"
+#include "realmmesh/game/realm/realm_module.hpp"
 #include "realmmesh/game/realm/realm_sessions.hpp"
 #include "realmmesh/game/realm/training_rule.hpp"
 #include "realmmesh/edge/edge_config.hpp"
 #include "realmmesh/service_host/edge_service_module.hpp"
-#include "realmmesh/service_host/frame_service_modules.hpp"
 #include "realmmesh/service_host/layered_config.hpp"
 #include "realmmesh/service_host/layered_config_loader.hpp"
 #include "realmmesh/service_host/mesh_host.hpp"
