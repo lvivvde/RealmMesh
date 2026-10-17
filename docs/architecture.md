@@ -193,6 +193,8 @@ MsQuic 自有调度不会直接调用业务逻辑。回调只完成长度帧组�
 
 ## 分层
 
+依赖方向与 framework 的严格判据见 [ADR-0014](adr/0014-four-layer-dependency-direction.md)，新功能的归属查 [code-layout](agents/code-layout.md)。`framework/service_host`、`framework/client` 与 `game/realm` 目前仍有已知倒挂，由 `layering_guard_test` 的白名单登记，按 ADR 的顺序迁移。
+
 - `framework/network`：QUIC、TLS/TCP、长度帧、客户端竞速策略、自研 HTTPS 服务边。
 - `game/gateway`：Gateway Login Pipeline、Edge Session 传输表
   (pending/established)、生产 adapter、运行时队列与 I/O 线程。

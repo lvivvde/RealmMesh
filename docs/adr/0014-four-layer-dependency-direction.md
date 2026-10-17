@@ -1,0 +1,81 @@
+# 四层依赖方向：framework 只放与游戏无关的代码
+
+---
+status: accepted
+---
+
+到登录链完成时，仓库按目录分成了 `framework/`、`game/`、`apps/`、`tools/`，但依赖方向没有成文。结果出现了四处倒挂：
+
+- `framework/service_host` 依赖全部四个游戏服务；
+- `game/realm` 依赖 `game/gateway` 的连接运行时；
+- `framework/client` 依赖 `game/common` 的协议与凭据格式；
+- `framework/cluster` 的 `ServiceType` 枚举写死了四个游戏服务身份。
+
+新功能该放哪里只能凭感觉判断，倒挂也会随新服务（Scene、Chat）继续扩散。因此决定固定四层与单向依赖，用 framework 的严格判据决定代码归属，并由单元测试守住依赖方向。
+
+## 决策
+
+依赖只能自上而下：
+
+| 层 | 目录 | 可依赖 |
+|---|---|---|
+| 装配层 | `apps/`、`tools/` | 下面所有层；唯一知道全部服务的地方 |
+| 服务层 | `game/<service>` | 共享领域层、框架层；**服务之间互不依赖** |
+| 共享领域层 | `game/common`、`proto`、`game/client` | 框架层；`game/client` 另可依赖 `game/common` 与 `proto` |
+| 框架层 | `framework/*` | 只依赖框架层 |
+
+- **framework 严格判据**：换一个游戏，这段代码仍原样需要，才放进 `framework/`。只被本游戏协议、凭据、领域词汇使用的代码留在 `game/`。反方向不算倒挂：通用代码（如 `base64url`、`json`）暂住 `game/common` 是允许的，等 framework 真需要它时再下沉。
+- **`game/client` 是客户端库，不是服务**：服务层不得依赖它，只有装配层与测试可以。它是协议的参考实现，也是 loadgen 与开发客户端的基座。引擎做的正式客户端不链接它，协议的权威来源仍是 `proto` 与 [protocol.md](../protocol.md)。
+- **`proto` 生成头与 framework 模块共用 `realmmesh/` 前缀**：判定归属时，以 `.pb.h` 结尾的 include 一律归 `proto`。
+
+## 四处倒挂的修法
+
+迁移按下列顺序进行，每步一个 PR，每步修完就从守卫白名单删掉对应条目：
+
+1. **`framework/client` 整体搬到 `game/client`**：命名空间改为 `realm::game::client`，测试目录一并迁移。公开头文件里本来就全是本游戏的登录链与 Realm 业务类型，没有可留在 framework 的通用部分，所以不拆。
+2. **拆 `gateway_ingress.hpp`**：通用的来源地址归一化（直连、可信代理 CIDR、`X-Forwarded-For`/`Forwarded`）与解码 `EdgeAttach` 的凭据入口分开。连接运行时只依赖前者。
+3. **新建 `framework/edge`**，承载与游戏无关的边缘连接运行时：
+   - 迁入连接表、事件与命令的有界队列、QUIC 与 TLS/TCP 接入、pending→established 握手闸门、来源地址归一化，以及运行时参数；
+   - 去掉 `Gateway` 前缀，例如 `GatewayRuntime`→`EdgeRuntime`；
+   - 引入术语 **Edge Connection（边缘连接）**，对应 `EdgeConnectionId`。Edge Session 保持网关侧带登录阶段的原义，Realm Session 与 Edge Session 都绑定在某条 Edge Connection 上。术语随该 PR 写入 `CONTEXT.md`；
+   - 凭据入口、`send_handoff` 等 Primary Transport 适配、登录管线、准入、账号拉取与消费存储留在 `game/gateway`；
+   - Realm 改为依赖 `framework/edge`。
+4. **`framework/service_host` 改为通用宿主加 `ServiceModule` 接口**，先迁 Queue 与 LoginVerify：
+   - 宿主保留生命周期、日志与指标、etcd 注册与发布、分层配置机制和帧循环；
+   - 每个 `game/<service>` 自带一个实现 `start / tick / ready / stop` 的模块，自己解析配置节、持有自己的对象；
+   - `apps/mesh_host` 登记"服务名 → 模块工厂"；
+   - 现名 `GatewayConfig` 里的宿主通用部分（监听、TLS、发现、日志）进入 framework；
+   - `ServiceType` 改为字符串身份，etcd 线上本就按字符串编码，不影响既有数据解码。
+5. **迁 Gateway 与 Realm 模块**：`ServiceFrame` 里的 EnterRealm 兑换、心跳等 Realm 逻辑进入 Realm 模块，`framework/service_host` 不再依赖任何 `game/*`。
+
+`ServiceModule` 是新增虚接口，但它一开始就有四个真实实现，符合[接口边界约定](../research/interface-boundaries-proposal.md)里"已有真实多实现接口继续使用"的条件，不是凭空抽象。
+
+## 守卫
+
+`tests/cpp/layering/layering_guard_test.cpp` 是 `unit` 标签的 GTest，在进程内扫描源码树，核对两类依赖：
+
+- `framework/`、`game/`、`apps/`、`tools/`、`proto/` 下源码的 `#include "realmmesh/…"`；
+- 各模块 `CMakeLists.txt` 引用的本仓目标。
+
+规则如下：
+
+- 出现白名单之外的反向依赖，测试失败；
+- 白名单里的某条已经修掉、不再出现，测试同样失败，提示删除该条，白名单只减不增；
+- `ServiceType` 枚举属于"framework 知道游戏服务身份"，不是 include 或链接依赖，守卫查不到。它由第 4 步消除，在此记录。
+
+## Considered Options
+
+- **宽松版 framework（可复用即可）**：被否。"可复用"没有边界，登录链、Realm 业务都能说成可复用。严格判据只问"换个游戏还要不要"，答案稳定。
+- **`service_host` 保留，改由 `apps/` 用条件编译选服务**：被否。框架仍要知道每个服务的类型，只是把倒挂藏进宏里。
+- **边缘运行时放进 `game/common`**：被否。它本身与游戏无关，按严格判据属于 framework。而且 common 会把 MsQuic 与网络依赖带给 client、login_verify、queue 等所有链接方。
+- **维持 Realm 依赖 Gateway**：被否。Scene、Chat 也是直连业务服，到时都要依赖 gateway，服务互不依赖就无从谈起。
+- **拆 `framework/client`，把重试分类、分档轮询留在 framework**：被否。这些部分没有第二个使用者，拆出来是凭空抽象，违反接口边界约定。
+- **只写文档，不加守卫**：被否。四处倒挂都是在没有成文规则时自然长出来的。没有自动检查，新的倒挂只能靠评审发现。
+
+## Consequences
+
+- 新功能的归属按 [code-layout](../agents/code-layout.md) 查，不再凭感觉判断。
+- 与 [ADR-0003](0003-lean-tree-no-speculative-placeholders.md) 的冲突：它把 `realm::cluster::ServiceType` 枚举定为服务身份的权威列表。第 4 步之后，权威列表改为 `apps/mesh_host` 的模块注册表。"只为已实现代码建立目录与身份"的原则不变。
+- [ADR-0008](0008-client-login-chain-shared-wire-and-redeemer-seam.md) 中 `framework/client` 的位置由第 1 步改为 `game/client`。线客户端留在 `framework/network/client`，`realm_client` 只依赖 Network 与 GameCommon，这两条仍然成立。
+- [architecture.md](../architecture.md) 里"gateway 与 realm 在 `framework/service_host` 中共用 `game::gateway::GatewayRuntime`"的描述，随第 3、5 步更新。
+- 白名单只减不增，新服务不能再往 `framework/service_host` 里接线。Scene、Chat 等新服务必须等第 4 步提供 `ServiceModule` 之后再接入宿主。
