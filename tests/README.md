@@ -104,6 +104,9 @@ GTest 每例及 DevServices 每条用例使用独立数据库；后者的服务�
 `MongodProcess::TestCommands::Enabled` 启用服务端测试命令，注入一次 findAndModify 的
 writeConcernError；验证旧值仍为 Unknown、majority 回读精确结果后才能确认及回放。
 共享 CTest 后端与默认独占夹具都不启用测试命令，避免故障注入影响其他用例。
+`realmmesh_test_mongodb` 同时传递源码根定义，确保所有消费者都能回退到 Linux 安装器的
+`.tools` 路径；Linux 的 `SceneToolDiscoveryTest` 在工具不在 PATH、无显式覆盖时真实启动
+副本集并运行 mongosh，防止只有 Homebrew 环境能通过的回归。
 准备、清理和契约共三项串行 `integration` 测试，完整入口计时包含全部成本。
 
 `MongoFixtureTest` 是串行 `integration` 契约，使用真实本地后端验证初始化、Primary、

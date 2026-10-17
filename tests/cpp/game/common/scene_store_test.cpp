@@ -6,7 +6,10 @@
 #include <array>
 #include <barrier>
 #include <chrono>
+#include <cstdlib>
 #include <exception>
+#include <optional>
+#include <string>
 #include <thread>
 
 namespace realm::game::common {
@@ -376,6 +379,43 @@ TEST_F(SceneStoreTest, EpochExhaustionDoesNotWrapOrChangeBinding) {
         PlayerDataError);
     EXPECT_EQ(store.scene_state(key)->binding_epoch, scene_counter_max);
 }
+
+#ifdef __linux__
+// Linux 安装器把工具放在仓库 .tools，不保证加入 PATH；macOS 使用 Homebrew。
+// 真实启动和 mongosh 回读覆盖同一个调用缝，不能只检查 CMake 字符串。
+class ScopedToolEnvironment final {
+public:
+    ScopedToolEnvironment(const char* name, const char* value)
+        : name_(name) {
+        if (const auto* previous = std::getenv(name)) previous_ = previous;
+        if (value)
+            static_cast<void>(::setenv(name_, value, 1));
+        else
+            static_cast<void>(::unsetenv(name_));
+    }
+    ~ScopedToolEnvironment() {
+        if (previous_)
+            static_cast<void>(::setenv(name_, previous_->c_str(), 1));
+        else
+            static_cast<void>(::unsetenv(name_));
+    }
+
+private:
+    const char* name_;
+    std::optional<std::string> previous_;
+};
+
+TEST(SceneToolDiscoveryTest, StartsAndReadsRepositoryToolsOutsidePath) {
+    ScopedToolEnvironment path("PATH", "/usr/bin:/bin");
+    ScopedToolEnvironment mongod_override("REALMMESH_MONGOD_BINARY", nullptr);
+    ScopedToolEnvironment mongosh_override("REALMMESH_MONGOSH_BINARY", nullptr);
+    test_support::MongodProcess mongod;
+    EXPECT_EQ(
+        mongod.eval(
+            test_support::MongodProcess::fresh_database(), "print(6 * 7)"),
+        "42");
+}
+#endif
 
 // 独占的真实副本集启用测试命令，故障点绝不作用于共享 CTest 后端。
 TEST(SceneCommitRecoveryTest, FailedDurabilityAcknowledgementRequiresReadback) {
