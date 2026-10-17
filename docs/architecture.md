@@ -85,9 +85,10 @@ stateDiagram-v2
     Established --> Closed: primary transport 断开
 ```
 
-`EdgeSessionTable` 以单一 id 空间(`EdgeSessionId`)记录每个 Edge Session 的唯一
-primary transport 与阶段(pending/established)。QUIC 和 TLS/TCP 是初次连接时的
-二选一候选，不是一个会话里的双通道。当前没有恢复 token、序列号或重放窗口，因此
+`framework/edge` 的 `EdgeConnectionTable` 以单一 id 空间(`EdgeConnectionId`)记录每条
+Edge Connection 的唯一 primary transport 与阶段(pending/established);网关的 Edge Session
+与 Realm 的 Realm Session 都沿用所绑定连接的 `EdgeConnectionId`。QUIC 和 TLS/TCP 是初次
+连接时的二选一候选，不是一条连接里的双通道。当前没有恢复 token、序列号或重放窗口，因此
 已建立连接中断不会透明迁移到另一传输。
 
 `EnterRealmGranted.enter_realm_ticket` 只在 Realm 一处单次消费(重放防护):兑换
@@ -109,7 +110,7 @@ primary transport 与阶段(pending/established)。QUIC 和 TLS/TCP 是初次连
 Gateway 的业务帧不再编排 attach、拉取、重试与 Handoff 的分步 helper。每帧只取得
 当前 Realm 端点并调用一次 `GatewayLoginPipeline::advance`;该管线是
 `pending → fetching → handed-off` 阶段、Admission Grant 验证与按 `identity_jti` 的
-集群单次消费、连接/拉取额度、账号拉取结算、直连票据、收尾与指标的唯一权威。`GatewayRuntimePrimaryTransport` 把真实
+集群单次消费、连接/拉取额度、账号拉取结算、直连票据、收尾与指标的唯一权威。`EdgeRuntimePrimaryTransport` 把真实
 runtime 事件/命令接入管线；生产装配使用有界异步 `PlayerDataAccountFetchPort`，查询在
 `fetch_workers` 个工作线程上并发完成，提交满载时背压；单次拉取超过 `fetch_timeout_ms`
 即按失败结算（迟到结果丢弃）。账号不具备准入资格（封禁、白名单外）直接以
@@ -171,7 +172,7 @@ sequenceDiagram
 flowchart TB
     MsQuic[MsQuic 回调线程] --> Adapter[有界回调适配器]
     Tls[TLS/TCP epoll I/O] --> Adapter
-    Adapter --> Inbound[有界 GatewayEvent 队列]
+    Adapter --> Inbound[有界 EdgeEvent 队列]
     Inbound --> Frame[帧逻辑线程]
     Frame --> Outbound[有界命令队列]
     Outbound --> IO[I/O owner]
@@ -193,11 +194,11 @@ MsQuic 自有调度不会直接调用业务逻辑。回调只完成长度帧组�
 
 ## 分层
 
-依赖方向与 framework 的严格判据见 [ADR-0014](adr/0014-four-layer-dependency-direction.md)，新功能的归属查 [code-layout](agents/code-layout.md)。`framework/service_host` 与 `game/realm` 目前仍有已知倒挂，由 `layering_guard_test` 的白名单登记，按 ADR 的顺序迁移。
+依赖方向与 framework 的严格判据见 [ADR-0014](adr/0014-four-layer-dependency-direction.md)，新功能的归属查 [code-layout](agents/code-layout.md)。`framework/service_host` 目前仍有已知倒挂，由 `layering_guard_test` 的白名单登记，按 ADR 的顺序迁移。
 
 - `framework/network`：QUIC、TLS/TCP、长度帧、客户端竞速策略、自研 HTTPS 服务边。
-- `game/gateway`：Gateway Login Pipeline、Edge Session 传输表
-  (pending/established)、生产 adapter、运行时队列与 I/O 线程。
+- `framework/edge`：与游戏无关的边缘连接运行时，目标 `RealmMesh::Edge`，命名空间 `realm::edge`。`EdgeRuntime` 独占 I/O 线程与有界事件/命令队列，按 `TransportConfig` 创建 QUIC 与 TLS/TCP 接入；`EdgeConnectionTable` 记录 Edge Connection 的 pending/established 阶段与主通道；`EdgeSourceNormalizer` 做来源地址归一化（直连 peer、可信代理 CIDR、`X-Forwarded-For`/`Forwarded`）；`EdgeRuntimeOptions` 是队列容量与 I/O 节拍。终结（accept 失败、decline、close、对端断开）对每条连接恰好发布一次 `ConnectionClosed`。网关与 Realm 都跑在它上面（ADR-0014 第 3 步）。
+- `game/gateway`：Gateway Login Pipeline、凭据入口、准入、账号拉取、单次消费存储、`GatewayConfig`，以及把 `EdgeRuntime` 接到登录管线的 Primary Transport 适配（`EdgeRuntimePrimaryTransport`，含 `send_handoff`）。
 - `game/login_verify`：登录健全服(账号认定、身份 Token 签发、JWKS)。
 - `game/queue`：排队调度服(号牌签发、放行阀门、etcd 原子发号映射/快照与额度存取)。
 - `game/realm`：Realm Session 表(选角/游戏中阶段、同账号新会话顶替旧会话)、角色名规则、`realm` 配置节与
@@ -209,8 +210,8 @@ MsQuic 自有调度不会直接调用业务逻辑。回调只完成长度帧组�
 - `tools/build-bench`：构建优化的测量工具（编译/链接 launcher 与场景驱动脚本），只在测量时使用，不进 CMake 构建；结果见 [build-optimization-results](research/build-optimization-results.md)。
 - `framework/service_host`：把服务名、分层配置与集群接线装配成一个可运行服务；`load_topology`（`startup_topology.hpp`）读取 `main.config` 的 `services` 表，返回 `ServiceSpec` 列表，Lua 只在其实现 `startup_topology_lua.cpp` 里（[#127](https://github.com/lvivvde/RealmMesh/issues/127)）。
 - 配置头分两种（[#126](https://github.com/lvivvde/RealmMesh/issues/126)）：各模块的普通配置头（`player_data_config.hpp`、`gateway_config.hpp`、`gateway_config_loader.hpp`、`login_verify_config.hpp`、`queue_config.hpp`、`realm_config.hpp`）只声明配置值，不经 include 传递 sol2；已合并 Lua 根表的解析入口是同目录的 `*_config_lua.hpp`（`parse_*_config`，只含 `<sol/forward.hpp>`），只由解析实现、`LayeredConfigLoader` 的实现与解析测试显式包含，包含方自行链接 `RealmMesh::Scripting`。Lua 运行时与根表只活在 `LayeredConfigLoader`、`GatewayConfigLoader::load` 的函数范围内，越出的只有配置值。`training_rule.hpp` 只前置声明 `LuaRuntime`，Lua 调用与析构都在 `training_rule.cpp`，`realm_game_realm` 对 `realm_scripting` 为 PRIVATE（#127）。`config_headers_test` 在编译期守住这条边界。
-- Gateway 头分三层（[#128](https://github.com/lvivvde/RealmMesh/issues/128)）：`gateway_event.hpp` 声明 `GatewayEvent`/`GatewayEventKind`，`gateway_config.hpp` 声明启动配置 `GatewayConfig`，`gateway_runtime_options.hpp` 声明运行时参数 `GatewayRuntimeOptions`，它们都不带 runtime 的私有队列、线程与锁布局；`gateway_runtime.hpp` 只留 `GatewayRuntime` 本身（及 `QueueResult`、`GatewayRuntimeStats`），由真正构造或驱动 runtime 的代码包含。`gateway_primary_transport.hpp` 只包含事件头并前置声明 `GatewayRuntime`，完整定义留在 `gateway_primary_transport.cpp`；登录管线与准入经它同样不带 runtime。`gateway_config_loader.hpp` 改含 `gateway_config.hpp`，经 `LayeredConfigLoader` 只消费配置值的服务与测试不再随 runtime 布局重编。未做 runtime PIMPL，未新增虚接口；`GatewayRuntime::stop()`（IO 线程 request_stop 后 join）与 ServiceHost 的销毁顺序不变。`gateway_headers_test` 与 `config_headers_test` 在编译期断言这些头拿不到完整的 `GatewayRuntime`。
-- Gateway 入口拆成两半（ADR-0014 第 2 步，[#152](https://github.com/lvivvde/RealmMesh/issues/152)）：`gateway_source_address.hpp` 是与游戏无关的来源地址归一化（`GatewaySourceConfig`/`GatewaySourceNormalizer`：直连 peer、可信代理 CIDR、`X-Forwarded-For`/`Forwarded` 解析），只依赖 framework 与标准库；`gateway_credential_ingress.hpp` 是登录管线解码 `EdgeAttach` 前的凭据入口（`GatewayCredentialIngress`：信封与 JWS 结构上限、来源令牌桶、验签额度），依赖 `game/common` 的边缘协议。`gateway_runtime.hpp` 只包含来源地址头与运行时参数头，前置声明 `GatewayConfig`，按配置构造的调用方自行包含 `gateway_config.hpp`；`gateway_login_config.hpp` 包含凭据入口头，`gateway_config.hpp` 同时包含两半。`gateway_headers_test` 的第二个编译单元只包含 `gateway_runtime.hpp`，在编译期断言拿不到凭据入口、登录配置与 `EdgeAttach` 的完整定义。`game/realm` → `game/gateway` 的倒挂仍在，第 3 步把来源地址归一化与运行时迁入 `framework/edge` 后消除。
+- 边缘运行时的头分层（[#128](https://github.com/lvivvde/RealmMesh/issues/128)）：`edge_event.hpp` 声明 `EdgeEvent`/`EdgeEventKind`，`edge_runtime_options.hpp` 声明运行时参数 `EdgeRuntimeOptions`，`gateway_config.hpp` 声明网关启动配置 `GatewayConfig`，它们都不带 runtime 的私有队列、线程与锁布局；`edge_runtime.hpp` 只留 `EdgeRuntime` 本身（及 `QueueResult`、`EdgeRuntimeStats`），由真正构造或驱动 runtime 的代码包含。`gateway_primary_transport.hpp` 只包含事件头并前置声明 `edge::EdgeRuntime`，完整定义留在 `gateway_primary_transport.cpp`；登录管线与准入经它同样不带 runtime。`gateway_config_loader.hpp` 改含 `gateway_config.hpp`，经 `LayeredConfigLoader` 只消费配置值的服务与测试不再随 runtime 布局重编。未做 runtime PIMPL，未新增虚接口；`EdgeRuntime::stop()`（IO 线程 request_stop 后 join）与 ServiceHost 的销毁顺序不变。`gateway_headers_test` 与 `config_headers_test` 在编译期断言这些头拿不到完整的 `EdgeRuntime`。
+- 网关入口拆成两半（ADR-0014 第 2、3 步，[#152](https://github.com/lvivvde/RealmMesh/issues/152)）：与游戏无关的来源地址归一化在 `framework/edge` 的 `edge_source_address.hpp`（`EdgeSourceConfig`/`EdgeSourceNormalizer`）；`game/gateway` 的 `gateway_credential_ingress.hpp` 是登录管线解码 `EdgeAttach` 前的凭据入口（`GatewayCredentialIngress`：信封与 JWS 结构上限、来源令牌桶、验签额度），依赖 `game/common` 的边缘协议。`EdgeRuntime` 只按传输配置、运行时参数与来源地址配置构造，不认识 `GatewayConfig`；`ServiceHost` 从 `GatewayConfig` 取出这三项交给它。
 - `apps/mesh_host`：`realm_mesh` 单一入口，以 `--service` 区分服务与信号处理；拓扑经 `load_topology` 取得，入口本身不链接 Lua。
 
 ## 开发服务组的监督与停止（#143）
@@ -259,11 +260,11 @@ DevServices 用例使用独立数据库；各测试回收自己的服务，守�
 线名 `login` 永不复用。
 
 `gateway` 与 `realm` 没有独立的传输 runtime:两者在 `framework/service_host` 中共用
-`game::gateway::GatewayRuntime`。Gateway 的登录职责由单一 Gateway Login Pipeline
+`framework/edge` 的 `edge::EdgeRuntime`。Gateway 的登录职责由单一 Gateway Login Pipeline
 承载,`ServiceFrame` 只保留身份分发、Realm 入场/端点解析和宿主接线;Realm 的入场
 兑换仍在 `ServiceFrame`,兑换后的业务消息转交 `game/realm` 的 `RealmSessions`。
 `login_verify` 与 `queue` 是第二种服务形态:独立业务库,走 HTTPS 请求循环,
-不经 `ServiceFrame`/EdgeSession 管线。
+不经 `ServiceFrame`/EdgeRuntime 管线。
 
 不预先在枚举里登记未实现的服务身份:新服务进入实现时才添加 `ServiceType` 条目与线名映射
 (此前枚举曾预留 6 个未实现身份,已按 ADR-0003 移除)。`realm_mesh --service` 经

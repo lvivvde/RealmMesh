@@ -1,6 +1,5 @@
-#include "realmmesh/game/gateway/gateway_runtime.hpp"
+#include "realmmesh/edge/edge_runtime.hpp"
 
-#include "realmmesh/game/gateway/gateway_config.hpp"
 #include "realmmesh/network/codec/length_field_codec.hpp"
 
 #include <gtest/gtest.h>
@@ -24,7 +23,7 @@
 #include <utility>
 #include <vector>
 
-namespace realm::game::gateway {
+namespace realm::edge {
 namespace {
 
 struct ContextDeleter {
@@ -161,12 +160,12 @@ network::TransportConfig tls_transport() {
     };
 }
 
-std::optional<GatewayEvent> wait_for_event(
-    GatewayRuntime& runtime,
-    GatewayEventKind kind,
+std::optional<EdgeEvent> wait_for_event(
+    EdgeRuntime& runtime,
+    EdgeEventKind kind,
     std::chrono::milliseconds budget) {
     const auto deadline = std::chrono::steady_clock::now() + budget;
-    std::optional<GatewayEvent> found;
+    std::optional<EdgeEvent> found;
     while (std::chrono::steady_clock::now() < deadline && !found) {
         auto event = runtime.try_receive();
         if (event && event->kind == kind) {
@@ -195,11 +194,11 @@ bool wait_until(
 /// 客户端连接由调用方持有,保证会话在其存活期内可继续收发。
 struct ConnectedClient {
     std::unique_ptr<TlsClient> client;
-    std::optional<GatewayEvent> message;
+    std::optional<EdgeEvent> message;
 };
 
 ConnectedClient connect_and_send_first_message(
-    GatewayRuntime& runtime,
+    EdgeRuntime& runtime,
     const network::LengthFieldCodec& codec,
     std::string_view message_text) {
     ConnectedClient connected{std::make_unique<TlsClient>(runtime.local_port()),
@@ -207,19 +206,19 @@ ConnectedClient connect_and_send_first_message(
     connected.client->send(codec.encode(bytes(message_text)));
 
     const auto opened = wait_for_event(
-        runtime, GatewayEventKind::SessionOpened, std::chrono::seconds(2));
-    EXPECT_NE(opened->session_id, invalid_edge_session_id);
+        runtime, EdgeEventKind::ConnectionOpened, std::chrono::seconds(2));
+    EXPECT_NE(opened->connection_id, invalid_edge_connection_id);
     EXPECT_FALSE(opened->established);
 
     connected.message = wait_for_event(
-        runtime, GatewayEventKind::MessageReceived, std::chrono::seconds(2));
+        runtime, EdgeEventKind::MessageReceived, std::chrono::seconds(2));
     return connected;
 }
 
-TEST(GatewayRuntimeTest, AcceptRespondsAndEstablishesAtomically) {
+TEST(EdgeRuntimeTest, AcceptRespondsAndEstablishesAtomically) {
     using namespace std::chrono_literals;
-    GatewayRuntime runtime(
-        {.transports = {tls_transport()}},
+    EdgeRuntime runtime(
+        std::vector{tls_transport()},
         {
             .inbound_capacity = 16,
             .outbound_capacity = 16,
@@ -234,22 +233,22 @@ TEST(GatewayRuntimeTest, AcceptRespondsAndEstablishesAtomically) {
 
     const auto accepted = bytes("accepted");
     EXPECT_EQ(
-        runtime.try_accept(connected.message->session_id, accepted),
+        runtime.try_accept(connected.message->connection_id, accepted),
         QueueResult::Queued);
     EXPECT_EQ(
         connected.client->receive(codec.encode(accepted).size()),
         codec.encode(accepted));
 
     const auto established = wait_for_event(
-        runtime, GatewayEventKind::SessionEstablished, std::chrono::seconds(2));
+        runtime, EdgeEventKind::ConnectionEstablished, std::chrono::seconds(2));
     ASSERT_TRUE(established.has_value());
-    EXPECT_EQ(established->session_id, connected.message->session_id);
+    EXPECT_EQ(established->connection_id, connected.message->connection_id);
     EXPECT_TRUE(established->established);
 
     const auto payload = bytes("frame-message");
     const auto encoded_payload = codec.encode(payload);
     EXPECT_EQ(
-        runtime.try_send(connected.message->session_id, payload),
+        runtime.try_send(connected.message->connection_id, payload),
         QueueResult::Queued);
     EXPECT_EQ(
         connected.client->receive(encoded_payload.size()), encoded_payload);
@@ -258,10 +257,10 @@ TEST(GatewayRuntimeTest, AcceptRespondsAndEstablishesAtomically) {
     runtime.stop();
 }
 
-TEST(GatewayRuntimeTest, EstablishedPeerClosePublishesRealSessionClosed) {
+TEST(EdgeRuntimeTest, EstablishedPeerClosePublishesRealSessionClosed) {
     using namespace std::chrono_literals;
-    GatewayRuntime runtime(
-        {.transports = {tls_transport()}},
+    EdgeRuntime runtime(
+        std::vector{tls_transport()},
         {
             .inbound_capacity = 16,
             .outbound_capacity = 16,
@@ -275,31 +274,31 @@ TEST(GatewayRuntimeTest, EstablishedPeerClosePublishesRealSessionClosed) {
 
     const auto accepted = bytes("accepted");
     ASSERT_EQ(
-        runtime.try_accept(connected.message->session_id, accepted),
+        runtime.try_accept(connected.message->connection_id, accepted),
         QueueResult::Queued);
     ASSERT_EQ(
         connected.client->receive(codec.encode(accepted).size()),
         codec.encode(accepted));
     ASSERT_TRUE(wait_for_event(
                     runtime,
-                    GatewayEventKind::SessionEstablished,
+                    EdgeEventKind::ConnectionEstablished,
                     std::chrono::seconds(2))
                     .has_value());
 
-    const auto session_id = connected.message->session_id;
+    const auto connection_id = connected.message->connection_id;
     connected.client.reset();
     const auto closed = wait_for_event(
-        runtime, GatewayEventKind::SessionClosed, std::chrono::seconds(2));
+        runtime, EdgeEventKind::ConnectionClosed, std::chrono::seconds(2));
     ASSERT_TRUE(closed.has_value());
-    EXPECT_EQ(closed->session_id, session_id);
+    EXPECT_EQ(closed->connection_id, connection_id);
     EXPECT_TRUE(closed->established);
     runtime.stop();
 }
 
-TEST(GatewayRuntimeTest, DeclineRejectsAndTerminatesPendingSession) {
+TEST(EdgeRuntimeTest, DeclineRejectsAndTerminatesPendingSession) {
     using namespace std::chrono_literals;
-    GatewayRuntime runtime(
-        {.transports = {tls_transport()}},
+    EdgeRuntime runtime(
+        std::vector{tls_transport()},
         {
             .inbound_capacity = 16,
             .outbound_capacity = 16,
@@ -313,7 +312,7 @@ TEST(GatewayRuntimeTest, DeclineRejectsAndTerminatesPendingSession) {
 
     const auto rejected = bytes("rejected");
     EXPECT_EQ(
-        runtime.try_decline(connected.message->session_id, rejected),
+        runtime.try_decline(connected.message->connection_id, rejected),
         QueueResult::Queued);
     EXPECT_EQ(
         connected.client->receive(codec.encode(rejected).size()),
@@ -321,19 +320,19 @@ TEST(GatewayRuntimeTest, DeclineRejectsAndTerminatesPendingSession) {
 
     // 本地关闭不依赖传输层上报:终结事件由 runtime 合成,恰好一次。
     const auto closed = wait_for_event(
-        runtime, GatewayEventKind::SessionClosed, std::chrono::seconds(2));
+        runtime, EdgeEventKind::ConnectionClosed, std::chrono::seconds(2));
     ASSERT_TRUE(closed.has_value());
-    EXPECT_EQ(closed->session_id, connected.message->session_id);
+    EXPECT_EQ(closed->connection_id, connected.message->connection_id);
     EXPECT_FALSE(closed->established);
     EXPECT_TRUE(connected.client->reached_eof());
     EXPECT_EQ(runtime.stats().successful_deliveries, 1U);
     runtime.stop();
 }
 
-TEST(GatewayRuntimeTest, SendsToPendingSessionsCountAsUnknown) {
+TEST(EdgeRuntimeTest, SendsToPendingSessionsCountAsUnknown) {
     using namespace std::chrono_literals;
-    GatewayRuntime runtime(
-        {.transports = {tls_transport()}},
+    EdgeRuntime runtime(
+        std::vector{tls_transport()},
         {
             .inbound_capacity = 16,
             .outbound_capacity = 16,
@@ -346,7 +345,7 @@ TEST(GatewayRuntimeTest, SendsToPendingSessionsCountAsUnknown) {
     ASSERT_TRUE(connected.message.has_value());
 
     EXPECT_EQ(
-        runtime.try_send(connected.message->session_id, bytes("early")),
+        runtime.try_send(connected.message->connection_id, bytes("early")),
         QueueResult::Queued);
     EXPECT_TRUE(wait_until(
         [&runtime] { return runtime.stats().unknown_session_commands == 1; },
@@ -355,10 +354,10 @@ TEST(GatewayRuntimeTest, SendsToPendingSessionsCountAsUnknown) {
     runtime.stop();
 }
 
-TEST(GatewayRuntimeTest, CommandsForUnknownSessionsCountAsUnknown) {
+TEST(EdgeRuntimeTest, CommandsForUnknownSessionsCountAsUnknown) {
     using namespace std::chrono_literals;
-    GatewayRuntime runtime(
-        {.transports = {tls_transport()}},
+    EdgeRuntime runtime(
+        std::vector{tls_transport()},
         {
             .inbound_capacity = 16,
             .outbound_capacity = 16,
@@ -367,30 +366,30 @@ TEST(GatewayRuntimeTest, CommandsForUnknownSessionsCountAsUnknown) {
     runtime.start();
 
     EXPECT_EQ(
-        runtime.try_accept(EdgeSessionId{4242}, bytes("x")),
+        runtime.try_accept(EdgeConnectionId{4242}, bytes("x")),
         QueueResult::Queued);
-    EXPECT_EQ(runtime.try_close(EdgeSessionId{4243}), QueueResult::Queued);
+    EXPECT_EQ(runtime.try_close(EdgeConnectionId{4243}), QueueResult::Queued);
     EXPECT_TRUE(wait_until(
         [&runtime] { return runtime.stats().unknown_session_commands == 2; },
         2s));
     runtime.stop();
 }
 
-TEST(GatewayRuntimeTest, RejectsCommandsWhileStopped) {
-    GatewayRuntime runtime(
-        {.transports = {tls_transport()}},
+TEST(EdgeRuntimeTest, RejectsCommandsWhileStopped) {
+    EdgeRuntime runtime(
+        std::vector{tls_transport()},
         {.inbound_capacity = 1, .outbound_capacity = 1});
     EXPECT_EQ(
-        runtime.try_send(EdgeSessionId{1}, bytes("ignored")),
+        runtime.try_send(EdgeConnectionId{1}, bytes("ignored")),
         QueueResult::Stopped);
     EXPECT_EQ(
-        runtime.try_accept(EdgeSessionId{1}, bytes("ignored")),
+        runtime.try_accept(EdgeConnectionId{1}, bytes("ignored")),
         QueueResult::Stopped);
     EXPECT_EQ(
-        runtime.try_decline(EdgeSessionId{1}, bytes("ignored")),
+        runtime.try_decline(EdgeConnectionId{1}, bytes("ignored")),
         QueueResult::Stopped);
-    EXPECT_EQ(runtime.try_close(EdgeSessionId{1}), QueueResult::Stopped);
+    EXPECT_EQ(runtime.try_close(EdgeConnectionId{1}), QueueResult::Stopped);
 }
 
 }  // namespace
-}  // namespace realm::game::gateway
+}  // namespace realm::edge

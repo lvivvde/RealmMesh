@@ -35,7 +35,7 @@ TEST(DelayedAccountFetchPortTest, CompletesWithoutBlockingTheSubmitter) {
     const auto now = std::chrono::steady_clock::time_point{};
 
     EXPECT_EQ(
-        port.submit({AccountFetchAttemptId{11}, EdgeSessionId{3}, 42}, now),
+        port.submit({AccountFetchAttemptId{11}, edge::EdgeConnectionId{3}, 42}, now),
         AccountFetchSubmitResult::Submitted);
     EXPECT_TRUE(port.drain_completions(now + 99ms, 8).empty());
 
@@ -51,14 +51,14 @@ TEST(DelayedAccountFetchPortTest, SeparatesBackpressureFromFailureCompletion) {
     const auto now = std::chrono::steady_clock::time_point{};
 
     EXPECT_EQ(
-        port.submit({AccountFetchAttemptId{1}, EdgeSessionId{1}, 10}, now),
+        port.submit({AccountFetchAttemptId{1}, edge::EdgeConnectionId{1}, 10}, now),
         AccountFetchSubmitResult::Submitted);
     EXPECT_EQ(
-        port.submit({AccountFetchAttemptId{2}, EdgeSessionId{2}, 20}, now),
+        port.submit({AccountFetchAttemptId{2}, edge::EdgeConnectionId{2}, 20}, now),
         AccountFetchSubmitResult::Full);
     port.cancel(AccountFetchAttemptId{1});
     EXPECT_EQ(
-        port.submit({AccountFetchAttemptId{2}, EdgeSessionId{2}, 20}, now),
+        port.submit({AccountFetchAttemptId{2}, edge::EdgeConnectionId{2}, 20}, now),
         AccountFetchSubmitResult::Submitted);
 }
 
@@ -66,10 +66,10 @@ TEST(ScriptedAccountFetchPortTest, PreservesAttemptIdentityForLateDuplicates) {
     ScriptedAccountFetchPort port;
     const auto now = std::chrono::steady_clock::time_point{};
     ASSERT_EQ(
-        port.submit({AccountFetchAttemptId{8}, EdgeSessionId{1}, 10}, now),
+        port.submit({AccountFetchAttemptId{8}, edge::EdgeConnectionId{1}, 10}, now),
         AccountFetchSubmitResult::Submitted);
     ASSERT_EQ(
-        port.submit({AccountFetchAttemptId{9}, EdgeSessionId{1}, 10}, now),
+        port.submit({AccountFetchAttemptId{9}, edge::EdgeConnectionId{1}, 10}, now),
         AccountFetchSubmitResult::Submitted);
     port.cancel(AccountFetchAttemptId{8});
 
@@ -90,7 +90,7 @@ TEST(ScriptedAccountFetchPortTest, ScriptsFullAndStoppedSubmissions) {
     port.script_submit_results(
         {AccountFetchSubmitResult::Full, AccountFetchSubmitResult::Stopped});
     const auto request =
-        AccountFetchRequest{AccountFetchAttemptId{1}, EdgeSessionId{2}, 3};
+        AccountFetchRequest{AccountFetchAttemptId{1}, edge::EdgeConnectionId{2}, 3};
     const auto now = std::chrono::steady_clock::time_point{};
 
     EXPECT_EQ(port.submit(request, now), AccountFetchSubmitResult::Full);
@@ -103,7 +103,7 @@ TEST(ScriptedAccountFetchPortTest, StopIsTerminalForTheAdapterInstance) {
     ScriptedAccountFetchPort port;
     port.stop();
     const auto request =
-        AccountFetchRequest{AccountFetchAttemptId{7}, EdgeSessionId{2}, 3};
+        AccountFetchRequest{AccountFetchAttemptId{7}, edge::EdgeConnectionId{2}, 3};
 
     EXPECT_EQ(
         port.submit(request, std::chrono::steady_clock::time_point{}),
@@ -152,10 +152,10 @@ TEST(PlayerDataAccountFetchPortTest, LoadsEligibilityWithoutBlockingSubmit) {
     const auto now = std::chrono::steady_clock::now();
     // 查询被挡在工作线程里，submit 仍立即返回。
     EXPECT_EQ(
-        port.submit({AccountFetchAttemptId{1}, EdgeSessionId{1}, 42}, now),
+        port.submit({AccountFetchAttemptId{1}, edge::EdgeConnectionId{1}, 42}, now),
         AccountFetchSubmitResult::Submitted);
     EXPECT_EQ(
-        port.submit({AccountFetchAttemptId{2}, EdgeSessionId{2}, 42}, now),
+        port.submit({AccountFetchAttemptId{2}, edge::EdgeConnectionId{2}, 42}, now),
         AccountFetchSubmitResult::Full);
     {
         const std::scoped_lock lock(state->mutex);
@@ -176,10 +176,10 @@ TEST(PlayerDataAccountFetchPortTest, SlowQueriesDoNotSerializeAcrossWorkers) {
         std::make_unique<FakePlayerDataReader>(state), 4, 2);
     const auto now = std::chrono::steady_clock::now();
     ASSERT_EQ(
-        port.submit({AccountFetchAttemptId{1}, EdgeSessionId{1}, 41}, now),
+        port.submit({AccountFetchAttemptId{1}, edge::EdgeConnectionId{1}, 41}, now),
         AccountFetchSubmitResult::Submitted);
     ASSERT_EQ(
-        port.submit({AccountFetchAttemptId{2}, EdgeSessionId{2}, 42}, now),
+        port.submit({AccountFetchAttemptId{2}, edge::EdgeConnectionId{2}, 42}, now),
         AccountFetchSubmitResult::Submitted);
 
     // 第一个查询卡住时,第二个工作线程仍接走第二个查询。
@@ -205,7 +205,7 @@ TEST(PlayerDataAccountFetchPortTest, RechecksAccountAccessOnEveryAttempt) {
         std::make_unique<FakePlayerDataReader>(state), 2, 1);
     ASSERT_EQ(
         port.submit(
-            {AccountFetchAttemptId{1}, EdgeSessionId{1}, 42},
+            {AccountFetchAttemptId{1}, edge::EdgeConnectionId{1}, 42},
             std::chrono::steady_clock::now()),
         AccountFetchSubmitResult::Submitted);
     const auto first = wait_for_completion(port);
@@ -218,7 +218,7 @@ TEST(PlayerDataAccountFetchPortTest, RechecksAccountAccessOnEveryAttempt) {
     }
     ASSERT_EQ(
         port.submit(
-            {AccountFetchAttemptId{2}, EdgeSessionId{1}, 42},
+            {AccountFetchAttemptId{2}, edge::EdgeConnectionId{1}, 42},
             std::chrono::steady_clock::now()),
         AccountFetchSubmitResult::Submitted);
     const auto second = wait_for_completion(port);
@@ -235,7 +235,7 @@ TEST(PlayerDataAccountFetchPortTest, StoreFailureCompletesAsUnavailable) {
         std::make_unique<FakePlayerDataReader>(state), 1, 1);
     ASSERT_EQ(
         port.submit(
-            {AccountFetchAttemptId{1}, EdgeSessionId{1}, 42},
+            {AccountFetchAttemptId{1}, edge::EdgeConnectionId{1}, 42},
             std::chrono::steady_clock::now()),
         AccountFetchSubmitResult::Submitted);
 

@@ -54,9 +54,13 @@ _Avoid_: polling(轮询可以是底层实现,但不是这个概念的名字)、n
 网关接收 Edge Session 后,从凭据验讫、Fetching 到 Handoff 的唯一权威管线;统一拥有阶段迁移、准入额度、拉取结算与会话收尾的顺序,不得并行保留第二套状态或额度编排。它是网关内部的登录职责,不合并 Login Verifier、Queue Scheduler、网关与 Realm 的独立部署。
 _Avoid_: Login Chain(客户端概念)、Gateway(部署身份不等于管线)、登录服务(这里不是独立部署单元)
 
+**Edge Connection**(边缘连接):
+边缘服务(网关、Realm)上一条客户端传输连接,由 `framework/edge` 的 EdgeRuntime 从打开管到终结:以不透明的 EdgeConnectionId 寻址,打开即分配、终结后不复用;只有 pending/established 两个传输阶段,终结恰好通知业务层一次。它与游戏无关,不知道凭据、账号或登录阶段;Edge Session 与 Realm Session 都绑定在某条 Edge Connection 上,沿用它的 EdgeConnectionId。
+_Avoid_: Edge Session(网关侧带登录阶段的会话)、socket、transport session(那是传输层内部编号)、handle
+
 **Edge Session**:
-一条边缘客户端连接在边缘服务内的统一寻址:以不透明的 EdgeSessionId 从连接打开标识到关闭;凭据验讫由 pending 阶段迁入 fetching 阶段,账号数据拉取完成、直连凭证下发后进入终态 handed-off 阶段。网关只承载登录管线,不承载业务长连接。
-_Avoid_: Client Session(旧名)、Pending Connection(旧名,pending 是阶段,不是另一种实体)、player(玩家是业务概念)、connection、handle、established(旧终态名:网关没有业务长连,终态是 handed-off)
+网关上一条 Edge Connection 承载的登录会话:沿用该连接的 EdgeConnectionId 寻址,凭据验讫由 pending 阶段迁入 fetching 阶段,账号数据拉取完成、直连凭证下发后进入终态 handed-off 阶段。网关只承载登录管线,不承载业务长连接。
+_Avoid_: Client Session(旧名)、Pending Connection(旧名,pending 是阶段,不是另一种实体)、player(玩家是业务概念)、Edge Connection(承载它的传输连接,没有登录阶段)、handle、established(旧终态名:网关没有业务长连,终态是 handed-off)
 
 **Fetching**:
 Edge Session 的中间阶段:准入暂扣——凭据已验讫,正在限额拉取玩家账号数据,或拉取已完成但 Handoff 尚未被 Primary Transport 接纳;fetch 额度在拉取完成时即可归还,阶段只在 Handoff 被接纳后迁出。每次拉取由有界工作者并发执行并受单次截止(`fetch_timeout_ms`)约束;账号不具备准入资格(封禁/不在白名单)即以 1007 终止,玩家数据暂不可用重试耗尽以 1008 收尾。每次进出该阶段都是一次原子状态迁移。
@@ -67,7 +71,7 @@ _Avoid_: loading、provisioning、暂扣(是阶段名,不是动作)
 _Avoid_: bridge、proxy(网关不中转)、handover
 
 **Primary Transport**:
-Edge Session 当前唯一的传输通道;QUIC 与 TLS/TCP 是建连时的二选一候选,不是会话内的双通道。
+Edge Connection 当前唯一的传输通道;QUIC 与 TLS/TCP 是建连时的二选一候选,不是连接内的双通道。
 _Avoid_: backup channel、secondary transport、failover
 
 ### Access
@@ -127,8 +131,8 @@ _Avoid_: player(玩家是操作客户端的人)、user
 _Avoid_: player、avatar、role
 
 **Realm Session**:
-Realm 内一条已兑换 EnterRealm 票据的直连会话,以账号为主体:先处于选角,选中角色后进入游戏;同一账号在一个 Realm 同一时刻至多一条,新会话入场即顶替旧会话。
-_Avoid_: Edge Session(网关侧概念)、connection、player session
+Realm 内一条已兑换 EnterRealm 票据的直连会话,绑定在一条 Edge Connection 上,以账号为主体:先处于选角,选中角色后进入游戏;同一账号在一个 Realm 同一时刻至多一条,新会话入场即顶替旧会话。
+_Avoid_: Edge Session(网关侧概念)、Edge Connection(承载它的传输连接)、player session
 
 **Character Selection**(选角):
 Realm Session 入场后的初始阶段:列出、创建并选中本账号在该 Realm 的角色;选中后会话才接受游戏动作。

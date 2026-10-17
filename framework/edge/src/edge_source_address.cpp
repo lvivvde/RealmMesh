@@ -1,4 +1,4 @@
-#include "realmmesh/game/gateway/gateway_source_address.hpp"
+#include "realmmesh/edge/edge_source_address.hpp"
 
 #include <arpa/inet.h>
 
@@ -9,7 +9,7 @@
 #include <stdexcept>
 #include <utility>
 
-namespace realm::game::gateway {
+namespace realm::edge {
 namespace {
 
 struct IpAddress final {
@@ -147,39 +147,39 @@ std::optional<std::string> forwarded_for_value(std::string_view element) {
 
 }  // namespace
 
-GatewaySourceMode parse_gateway_source_mode(std::string_view value) {
-    if (value == "direct_peer") return GatewaySourceMode::DirectPeer;
+EdgeSourceMode parse_edge_source_mode(std::string_view value) {
+    if (value == "direct_peer") return EdgeSourceMode::DirectPeer;
     if (value == "trusted_x_forwarded_for") {
-        return GatewaySourceMode::TrustedXForwardedFor;
+        return EdgeSourceMode::TrustedXForwardedFor;
     }
     if (value == "trusted_forwarded") {
-        return GatewaySourceMode::TrustedForwarded;
+        return EdgeSourceMode::TrustedForwarded;
     }
-    throw std::invalid_argument("unsupported gateway source mode");
+    throw std::invalid_argument("unsupported edge source mode");
 }
 
-std::string_view to_string(GatewaySourceMode mode) noexcept {
+std::string_view to_string(EdgeSourceMode mode) noexcept {
     switch (mode) {
-    case GatewaySourceMode::DirectPeer:
+    case EdgeSourceMode::DirectPeer:
         return "direct_peer";
-    case GatewaySourceMode::TrustedXForwardedFor:
+    case EdgeSourceMode::TrustedXForwardedFor:
         return "trusted_x_forwarded_for";
-    case GatewaySourceMode::TrustedForwarded:
+    case EdgeSourceMode::TrustedForwarded:
         return "trusted_forwarded";
     }
     return "unknown";
 }
 
-void GatewaySourceConfig::validate() const {
-    if (trusted_proxy_cidrs.size() > gateway_trusted_proxy_hard_max) {
+void EdgeSourceConfig::validate() const {
+    if (trusted_proxy_cidrs.size() > edge_trusted_proxy_hard_max) {
         throw std::invalid_argument("too many trusted proxy CIDRs");
     }
-    if (mode == GatewaySourceMode::DirectPeer &&
+    if (mode == EdgeSourceMode::DirectPeer &&
         !trusted_proxy_cidrs.empty()) {
         throw std::invalid_argument(
             "direct peer mode cannot configure trusted proxy CIDRs");
     }
-    if (mode != GatewaySourceMode::DirectPeer &&
+    if (mode != EdgeSourceMode::DirectPeer &&
         trusted_proxy_cidrs.empty()) {
         throw std::invalid_argument(
             "forwarded source mode requires trusted proxy CIDRs");
@@ -191,9 +191,9 @@ void GatewaySourceConfig::validate() const {
     }
 }
 
-class GatewaySourceNormalizer::Impl final {
+class EdgeSourceNormalizer::Impl final {
 public:
-    explicit Impl(GatewaySourceConfig config) : config_(std::move(config)) {
+    explicit Impl(EdgeSourceConfig config) : config_(std::move(config)) {
         config_.validate();
         trusted_.reserve(config_.trusted_proxy_cidrs.size());
         for (const auto& text : config_.trusted_proxy_cidrs) {
@@ -208,13 +208,13 @@ public:
         if (!direct.has_value() || !canonical_direct.has_value()) {
             return std::nullopt;
         }
-        if (config_.mode == GatewaySourceMode::DirectPeer ||
+        if (config_.mode == EdgeSourceMode::DirectPeer ||
             !is_trusted(*direct)) {
             return canonical_direct;
         }
 
         std::vector<std::string> chain;
-        if (config_.mode == GatewaySourceMode::TrustedXForwardedFor) {
+        if (config_.mode == EdgeSourceMode::TrustedXForwardedFor) {
             if (source.x_forwarded_for.empty()) return std::nullopt;
             for (const auto& entry : split(source.x_forwarded_for, ',')) {
                 const auto parsed = canonical_ip(entry);
@@ -246,20 +246,20 @@ private:
         });
     }
 
-    GatewaySourceConfig config_;
+    EdgeSourceConfig config_;
     std::vector<Cidr> trusted_;
 };
 
-GatewaySourceNormalizer::GatewaySourceNormalizer(GatewaySourceConfig config)
+EdgeSourceNormalizer::EdgeSourceNormalizer(EdgeSourceConfig config)
     : impl_(std::make_unique<Impl>(std::move(config))) {}
-GatewaySourceNormalizer::~GatewaySourceNormalizer() = default;
-GatewaySourceNormalizer::GatewaySourceNormalizer(
-    GatewaySourceNormalizer&&) noexcept = default;
-GatewaySourceNormalizer& GatewaySourceNormalizer::operator=(
-    GatewaySourceNormalizer&&) noexcept = default;
-std::optional<std::string> GatewaySourceNormalizer::normalize(
+EdgeSourceNormalizer::~EdgeSourceNormalizer() = default;
+EdgeSourceNormalizer::EdgeSourceNormalizer(
+    EdgeSourceNormalizer&&) noexcept = default;
+EdgeSourceNormalizer& EdgeSourceNormalizer::operator=(
+    EdgeSourceNormalizer&&) noexcept = default;
+std::optional<std::string> EdgeSourceNormalizer::normalize(
     const network::TransportIngressSource& source) const {
     return impl_->normalize(source);
 }
 
-}  // namespace realm::game::gateway
+}  // namespace realm::edge

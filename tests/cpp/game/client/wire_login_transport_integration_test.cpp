@@ -3,7 +3,7 @@
 /// 段在生产兑换口上完成 1304/1305 兑换。
 ///
 /// 两端的「真实」程度:#49 时 Realm 侧兑换协议(#46)未落地,故用桩注入
-/// 兑换内容。现在 Realm 段的服务端就是**真实 realm 服务**(GatewayRuntime +
+/// 兑换内容。现在 Realm 段的服务端就是**真实 realm 服务**(EdgeRuntime +
 /// ServiceFrame + 共享票据键),网关桩签发的也是真实 EnterRealm 票据;客户端
 /// 不再有兑换桩——跑的就是生产 WireEnterRealmRedeemer。
 ///
@@ -14,11 +14,10 @@
 /// 兑换口对坏帧/超时/错误码的分型是帧级行为,由无 socket 的单测覆盖
 /// (wire_login_transport_test.cpp);这里只对撞真实服务端。
 
+#include "realmmesh/edge/edge_runtime.hpp"
 #include "realmmesh/game/client/wire_login_transport.hpp"
 #include "realmmesh/game/common/edge_protocol.hpp"
 #include "realmmesh/game/common/session_ticket.hpp"
-#include "realmmesh/game/gateway/gateway_config.hpp"
-#include "realmmesh/game/gateway/gateway_runtime.hpp"
 #include "realmmesh/game/realm/realm_sessions.hpp"
 #include "realmmesh/game/realm/training_rule.hpp"
 #include "realmmesh/network/http/http_server.hpp"
@@ -359,8 +358,8 @@ public:
             logger_config,
             observability::ServiceIdentity{.service_name = "realm"});
         runtime_.emplace(
-            game::gateway::GatewayConfig{.transports = {realm_transport()}},
-            game::gateway::GatewayRuntimeOptions{
+            std::vector{realm_transport()},
+            edge::EdgeRuntimeOptions{
                 .inbound_capacity = 64,
                 .outbound_capacity = 64,
                 .io_poll_interval = milliseconds{1}});
@@ -411,12 +410,12 @@ private:
 
     std::optional<test_support::TemporaryDirectory> log_directory_;
     std::optional<observability::Logger> logger_;
-    std::optional<game::gateway::GatewayRuntime> runtime_;
+    std::optional<edge::EdgeRuntime> runtime_;
     test_support::InMemoryCharacterStore characters_;
     game::realm::TrainingRule rule_{
         std::filesystem::path(REALMMESH_TEST_SOURCE_DIR) / "configs" /
         "services" / "realm" / "training.lua"};
-    std::optional<game::realm::GatewayRuntimeRealmOutbox> outbox_;
+    std::optional<game::realm::EdgeRuntimeRealmOutbox> outbox_;
     std::optional<game::realm::RealmSessions> sessions_;
     std::optional<service_host::ServiceFrame> frame_;
 };

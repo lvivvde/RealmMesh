@@ -12,31 +12,14 @@ realm_add_gtest(gateway_server_test
     DEPENDS realmmesh_test_tls_identity
 )
 
-realm_add_gtest(gateway_runtime_test
-    SOURCES gateway_runtime_test.cpp
-    LIBS realm_gateway_service
-    DEFINITIONS
-        REALMMESH_TEST_TLS_CERTIFICATE="${REALMMESH_TEST_TLS_CERTIFICATE}"
-        REALMMESH_TEST_TLS_PRIVATE_KEY="${REALMMESH_TEST_TLS_PRIVATE_KEY}"
-    DEPENDS realmmesh_test_tls_identity
-    # 真实 TLS 回环传输会绑定端口,按 tests/README.md 归 integration。
-    LABELS integration
-)
-
-realm_add_gtest(edge_session_table_test
-    SOURCES edge_session_table_test.cpp
-    LIBS realm_gateway_service
-)
-
 realm_add_gtest(gateway_primary_transport_test
     SOURCES gateway_primary_transport_test.cpp
     LIBS realm_gateway_service
 )
 
-# Gateway 轻量头不经传递 include 引入 gateway_runtime.hpp(#128),运行时头
-# 也不经传递 include 引入凭据入口(ADR-0014 第 2 步):编译即断言。
+# Gateway 轻量头不经传递 include 引入 edge_runtime.hpp(#128):编译即断言。
 realm_add_gtest(gateway_headers_test
-    SOURCES gateway_headers_test.cpp gateway_runtime_headers_test.cpp
+    SOURCES gateway_headers_test.cpp
     LIBS realm_gateway_service
 )
 
@@ -60,11 +43,6 @@ realm_add_gtest(gateway_admission_test
 realm_add_gtest(gateway_login_config_test
     SOURCES gateway_login_config_test.cpp
     LIBS realm_gateway_service realm_scripting
-)
-
-realm_add_gtest(gateway_source_address_test
-    SOURCES gateway_source_address_test.cpp
-    LIBS realm_gateway_service
 )
 
 realm_add_gtest(gateway_credential_ingress_test

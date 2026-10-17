@@ -32,7 +32,7 @@ using realm::game::common::PlayerDataError;
 using realm::game::common::RealmCharacter;
 using realm::game::common::TrainingWrite;
 using realm::game::common::TrainingWriteResult;
-using realm::game::gateway::EdgeSessionId;
+using realm::edge::EdgeConnectionId;
 using realm::game::realm::RealmConfig;
 using realm::game::realm::RealmSessionPhase;
 using realm::game::realm::RealmSessions;
@@ -42,14 +42,14 @@ namespace common = realm::game::common;
 class RecordingOutbox final : public realm::game::realm::RealmOutbox {
 public:
     struct Sent {
-        EdgeSessionId session;
+        EdgeConnectionId session;
         std::vector<std::byte> payload;
     };
 
-    void send(EdgeSessionId session, std::vector<std::byte> payload) override {
+    void send(EdgeConnectionId session, std::vector<std::byte> payload) override {
         sent.push_back({session, std::move(payload)});
     }
-    void close(EdgeSessionId session) override { closed.insert(session.value); }
+    void close(EdgeConnectionId session) override { closed.insert(session.value); }
 
     std::vector<Sent> sent;
     std::set<std::uint64_t> closed;
@@ -59,8 +59,8 @@ const std::filesystem::path shipped_rule =
     std::filesystem::path(REALMMESH_TEST_SOURCE_DIR) / "configs" / "services" /
     "realm" / "training.lua";
 
-constexpr EdgeSessionId first{1};
-constexpr EdgeSessionId second{2};
+constexpr EdgeConnectionId first{1};
+constexpr EdgeConnectionId second{2};
 constexpr std::uint64_t account = 42;
 
 class RealmSessionsTest : public ::testing::Test {
@@ -79,14 +79,14 @@ protected:
     }
 
     template <typename Message>
-    void request(EdgeSessionId session, const Message& message,
+    void request(EdgeConnectionId session, const Message& message,
                  std::uint64_t request_id) {
         ASSERT_TRUE(sessions_->handle(session, common::encode(message, request_id)));
     }
 
     /// 推进帧尾,直到 session 收到第 count 条回包。
     [[nodiscard]] const std::vector<std::byte>& reply(
-        EdgeSessionId session, std::size_t count = 1) {
+        EdgeConnectionId session, std::size_t count = 1) {
         const auto deadline = std::chrono::steady_clock::now() + 5s;
         while (std::chrono::steady_clock::now() < deadline) {
             sessions_->complete(64);
@@ -101,7 +101,7 @@ protected:
     }
 
     [[nodiscard]] std::vector<const std::vector<std::byte>*> for_session(
-        EdgeSessionId session) const {
+        EdgeConnectionId session) const {
         std::vector<const std::vector<std::byte>*> replies;
         for (const auto& sent : outbox_.sent) {
             if (sent.session == session) replies.push_back(&sent.payload);
@@ -115,7 +115,7 @@ protected:
     }
 
     /// 入场、创建一个角色并选中,回包计数推进到 2。
-    [[nodiscard]] std::uint64_t enter_game(EdgeSessionId session) {
+    [[nodiscard]] std::uint64_t enter_game(EdgeConnectionId session) {
         sessions_->enter(session, account);
         common::CreateCharacter create;
         create.set_name("Ranger");

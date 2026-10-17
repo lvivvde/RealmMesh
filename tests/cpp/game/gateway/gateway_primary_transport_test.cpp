@@ -1,6 +1,6 @@
 #include "realmmesh/game/gateway/gateway_primary_transport.hpp"
 
-#include "realmmesh/game/gateway/gateway_runtime.hpp"
+#include "realmmesh/edge/edge_runtime.hpp"
 
 #include <gtest/gtest.h>
 
@@ -60,8 +60,8 @@ private:
     std::atomic_bool polling_{false};
 };
 
-[[nodiscard]] std::optional<GatewayEvent> wait_for_event(
-    GatewayPrimaryTransport& transport, GatewayEventKind kind) {
+[[nodiscard]] std::optional<edge::EdgeEvent> wait_for_event(
+    GatewayPrimaryTransport& transport, edge::EdgeEventKind kind) {
     const auto deadline =
         std::chrono::steady_clock::now() + std::chrono::seconds(2);
     while (std::chrono::steady_clock::now() < deadline) {
@@ -76,23 +76,23 @@ private:
 TEST(InMemoryGatewayPrimaryTransportTest, DrainsEventsWithABound) {
     InMemoryGatewayPrimaryTransport transport;
     transport.push_event(
-        {.kind = GatewayEventKind::SessionOpened,
-         .session_id = EdgeSessionId{1}});
+        {.kind = edge::EdgeEventKind::ConnectionOpened,
+         .connection_id = edge::EdgeConnectionId{1}});
     transport.push_event(
-        {.kind = GatewayEventKind::MessageReceived,
-         .session_id = EdgeSessionId{1}});
+        {.kind = edge::EdgeEventKind::MessageReceived,
+         .connection_id = edge::EdgeConnectionId{1}});
     transport.push_event(
-        {.kind = GatewayEventKind::SessionClosed,
-         .session_id = EdgeSessionId{1}});
+        {.kind = edge::EdgeEventKind::ConnectionClosed,
+         .connection_id = edge::EdgeConnectionId{1}});
 
     const auto first = transport.drain_events(2);
     ASSERT_EQ(first.size(), 2U);
-    EXPECT_EQ(first[0].kind, GatewayEventKind::SessionOpened);
-    EXPECT_EQ(first[1].kind, GatewayEventKind::MessageReceived);
+    EXPECT_EQ(first[0].kind, edge::EdgeEventKind::ConnectionOpened);
+    EXPECT_EQ(first[1].kind, edge::EdgeEventKind::MessageReceived);
 
     const auto second = transport.drain_events(2);
     ASSERT_EQ(second.size(), 1U);
-    EXPECT_EQ(second[0].kind, GatewayEventKind::SessionClosed);
+    EXPECT_EQ(second[0].kind, edge::EdgeEventKind::ConnectionClosed);
 }
 
 TEST(InMemoryGatewayPrimaryTransportTest, ScriptsFullAndStoppedIndependently) {
@@ -103,18 +103,18 @@ TEST(InMemoryGatewayPrimaryTransportTest, ScriptsFullAndStoppedIndependently) {
     const std::array payload{std::byte{1}};
 
     EXPECT_EQ(
-        transport.accept(EdgeSessionId{7}, payload),
+        transport.accept(edge::EdgeConnectionId{7}, payload),
         PrimaryTransportResult::Full);
     EXPECT_EQ(
-        transport.accept(EdgeSessionId{7}, payload),
+        transport.accept(edge::EdgeConnectionId{7}, payload),
         PrimaryTransportResult::Stopped);
     EXPECT_EQ(
-        transport.close(EdgeSessionId{7}), PrimaryTransportResult::Stopped);
+        transport.close(edge::EdgeConnectionId{7}), PrimaryTransportResult::Stopped);
     EXPECT_TRUE(transport.owned_commands().empty());
 
     InMemoryGatewayPrimaryTransport running_transport;
     EXPECT_EQ(
-        running_transport.close(EdgeSessionId{7}),
+        running_transport.close(edge::EdgeConnectionId{7}),
         PrimaryTransportResult::Queued);
     ASSERT_EQ(running_transport.owned_commands().size(), 1U);
     EXPECT_EQ(
@@ -127,16 +127,16 @@ TEST(InMemoryGatewayPrimaryTransportTest, RecordsOnlyQueuedSemanticCommands) {
     const std::array payload{std::byte{2}, std::byte{3}};
 
     EXPECT_EQ(
-        transport.accept(EdgeSessionId{1}, payload),
+        transport.accept(edge::EdgeConnectionId{1}, payload),
         PrimaryTransportResult::Queued);
     EXPECT_EQ(
-        transport.decline(EdgeSessionId{2}, payload),
+        transport.decline(edge::EdgeConnectionId{2}, payload),
         PrimaryTransportResult::Queued);
     EXPECT_EQ(
-        transport.send_handoff(EdgeSessionId{3}, payload),
+        transport.send_handoff(edge::EdgeConnectionId{3}, payload),
         PrimaryTransportResult::Queued);
     EXPECT_EQ(
-        transport.close(EdgeSessionId{4}), PrimaryTransportResult::Queued);
+        transport.close(edge::EdgeConnectionId{4}), PrimaryTransportResult::Queued);
 
     ASSERT_EQ(transport.owned_commands().size(), 4U);
     EXPECT_EQ(
@@ -154,31 +154,31 @@ TEST(InMemoryGatewayPrimaryTransportTest, RecordsOnlyQueuedSemanticCommands) {
     EXPECT_EQ(transport.owned_commands()[2].payload.size(), 2U);
 }
 
-TEST(GatewayRuntimePrimaryTransportTest, MapsStoppedWithoutTakingOwnership) {
+TEST(EdgeRuntimePrimaryTransportTest, MapsStoppedWithoutTakingOwnership) {
     auto lower_transport = std::make_unique<DeliveryFailingTransport>();
     std::vector<std::unique_ptr<network::IMessageTransport>> transports;
     transports.push_back(std::move(lower_transport));
-    GatewayRuntime runtime(
+    edge::EdgeRuntime runtime(
         std::move(transports),
         {.inbound_capacity = 8, .outbound_capacity = 8});
-    GatewayRuntimePrimaryTransport transport(runtime);
+    EdgeRuntimePrimaryTransport transport(runtime);
 
     EXPECT_EQ(
-        transport.close(EdgeSessionId{1}),
+        transport.close(edge::EdgeConnectionId{1}),
         PrimaryTransportResult::Stopped);
 }
 
-TEST(GatewayRuntimePrimaryTransportTest, MapsRuntimeQueueBackpressureToFull) {
+TEST(EdgeRuntimePrimaryTransportTest, MapsRuntimeQueueBackpressureToFull) {
     auto lower_transport = std::make_unique<DeliveryFailingTransport>();
     auto* lower_transport_view = lower_transport.get();
     std::vector<std::unique_ptr<network::IMessageTransport>> transports;
     transports.push_back(std::move(lower_transport));
-    GatewayRuntime runtime(
+    edge::EdgeRuntime runtime(
         std::move(transports),
         {.inbound_capacity = 8,
          .outbound_capacity = 1,
          .io_poll_interval = std::chrono::milliseconds(100)});
-    GatewayRuntimePrimaryTransport transport(runtime);
+    EdgeRuntimePrimaryTransport transport(runtime);
     runtime.start();
     const auto deadline =
         std::chrono::steady_clock::now() + std::chrono::seconds(2);
@@ -189,82 +189,82 @@ TEST(GatewayRuntimePrimaryTransportTest, MapsRuntimeQueueBackpressureToFull) {
     ASSERT_TRUE(lower_transport_view->polling());
 
     EXPECT_EQ(
-        transport.close(EdgeSessionId{10}),
+        transport.close(edge::EdgeConnectionId{10}),
         PrimaryTransportResult::Queued);
     EXPECT_EQ(
-        transport.close(EdgeSessionId{11}), PrimaryTransportResult::Full);
+        transport.close(edge::EdgeConnectionId{11}), PrimaryTransportResult::Full);
     runtime.stop();
 }
 
 TEST(
-    GatewayRuntimePrimaryTransportTest,
+    EdgeRuntimePrimaryTransportTest,
     QueuedDeliveryFailureEventuallyPublishesSessionClosed) {
     auto lower_transport = std::make_unique<DeliveryFailingTransport>();
     auto* lower_transport_view = lower_transport.get();
     std::vector<std::unique_ptr<network::IMessageTransport>> transports;
     transports.push_back(std::move(lower_transport));
-    GatewayRuntime runtime(
+    edge::EdgeRuntime runtime(
         std::move(transports),
         {.inbound_capacity = 8,
          .outbound_capacity = 8,
          .io_poll_interval = std::chrono::milliseconds(1)});
-    GatewayRuntimePrimaryTransport transport(runtime);
+    EdgeRuntimePrimaryTransport transport(runtime);
     runtime.start();
 
     const auto opened =
-        wait_for_event(transport, GatewayEventKind::SessionOpened);
+        wait_for_event(transport, edge::EdgeEventKind::ConnectionOpened);
     ASSERT_TRUE(opened.has_value());
     const std::array payload{std::byte{1}};
     ASSERT_EQ(
-        transport.accept(opened->session_id, payload),
+        transport.accept(opened->connection_id, payload),
         PrimaryTransportResult::Queued);
     ASSERT_TRUE(
-        wait_for_event(transport, GatewayEventKind::SessionEstablished)
+        wait_for_event(transport, edge::EdgeEventKind::ConnectionEstablished)
             .has_value());
 
     lower_transport_view->fail_delivery();
     ASSERT_EQ(
-        transport.send_handoff(opened->session_id, payload),
+        transport.send_handoff(opened->connection_id, payload),
         PrimaryTransportResult::Queued);
     const auto closed =
-        wait_for_event(transport, GatewayEventKind::SessionClosed);
+        wait_for_event(transport, edge::EdgeEventKind::ConnectionClosed);
     ASSERT_TRUE(closed.has_value());
-    EXPECT_EQ(closed->session_id, opened->session_id);
+    EXPECT_EQ(closed->connection_id, opened->connection_id);
     EXPECT_EQ(runtime.stats().failed_deliveries, 1U);
     runtime.stop();
 }
 
 TEST(
-    GatewayRuntimePrimaryTransportTest,
+    EdgeRuntimePrimaryTransportTest,
     DeclineTerminatesAnEstablishedSessionForPipelineProtocolRejection) {
     auto lower_transport = std::make_unique<DeliveryFailingTransport>();
     std::vector<std::unique_ptr<network::IMessageTransport>> transports;
     transports.push_back(std::move(lower_transport));
-    GatewayRuntime runtime(
+    edge::EdgeRuntime runtime(
         std::move(transports),
         {.inbound_capacity = 8,
          .outbound_capacity = 8,
          .io_poll_interval = std::chrono::milliseconds(1)});
-    GatewayRuntimePrimaryTransport transport(runtime);
+    EdgeRuntimePrimaryTransport transport(runtime);
     runtime.start();
 
     const auto opened =
-        wait_for_event(transport, GatewayEventKind::SessionOpened);
+        wait_for_event(transport, edge::EdgeEventKind::ConnectionOpened);
     ASSERT_TRUE(opened.has_value());
     const std::array payload{std::byte{1}};
     ASSERT_EQ(
-        transport.accept(opened->session_id, payload),
+        transport.accept(opened->connection_id, payload),
         PrimaryTransportResult::Queued);
-    ASSERT_TRUE(wait_for_event(transport, GatewayEventKind::SessionEstablished)
+    ASSERT_TRUE(wait_for_event(transport, edge::EdgeEventKind::ConnectionEstablished)
                     .has_value());
 
     ASSERT_EQ(
-        transport.decline(opened->session_id, payload),
+        transport.decline(opened->connection_id, payload),
         PrimaryTransportResult::Queued);
     const auto closed =
-        wait_for_event(transport, GatewayEventKind::SessionClosed);
+        wait_for_event(transport, edge::EdgeEventKind::ConnectionClosed);
     ASSERT_TRUE(closed.has_value());
-    EXPECT_EQ(closed->session_id, opened->session_id);
+    EXPECT_EQ(closed->connection_id, opened->connection_id);
     EXPECT_TRUE(closed->established);
     runtime.stop();
 }

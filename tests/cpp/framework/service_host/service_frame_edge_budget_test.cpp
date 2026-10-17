@@ -4,6 +4,7 @@
 #include "realmmesh/cluster/service_registry.hpp"
 #include "realmmesh/cluster/service_resolver.hpp"
 #include "realmmesh/common/v1/envelope.pb.h"
+#include "realmmesh/edge/edge_runtime.hpp"
 #include "realmmesh/game/common/admission_grant.hpp"
 #include "realmmesh/game/common/edge_protocol.hpp"
 #include "realmmesh/game/common/identity_token.hpp"
@@ -15,7 +16,6 @@
 #include "realmmesh/game/gateway/gateway_login_config.hpp"
 #include "realmmesh/game/gateway/gateway_login_pipeline.hpp"
 #include "realmmesh/game/gateway/gateway_primary_transport.hpp"
-#include "realmmesh/game/gateway/gateway_runtime.hpp"
 #include "realmmesh/network/codec/length_field_codec.hpp"
 #include "realmmesh/observability/logger.hpp"
 #include "realmmesh/observability/metrics_registry.hpp"
@@ -406,8 +406,8 @@ protected:
             instance_id_);
 
         runtime_.emplace(
-            game::gateway::GatewayConfig{.transports = {tls_transport()}},
-            game::gateway::GatewayRuntimeOptions{
+            std::vector{tls_transport()},
+            edge::EdgeRuntimeOptions{
                 .inbound_capacity = 64,
                 .outbound_capacity = 64,
                 .io_poll_interval = std::chrono::milliseconds{1}});
@@ -621,8 +621,8 @@ protected:
     std::optional<test_support::TemporaryDirectory> log_directory_;
     std::optional<observability::Logger> logger_;
     std::optional<cluster::InstanceBudgetReporter> reporter_;
-    std::optional<game::gateway::GatewayRuntime> runtime_;
-    std::optional<game::gateway::GatewayRuntimePrimaryTransport>
+    std::optional<edge::EdgeRuntime> runtime_;
+    std::optional<game::gateway::EdgeRuntimePrimaryTransport>
         primary_transport_;
     std::unique_ptr<FixedOutcomeAccountFetchPort> fetch_port_;
     std::optional<game::gateway::GatewayLoginPipeline> pipeline_;

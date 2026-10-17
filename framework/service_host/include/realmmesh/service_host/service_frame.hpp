@@ -1,9 +1,9 @@
 #pragma once
 
 #include "realmmesh/cluster/service_registry.hpp"
+#include "realmmesh/edge/edge_connection_table.hpp"
 #include "realmmesh/game/common/edge_protocol.hpp"
 #include "realmmesh/game/common/session_ticket.hpp"
-#include "realmmesh/game/gateway/edge_session_table.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -17,9 +17,12 @@ class ServiceResolver;
 class InstanceBudgetReporter;
 }  // namespace realm::cluster
 
+namespace realm::edge {
+class EdgeRuntime;
+struct EdgeEvent;
+}  // namespace realm::edge
+
 namespace realm::game::gateway {
-class GatewayRuntime;
-struct GatewayEvent;
 class GatewayLoginPipeline;
 }  // namespace realm::game::gateway
 
@@ -64,19 +67,19 @@ public:
     /// service_started(gateway 另发每 transport 的 listener_started)。
     void started(
         observability::Logger& logger,
-        const game::gateway::GatewayRuntime& runtime) const;
+        const edge::EdgeRuntime& runtime) const;
     /// 每帧业务:drain 事件并按服务名分发处理。budget_reporter 非空时
     /// 帧尾发布额度快照(gateway 双维度、realm 仅 conn_free),策略节流
     /// 由上报器自理。
     void tick(
         observability::Logger& logger,
-        game::gateway::GatewayRuntime& runtime,
+        edge::EdgeRuntime& runtime,
         cluster::ServiceResolver* resolver,
         cluster::InstanceBudgetReporter* budget_reporter = nullptr);
     /// service_stopped(gateway 带 runtime 统计)。
     void stopped(
         observability::Logger& logger,
-        const game::gateway::GatewayRuntime& runtime) const;
+        const edge::EdgeRuntime& runtime) const;
     /// Gateway readiness includes the admission backend's cached health;
     /// non-gateway frames are ready once their runtime is listening.
     [[nodiscard]] bool ready() const noexcept;
@@ -86,10 +89,10 @@ private:
     /// RealmSessions,SessionEstablished 无携带状态(claims 在入场兑换分支
     /// 写入);返回是否为业务消息。
     [[nodiscard]] bool absorb_lifecycle(
-        const game::gateway::GatewayEvent& event);
+        const edge::EdgeEvent& event);
     void handle_realm_events(
         observability::Logger& logger,
-        game::gateway::GatewayRuntime& runtime,
+        edge::EdgeRuntime& runtime,
         cluster::InstanceBudgetReporter* budget_reporter);
     /// 直连入场兑换(#46,ADR-0013):EnterRealm 票据单次消费,只绑定账号
     /// 与 Realm,兑换不读数据库;通过即受理并登记 Realm Session(选角阶段)。
@@ -97,12 +100,12 @@ private:
     /// 回包后 close)。
     void handle_enter_realm(
         observability::Logger& logger,
-        game::gateway::GatewayRuntime& runtime,
-        const game::gateway::GatewayEvent& event,
+        edge::EdgeRuntime& runtime,
+        const edge::EdgeEvent& event,
         const game::common::EnterRealm& request);
     void handle_gateway_events(
         observability::Logger& logger,
-        game::gateway::GatewayRuntime& runtime,
+        edge::EdgeRuntime& runtime,
         cluster::ServiceResolver* resolver,
         cluster::InstanceBudgetReporter* budget_reporter);
 
@@ -110,10 +113,10 @@ private:
     std::size_t max_events_per_frame_{0};
     std::optional<cluster::ServiceType> identity_;
     game::common::SessionTickets tickets_;
-    /// 票据 claims 以 EdgeSessionId 寻址:Realm 的入场兑换分支先写入,
+    /// 票据 claims 以 EdgeConnectionId 寻址:Realm 的入场兑换分支先写入,
     /// accept 成功(SessionEstablished)后生效,SessionClosed 时清除。
     std::unordered_map<
-        game::gateway::EdgeSessionId,
+        edge::EdgeConnectionId,
         game::common::SessionTicketClaims>
         authenticated_;
 

@@ -159,26 +159,26 @@ public:
     }
 
 private:
-    void preapply_lifecycle(const std::vector<GatewayEvent>& events) {
+    void preapply_lifecycle(const std::vector<edge::EdgeEvent>& events) {
         for (const auto& event : events) {
-            if (event.kind == GatewayEventKind::SessionOpened) {
-                if (!sessions_.contains(event.session_id) &&
+            if (event.kind == edge::EdgeEventKind::ConnectionOpened) {
+                if (!sessions_.contains(event.connection_id) &&
                     sessions_.size() < config_.conn_capacity) {
                     PipelineSession session;
                     session.source = event.source;
-                    sessions_.emplace(event.session_id, std::move(session));
+                    sessions_.emplace(event.connection_id, std::move(session));
                 }
                 continue;
             }
-            if (event.kind == GatewayEventKind::PeerAddressChanged) {
-                const auto found = sessions_.find(event.session_id);
+            if (event.kind == edge::EdgeEventKind::PeerAddressChanged) {
+                const auto found = sessions_.find(event.connection_id);
                 if (found != sessions_.end()) {
                     found->second.source = event.source;
                 }
                 continue;
             }
-            if (event.kind != GatewayEventKind::SessionClosed) continue;
-            const auto found = sessions_.find(event.session_id);
+            if (event.kind != edge::EdgeEventKind::ConnectionClosed) continue;
+            const auto found = sessions_.find(event.connection_id);
             if (found == sessions_.end()) continue;
             release_session(found->second);
             sessions_.erase(found);
@@ -186,11 +186,11 @@ private:
     }
 
     void process_messages(
-        const std::vector<GatewayEvent>& events,
+        const std::vector<edge::EdgeEvent>& events,
         const GatewayLoginFrame& frame) {
         for (const auto& event : events) {
-            if (event.kind != GatewayEventKind::MessageReceived) continue;
-            const auto found = sessions_.find(event.session_id);
+            if (event.kind != edge::EdgeEventKind::MessageReceived) continue;
+            const auto found = sessions_.find(event.connection_id);
             if (found == sessions_.end() || found->second.closing ||
                 found->second.intent.has_value()) {
                 continue;
@@ -258,10 +258,10 @@ private:
     }
 
     void handle_attach(
-        const GatewayEvent& event,
+        const edge::EdgeEvent& event,
         const common::EdgeAttach& attach,
         const GatewayLoginFrame& frame) {
-        auto& session = sessions_.at(event.session_id);
+        auto& session = sessions_.at(event.connection_id);
         const auto request_id =
             common::edge_request_id(event.payload).value_or(0);
         if (session.stage != PublicStage::Pending) {
@@ -282,7 +282,7 @@ private:
         }
 
         const auto owner = gateway_instance_ + "/" +
-            std::to_string(event.session_id.value) + "/" +
+            std::to_string(event.connection_id.value) + "/" +
             std::to_string(next_admission_attempt_id_++);
         auto started = admission_->reserve(
                 attach.identity_token(),
@@ -444,7 +444,7 @@ private:
     }
 
     void record_fetch_failure(
-        EdgeSessionId session_id,
+        edge::EdgeConnectionId session_id,
         PipelineSession& session,
         std::chrono::steady_clock::time_point now,
         std::string_view fetch_result) {
@@ -520,13 +520,13 @@ private:
             IntentKind::Accept,
             IntentKind::Handoff,
         };
-        std::vector<EdgeSessionId> ordered;
+        std::vector<edge::EdgeConnectionId> ordered;
         ordered.reserve(sessions_.size());
         for (const auto& [session_id, session] : sessions_) {
             static_cast<void>(session);
             ordered.push_back(session_id);
         }
-        std::ranges::sort(ordered, {}, &EdgeSessionId::value);
+        std::ranges::sort(ordered, {}, &edge::EdgeConnectionId::value);
 
         for (const auto kind : priority) {
             for (const auto session_id : ordered) {
@@ -543,7 +543,7 @@ private:
     }
 
     void flush_intent(
-        EdgeSessionId session_id,
+        edge::EdgeConnectionId session_id,
         PipelineSession& session,
         const GatewayLoginFrame& frame) {
         auto& intent = *session.intent;
@@ -650,7 +650,7 @@ private:
     }
 
     void commit_accept(
-        EdgeSessionId session_id,
+        edge::EdgeConnectionId session_id,
         PipelineSession& session,
         std::chrono::steady_clock::time_point now) {
         session.stage = PublicStage::Fetching;
@@ -887,8 +887,8 @@ private:
     observability::Logger* logger_;
     observability::MetricsRegistry* metrics_;
     GatewayPipelineHealth health_{GatewayPipelineHealth::Healthy};
-    std::unordered_map<EdgeSessionId, PipelineSession> sessions_;
-    std::unordered_map<std::uint64_t, EdgeSessionId> attempts_;
+    std::unordered_map<edge::EdgeConnectionId, PipelineSession> sessions_;
+    std::unordered_map<std::uint64_t, edge::EdgeConnectionId> attempts_;
     std::uint64_t fetch_used_{0};
     std::uint64_t next_attempt_id_{1};
     std::uint64_t next_admission_attempt_id_{1};

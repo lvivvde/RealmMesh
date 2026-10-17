@@ -264,7 +264,7 @@ GatewayConfig parse_gateway_config(const sol::table& root) {
                 "gateway config ingress_source must be a table");
         }
         const auto source = source_value.as<sol::table>();
-        config.ingress_source.mode = parse_gateway_source_mode(
+        config.ingress_source.mode = edge::parse_edge_source_mode(
             optional_string(source, "mode", "direct_peer"));
         config.ingress_source.trusted_proxy_cidrs =
             optional_string_array(source, "trusted_proxy_cidrs");

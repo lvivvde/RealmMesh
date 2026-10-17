@@ -13,12 +13,12 @@ target_include_directories(realm_game_realm
         $<INSTALL_INTERFACE:include>
 )
 
-# Realm 跑在 GatewayRuntime 上(会话编号与出站命令),角色数据与线协议在
-# game/common。
+# Realm 跑在 framework/edge 的 EdgeRuntime 上(连接编号与出站命令),角色数据
+# 与线协议在 game/common。
 target_link_libraries(realm_game_realm PUBLIC
     realm_concurrency
+    realm_edge
     realm_game_common
-    realm_gateway_service
     realm_observability
 )
 # Lua 只用在训练规则与配置解析实现:training_rule.hpp 前置声明 LuaRuntime

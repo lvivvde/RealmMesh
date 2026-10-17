@@ -3,20 +3,19 @@
 #include "realmmesh/cluster/budget_publisher.hpp"
 #include "realmmesh/cluster/service_registry.hpp"
 #include "realmmesh/common/v1/envelope.pb.h"
+#include "realmmesh/edge/edge_runtime.hpp"
 #include "realmmesh/game/common/compact_jws.hpp"
 #include "realmmesh/game/common/edge_protocol.hpp"
 #include "realmmesh/game/common/player_data_store.hpp"
-#include "realmmesh/game/common/session_ticket.hpp"
 #include "realmmesh/game/common/realm_protocol.hpp"
-#include "realmmesh/game/gateway/gateway_config.hpp"
-#include "realmmesh/game/gateway/gateway_runtime.hpp"
+#include "realmmesh/game/common/session_ticket.hpp"
 #include "realmmesh/game/realm/realm_sessions.hpp"
 #include "realmmesh/game/realm/training_rule.hpp"
-#include "realmmesh/test_support/in_memory_character_store.hpp"
 #include "realmmesh/network/codec/length_field_codec.hpp"
 #include "realmmesh/observability/logger.hpp"
 #include "realmmesh/test_support/edge_raw_frame.hpp"
 #include "realmmesh/test_support/fake_service_registry.hpp"
+#include "realmmesh/test_support/in_memory_character_store.hpp"
 #include "realmmesh/test_support/temporary_directory.hpp"
 
 #include <gtest/gtest.h>
@@ -308,8 +307,8 @@ protected:
             instance_id_);
 
         runtime_.emplace(
-            game::gateway::GatewayConfig{.transports = {tls_transport()}},
-            game::gateway::GatewayRuntimeOptions{
+            std::vector{tls_transport()},
+            edge::EdgeRuntimeOptions{
                 .inbound_capacity = 64,
                 .outbound_capacity = 64,
                 .io_poll_interval = std::chrono::milliseconds{1}});
@@ -448,11 +447,11 @@ protected:
     std::optional<test_support::TemporaryDirectory> log_directory_;
     std::optional<observability::Logger> logger_;
     std::optional<cluster::InstanceBudgetReporter> reporter_;
-    std::optional<game::gateway::GatewayRuntime> runtime_;
+    std::optional<edge::EdgeRuntime> runtime_;
     std::optional<game::common::SessionTickets> tickets_;
     test_support::InMemoryCharacterStore store_;
     std::optional<game::realm::TrainingRule> rule_;
-    std::optional<game::realm::GatewayRuntimeRealmOutbox> outbox_;
+    std::optional<game::realm::EdgeRuntimeRealmOutbox> outbox_;
     std::optional<game::realm::RealmSessions> sessions_;
     RealmTestClient* client_{nullptr};
     std::optional<ServiceFrame> frame_;

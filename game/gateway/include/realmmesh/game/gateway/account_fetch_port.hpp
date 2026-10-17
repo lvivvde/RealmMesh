@@ -1,7 +1,7 @@
 #pragma once
 
+#include "realmmesh/edge/edge_connection_table.hpp"
 #include "realmmesh/game/common/player_data_store.hpp"
-#include "realmmesh/game/gateway/edge_session_table.hpp"
 
 #include <chrono>
 #include <compare>
@@ -23,7 +23,7 @@ struct AccountFetchAttemptId {
 
 struct AccountFetchRequest {
     AccountFetchAttemptId attempt_id;
-    EdgeSessionId session_id;
+    edge::EdgeConnectionId session_id;
     std::uint64_t account_id{0};
 };
 

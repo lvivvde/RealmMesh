@@ -1,6 +1,6 @@
 #include "realmmesh/service_host/mesh_host.hpp"
 
-#include "realmmesh/game/gateway/gateway_runtime.hpp"
+#include "realmmesh/edge/edge_runtime.hpp"
 
 #include <gtest/gtest.h>
 

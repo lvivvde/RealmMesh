@@ -2,9 +2,9 @@
 
 #include "realmmesh/cluster/budget_publisher.hpp"
 #include "realmmesh/cluster/service_resolver.hpp"
+#include "realmmesh/edge/edge_runtime.hpp"
 #include "realmmesh/game/common/edge_protocol.hpp"
 #include "realmmesh/game/gateway/gateway_login_pipeline.hpp"
-#include "realmmesh/game/gateway/gateway_runtime.hpp"
 #include "realmmesh/game/realm/realm_sessions.hpp"
 #include "realmmesh/observability/logger.hpp"
 
@@ -42,8 +42,8 @@ namespace {
 
 /// 入场拒绝的统一出口:未建立会话 decline,已建立会话回包后 close。
 void reject_enter_realm(
-    game::gateway::GatewayRuntime& runtime,
-    game::gateway::EdgeSessionId session_id,
+    edge::EdgeRuntime& runtime,
+    edge::EdgeConnectionId session_id,
     bool established,
     std::uint64_t request_id,
     int code,
@@ -68,7 +68,7 @@ void reject_enter_realm(
 /// redeem 不返回可信 claims)。
 void log_claim_mismatch(
     observability::Logger& logger,
-    game::gateway::EdgeSessionId session_id,
+    edge::EdgeConnectionId session_id,
     const game::common::SessionTicketClaims& claims) {
     static_cast<void>(logger.warn(
         "realm_enter_claim_mismatch",
@@ -132,20 +132,20 @@ bool ServiceFrame::ready() const noexcept {
     return gateway_ready_;
 }
 
-bool ServiceFrame::absorb_lifecycle(const game::gateway::GatewayEvent& event) {
-    if (event.kind == game::gateway::GatewayEventKind::SessionClosed) {
-        authenticated_.erase(event.session_id);
+bool ServiceFrame::absorb_lifecycle(const edge::EdgeEvent& event) {
+    if (event.kind == edge::EdgeEventKind::ConnectionClosed) {
+        authenticated_.erase(event.connection_id);
         if (realm_sessions_ != nullptr) {
-            realm_sessions_->closed(event.session_id);
+            realm_sessions_->closed(event.connection_id);
         }
         return false;
     }
-    return event.kind == game::gateway::GatewayEventKind::MessageReceived;
+    return event.kind == edge::EdgeEventKind::MessageReceived;
 }
 
 void ServiceFrame::started(
     observability::Logger& logger,
-    const game::gateway::GatewayRuntime& runtime) const {
+    const edge::EdgeRuntime& runtime) const {
     if (identity_ == cluster::ServiceType::Gateway) {
         for (const auto& endpoint : runtime.local_endpoints()) {
             static_cast<void>(logger.info(
@@ -171,7 +171,7 @@ void ServiceFrame::started(
 
 void ServiceFrame::tick(
     observability::Logger& logger,
-    game::gateway::GatewayRuntime& runtime,
+    edge::EdgeRuntime& runtime,
     cluster::ServiceResolver* resolver,
     cluster::InstanceBudgetReporter* budget_reporter) {
     if (!identity_.has_value()) {
@@ -194,7 +194,7 @@ void ServiceFrame::tick(
 
 void ServiceFrame::stopped(
     observability::Logger& logger,
-    const game::gateway::GatewayRuntime& runtime) const {
+    const edge::EdgeRuntime& runtime) const {
     if (!identity_.has_value()) return;
     if (identity_ == cluster::ServiceType::Gateway) {
         const auto stats = runtime.stats();
@@ -221,15 +221,15 @@ void ServiceFrame::stopped(
 
 void ServiceFrame::handle_realm_events(
     observability::Logger& logger,
-    game::gateway::GatewayRuntime& runtime,
+    edge::EdgeRuntime& runtime,
     cluster::InstanceBudgetReporter* budget_reporter) {
     for (auto& event : runtime.drain_events(max_events_per_frame_)) {
         // 连接计数先于其余分支:SessionOpened/SessionClosed 不产生业务
         // 事件,只增减活动连接数(#46 conn_free 快照的容量基准)。
-        if (event.kind == game::gateway::GatewayEventKind::SessionOpened) {
+        if (event.kind == edge::EdgeEventKind::ConnectionOpened) {
             ++realm_conn_active_;
         } else if (
-            event.kind == game::gateway::GatewayEventKind::SessionClosed) {
+            event.kind == edge::EdgeEventKind::ConnectionClosed) {
             if (realm_conn_active_ > 0) {
                 --realm_conn_active_;
             }
@@ -249,7 +249,7 @@ void ServiceFrame::handle_realm_events(
 
         const auto request_id =
             game::common::edge_request_id(event.payload).value_or(0);
-        const auto session = event.session_id;
+        const auto session = event.connection_id;
         // 未建立会话只受理 1304 直连入场(#46):其余消息一律按未认证
         // 拒绝。退役编号在解码层已不可识别,同样落到这里。
         if (!event.established) {
@@ -303,16 +303,16 @@ void ServiceFrame::handle_realm_events(
 
 void ServiceFrame::handle_enter_realm(
     observability::Logger& logger,
-    game::gateway::GatewayRuntime& runtime,
-    const game::gateway::GatewayEvent& event,
+    edge::EdgeRuntime& runtime,
+    const edge::EdgeEvent& event,
     const game::common::EnterRealm& request) {
     const auto request_id =
         game::common::edge_request_id(event.payload).value_or(0);
-    if (authenticated_.contains(event.session_id)) {
+    if (authenticated_.contains(event.connection_id)) {
         // 已入场会话重复提交:协议违例,终结会话(不兑换新票据)。
         reject_enter_realm(
             runtime,
-            event.session_id,
+            event.connection_id,
             event.established,
             request_id,
             game::common::edge_error_invalid_enter_realm_ticket,
@@ -330,20 +330,20 @@ void ServiceFrame::handle_enter_realm(
         redeemed.claims.realm_id != game::realm::RealmSessions::realm_id) {
         reject_enter_realm(
             runtime,
-            event.session_id,
+            event.connection_id,
             event.established,
             request_id,
             game::common::edge_error_invalid_enter_realm_ticket,
             "invalid enter realm ticket");
         if (ticket_valid) {
-            log_claim_mismatch(logger, event.session_id, redeemed.claims);
+            log_claim_mismatch(logger, event.connection_id, redeemed.claims);
         } else {
             static_cast<void>(logger.warn(
                 "realm_enter_rejected",
                 "enter realm ticket rejected",
                 {observability::field(
                      "session_id",
-                     event.session_id.value,
+                     event.connection_id.value,
                      observability::DataClass::Internal),
                  observability::field(
                      "redeem_status", static_cast<int>(redeemed.status))}));
@@ -351,17 +351,17 @@ void ServiceFrame::handle_enter_realm(
         return;
     }
 
-    authenticated_[event.session_id] = redeemed.claims;
+    authenticated_[event.connection_id] = redeemed.claims;
     game::common::EnterRealmAccepted accepted;
     accepted.set_account_id(redeemed.claims.account_id);
     const auto response = game::common::encode(accepted, request_id);
     if (event.established) {
-        static_cast<void>(runtime.try_send(event.session_id, response));
+        static_cast<void>(runtime.try_send(event.connection_id, response));
     } else {
-        static_cast<void>(runtime.try_accept(event.session_id, response));
+        static_cast<void>(runtime.try_accept(event.connection_id, response));
     }
     // 受理回包先于登记:同账号旧会话随后收到 1409 并被关闭。
-    realm_sessions_->enter(event.session_id, redeemed.claims.account_id);
+    realm_sessions_->enter(event.connection_id, redeemed.claims.account_id);
     static_cast<void>(logger.info(
         "player_session_established",
         "realm accepted direct entry",
@@ -374,7 +374,7 @@ void ServiceFrame::handle_enter_realm(
 
 void ServiceFrame::handle_gateway_events(
     observability::Logger& logger,
-    game::gateway::GatewayRuntime& runtime,
+    edge::EdgeRuntime& runtime,
     cluster::ServiceResolver* resolver,
     cluster::InstanceBudgetReporter* budget_reporter) {
     std::optional<game::gateway::RealmEndpoint> discovered_realm;
