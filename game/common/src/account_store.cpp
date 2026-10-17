@@ -12,7 +12,7 @@ namespace {
 
 // 统一使用 sol::lua_nil 而非 sol::nil:sol2 在 macOS 上会因 nil 宏已定义
 // (version.hpp)导致 sol::nil 在同一工程的不同翻译单元里时有时无。
-// 两者是同一个 lua_nil_t 值。与 gateway_config_loader.cpp 同一处理。
+// 两者是同一个 lua_nil_t 值。与 gateway_config_lua.cpp 同一处理。
 
 // 开发桩既有的派生规则:FNV-1a,零值回绕为 1(账号 id 不得为零)。
 [[nodiscard]] std::uint64_t derive_account_id(std::string_view account) {

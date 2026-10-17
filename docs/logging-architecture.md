@@ -459,7 +459,7 @@ Loki 大规模生产采用 distributed 模式和对象存储：
 
 - `framework/observability/`：日志门面、实现、schema、指标和测试 seam。
 - `third_party/` 与根 CMake：固定并校验日志依赖版本。
-- `game/gateway/src/gateway_config_loader.cpp`：解析 logging 配置。
+- `framework/service_host/src/service_config_lua.cpp`：解析 logging 配置（宿主级节段）。
 - `configs/`：分层服务日志配置（`common/logging.lua` 与 `services/*.lua`）。
 - `game/common/session_ticket.*`：票据 v2 和 `correlation_id`。
 - `apps/mesh_host/main.cpp`：初始化、上下文和调用点。

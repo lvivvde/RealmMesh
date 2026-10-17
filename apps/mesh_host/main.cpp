@@ -1,3 +1,4 @@
+#include "realmmesh/mesh_host/service_modules.hpp"
 #include "realmmesh/observability/logger.hpp"
 #include "realmmesh/scheduler/frame_scheduler.hpp"
 #include "realmmesh/service_host/mesh_host.hpp"
@@ -78,7 +79,10 @@ int main(int argc, char* argv[]) {
     }
 
     realm::service_host::MeshHost mesh(
-        options->config_root, std::move(specs), options->overrides);
+        options->config_root,
+        std::move(specs),
+        realm::mesh_host::game_service_modules(),
+        options->overrides);
     // 信号处理先于 start_all 安装,消除启动窗口内的非优雅终止。
     std::signal(SIGINT, handle_stop_signal);
     std::signal(SIGTERM, handle_stop_signal);

@@ -108,17 +108,13 @@ struct KnownInversion {
     std::string_view fix;
 };
 
-// 与 ADR-0014「四处倒挂的修法」一一对应;framework/cluster 的 ServiceType
-// 枚举不是 include/链接依赖，不在此列。
+// 与 ADR-0014「四处倒挂的修法」一一对应;第 4 步后 framework/cluster 的
+// ServiceType 已是开放字符串,LoginVerify 与 Queue 模块已迁入各自服务目录。
 constexpr std::array known_inversions{
     KnownInversion{"framework/service_host", "game/common",
-                   "第 4、5 步:ServiceModule 与模块注册"},
+                   "第 5 步：随 Gateway/Realm 帧迁出"},
     KnownInversion{"framework/service_host", "game/gateway",
                    "第 5 步：迁 Gateway 模块"},
-    KnownInversion{"framework/service_host", "game/login_verify",
-                   "第 4 步：迁 LoginVerify 模块"},
-    KnownInversion{"framework/service_host", "game/queue",
-                   "第 4 步：迁 Queue 模块"},
     KnownInversion{"framework/service_host", "game/realm",
                    "第 5 步：迁 Realm 模块"},
 };

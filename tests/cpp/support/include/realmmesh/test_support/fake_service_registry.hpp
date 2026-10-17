@@ -24,10 +24,10 @@ public:
         cluster::RegistrationId registration_id) override;
 
     [[nodiscard]] std::vector<cluster::ServiceInstance> discover(
-        cluster::ServiceType type) const override;
+        const cluster::ServiceType& type) const override;
 
     [[nodiscard]] cluster::WatchId watch(
-        cluster::ServiceType type,
+        const cluster::ServiceType& type,
         cluster::ServiceEventHandler handler) override;
     [[nodiscard]] bool cancel_watch(cluster::WatchId watch_id) override;
 
@@ -60,7 +60,7 @@ private:
     [[nodiscard]] bool remove_registration(
         cluster::RegistrationId registration_id);
     [[nodiscard]] std::vector<cluster::ServiceEventHandler> handlers_for_locked(
-        cluster::ServiceType type) const;
+        const cluster::ServiceType& type) const;
 
     mutable std::mutex mutex_;
     cluster::RegistrationId next_registration_id_{1};

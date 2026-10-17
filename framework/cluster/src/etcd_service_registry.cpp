@@ -17,18 +17,13 @@
 
 namespace realm::cluster {
 
-std::string_view service_type_name(ServiceType type) {
-    switch (type) {
-    case ServiceType::Gateway:
-        return "gateway";
-    case ServiceType::Realm:
-        return "realm";
-    case ServiceType::LoginVerify:
-        return "login_verify";
-    case ServiceType::Queue:
-        return "queue";
-    }
-    throw std::invalid_argument("unknown service type");
+bool is_valid_service_type(std::string_view type) noexcept {
+    return !type.empty() &&
+           std::ranges::all_of(type, [](unsigned char character) {
+               return (character >= 'a' && character <= 'z') ||
+                      (character >= '0' && character <= '9') ||
+                      character == '_';
+           });
 }
 
 namespace {
@@ -147,14 +142,6 @@ std::optional<std::string> base64_decode(std::string_view input) {
     return output;
 }
 
-std::optional<ServiceType> parse_service_type(std::string_view value) {
-    if (value == "gateway") return ServiceType::Gateway;
-    if (value == "realm") return ServiceType::Realm;
-    if (value == "login_verify") return ServiceType::LoginVerify;
-    if (value == "queue") return ServiceType::Queue;
-    return std::nullopt;
-}
-
 Json encode_instance(const ServiceInstance& instance) {
     Json endpoints = Json::array();
     for (const auto& endpoint : instance.endpoints) {
@@ -166,7 +153,7 @@ Json encode_instance(const ServiceInstance& instance) {
         });
     }
     return {
-        {"type", service_type_name(instance.type)},
+        {"type", instance.type},
         {"instance_id", instance.instance_id},
         {"node_id", instance.node_id},
         {"zone", instance.zone},
@@ -185,11 +172,10 @@ std::optional<network::TransportProtocol> parse_protocol(
 
 std::optional<ServiceInstance> decode_instance(const Json& value) {
     try {
-        const auto type =
-            parse_service_type(value.at("type").get<std::string>());
-        if (!type.has_value()) return std::nullopt;
+        auto type = value.at("type").get<std::string>();
+        if (!is_valid_service_type(type)) return std::nullopt;
         ServiceInstance instance{
-            .type = *type,
+            .type = std::move(type),
             .instance_id = value.at("instance_id").get<std::string>(),
             .node_id = value.at("node_id").get<std::string>(),
             .zone = value.at("zone").get<std::string>(),
@@ -232,6 +218,7 @@ std::optional<std::int64_t> json_integer(const Json& value) {
 }
 
 bool valid_instance(const ServiceInstance& instance) {
+    if (!is_valid_service_type(instance.type)) return false;
     if (instance.instance_id.empty() || instance.node_id.empty() ||
         instance.zone.empty() || instance.endpoints.empty()) {
         return false;
@@ -459,12 +446,12 @@ public:
         return revoke_lease(lease_id);
     }
 
-    std::vector<ServiceInstance> discover(ServiceType type) const {
+    std::vector<ServiceInstance> discover(const ServiceType& type) const {
         const auto result = try_discover(type);
         return result.value_or(std::vector<ServiceInstance>{});
     }
 
-    WatchId watch(ServiceType type, ServiceEventHandler handler) {
+    WatchId watch(const ServiceType& type, ServiceEventHandler handler) {
         if (!handler) return invalid_watch_id;
         const auto initial = try_discover(type);
         WatchId id = invalid_watch_id;
@@ -506,7 +493,7 @@ public:
         }
 
         for (const auto id : watch_ids) {
-            ServiceType type{};
+            ServiceType type;
             {
                 const std::scoped_lock lock(mutex_);
                 const auto found = watches_.find(id);
@@ -582,9 +569,8 @@ private:
         return std::max(std::chrono::seconds(1), ttl / 3);
     }
 
-    std::string type_prefix(ServiceType type) const {
-        return options_.key_prefix + "/" +
-               std::string(service_type_name(type)) + "/";
+    std::string type_prefix(const ServiceType& type) const {
+        return options_.key_prefix + "/" + type + "/";
     }
 
     std::string instance_key(const ServiceInstance& instance) const {
@@ -634,7 +620,7 @@ private:
     }
 
     std::optional<std::vector<ServiceInstance>> try_discover(
-        ServiceType type) const {
+        const ServiceType& type) const {
         const auto prefix = type_prefix(type);
         Json response;
         if (!call(
@@ -744,12 +730,12 @@ bool EtcdServiceRegistry::unregister_instance(RegistrationId registration_id) {
 }
 
 std::vector<ServiceInstance> EtcdServiceRegistry::discover(
-    ServiceType type) const {
+    const ServiceType& type) const {
     return impl_->discover(type);
 }
 
 WatchId EtcdServiceRegistry::watch(
-    ServiceType type, ServiceEventHandler handler) {
+    const ServiceType& type, ServiceEventHandler handler) {
     return impl_->watch(type, std::move(handler));
 }
 

@@ -4,6 +4,7 @@
 #include "realmmesh/network/tcp/tcp_listener.hpp"
 #include "realmmesh/test_support/mongod_process.hpp"
 #include "realmmesh/test_support/temporary_directory.hpp"
+#include "test_service_modules.hpp"
 
 #include <gtest/gtest.h>
 
@@ -217,7 +218,8 @@ TEST(Mode2Test, RetiredLoginServiceFailsAtStartup) {
     // 也不会打开任何监听端口。
     MeshHost mesh(
         scratch.path(),
-        {{"login", {}, false}, {"realm", {"login"}, false}});
+        {{"login", {}, false}, {"realm", {"login"}, false}},
+        mesh_host::game_service_modules());
     EXPECT_FALSE(mesh.start_all());
     EXPECT_THROW(static_cast<void>(mesh.service("realm")), std::out_of_range);
 }
@@ -245,16 +247,17 @@ TEST(Mode2Test, SingleServiceMeshStartsAndRuns) {
     MeshHost mesh(
         scratch.path(),
         MeshHost::narrow_single_service(full_topology(), "realm"),
+        mesh_host::game_service_modules(),
         overrides);
     ASSERT_TRUE(mesh.start_all());
     EXPECT_TRUE(mesh.entry_ready());
-    EXPECT_TRUE(mesh.service("realm").runtime().running());
+    EXPECT_TRUE(test_modules::edge_runtime(mesh.service("realm")).running());
     EXPECT_NE(
         mesh.service("realm").prometheus_metrics().find(
             "service_instance=\"realm-mode2-77\""),
         std::string::npos);
     mesh.shutdown();
-    EXPECT_FALSE(mesh.service("realm").runtime().running());
+    EXPECT_FALSE(test_modules::edge_runtime(mesh.service("realm")).running());
 }
 
 TEST(Mode2Test, GatewayDoesNotStartWithoutRealm) {
@@ -266,7 +269,8 @@ TEST(Mode2Test, GatewayDoesNotStartWithoutRealm) {
 
     MeshHost mesh(
         scratch.path(),
-        MeshHost::narrow_single_service(full_topology(), "gateway"));
+        MeshHost::narrow_single_service(full_topology(), "gateway"),
+        mesh_host::game_service_modules());
     EXPECT_FALSE(mesh.start_all());
     EXPECT_THROW(static_cast<void>(mesh.service("gateway")), std::out_of_range);
 }
@@ -281,7 +285,8 @@ TEST(Mode2Test, GatewayStartsAfterFallbackDependenciesAreReachable) {
 
     MeshHost mesh(
         scratch.path(),
-        MeshHost::narrow_single_service(full_topology(), "gateway"));
+        MeshHost::narrow_single_service(full_topology(), "gateway"),
+        mesh_host::game_service_modules());
     ASSERT_TRUE(mesh.start_all());
     EXPECT_TRUE(mesh.entry_ready());
     mesh.shutdown();

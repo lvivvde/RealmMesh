@@ -1,6 +1,5 @@
 #pragma once
 
-#include "realmmesh/cluster/service_registry.hpp"
 #include "realmmesh/edge/edge_connection_table.hpp"
 #include "realmmesh/game/common/edge_protocol.hpp"
 #include "realmmesh/game/common/session_ticket.hpp"
@@ -36,13 +35,9 @@ class Logger;
 
 namespace realm::service_host {
 
-/// 服务名 → 集群身份的唯一映射;gateway/realm/login_verify/queue 之外
-/// 的名字无身份。
-[[nodiscard]] std::optional<cluster::ServiceType> parse_service_identity(
-    std::string_view service_name);
-
-/// 单服务业务帧:承载 Realm 与 Gateway 的边协议消息循环。构造时把服务名
-/// 解析为身份;无身份的服务名不处理业务消息(帧循环空转)。
+/// 单服务业务帧:承载 Realm 与 Gateway 的边协议消息循环。服务名只接受
+/// gateway 与 realm,其余名字构造抛 std::invalid_argument(过渡形态,
+/// ADR-0014 第 5 步随两者迁入各自服务目录)。
 /// Realm 要求 REALMMESH_SESSION_TICKET_KEY 已设置(缺失时构造抛
 /// std::runtime_error),且必须注入 RealmSessions(缺失时构造抛
 /// std::invalid_argument)。ServiceFrame 只做分发:兑换 EnterRealm 票据、
@@ -109,9 +104,11 @@ private:
         cluster::ServiceResolver* resolver,
         cluster::InstanceBudgetReporter* budget_reporter);
 
+    enum class Role { Gateway, Realm };
+
     std::string service_name_;
     std::size_t max_events_per_frame_{0};
-    std::optional<cluster::ServiceType> identity_;
+    Role role_;
     game::common::SessionTickets tickets_;
     /// 票据 claims 以 EdgeConnectionId 寻址:Realm 的入场兑换分支先写入,
     /// accept 成功(SessionEstablished)后生效,SessionClosed 时清除。
@@ -124,8 +121,8 @@ private:
     /// 由该实例拥有。ServiceFrame 不拥有其生命周期。
     game::gateway::GatewayLoginPipeline* gateway_login_pipeline_{nullptr};
 
-    /// Realm Session 表与选角、训练处理;Realm 身份下非空(构造期校验),
-    /// 其余身份不使用。ServiceFrame 不拥有其生命周期。
+    /// Realm Session 表与选角、训练处理;Realm 角色下非空(构造期校验),
+    /// Gateway 不使用。ServiceFrame 不拥有其生命周期。
     game::realm::RealmSessions* realm_sessions_{nullptr};
 
     /// realm 连接额度簿记(#46):conn_capacity 为启用传输 max_sessions

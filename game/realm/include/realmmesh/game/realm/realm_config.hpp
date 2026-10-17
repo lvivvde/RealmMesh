@@ -6,8 +6,8 @@
 
 namespace realm::game::realm {
 
-/// Realm 专属配置节(根表 `realm`);宿主级节段仍由
-/// parse_gateway_config 承载。
+/// Realm 专属配置节(根表 `realm`);宿主级节段由宿主分层装载解析为
+/// HostConfig(ADR-0014)。
 struct RealmConfig {
     /// 训练规则脚本;相对路径由分层加载器按 config_root 解析。必填。
     std::filesystem::path training_rule_file;

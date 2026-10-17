@@ -4,6 +4,7 @@
 #include "realmmesh/loadgen/login_chain_metrics.hpp"
 #include "realmmesh/loadgen/metrics_scrape.hpp"
 #include "realmmesh/network/tcp/tcp_listener.hpp"
+#include "realmmesh/mesh_host/service_modules.hpp"
 #include "realmmesh/service_host/mesh_host.hpp"
 #include "realmmesh/cluster/etcd_service_registry.hpp"
 #include "realmmesh/game/common/admission_grant.hpp"
@@ -738,7 +739,8 @@ TEST(LoadgenIntegrationTest, L1VerifyDirectsTrafficAndCountersAgree) {
 
     service_host::MeshHost mesh(
         scratch.path(),
-        {{"login_verify", {}, false}});
+        {{"login_verify", {}, false}},
+        mesh_host::game_service_modules());
     ASSERT_TRUE(mesh.start_all());
     const TickDriver driver(mesh);
 
@@ -787,7 +789,8 @@ TEST(LoadgenIntegrationTest, L1TicketsIssueTokensAllValidate) {
 
     service_host::MeshHost mesh(
         scratch.path(),
-        {{"login_verify", {}, false}, {"queue", {}, false}});
+        {{"login_verify", {}, false}, {"queue", {}, false}},
+        mesh_host::game_service_modules());
     ASSERT_TRUE(mesh.start_all());
     const TickDriver driver(mesh);
 
@@ -882,7 +885,8 @@ TEST(LoadgenIntegrationTest, L1GatewaySoakHoldsWaterLevelWithoutFdLeak) {
         scratch.path(),
         {{"login_verify", {}, false},
          {"queue", {}, false},
-         {"gateway", {"login_verify"}, true}});
+         {"gateway", {"login_verify"}, true}},
+        mesh_host::game_service_modules());
     ASSERT_TRUE(mesh.start_all());
     // 水位采样挂在 tick 线程上:每次 advance() 发布后取一次快照,不会像
     // 独立定时线程那样在慢机器上整段错过阶段重叠。基线跑与主跑都采样,
@@ -1103,7 +1107,8 @@ TEST(LoadgenIntegrationTest, AdapterAndDecoratorDriveRealGatewayChain) {
         scratch.path(),
         {{"login_verify", {}, false},
          {"queue", {}, false},
-         {"gateway", {"login_verify"}, true}});
+         {"gateway", {"login_verify"}, true}},
+        mesh_host::game_service_modules());
     ASSERT_TRUE(mesh.start_all());
     const TickDriver driver(mesh);
 
@@ -1163,7 +1168,8 @@ TEST(LoadgenIntegrationTest, FullTargetRedeemsRealmSession) {
         {{"login_verify", {}, false},
          {"queue", {}, false},
          {"realm", {}, false},
-         {"gateway", {"login_verify", "realm"}, true}});
+         {"gateway", {"login_verify", "realm"}, true}},
+        mesh_host::game_service_modules());
     ASSERT_TRUE(mesh.start_all());
     const TickDriver driver(mesh);
 
@@ -1232,7 +1238,8 @@ TEST(LoadgenIntegrationTest, GatewayReadinessRecoversAfterEtcdOutage) {
         {{"login_verify", {}, false},
          {"queue", {}, false},
          {"realm", {}, false},
-         {"gateway", {"login_verify", "realm"}, true}});
+         {"gateway", {"login_verify", "realm"}, true}},
+        mesh_host::game_service_modules());
     ASSERT_TRUE(mesh.start_all());
     const TickDriver driver(mesh);
     ASSERT_TRUE(mesh.service("gateway").ready());
@@ -1297,7 +1304,8 @@ TEST(LoadgenIntegrationTest, M2ReducedChainCompletesWithLowFetchFailure) {
         scratch.path(),
         {{"login_verify", {}, false},
          {"queue", {}, false},
-         {"gateway", {"login_verify"}, true}});
+         {"gateway", {"login_verify"}, true}},
+        mesh_host::game_service_modules());
     ASSERT_TRUE(mesh.start_all());
     const TickDriver driver(mesh);
 
@@ -1400,7 +1408,8 @@ TEST(LoadgenIntegrationTest, M3SmokeTenThousandTicketsAndConcurrentPolls) {
 
     service_host::MeshHost mesh(
         scratch.path(),
-        {{"login_verify", {}, false}, {"queue", {}, false}});
+        {{"login_verify", {}, false}, {"queue", {}, false}},
+        mesh_host::game_service_modules());
     ASSERT_TRUE(mesh.start_all());
     const TickDriver driver(mesh);
 
@@ -1491,7 +1500,8 @@ TEST(LoadgenIntegrationTest, SuccessfulGatewayDialTimeIsExcludedFromAttach) {
         scratch.path(),
         {{"login_verify", {}, false},
          {"queue", {}, false},
-         {"gateway", {"login_verify"}, true}});
+         {"gateway", {"login_verify"}, true}},
+        mesh_host::game_service_modules());
     ASSERT_TRUE(mesh.start_all());
     const TickDriver driver(mesh);
     constexpr auto dial_delay = std::chrono::milliseconds{2000};
@@ -1535,7 +1545,8 @@ TEST(LoadgenIntegrationTest, GatewayDialFailureIsChargedToAttach) {
 
     service_host::MeshHost mesh(
         scratch.path(),
-        {{"login_verify", {}, false}, {"queue", {}, false}});
+        {{"login_verify", {}, false}, {"queue", {}, false}},
+        mesh_host::game_service_modules());
     ASSERT_TRUE(mesh.start_all());
     const TickDriver driver(mesh);
 

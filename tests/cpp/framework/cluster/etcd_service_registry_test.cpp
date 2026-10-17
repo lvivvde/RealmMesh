@@ -99,7 +99,7 @@ EtcdRegistryOptions test_options() {
 
 ServiceInstance gateway_instance() {
     return {
-        .type = ServiceType::Gateway,
+        .type = "gateway",
         .instance_id = "gateway-01",
         .node_id = "node-01",
         .zone = "development",
@@ -210,7 +210,59 @@ TEST(EtcdServiceRegistryTest, DiscoversAndDecodesMultiProtocolEndpoints) {
     EtcdServiceRegistry registry(test_options(), http);
 
     EXPECT_EQ(
-        registry.discover(ServiceType::Gateway),
+        registry.discover("gateway"),
+        std::vector<ServiceInstance>{gateway_instance()});
+    EXPECT_TRUE(http->complete());
+}
+
+/// 非法 service type 的实例不进 etcd:登记直接拒绝，不申请租约。
+TEST(EtcdServiceRegistryTest, RejectsInvalidServiceTypeWithoutEtcdRequest) {
+    auto http = std::make_shared<ScriptedEtcdHttpClient>(
+        std::vector<ScriptedEtcdHttpClient::Step>{});
+    EtcdServiceRegistry registry(test_options(), http);
+    auto instance = gateway_instance();
+    instance.type = "Gateway";
+
+    const auto result =
+        registry.register_instance(instance, std::chrono::seconds(9));
+
+    EXPECT_EQ(result.status, RegistryStatus::InvalidArgument);
+    EXPECT_TRUE(http->requests().empty());
+}
+
+/// 发现时 type 字段非法的记录按损坏条目丢弃，其余记录照常解码。
+TEST(EtcdServiceRegistryTest, DiscoverDropsRecordsWithInvalidServiceType) {
+    using Step = ScriptedEtcdHttpClient::Step;
+    const auto invalid_value = base64(Json({
+                                               {"type", "Gateway!"},
+                                               {"instance_id", "gateway-02"},
+                                               {"node_id", "node-01"},
+                                               {"zone", "development"},
+                                               {"endpoints",
+                                                Json::array({{
+                                                    {"name", "client_tls_tcp"},
+                                                    {"protocol", "tls_tcp"},
+                                                    {"address", "127.0.0.1"},
+                                                    {"port", 8001},
+                                                }})},
+                                           })
+                                          .dump());
+    const auto response =
+        Json({
+                 {"kvs",
+                  Json::array({
+                      {{"value", invalid_value}},
+                      {{"value", encoded_gateway_value()}},
+                  })},
+             })
+            .dump();
+    auto http = std::make_shared<ScriptedEtcdHttpClient>(std::vector<Step>{
+        {"/v3/kv/range", response, {}},
+    });
+    EtcdServiceRegistry registry(test_options(), http);
+
+    EXPECT_EQ(
+        registry.discover("gateway"),
         std::vector<ServiceInstance>{gateway_instance()});
     EXPECT_TRUE(http->complete());
 }
@@ -230,7 +282,7 @@ TEST(EtcdServiceRegistryTest, PublishesSnapshotChangesToWatchers) {
     EtcdServiceRegistry registry(test_options(), http);
     std::vector<ServiceEvent> events;
     const auto watch = registry.watch(
-        ServiceType::Gateway, [&events](const ServiceEvent& event) {
+        "gateway", [&events](const ServiceEvent& event) {
             events.push_back(event);
         });
 

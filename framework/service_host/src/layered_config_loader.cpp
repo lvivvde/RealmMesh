@@ -1,12 +1,8 @@
 #include "realmmesh/service_host/layered_config_loader.hpp"
 
-#include "realmmesh/game/common/player_data_config.hpp"
-#include "realmmesh/game/gateway/gateway_config_lua.hpp"
-#include "realmmesh/game/login_verify/login_verify_config_lua.hpp"
-#include "realmmesh/game/queue/queue_config_lua.hpp"
-#include "realmmesh/game/realm/realm_config_lua.hpp"
 #include "realmmesh/scripting/lua_runtime.hpp"
-
+#include "realmmesh/service_host/layered_config_lua.hpp"
+#include "service_config_lua.hpp"
 #include <algorithm>
 #include <filesystem>
 #include <stdexcept>
@@ -97,7 +93,7 @@ struct MergedLayers {
 
 /// 公共装载管线(出参形式,避免移动持 Lua 态的对象):服务层 + 公共层
 /// 深合并(公共层先互并,服务层最后并入,服务层值胜)、CLI 覆盖、实例
-/// 身份与日志身份注入。parse 前置工作全在这里,各 load_* 只剩解析分派。
+/// 身份与日志身份注入。parse 前置工作全在这里。
 void merged_layers(
     MergedLayers& layers,
     const std::filesystem::path& config_root,
@@ -169,89 +165,65 @@ void merged_layers(
 
 }  // namespace
 
-game::gateway::GatewayConfig LayeredConfigLoader::load(
-    const std::filesystem::path& config_root,
-    std::string_view service_name,
-    const CliOverrides& overrides) {
+struct LayeredConfig::State {
+    std::filesystem::path config_root;
+    std::string service_name;
     MergedLayers layers;
-    merged_layers(layers, config_root, service_name, overrides);
+    HostConfig host;
+    edge::EdgeConfig edge;
+};
 
-    // parse 要求 transports 为表(可为空):未配置时补空表。
-    call_merger<sol::table>(
-        layers.runtime, "ensure_table", layers.root, "transports");
-
-    auto config = game::gateway::parse_gateway_config(layers.root);
-    game::common::resolve_player_data_paths(config.player_data, config_root);
-    return config;
-}
-
-LayeredConfigLoader::LoginVerifyServiceConfig
-LayeredConfigLoader::load_login_verify(
-    const std::filesystem::path& config_root,
-    std::string_view service_name,
-    const CliOverrides& overrides) {
-    MergedLayers layers;
-    merged_layers(layers, config_root, service_name, overrides);
-
-    LoginVerifyServiceConfig config;
-    // 宿主级节段经由既有解析器(logging/service_discovery/metrics);
-    // parse 要求 transports 为表(可为空):未配置时补空表。
-    call_merger<sol::table>(
-        layers.runtime, "ensure_table", layers.root, "transports");
-    config.host = game::gateway::parse_gateway_config(layers.root);
-    config.login_verify =
-        game::login_verify::parse_login_verify_config(layers.root);
-
-    if (config.login_verify.accounts_file.is_relative()) {
-        config.login_verify.accounts_file =
-            config_root / config.login_verify.accounts_file;
+struct detail::LayeredConfigAccess {
+    [[nodiscard]] static const sol::table& root(const LayeredConfig& config) {
+        return config.state_->layers.root;
     }
-    game::common::resolve_player_data_paths(
-        config.login_verify.player_data, config_root);
-    game::common::resolve_player_data_paths(
-        config.host.player_data, config_root);
-    return config;
+};
+
+LayeredConfig::LayeredConfig(std::unique_ptr<State> state)
+    : state_(std::move(state)) {}
+LayeredConfig::LayeredConfig(LayeredConfig&&) noexcept = default;
+LayeredConfig& LayeredConfig::operator=(LayeredConfig&&) noexcept = default;
+LayeredConfig::~LayeredConfig() = default;
+
+const std::filesystem::path& LayeredConfig::config_root() const noexcept {
+    return state_->config_root;
 }
 
-LayeredConfigLoader::QueueServiceConfig
-LayeredConfigLoader::load_queue(
+const std::string& LayeredConfig::service_name() const noexcept {
+    return state_->service_name;
+}
+
+const HostConfig& LayeredConfig::host() const noexcept { return state_->host; }
+
+const edge::EdgeConfig& LayeredConfig::edge() const noexcept {
+    return state_->edge;
+}
+
+std::filesystem::path LayeredConfig::resolve_path(
+    const std::filesystem::path& path) const {
+    return path.is_relative() ? state_->config_root / path : path;
+}
+
+const sol::table& lua_root(const LayeredConfig& config) {
+    return detail::LayeredConfigAccess::root(config);
+}
+
+LayeredConfig LayeredConfigLoader::load(
     const std::filesystem::path& config_root,
     std::string_view service_name,
     const CliOverrides& overrides) {
-    MergedLayers layers;
-    merged_layers(layers, config_root, service_name, overrides);
+    auto state = std::make_unique<LayeredConfig::State>();
+    state->config_root = config_root;
+    state->service_name = std::string(service_name);
+    merged_layers(state->layers, config_root, service_name, overrides);
 
-    QueueServiceConfig config;
-    // 宿主级节段经由既有解析器(logging/service_discovery/metrics);
-    // parse 要求 transports 为表(可为空):未配置时补空表。
+    // 接入面解析要求 transports 为表(可为空):未配置时补空表。
     call_merger<sol::table>(
-        layers.runtime, "ensure_table", layers.root, "transports");
-    config.host = game::gateway::parse_gateway_config(layers.root);
-    game::common::resolve_player_data_paths(
-        config.host.player_data, config_root);
-    config.queue = game::queue::parse_queue_config(layers.root);
-    return config;
-}
+        state->layers.runtime, "ensure_table", state->layers.root, "transports");
 
-LayeredConfigLoader::RealmServiceConfig LayeredConfigLoader::load_realm(
-    const std::filesystem::path& config_root,
-    std::string_view service_name,
-    const CliOverrides& overrides) {
-    MergedLayers layers;
-    merged_layers(layers, config_root, service_name, overrides);
-
-    RealmServiceConfig config;
-    call_merger<sol::table>(
-        layers.runtime, "ensure_table", layers.root, "transports");
-    config.host = game::gateway::parse_gateway_config(layers.root);
-    game::common::resolve_player_data_paths(
-        config.host.player_data, config_root);
-    config.realm = game::realm::parse_realm_config(layers.root);
-    if (config.realm.training_rule_file.is_relative()) {
-        config.realm.training_rule_file =
-            config_root / config.realm.training_rule_file;
-    }
-    return config;
+    state->host = parse_host_config(state->layers.root);
+    state->edge = parse_edge_config(state->layers.root);
+    return LayeredConfig(std::move(state));
 }
 
 }  // namespace realm::service_host

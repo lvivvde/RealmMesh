@@ -1,9 +1,8 @@
 realm_add_gtest(gateway_server_test
     SOURCES gateway_server_test.cpp
     INCLUDE_DIRS ${PROJECT_SOURCE_DIR}/tests/cpp/support/include
-    # realm_service_host 公开依赖 realm_gateway_service,后者提供
-    # GatewayConfigLoader::load(只返回配置值,不带 Lua 头);只列前者可避免
-    # 同一静态库在链接行重复出现。
+    # 分层装载与 gateway 节段解析(load_gateway_config)都只返回配置值,
+    # 不带 Lua 头;realm_service_host 公开依赖 realm_gateway_service。
     LIBS realm_service_host
     DEFINITIONS
         REALMMESH_TEST_SOURCE_DIR="${PROJECT_SOURCE_DIR}"

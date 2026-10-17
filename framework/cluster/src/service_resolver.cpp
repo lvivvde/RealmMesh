@@ -9,7 +9,7 @@ ServiceResolver::ServiceResolver(
     ServiceType service_type,
     network::TransportProtocol protocol)
     : registry_(registry),
-      service_type_(service_type),
+      service_type_(std::move(service_type)),
       protocol_(protocol) {
     watch_id_ =
         registry_.watch(service_type_, [this](const ServiceEvent& event) {

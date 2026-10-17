@@ -11,14 +11,13 @@
 
 namespace realm::cluster {
 
-/// 服务身份。线名(注册 KV、额度路径、拓扑配置)是它的线上标识,已退役
-/// 的线名永不复用;枚举数值不上线。
-enum class ServiceType : std::uint8_t {
-    Gateway,
-    Realm,
-    LoginVerify,
-    Queue,
-};
+/// 服务身份:即服务名(注册 KV、额度路径、拓扑配置共用的线名)。
+/// framework 不枚举具体身份,权威列表是组合根的模块注册表
+/// (ADR-0014);已退役的线名永不复用。
+using ServiceType = std::string;
+
+/// 合法身份:非空,只含小写字母、数字与下划线(可直接作 etcd key 段)。
+[[nodiscard]] bool is_valid_service_type(std::string_view type) noexcept;
 
 struct ServiceInstance {
     ServiceType type;
@@ -65,10 +64,6 @@ struct ServiceEvent {
 
 using ServiceEventHandler = std::function<void(const ServiceEvent&)>;
 
-/// 服务类型的 etcd key 段名(注册 key 与额度 key 共用);未知类型抛
-/// std::invalid_argument。
-[[nodiscard]] std::string_view service_type_name(ServiceType type);
-
 class IServiceRegistry {
 public:
     virtual ~IServiceRegistry() = default;
@@ -91,10 +86,10 @@ public:
         std::string_view value) = 0;
 
     [[nodiscard]] virtual std::vector<ServiceInstance> discover(
-        ServiceType type) const = 0;
+        const ServiceType& type) const = 0;
 
     [[nodiscard]] virtual WatchId watch(
-        ServiceType type, ServiceEventHandler handler) = 0;
+        const ServiceType& type, ServiceEventHandler handler) = 0;
     [[nodiscard]] virtual bool cancel_watch(WatchId watch_id) = 0;
 };
 

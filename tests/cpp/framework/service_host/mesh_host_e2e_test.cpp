@@ -4,6 +4,7 @@
 #include "realmmesh/network/tcp/tcp_listener.hpp"
 #include "realmmesh/test_support/mongod_process.hpp"
 #include "realmmesh/test_support/temporary_directory.hpp"
+#include "test_service_modules.hpp"
 
 #include <gtest/gtest.h>
 
@@ -230,7 +231,7 @@ TEST(MeshHostE2ETest, AllInOneStartsAndStopsCleanly) {
         {"realm", {}, false},
         {"gateway", {"realm"}, true},
     };
-    MeshHost mesh(scratch.path(), specs);
+    MeshHost mesh(scratch.path(), specs, mesh_host::game_service_modules());
     ASSERT_TRUE(mesh.start_all());
     EXPECT_TRUE(mesh.entry_ready());
     // 依赖服务端口可连:realm 的监听端口 TCP 探活成功。
@@ -259,7 +260,7 @@ TEST(MeshHostE2ETest, AllInOneStartsAndStopsCleanly) {
         std::string::npos);
 
     mesh.shutdown();
-    EXPECT_FALSE(mesh.service("realm").runtime().running());
+    EXPECT_FALSE(test_modules::edge_runtime(mesh.service("realm")).running());
 }
 
 }  // namespace

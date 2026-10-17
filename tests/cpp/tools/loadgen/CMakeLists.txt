@@ -19,6 +19,7 @@ realm_add_gtest(loadgen_integration_test
     SOURCES loadgen_integration_test.cpp
     LIBS realmmesh_test_mongodb
         realm_loadgen_core
+        realm_mesh_modules
         realm_service_host
         httplib::httplib
         nlohmann_json::nlohmann_json

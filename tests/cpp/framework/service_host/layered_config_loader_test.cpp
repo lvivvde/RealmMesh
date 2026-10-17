@@ -1,5 +1,6 @@
 #include "realmmesh/service_host/layered_config_loader.hpp"
 #include "realmmesh/observability/logger.hpp"
+#include "realmmesh/service_host/frame_service_modules.hpp"
 
 #include <gtest/gtest.h>
 
@@ -64,32 +65,40 @@ protected:
         std::ofstream output(path);
         output << text;
     }
+    /// 宿主层 + realm 帧节段(tick_rate、player_data)一并装载。
+    [[nodiscard]] game::gateway::GatewayConfig load_frame(
+        const CliOverrides& overrides = {}) const {
+        return load_gateway_config(
+            LayeredConfigLoader::load(root_, "realm", overrides));
+    }
 };
 
-/// 扁平加载路径(LayeredConfigLoader::load)的服务名用 realm:login_verify
-/// 与 queue 走各自的 load_* 重载,拿它们做 fixture 会读成同一路径。
+/// 宿主层节段经 LayeredConfig::host() 读取;服务专属节段(此处借 realm 的
+/// tick_rate)由模块装载入口从同一合并根表解析。
 TEST_F(LayeredConfigTest, ServiceLayerOverridesCommon) {
     write(
         root_ / "services" / "realm.lua",
         "return { logging = { level = \"debug\" }, tick_rate = 30 }");
-    const auto config = LayeredConfigLoader::load(root_, "realm");
+    const auto layered = LayeredConfigLoader::load(root_, "realm");
+    EXPECT_EQ(layered.service_name(), "realm");
     EXPECT_EQ(
-        config.logging.min_severity,
+        layered.host().logging.min_severity,
         observability::Severity::Debug);  // 服务层覆盖
     EXPECT_EQ(
-        config.service_discovery.lease_ttl,
+        layered.host().service_discovery.lease_ttl,
         std::chrono::seconds(9));  // 公共层保留
-    EXPECT_EQ(config.tick_rate, std::uint32_t{30});
+    EXPECT_EQ(load_gateway_config(layered).tick_rate, std::uint32_t{30});
 }
 
 TEST_F(LayeredConfigTest, CliOverridesInstanceIdentity) {
     write(
         root_ / "services" / "realm.lua",
         "return { service_discovery = { instance_id = \"file-id\", node_id = \"file-node\" } }");
-    const auto config = LayeredConfigLoader::load(
+    const auto layered = LayeredConfigLoader::load(
         root_,
         "realm",
         CliOverrides{.instance_id = "cli-id", .node_id = "cli-node"});
+    const auto& config = layered.host();
     EXPECT_EQ(config.service_discovery.instance_id, "cli-id");
     EXPECT_EQ(config.service_discovery.node_id, "cli-node");
     /// file_path 按实例生成:<root>/logs/realm/realm-cli-id.jsonl
@@ -109,7 +118,7 @@ TEST_F(LayeredConfigTest, ParsesSharedPlayerDataDeployment) {
         "credential_hash_cost = \"minimum\" } }");
     write(root_ / "services" / "realm.lua", "return {}");
 
-    const auto config = LayeredConfigLoader::load(root_, "realm");
+    const auto config = load_frame();
 
     EXPECT_EQ(
         config.player_data.uri, "mongodb://127.0.0.1:27017/?replicaSet=rs0");
@@ -136,7 +145,7 @@ TEST_F(LayeredConfigTest, RequiresDatabaseWhenUriIsSet) {
     write(root_ / "services" / "realm.lua", "return {}");
 
     EXPECT_THROW(
-        static_cast<void>(LayeredConfigLoader::load(root_, "realm")),
+        static_cast<void>(load_frame()),
         std::invalid_argument);
 }
 
@@ -147,7 +156,7 @@ TEST_F(LayeredConfigTest, PrivatePlayerDataUriOverridesDefaultWithoutLuaOsAccess
           "return { player_data = { uri = 'mongodb://127.0.0.1:27017/', "
           "uri_environment = 'REALMMESH_TEST_MONGODB_URI', database = 'realmmesh' } }");
     write(root_ / "services" / "realm.lua", "return {}");
-    EXPECT_EQ(LayeredConfigLoader::load(root_, "realm").player_data.uri,
+    EXPECT_EQ(load_frame().player_data.uri,
               std::getenv(ScopedPlayerDataUri::name));
 }
 
@@ -157,7 +166,7 @@ TEST_F(LayeredConfigTest, UnsetPlayerDataUriEnvironmentPreservesLocalDefault) {
           "return { player_data = { uri = 'mongodb://127.0.0.1:27017/', "
           "uri_environment = 'REALMMESH_TEST_MONGODB_URI', database = 'realmmesh' } }");
     write(root_ / "services" / "realm.lua", "return {}");
-    EXPECT_EQ(LayeredConfigLoader::load(root_, "realm").player_data.uri,
+    EXPECT_EQ(load_frame().player_data.uri,
               "mongodb://127.0.0.1:27017/");
 }
 
@@ -167,7 +176,7 @@ TEST_F(LayeredConfigTest, MissingPrivatePlayerDataUriFailsWithoutDefault) {
           "return { player_data = { uri_environment = 'REALMMESH_TEST_MONGODB_URI', "
           "database = 'realmmesh' } }");
     write(root_ / "services" / "realm.lua", "return {}");
-    EXPECT_THROW(static_cast<void>(LayeredConfigLoader::load(root_, "realm")),
+    EXPECT_THROW(static_cast<void>(load_frame()),
                  std::invalid_argument);
 }
 
@@ -177,7 +186,7 @@ TEST_F(LayeredConfigTest, EmptyPrivatePlayerDataUriFailsInsteadOfConnectingLocal
           "return { player_data = { uri = 'mongodb://127.0.0.1:27017/', "
           "uri_environment = 'REALMMESH_TEST_MONGODB_URI', database = 'realmmesh' } }");
     write(root_ / "services" / "realm.lua", "return {}");
-    EXPECT_THROW(static_cast<void>(LayeredConfigLoader::load(root_, "realm")),
+    EXPECT_THROW(static_cast<void>(load_frame()),
                  std::invalid_argument);
 }
 
@@ -190,7 +199,7 @@ TEST_F(LayeredConfigTest, RejectsRetiredSqlitePlayerDataKeys) {
     write(root_ / "services" / "realm.lua", "return {}");
 
     EXPECT_THROW(
-        static_cast<void>(LayeredConfigLoader::load(root_, "realm")),
+        static_cast<void>(load_frame()),
         std::invalid_argument);
 }
 
@@ -201,7 +210,7 @@ TEST_F(LayeredConfigTest, RejectsUnknownCredentialHashCost) {
     write(root_ / "services" / "realm.lua", "return {}");
 
     EXPECT_THROW(
-        static_cast<void>(LayeredConfigLoader::load(root_, "realm")),
+        static_cast<void>(load_frame()),
         std::invalid_argument);
 }
 

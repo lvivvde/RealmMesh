@@ -2,7 +2,6 @@ add_library(realm_gateway_service
     src/account_fetch_port.cpp
     src/admission_consumption_store.cpp
     src/gateway_admission.cpp
-    src/gateway_config_loader.cpp
     src/gateway_config_lua.cpp
     src/gateway_credential_ingress.cpp
     src/gateway_login_config.cpp

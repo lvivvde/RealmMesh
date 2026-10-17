@@ -87,7 +87,7 @@ bool FakeServiceRegistry::unregister_instance(
 }
 
 std::vector<cluster::ServiceInstance> FakeServiceRegistry::discover(
-    cluster::ServiceType type) const {
+    const cluster::ServiceType& type) const {
     std::vector<cluster::ServiceInstance> instances;
     {
         const std::scoped_lock lock(mutex_);
@@ -104,7 +104,7 @@ std::vector<cluster::ServiceInstance> FakeServiceRegistry::discover(
 }
 
 cluster::WatchId FakeServiceRegistry::watch(
-    cluster::ServiceType type, cluster::ServiceEventHandler handler) {
+    const cluster::ServiceType& type, cluster::ServiceEventHandler handler) {
     if (!handler) {
         return cluster::invalid_watch_id;
     }
@@ -161,7 +161,8 @@ bool FakeServiceRegistry::remove_registration(
 }
 
 std::vector<cluster::ServiceEventHandler>
-FakeServiceRegistry::handlers_for_locked(cluster::ServiceType type) const {
+FakeServiceRegistry::handlers_for_locked(
+    const cluster::ServiceType& type) const {
     std::vector<cluster::ServiceEventHandler> handlers;
     for (const auto& [watch_id, watch] : watches_) {
         static_cast<void>(watch_id);
