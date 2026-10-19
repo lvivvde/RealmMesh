@@ -26,6 +26,7 @@ namespace internal = ::realmmesh::protocol::scene_internal::v1;
 namespace wire = ::realmmesh::protocol::scene::v1;
 namespace {
 using Clock = std::chrono::steady_clock;
+constexpr auto scene_operation_timeout = std::chrono::seconds(3);
 struct Failure {
     int code;
 };
@@ -160,7 +161,7 @@ public:
         const auto now = Clock::now();
         auto control = std::make_shared<Control>();
         control->request_id = request_id;
-        control->deadline = now + std::chrono::seconds(3);
+        control->deadline = now + scene_operation_timeout;
         ++in_flight_;
         if (!jobs_.try_push(
                 Job{session,
@@ -705,7 +706,7 @@ private:
                         try {
                             static_cast<void>(exchange(
                                 routed(internal::OPERATION_REMOVE, old),
-                                Clock::now() + std::chrono::milliseconds(100)));
+                                Clock::now() + scene_operation_timeout));
                         } catch (...) {
                             disconnect();
                         }
@@ -781,7 +782,7 @@ private:
                         const auto snapshot =
                             exchange(
                                 std::move(check),
-                                Clock::now() + std::chrono::milliseconds(200))
+                                Clock::now() + scene_operation_timeout)
                                 .snapshot();
                         for (auto& [binding, session] : tracked_) {
                             static_cast<void>(binding);

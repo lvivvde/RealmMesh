@@ -3,6 +3,7 @@
 #include <atomic>
 #include <chrono>
 #include <filesystem>
+#include <map>
 #include <mutex>
 #include <thread>
 #include "realmmesh/game/common/edge_protocol.hpp"
@@ -24,19 +25,22 @@ public:
         initialize_entered = true;
         while (block_initialize) std::this_thread::sleep_for(1ms);
         const std::scoped_lock lock(mutex);
+        auto& record = records[key.character_id];
         if (!record) record = common::SceneStateRecord{.character = key};
         return record;
     }
     std::optional<common::SceneStateRecord> scene_state(
-        const common::SceneCharacterKey&) const override {
+        const common::SceneCharacterKey& key) const override {
         const std::scoped_lock lock(mutex);
-        return record;
+        const auto found = records.find(key.character_id);
+        return found == records.end() ? std::nullopt : found->second;
     }
     common::SceneWriteResult commit_scene(
         const common::SceneWrite& write) override {
         commit_entered = true;
         while (block_commit) std::this_thread::sleep_for(1ms);
         const std::scoped_lock lock(mutex);
+        auto& record = records[write.character.character_id];
         if (record->last_result &&
             record->last_result->command == write.command &&
             record->owner == std::optional(write.owner))
@@ -56,10 +60,11 @@ public:
         return {common::SceneWriteOutcome::Committed, record};
     }
     bool revoke_scene(
-        const common::SceneCharacterKey&,
+        const common::SceneCharacterKey& key,
         std::uint64_t epoch,
         const common::SceneOwner& owner) override {
         const std::scoped_lock lock(mutex);
+        auto& record = records[key.character_id];
         if (!record || record->binding_epoch != epoch ||
             record->owner != std::optional(owner))
             return false;
@@ -72,7 +77,8 @@ public:
         block_commit{false}, commit_entered{false}, uncertain{false};
     std::atomic_int commits{0}, revokes{0};
     mutable std::mutex mutex;
-    std::optional<common::SceneStateRecord> record;
+    std::map<std::uint64_t, std::optional<common::SceneStateRecord>> records;
+    std::optional<common::SceneStateRecord>& record{records[10]};
 };
 class SceneOutbox final : public RealmOutbox {
 public:
@@ -122,6 +128,15 @@ protected:
                     last_realm_incarnation_ = request->realm_incarnation();
                     const auto reply =
                         shard_.handle(event.session_id, *request);
+                    const auto delay =
+                        request->operation() == internal::OPERATION_REMOVE
+                            ? remove_delay_ms_.load()
+                        : request->operation() == internal::OPERATION_SNAPSHOT
+                            ? snapshot_delay_ms_.load()
+                            : 0;
+                    if (delay > 0)
+                        std::this_thread::sleep_for(
+                            std::chrono::milliseconds(delay));
                     if (!(drop_activation_ &&
                           request->operation() == internal::OPERATION_ACTIVATE))
                         static_cast<void>(server_->send(
@@ -130,6 +145,11 @@ protected:
                                 reply,
                                 *common::scene_internal_request_id(
                                     event.payload))));
+                    if (request->operation() == internal::OPERATION_REMOVE)
+                        ++removals_completed_;
+                    if (request->operation() == internal::OPERATION_SNAPSHOT &&
+                        delay > 0)
+                        ++delayed_snapshots_completed_;
                     // 此测试服务不广播;SceneShard
                     // 单测与多进程旅程验证真实推送。
                     static_cast<void>(shard_.drain_events());
@@ -199,6 +219,8 @@ protected:
     scene::SceneShard shard_{"scene-dev-01", "scene-boot"};
     std::unique_ptr<network::IMessageTransport> server_;
     std::atomic_bool drop_activation_{false}, inject_gap_{false};
+    std::atomic_int remove_delay_ms_{0}, snapshot_delay_ms_{0};
+    std::atomic_int removals_completed_{0}, delayed_snapshots_completed_{0};
     network::SessionId last_session_{network::invalid_session_id};
     std::string last_realm_incarnation_;
     std::jthread server_thread_;
@@ -231,6 +253,55 @@ TEST_F(
     scenes_->closed({1});
     scenes_->complete(1024);
     EXPECT_EQ(store_.scene_state({7001, 1, 10})->owner, state->owner);
+}
+TEST_F(
+    RealmScenesTest, DelayedRemovalKeepsOtherObserverAndSharedChannelActive) {
+    enter({1}, 1, 11);
+    wait([&] {
+        return reply(11).has_value();
+    });
+    ASSERT_TRUE(common::decode_scene_command_result(*reply(11)));
+    scenes_->selected({2}, {7002, 1, 20});
+    enter({2}, 1, 21);
+    wait([&] {
+        return reply(21).has_value();
+    });
+    ASSERT_TRUE(common::decode_scene_command_result(*reply(21)));
+    remove_delay_ms_ = 250;
+    scenes_->closed({2});
+    wait([&] {
+        return removals_completed_.load() == 1;
+    });
+    ASSERT_TRUE(
+        scenes_->handle({1}, common::encode(common::GetSceneState{}, 12)));
+    wait([&] {
+        return reply(12).has_value();
+    });
+    const auto state = common::decode_scene_state(*reply(12));
+    ASSERT_TRUE(state);
+    EXPECT_EQ(state->phase(), ::realmmesh::protocol::scene::v1::PHASE_ACTIVE);
+    ASSERT_EQ(state->snapshot().members_size(), 1);
+    EXPECT_EQ(state->snapshot().members(0).character_id(), 10);
+}
+TEST_F(RealmScenesTest, DelayedHealthSnapshotKeepsActiveBindingAvailable) {
+    enter({1}, 1, 11);
+    wait([&] {
+        return reply(11).has_value();
+    });
+    ASSERT_TRUE(common::decode_scene_command_result(*reply(11)));
+    snapshot_delay_ms_ = 350;
+    wait([&] {
+        return delayed_snapshots_completed_.load() >= 1;
+    });
+    ASSERT_TRUE(
+        scenes_->handle({1}, common::encode(common::GetSceneState{}, 12)));
+    wait([&] {
+        return reply(12).has_value();
+    });
+    const auto state = common::decode_scene_state(*reply(12));
+    ASSERT_TRUE(state);
+    EXPECT_EQ(state->phase(), ::realmmesh::protocol::scene::v1::PHASE_ACTIVE);
+    EXPECT_EQ(state->snapshot().members_size(), 1);
 }
 TEST_F(
     RealmScenesTest,
