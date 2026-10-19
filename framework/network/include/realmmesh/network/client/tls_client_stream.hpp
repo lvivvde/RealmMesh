@@ -48,6 +48,11 @@ struct TlsClientOptions final {
     bool verify_peer{true};
     /// 释放即 RST(压测万级短连语义);产品默认优雅关闭。
     bool reset_close_on_release{false};
+    std::string ca_file;
+    std::string certificate_chain_file;
+    std::string private_key_file;
+    /// 非空时额外校验精确 DNS SAN(不接受 CN 回退或通配符)。
+    std::string server_identity;
 };
 
 /// 拨号结果(字节流面 + 分型):HTTP/edge 会话直接消费,竞速胜出者

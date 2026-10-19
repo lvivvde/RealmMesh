@@ -1,0 +1,244 @@
+{
+  "uid": "realmmesh-scene",
+  "title": "RealmMesh / Scene 参考业务",
+  "description": "S2 双人参考闭环:Realm 的持久确认与独立 Scene 的可见成员;不代表玩法容量。",
+  "tags": [
+    "realmmesh"
+  ],
+  "timezone": "browser",
+  "editable": false,
+  "graphTooltip": 1,
+  "schemaVersion": 39,
+  "version": 1,
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "refresh": "30s",
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "场景指令速率",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "realmmesh-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(scene_commands_total[1m]))",
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "realmmesh-prometheus"
+          }
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "场景指令 P95",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "realmmesh-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by(le)(rate(scene_command_duration_seconds_bucket[5m])))",
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "realmmesh-prometheus"
+          }
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "当前场景归属",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "realmmesh-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "sum(scene_active_bindings)",
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "realmmesh-prometheus"
+          }
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "待回读的持久写",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "realmmesh-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "sum(scene_pending_readbacks)",
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "realmmesh-prometheus"
+          }
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "排队拒绝 / 旧版本拒绝 / 快照重同步",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "realmmesh-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 16
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(scene_queue_rejections_total[1m]))",
+          "refId": "A",
+          "legendFormat": "队列拒绝",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "realmmesh-prometheus"
+          }
+        },
+        {
+          "expr": "sum(rate(scene_stale_rejections_total[1m]))",
+          "refId": "B",
+          "legendFormat": "旧版本拒绝",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "realmmesh-prometheus"
+          }
+        },
+        {
+          "expr": "sum(rate(scene_snapshot_resync_total[1m]))",
+          "refId": "C",
+          "legendFormat": "快照重同步",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "realmmesh-prometheus"
+          }
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "可见成员 / 准备成员 / 排空状态",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "realmmesh-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 16
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "sum(scene_shard_members)",
+          "refId": "A",
+          "legendFormat": "可见",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "realmmesh-prometheus"
+          }
+        },
+        {
+          "expr": "sum(scene_prepared_members)",
+          "refId": "B",
+          "legendFormat": "准备",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "realmmesh-prometheus"
+          }
+        },
+        {
+          "expr": "sum(scene_draining)",
+          "refId": "C",
+          "legendFormat": "排空",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "realmmesh-prometheus"
+          }
+        }
+      ]
+    }
+  ]
+}

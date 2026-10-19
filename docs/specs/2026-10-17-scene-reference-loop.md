@@ -1,7 +1,7 @@
 # 多实例 Scene 参考业务与首个闭环
 
 - 日期：2026-10-17
-- 状态：S1 协议与持久边界（#161）已实现，S2–S5 尚未实现；本文不构成运行或容量验收记录。
+- 状态：S1（#161）与 S2 单实例双人闭环（#162）已实现，S3–S5 尚未实现；本文不构成运行或容量验收记录。
 - 路线图：阶段 4；依赖已落地的角色业务（#93）与四层依赖迁移（#152）。
 - 决策：[ADR-0015](../adr/0015-scene-confirmed-location-and-binding.md)；术语以 [CONTEXT](../../CONTEXT.md) 为准。
 
@@ -94,7 +94,7 @@ Realm 丢弃旧 incarnation、失效绑定和重复事件，遇到事件缺口�
 
 ## 线协议计划
 
-下表编号已在 S1 加入 proto、编解码与权威消息表；当前 Realm 业务仍按未知消息拒绝。
+下表编号已在 S1 加入 proto、编解码与权威消息表；S2 已接线进入、移动与查询，1507 仍待 S3。
 客户端只经 Realm 使用既有 `realmmesh-edge/1` 与 Envelope v1。
 
 | 规划 ID | 消息 | 内容与阶段 |
@@ -121,8 +121,8 @@ Realm→Scene 首版采用独立 TLS/TCP 监听、长度帧与 Envelope v1，ALP
 操作字段、结果及校验的权威契约见 [协议文档](../protocol.md#realm-与-scene-内部契约)。
 
 链路使用双向 TLS、独立服务 CA 与 Realm/Scene 身份允许列表，校验角色和证书身份；
-发现记录、回环地址或知道端口不能替代认证。现有 TLS 客户端选项与服务端配置尚无完整
-双向身份接口，S2 必须补齐通用、可选的网络能力并验证旧客户端行为不变，不能假定现成可用。
+发现记录、回环地址或知道端口不能替代认证。S2 已补齐通用可选的服务端客户端 CA/身份允许列表、客户端 CA/证书/私钥与服务端 DNS SAN 校验；
+旧调用保持原配置默认行为，独立服务 CA 与客户端接入证书分离。
 所有内部拨号、读写在专用有界执行器上完成，不能在 Realm 帧线程调用阻塞式客户端流。
 
 ## 双实例转场与故障恢复（S3）
@@ -191,8 +191,8 @@ S2 起提供计划入口 `scripts/run-scene-acceptance.sh --preset NAME --jobs N
 
 | 顺序 | 实施任务 | 前置 |
 |---|---|---|
-| S1 | [#161 协议与角色场景持久边界](https://github.com/lvivvde/RealmMesh/issues/161) | 无；下一项可实施任务 |
-| S2 | [#162 独立 Scene 服务与双人移动互见](https://github.com/lvivvde/RealmMesh/issues/162) | S1 |
+| S1 | [#161 协议与角色场景持久边界](https://github.com/lvivvde/RealmMesh/issues/161) | 无；已合并 |
+| S2 | [#162 独立 Scene 服务与双人移动互见](https://github.com/lvivvde/RealmMesh/issues/162) | S1；已实现 |
 | S3 | [#163 双实例转场与归属恢复](https://github.com/lvivvde/RealmMesh/issues/163) | S2 |
 | S4 | [#164 动态加入、分片归属与排空](https://github.com/lvivvde/RealmMesh/issues/164) | S3 |
 | S5 | [#165 故障矩阵与阶段总验收](https://github.com/lvivvde/RealmMesh/issues/165) | S4 |
@@ -205,5 +205,5 @@ S2 起提供计划入口 `scripts/run-scene-acceptance.sh --preset NAME --jobs N
   不把 Scene 设为 Realm 启动就绪的硬前提；服务模块之间不直接依赖。
 - `game/client`：参考客户端调用与推送消费，复用登录链；不建立第二套登录状态机。
 
-实现 PR 同步 README 实施状态、架构、协议与术语；Scene 服务相关规划仍未接线；S1 的协议枚举与存储原语已经落地，
-运行拓扑和默认配置仍只有四个真实服务。
+实现 PR 同步 README 实施状态、架构、协议与术语。入口已注册第五个服务 Scene；默认四服务登录拓扑继续可用，
+Scene 按需显式加入配置。S2 自动验收运行独立 Scene 与 Realm，见 [运行说明](../operations/scene-reference-loop.md)。

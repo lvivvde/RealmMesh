@@ -7,6 +7,7 @@ set(REALMMESH_TEST_WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}")
 
 include(${CMAKE_CURRENT_SOURCE_DIR}/../cmake/test_helpers.cmake)
 include(${CMAKE_CURRENT_SOURCE_DIR}/../cmake/test-tls-identity.cmake)
+include(${CMAKE_CURRENT_SOURCE_DIR}/../cmake/test-service-identities.cmake)
 
 add_subdirectory(support)
 
@@ -32,6 +33,7 @@ add_subdirectory(game/gateway)
 add_subdirectory(game/login_verify)
 add_subdirectory(game/queue)
 add_subdirectory(game/realm)
+add_subdirectory(game/scene)
 add_subdirectory(tools/loadgen)
 
 # 跨切面:不属于任何单个源码目录的测试入口。

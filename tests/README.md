@@ -125,3 +125,13 @@ Native 夹具按实际编译输入（两个源码、普通头与存在时的生�
 重新配置不重复完整等待。夹具不改文件时间、不放宽 sloppiness，每例仍独立配置目录与
 缓存；冷/热及生成头重建另外断言两个编译请求的 direct hit。[#119 后续评估](../docs/research/build-fixture-waits-119.md)
 记录局部收益与完整入口门槛的区别。
+
+## Scene S2 验收
+
+`./scripts/run-scene-acceptance.sh --preset NAME --jobs N` 先构建再执行单分片状态机、
+mTLS、Realm 专用工作线程边界和真实三进程旅程。新增 `scene_shard_test` 为 unit；
+`tls_mutual_auth_test`、`realm_scenes_test`、`scene_journey_test` 为 integration。
+Scene 与 Realm 测试身份经独立 CA 生成于构建目录，缺证书、错误 CA/身份/ALPN 都有真实
+握手拒绝测试。旅程使用隔离 MongoDB，核对双人二十次移动后的快照/事件/数据库；详细
+报告与服务日志保存在构建目录的 `acceptance/scene-reference-loop/`。参见
+[运行说明](../docs/operations/scene-reference-loop.md)。

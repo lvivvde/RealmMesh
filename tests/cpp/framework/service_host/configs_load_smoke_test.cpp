@@ -26,6 +26,16 @@ namespace {
 class ScopedTlsEnvironment final {
 public:
     ScopedTlsEnvironment() {
+        ::setenv(
+            "REALMMESH_SCENE_CERTIFICATE_FILE",
+            REALMMESH_TEST_TLS_CERTIFICATE,
+            1);
+        ::setenv(
+            "REALMMESH_SCENE_PRIVATE_KEY_FILE",
+            REALMMESH_TEST_TLS_PRIVATE_KEY,
+            1);
+        ::setenv(
+            "REALMMESH_SERVICE_CA_FILE", REALMMESH_TEST_TLS_CERTIFICATE, 1);
         EXPECT_EQ(
             ::setenv(
                 "REALMMESH_TLS_CERTIFICATE_FILE",
@@ -40,6 +50,9 @@ public:
             0);
     }
     ~ScopedTlsEnvironment() {
+        ::unsetenv("REALMMESH_SCENE_CERTIFICATE_FILE");
+        ::unsetenv("REALMMESH_SCENE_PRIVATE_KEY_FILE");
+        ::unsetenv("REALMMESH_SERVICE_CA_FILE");
         static_cast<void>(::unsetenv("REALMMESH_TLS_CERTIFICATE_FILE"));
         static_cast<void>(::unsetenv("REALMMESH_TLS_PRIVATE_KEY_FILE"));
     }
@@ -80,6 +93,13 @@ protected:
                 game::login_verify::load_login_verify_config(layered));
         } else if (name == "queue") {
             static_cast<void>(game::queue::load_queue_config(layered));
+        } else if (name == "scene") {
+            ASSERT_EQ(layered.edge().transports.size(), 1);
+            EXPECT_FALSE(
+                layered.edge().transports[0].tls->client_ca_file.empty());
+            EXPECT_EQ(
+                layered.edge().transports[0].tls->allowed_client_identities,
+                std::vector<std::string>{"realm-dev-01.realm.service"});
         } else {
             ADD_FAILURE() << "service without module loader: " << name;
         }

@@ -28,8 +28,9 @@ flowchart LR
   `pending → fetching → handed-off`；拉取账号数据完成后下发 EnterRealm 票据与业务服
   端点，不中转业务流量。
 - **业务服 `realm`**：EnterRealm 票据兑换点与客户端长连接落点；Realm Session 内完成
-  角色列表、创建、选择与训练（Lua 规则，序号幂等），同账号新会话顶掉旧会话。场景指令
-  路由和聊天入口列在后续必做路线图中。
+  角色列表、创建、选择与训练（Lua 规则，序号幂等），同账号新会话顶掉旧会话；选角后可显式进入 Scene。
+- **场景服务 `scene`**：独立 mTLS 服务，单分片角色进入、移动与互见；Realm 持久确认后才广播。
+  双实例转场、动态分片与聊天入口列在后续必做路线图中。
 - **边缘 CDN/WAF**：只定契约（验签放行、DDoS 防护），不在本仓库实现；边缘验签是
   能力分级优化，健全服/排队服/网关的本地验签不可省略。
 - 业务消息为 4 字节大端长度 + Protobuf `Envelope`（上限 64KiB）；不支持裸 TCP/UDP、
@@ -79,11 +80,21 @@ flowchart LR
 | MongoDB 测试夹具初始化与 CTest 运行内复用（#119） | 真实副本集按 CTest 运行复用、每例数据库隔离；完整同合集中位缩短 Mac 11.59% / Lima 10.38%，两平台同期 R0 × 1.05 上限通过；保留全部守卫、截止时间与回退，采用已确认的双重收束口径，见[报告](docs/research/build-mongodb-ctest-fixture-119.md) |
 | 开发 Supervisor 停止信号与进程回收（#143/#129） | 已修复解析竞态及 wait 再次中断后的提前清理；逆序停止与真实进程回收证据见[诊断记录](docs/research/dev-services-signal-stop.md) |
 | 四层依赖方向（ADR-0014）第 1–5 步：客户端库 `framework/client` 迁入 `game/client`；Gateway 来源地址归一化与凭据入口拆头；边缘连接运行时迁入 `framework/edge`（`EdgeRuntime`、Edge Connection）；通用 `ServiceHost` + `ServiceModule` 注册表，`ServiceType` 改为字符串，四个服务模块迁入各自服务目录，`ServiceFrame` 拆为 `GatewayFrame` 与 `RealmFrame`（#152） | 已完成，`framework/service_host` 不依赖任何 `game/*`，Realm 不依赖 `game/gateway`；`layering_guard_test` 白名单已清空并移除，任何反向依赖都直接失败 |
-| Scene 参考业务：协议与持久边界、双人移动互见、双实例转场、动态加入与排空 | [规格与任务拆分](docs/specs/2026-10-17-scene-reference-loop.md)已完成；S1 协议/编解码与 MongoDB 场景条件写原语（#161）已实现；Scene 服务与双人闭环尚未接线 |
+| Scene 参考业务：协议与持久边界、双人移动互见、双实例转场、动态加入与排空 | [规格与任务拆分](docs/specs/2026-10-17-scene-reference-loop.md)已完成；S1 协议/编解码与 MongoDB 场景条件写原语（#161）已实现；S2 独立 Scene、双人移动互见与 mTLS 已实现（#162）；双实例转场、动态分片与完整故障矩阵待 S3–S5 |
 
 旧 `Login → Realm 选角 → Gateway 入场` 链路已整体退役：`login` 服务身份、7000 端口与
 旧入场消息编号都已删除，线名 `login` 永不复用（见[架构文档](docs/architecture.md)）。
 启用新链路不需要任何开关，仓库里就只有这一条链路。
+
+Scene S2 本机多进程验收（隔离 etcd/MongoDB、自动生成测试服务身份）：
+
+```bash
+./scripts/run-scene-acceptance.sh --preset dev --jobs 6
+```
+
+报告保存在所选构建目录的 `acceptance/scene-reference-loop/`。独立 Scene 配置与参考客户端
+接口见 [Scene 运行说明](docs/operations/scene-reference-loop.md)。默认登录开发拓扑仍可单独运行；
+Scene 按需启用，缺失时不阻断 Realm 的心跳与训练。
 
 ## 必做路线图
 

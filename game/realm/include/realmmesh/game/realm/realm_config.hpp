@@ -5,12 +5,23 @@
 #include <chrono>
 #include <cstddef>
 #include <filesystem>
+#include <string>
 
 namespace realm::game::realm {
 
 /// Realm 服务配置:`realm` 节段加根表的帧参数与 player_data;宿主级节段
 /// 由宿主分层装载解析为 HostConfig,接入面为 edge::EdgeConfig(ADR-0014)。
 struct RealmConfig {
+    struct SceneClient {
+        bool enabled{false};
+        std::string host{"127.0.0.1"};
+        std::uint16_t port{7200};
+        std::string instance_id{"scene-dev-01"};
+        std::string server_identity{"scene-dev-01.scene.service"};
+        std::string ca_file;
+        std::string certificate_file;
+        std::string private_key_file;
+    } scene;
     /// 训练规则脚本;相对路径由分层加载器按 config_root 解析。必填。
     std::filesystem::path training_rule_file;
     /// 角色数据访问的工作线程数与在途上限(排队 + 运行中 + 未取走)。

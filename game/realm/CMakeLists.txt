@@ -4,6 +4,7 @@ add_library(realm_game_realm
     src/realm_frame.cpp
     src/realm_module.cpp
     src/realm_sessions.cpp
+    src/realm_scenes.cpp
     src/training_rule.cpp
 )
 

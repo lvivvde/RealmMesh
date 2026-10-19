@@ -8,6 +8,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace realm::network {
 
@@ -20,6 +21,9 @@ struct TransportConfig {
         std::string certificate_chain_file;
         std::string private_key_file;
         std::string alpn{kEdgeAlpn};
+        /// 非空时强制客户端证书;只信任此 CA,并匹配允许的 DNS SAN。
+        std::string client_ca_file;
+        std::vector<std::string> allowed_client_identities;
     };
 
     std::string name;

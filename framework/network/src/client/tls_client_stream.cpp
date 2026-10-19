@@ -4,6 +4,7 @@
 
 #include <openssl/err.h>
 #include <openssl/ssl.h>
+#include <openssl/x509v3.h>
 
 #include <fcntl.h>
 #include <netdb.h>
@@ -252,11 +253,51 @@ TlsClientStream::DialResult TlsClientStream::dial(
     }
 
     impl->context.reset(SSL_CTX_new(TLS_client_method()));
+    if (impl->context == nullptr || options.alpn.size() > 255U ||
+        options.certificate_chain_file.empty() !=
+            options.private_key_file.empty() ||
+        (!options.verify_peer &&
+         (!options.ca_file.empty() || !options.server_identity.empty()))) {
+        result.failure = TlsDialFailure::SslSetup;
+        return result;
+    }
+    if (options.verify_peer &&
+        (options.ca_file.empty()
+             ? SSL_CTX_set_default_verify_paths(impl->context.get())
+             : SSL_CTX_load_verify_locations(
+                   impl->context.get(), options.ca_file.c_str(), nullptr)) !=
+            1) {
+        result.failure = TlsDialFailure::SslSetup;
+        return result;
+    }
+    if (!options.certificate_chain_file.empty() &&
+        (SSL_CTX_use_certificate_chain_file(
+             impl->context.get(), options.certificate_chain_file.c_str()) !=
+             1 ||
+         SSL_CTX_use_PrivateKey_file(
+             impl->context.get(),
+             options.private_key_file.c_str(),
+             SSL_FILETYPE_PEM) != 1 ||
+         SSL_CTX_check_private_key(impl->context.get()) != 1)) {
+        result.failure = TlsDialFailure::SslSetup;
+        return result;
+    }
     SSL_CTX_set_verify(
         impl->context.get(),
         options.verify_peer ? SSL_VERIFY_PEER : SSL_VERIFY_NONE,
         nullptr);
     impl->ssl.reset(SSL_new(impl->context.get()));
+    if (impl->ssl && !options.server_identity.empty()) {
+        auto* parameters = SSL_get0_param(impl->ssl.get());
+        X509_VERIFY_PARAM_set_hostflags(
+            parameters,
+            X509_CHECK_FLAG_NEVER_CHECK_SUBJECT | X509_CHECK_FLAG_NO_WILDCARDS);
+        if (SSL_set1_host(impl->ssl.get(), options.server_identity.c_str()) !=
+            1) {
+            result.failure = TlsDialFailure::SslSetup;
+            return result;
+        }
+    }
     const std::string host_text{host};
     const std::string alpn_wire =
         options.alpn.empty()

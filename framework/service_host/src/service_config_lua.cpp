@@ -217,6 +217,34 @@ void read_logging_runtime_policy(
                 table, "private_key_file", "private_key_file_environment"),
             .alpn = optional_string(table, "alpn", std::string{network::kEdgeAlpn}),
         };
+        const auto client_ca = optional_string(table, "client_ca_file", "");
+        const auto client_ca_env =
+            optional_string(table, "client_ca_file_environment", "");
+        if (!client_ca.empty() || !client_ca_env.empty()) {
+            config.tls->client_ca_file = path_from_config_or_environment(
+                table, "client_ca_file", "client_ca_file_environment");
+            const sol::object allowed =
+                table.raw_get<sol::object>("allowed_client_identities");
+            if (!allowed.is<sol::table>()) {
+                throw std::invalid_argument(
+                    "mTLS requires allowed_client_identities");
+            }
+            for (const auto& item : allowed.as<sol::table>()) {
+                if (!item.second.is<std::string>() ||
+                    item.second.as<std::string>().empty()) {
+                    throw std::invalid_argument("invalid mTLS client identity");
+                }
+                config.tls->allowed_client_identities.push_back(
+                    item.second.as<std::string>());
+            }
+            if (config.tls->allowed_client_identities.empty()) {
+                throw std::invalid_argument("empty mTLS client allowlist");
+            }
+            if (config.protocol != network::TransportProtocol::TlsTcp) {
+                throw std::invalid_argument(
+                    "client CA currently requires TLS/TCP");
+            }
+        }
     }
     return config;
 }

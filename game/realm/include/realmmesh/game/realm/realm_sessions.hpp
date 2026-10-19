@@ -27,6 +27,7 @@ class Logger;
 namespace realm::game::realm {
 
 class TrainingRule;
+class RealmScenes;
 
 /// Realm Session 的出站缝:回包与关闭。生产实现转发到 EdgeRuntime。
 class RealmOutbox {
@@ -73,7 +74,8 @@ public:
         TrainingRule& rule,
         RealmOutbox& outbox,
         const RealmConfig& config,
-        observability::Logger* logger = nullptr);
+        observability::Logger* logger = nullptr,
+        RealmScenes* scenes = nullptr);
     ~RealmSessions();
 
     RealmSessions(const RealmSessions&) = delete;
@@ -179,6 +181,7 @@ private:
     [[nodiscard]] common::CharacterSummary summary(
         const common::RealmCharacter& character);
 
+    RealmScenes* scenes_{nullptr};
     common::RealmCharacterStore& store_;
     TrainingRule& rule_;
     RealmOutbox& outbox_;

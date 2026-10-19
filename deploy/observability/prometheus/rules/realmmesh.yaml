@@ -95,3 +95,21 @@ groups:
           description: >-
             progress 请求本应由 CDN 缓存承接;源站速率超阈值说明卸载
             失效,检查缓存 TTL 与回源配置。
+
+      - alert: SceneWriteReadbackPending
+        expr: scene_pending_readbacks > 0
+        for: 10s
+        labels:
+          severity: warning
+        annotations:
+          summary: Scene 持久写结果仍待回读确认
+          description: Realm 保留了不确定指令,检查 MongoDB 与场景链路后按原序号恢复。
+
+      - alert: SceneQueueSaturated
+        expr: increase(scene_queue_rejections_total[1m]) > 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: Scene 请求持续遇到有界队列满额
+          description: 检查场景指令延迟与 Scene 可用性,心跳与训练使用独立处理路径。

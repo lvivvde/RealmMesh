@@ -4,6 +4,7 @@
 #include "realmmesh/game/login_verify/login_verify_module.hpp"
 #include "realmmesh/game/queue/queue_module.hpp"
 #include "realmmesh/game/realm/realm_module.hpp"
+#include "realmmesh/game/scene/scene_module.hpp"
 
 namespace realm::mesh_host {
 
@@ -15,8 +16,11 @@ service_host::ServiceModuleRegistry game_service_modules() {
         {.factory = game::gateway::make_gateway_module,
          .dependency = "realm",
          .mode2_waits_for_dependency = true});
-    // Realm 与 HTTPS 服务都不解析其他服务的端点:状态经 etcd 而非服务依赖。
-    modules.add("realm", {.factory = game::realm::make_realm_module});
+    // Scene 为 Realm 的可选发现依赖,不参与启动就绪门槛。
+    modules.add(
+        "realm",
+        {.factory = game::realm::make_realm_module, .dependency = "scene"});
+    modules.add("scene", {.factory = game::scene::make_scene_module});
     modules.add(
         "login_verify",
         {.factory = game::login_verify::make_login_verify_module});

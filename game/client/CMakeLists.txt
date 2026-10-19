@@ -19,7 +19,7 @@ set_target_properties(realm_game_client PROPERTIES CXX_EXTENSIONS OFF)
 # 第三方 HTTP 栈。Realm 段与网关段共用竞速与拨号器。
 target_link_libraries(realm_game_client
     PUBLIC RealmMesh::Network
-    PRIVATE RealmMesh::GameCommon
+    PUBLIC RealmMesh::GameCommon
 )
 
 if(MSVC)
