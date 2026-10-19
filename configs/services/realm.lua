@@ -13,6 +13,15 @@ return {
     realm = {
         -- 训练规则(#93):启动时加载,失败即启动失败;不热更。
         training_rule_file = "services/realm/training.lua",
+        -- 可选 Scene 玩法:提供独立服务 CA/身份后启用;缺少 Scene 不影响训练。
+        scene = {
+            enabled = false,
+            host = "127.0.0.1", port = 7200,
+            instance_id = "scene-dev-01", server_identity = "scene-dev-01.scene.service",
+            ca_file_environment = "REALMMESH_SERVICE_CA_FILE",
+            certificate_file_environment = "REALMMESH_REALM_CERTIFICATE_FILE",
+            private_key_file_environment = "REALMMESH_REALM_PRIVATE_KEY_FILE",
+        },
         data_workers = 4,
         data_capacity = 256,
         max_pending_per_session = 16,

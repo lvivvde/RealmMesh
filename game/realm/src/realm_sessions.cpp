@@ -2,7 +2,9 @@
 
 #include "realmmesh/edge/edge_runtime.hpp"
 #include "realmmesh/game/common/edge_protocol.hpp"
+#include "realmmesh/game/common/scene_protocol.hpp"
 #include "realmmesh/game/realm/character_name.hpp"
+#include "realmmesh/game/realm/realm_scenes.hpp"
 #include "realmmesh/game/realm/training_rule.hpp"
 #include "realmmesh/observability/logger.hpp"
 
@@ -24,8 +26,9 @@ Overloaded(Visitors...) -> Overloaded<Visitors...>;
 
 void EdgeRuntimeRealmOutbox::send(
     edge::EdgeConnectionId session, std::vector<std::byte> payload) {
-    // 出站队列满时回包丢失,客户端按请求超时处理;会话不因此关闭。
-    static_cast<void>(runtime_.try_send(session, payload));
+    if (runtime_.try_send(session, payload) != edge::QueueResult::Queued) {
+        static_cast<void>(runtime_.try_close(session));
+    }
 }
 
 void EdgeRuntimeRealmOutbox::close(edge::EdgeConnectionId session) {
@@ -37,8 +40,10 @@ RealmSessions::RealmSessions(
     TrainingRule& rule,
     RealmOutbox& outbox,
     const RealmConfig& config,
-    observability::Logger* logger)
-    : store_(store),
+    observability::Logger* logger,
+    RealmScenes* scenes)
+    : scenes_(scenes),
+      store_(store),
       rule_(rule),
       outbox_(outbox),
       config_(config),
@@ -54,6 +59,7 @@ void RealmSessions::enter(
         const auto displaced = online->second;
         outbox_.send(displaced, common::encode(common::RealmSessionDisplaced{}));
         outbox_.close(displaced);
+        if (scenes_ != nullptr) scenes_->closed(displaced);
         sessions_.erase(displaced);
     }
     online_[account_id] = session;
@@ -67,6 +73,7 @@ void RealmSessions::closed(edge::EdgeConnectionId session) {
         online != online_.end() && online->second == session) {
         online_.erase(online);
     }
+    if (scenes_ != nullptr) scenes_->closed(session);
     sessions_.erase(found);
 }
 
@@ -83,6 +90,33 @@ std::optional<RealmSessionPhase> RealmSessions::phase(
 
 bool RealmSessions::handle(
     edge::EdgeConnectionId id, std::span<const std::byte> payload) {
+    if (scenes_ != nullptr && common::scene_message_id(payload)) {
+        const auto found = sessions_.find(id);
+        if (found == sessions_.end()) return false;
+        const auto kind = static_cast<int>(*common::scene_message_id(payload));
+        const bool supported = kind == 1501 || kind == 1503 || kind == 1504;
+        if (!supported) return false;
+        if (found->second.phase != RealmSessionPhase::InGame) {
+            send_error(
+                id,
+                common::scene_request_id(payload).value_or(0),
+                common::edge_error_phase_mismatch,
+                "character not selected");
+            return true;
+        }
+        if (!common::decode_enter_scene(payload) &&
+            !common::decode_move_in_scene(payload) &&
+            !common::decode_get_scene_state(payload)) {
+            send_error(
+                id,
+                common::scene_request_id(payload).value_or(0),
+                kind == 1503 ? common::scene_error_invalid_target
+                             : common::scene_error_invalid_seq,
+                "invalid scene request");
+            return true;
+        }
+        return scenes_->handle(id, payload);
+    }
     const auto message = common::realm_message_id(payload);
     const auto found = sessions_.find(id);
     if (!message.has_value() || found == sessions_.end()) return false;
@@ -136,6 +170,7 @@ bool RealmSessions::handle(
 }
 
 void RealmSessions::complete(std::size_t max_completions) {
+    if (scenes_ != nullptr) scenes_->complete(max_completions);
     for (auto& completion : pool_.drain(max_completions)) {
         const auto pending = pending_.find(completion.id);
         if (pending == pending_.end()) continue;
@@ -425,6 +460,13 @@ void RealmSessions::finish(
                 reply.set_training_seq(chosen->last_training_seq);
                 session.character = *chosen;
                 session.phase = RealmSessionPhase::InGame;
+                if (scenes_ != nullptr)
+                    scenes_->selected(
+                        id,
+                        common::SceneCharacterKey{
+                            session.account_id,
+                            realm_id,
+                            chosen->character_id});
                 outbox_.send(id, common::encode(reply, request.request_id));
             },
             [&](const TrainRequest& train) {

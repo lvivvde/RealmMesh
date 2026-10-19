@@ -1,4 +1,6 @@
 #include "realmmesh/game/client/wire_login_transport.hpp"
+#include <deque>
+#include "realmmesh/game/client/scene_session.hpp"
 
 #include "realmmesh/game/common/edge_protocol.hpp"
 #include "realmmesh/game/common/realm_protocol.hpp"
@@ -165,7 +167,7 @@ template <typename T>
     return reply;
 }
 
-class WireRealmSession final : public RealmSession {
+class WireRealmSession final : public RealmSession, public SceneSession {
 public:
     WireRealmSession(
         std::shared_ptr<net_client::ISecureConnection> connection,
@@ -179,25 +181,81 @@ public:
     net_client::ISecureByteStream& stream() noexcept { return *stream_; }
 
     [[nodiscard]] bool heartbeat(TimePoint deadline) override {
-        if (stream_ == nullptr) {
-            return false;
+        const auto exchange = call(
+            [](std::uint64_t id) {
+                return common::encode(common::HeartbeatRequest{}, id);
+            },
+            static_cast<std::uint32_t>(
+                edge_v1::MESSAGE_ID_S2C_HEARTBEAT_RESPONSE),
+            deadline);
+        return exchange.status == RealmCallStatus::Ok &&
+               common::decode_heartbeat_response(exchange.payload).has_value();
+    }
+    [[nodiscard]] SceneSession* scene() noexcept override { return this; }
+
+    [[nodiscard]] RealmReply<common::SceneCommandResult> enter_scene(
+        std::uint64_t seq, TimePoint deadline) override {
+        const auto exchange = call(
+            [seq](std::uint64_t id) {
+                common::EnterScene request;
+                request.set_scene_seq(seq);
+                return common::encode(request, id);
+            },
+            1502,
+            deadline);
+        return scene_result(exchange);
+    }
+    [[nodiscard]] RealmReply<common::SceneCommandResult> move_in_scene(
+        std::uint64_t seq,
+        std::int32_t x,
+        std::int32_t y,
+        TimePoint deadline) override {
+        const auto exchange = call(
+            [=](std::uint64_t id) {
+                common::MoveInScene request;
+                request.set_scene_seq(seq);
+                request.set_x(x);
+                request.set_y(y);
+                return common::encode(request, id);
+            },
+            1502,
+            deadline);
+        return scene_result(exchange);
+    }
+    [[nodiscard]] RealmReply<common::SceneState> get_scene_state(
+        TimePoint deadline) override {
+        const auto exchange = call(
+            [](std::uint64_t id) {
+                return common::encode(common::GetSceneState{}, id);
+            },
+            1505,
+            deadline);
+        auto reply = reply_from<common::SceneState>(exchange);
+        if (!reply.ok()) return reply;
+        const auto state = common::decode_scene_state(exchange.payload);
+        if (!state) return malformed<common::SceneState>();
+        reply.value = *state;
+        return reply;
+    }
+    [[nodiscard]] std::optional<SceneNotice> poll_scene(
+        TimePoint deadline) override {
+        while (notices_.empty() && stream_) {
+            const auto payload = edge().receive_frame(deadline);
+            if (!payload) return std::nullopt;
+            if (common::decode_realm_session_displaced(*payload)) {
+                close();
+                return std::nullopt;
+            }
+            if (!notice(*payload)) return std::nullopt;
         }
-        common::HeartbeatRequest request;
-        const auto request_id = next_request_id_++;
-        if (!edge().send_frame(common::encode(request, request_id), deadline)) {
-            return false;
-        }
-        const auto payload = edge().receive_frame(deadline);
-        if (!payload.has_value()) {
-            return false;
-        }
-        return common::edge_message_id(*payload) ==
-                   edge_v1::MESSAGE_ID_S2C_HEARTBEAT_RESPONSE &&
-            common::edge_request_id(*payload) == request_id &&
-            common::decode_heartbeat_response(*payload).has_value();
+        if (notices_.empty()) return std::nullopt;
+        auto value = std::move(notices_.front());
+        notices_.pop_front();
+        return value;
     }
 
     void close() noexcept override {
+        notices_.clear();
         edge_.reset();
         if (stream_ != nullptr) {
             stream_->shutdown();
@@ -290,6 +348,32 @@ public:
     }
 
 private:
+    static RealmReply<common::SceneCommandResult> scene_result(
+        const RealmExchange& exchange) {
+        auto reply = reply_from<common::SceneCommandResult>(exchange);
+        if (!reply.ok()) return reply;
+        const auto result =
+            common::decode_scene_command_result(exchange.payload);
+        if (!result) return malformed<common::SceneCommandResult>();
+        reply.value = *result;
+        return reply;
+    }
+    bool notice(std::span<const std::byte> payload) {
+        std::optional<SceneNotice> value;
+        if (const auto event = common::decode_scene_event(payload))
+            value = *event;
+        else if (
+            const auto unavailable = common::decode_scene_unavailable(payload))
+            value = *unavailable;
+        if (!value) return false;
+        if (notices_.size() >= 256) {
+            close();
+            return true;
+        }
+        notices_.push_back(std::move(*value));
+        return true;
+    }
+    std::deque<SceneNotice> notices_;
     /// 会话内常驻的帧收发器:跨调用保留未成帧字节(一次读可能带出多帧)。
     net_client::EdgeClientConnection& edge() {
         if (!edge_.has_value()) edge_.emplace(*stream_);
@@ -306,9 +390,8 @@ private:
     /// 发一个请求并等到同 request_id 的期望回包或 EdgeError。其余帧
     /// (超时后迟到的旧回包等)丢弃;1409 随时可能到达,收到即关闭本会话。
     template <typename Encode>
-    [[nodiscard]] RealmExchange call(Encode encode,
-                                     realm_v1::MessageId expected,
-                                     TimePoint deadline) {
+    [[nodiscard]] RealmExchange call(
+        Encode encode, std::uint32_t expected, TimePoint deadline) {
         RealmExchange exchange;
         if (stream_ == nullptr) return exchange;
         const auto request_id = next_request_id_++;
@@ -320,6 +403,19 @@ private:
             if (!payload.has_value()) {
                 return exchange;
             }
+            if (notice(*payload)) {
+                if (stream_ == nullptr) return exchange;
+                continue;
+            }
+            if (const auto scene_id = common::scene_message_id(*payload)) {
+                if (static_cast<std::uint32_t>(*scene_id) == expected &&
+                    common::scene_request_id(*payload) == request_id) {
+                    exchange.status = RealmCallStatus::Ok;
+                    exchange.payload = std::move(*payload);
+                    return exchange;
+                }
+                continue;
+            }
             if (const auto message_id = common::realm_message_id(*payload)) {
                 if (*message_id ==
                     realm_v1::MESSAGE_ID_S2C_REALM_SESSION_DISPLACED) {
@@ -327,7 +423,7 @@ private:
                     exchange.status = RealmCallStatus::Displaced;
                     return exchange;
                 }
-                if (*message_id == expected &&
+                if (static_cast<std::uint32_t>(*message_id) == expected &&
                     common::realm_request_id(*payload) == request_id) {
                     exchange.status = RealmCallStatus::Ok;
                     exchange.payload = std::move(*payload);
@@ -338,6 +434,12 @@ private:
             const auto edge_id = common::edge_message_id(*payload);
             if (!edge_id.has_value()) {
                 exchange.status = RealmCallStatus::Malformed;
+                return exchange;
+            }
+            if (static_cast<std::uint32_t>(*edge_id) == expected &&
+                common::edge_request_id(*payload) == request_id) {
+                exchange.status = RealmCallStatus::Ok;
+                exchange.payload = std::move(*payload);
                 return exchange;
             }
             if (*edge_id != edge_v1::MESSAGE_ID_S2C_ERROR ||

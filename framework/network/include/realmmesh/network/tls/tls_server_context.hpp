@@ -27,6 +27,7 @@ private:
     };
 
     std::string alpn_wire_;
+    std::vector<std::string> allowed_client_identities_;
     std::unique_ptr<SSL_CTX, Deleter> context_;
 };
 

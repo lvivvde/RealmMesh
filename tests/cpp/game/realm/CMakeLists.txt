@@ -52,3 +52,9 @@ realm_add_gtest(realm_frame_test
     LABELS integration
     DISCOVER_PROPERTIES RUN_SERIAL TRUE
 )
+
+realm_add_gtest(realm_scenes_test SOURCES realm_scenes_test.cpp
+    LIBS realm_game_realm realm_game_scene realm_network realm_observability
+    DEFINITIONS REALMMESH_TEST_SERVICE_TLS_DIRECTORY="${REALMMESH_TEST_SERVICE_TLS_DIRECTORY}"
+    DEPENDS realmmesh_test_service_identities
+    LABELS integration DISCOVER_PROPERTIES TIMEOUT 15)

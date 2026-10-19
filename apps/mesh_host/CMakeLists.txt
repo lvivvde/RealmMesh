@@ -11,6 +11,7 @@ target_link_libraries(realm_mesh_modules
         realm_service_host
     PRIVATE
         realm_game_realm
+        realm_game_scene
         realm_gateway_service
         realm_login_verify_service
         realm_queue_service

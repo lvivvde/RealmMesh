@@ -184,12 +184,11 @@ Login Verifier 的 HTTPS 错误体为 `{code, message, retry_after_seconds?}`：
 证书链/主机名、ALPN、业务鉴权和协议版本错误属于终止错误。当前规则只覆盖初次
 建连；已建立 QUIC 连接断开后需重新走候选选择和鉴权。
 
-## Scene 线契约（#161，服务尚未接线）
+## Scene 线契约（S1/S2）
 
 1501–1508 已定义于 `scene/v1/scene.proto`，共用 Envelope v1，编解码在
-`game/common/scene_protocol`；当前 Realm 仍按未知业务消息拒绝，不能以协议定义宣称双人
-闭环已上线。[Scene 规格](specs/2026-10-17-scene-reference-loop.md)中的 S2 才接线进入、移动
-与查询，S3 才接线转场。请求/响应的 `request_id` 必须非零，1506/1508 推送必须为 0。
+`game/common/scene_protocol`；S2 已在 Realm 接线进入、移动与查询，选角前回 3003。
+[Scene 规格](specs/2026-10-17-scene-reference-loop.md)中的 S3 才接线转场，1507 当前仍不受理。请求/响应的 `request_id` 必须非零，1506/1508 推送必须为 0。
 
 `EnterScene{scene_seq}` 不传账号或目标；`MoveInScene{scene_seq,x,y}` 为绝对整数坐标，
 范围 0..10000；`TransferScene{scene_seq,target_shard_id}` 只能指定非零目标分片。
@@ -205,7 +204,7 @@ Login Verifier 的 HTTPS 错误体为 `{code, message, retry_after_seconds?}`：
 所有 Scene Envelope（含头）上限 64KiB；坏帧、版本不符、错误消息编号、缺必需值、未知
 枚举、越界坐标、错分片或重复成员均拒绝。
 
-规划业务接线后使用 1999 `EdgeError` 的以下错误，当前已提供常量但尚无 Scene 处理器：
+场景业务使用 1999 `EdgeError` 的以下错误：
 
 | 错误码 | 含义 |
 |---|---|
@@ -218,8 +217,10 @@ Login Verifier 的 HTTPS 错误体为 `{code, message, retry_after_seconds?}`：
 
 ### Realm 与 Scene 内部契约
 
-`scene_internal/v1/scene_internal.proto` 独立于客户端线；计划监听使用 TLS/TCP、双向
-服务身份校验及 ALPN `realmmesh-scene/1`（网络接线在 S2），不接收客户端票据。
+`scene_internal/v1/scene_internal.proto` 独立于客户端线；S2 独立监听使用 TLS/TCP、双向
+服务身份校验及 ALPN `realmmesh-scene/1`，不接收客户端票据。双方只信任配置的服务 CA，
+按精确 DNS SAN 校验实例角色身份，不接受 CN 回退或通配符。Scene 的客户端允许列表与
+Realm 的服务端身份均由服务配置指定；框架不认识游戏服务角色。
 内部帧同样使用长度帧与 Envelope v1：1601 `SceneRequest`、1602 `SceneReply`、
 1603 `ScenePush`，由 `scene_internal_protocol` 编解码。两组消息不会互相认领。
 所有内部消息带 `realm_incarnation`、`scene_instance_id`、`scene_incarnation`（各为
@@ -253,7 +254,7 @@ Route 含非零 realm_id、character_id、binding_epoch、session_binding 与 sh
 
 提交的过滤条件包括当前版本、完整旧 owner 与前一场景序号；owner 包含 Realm incarnation、
 会话绑定、Scene 实例与 incarnation。进入不能改变既有落点，移动不能改承载者或分片，
-转场不能换 Realm 会话；合法移动判定仍由未来 Scene 处理器负责。
+转场不能换 Realm 会话；合法移动判定由 SceneShard 负责，单步曼哈顿距离上限 100。
 相同序号只有业务参数、结果位置、结果版本与结果 owner 全部相同才回放，不重复写。
 已发出的写若驱动或结果解析失败，抛 `SceneWriteUncertain`；调用方不得宣称未生效。
 `resolve_scene_write` 只在回读到精确结果时确认已提交，缺记录、旧值或被覆盖历史都仍是
@@ -277,3 +278,15 @@ Player Data Store 的部署连接，不改变上述客户端消息、HTTP 契约
 - 删除字段使用 `reserved`。
 - 兼容新增字段使用新编号，接收方接受未知字段。
 - 破坏兼容性的变化进入新包版本并提升 Envelope 协议版本。
+
+S2 内部通道的首个请求是 `SNAPSHOT{shard_id=1,scene_incarnation="discover"}`：仅在 mTLS
+身份验证成功后返回该 Scene 的新运行 incarnation；所有角色操作必须携带精确 incarnation。
+准备成员与移动候选各保留三秒，同一角色只留一个；同一已提交指令的重复激活/确认不增加事件。
+已提交但候选过期时，Realm 可用权威落点重新 PREPARE/ACTIVATE 同一绑定；不会重新写入或
+重复发布已生效的事件。旧版本 REMOVE 不删除新版本成员。
+
+EnterScene 完成表示 Realm 已取得激活快照；参考客户端随后以 GetSceneState 获取快照，
+以其水位衔接 SceneEvent。Realm 对重复事件去重，发现缺口主动重取快照，并发出
+SceneUnavailable，暂停该观察者事件直到 GetSceneState 交付快照；不把缺口后事件直接透传。
+Scene 链路失败同样发出暂不可用通知，权威已确认落点保持。参考客户端的 poll_scene 与
+场景请求复用同一 Realm 帧流，心跳和训练不会吞掉推送；有界缓存满时终结该客户端会话。

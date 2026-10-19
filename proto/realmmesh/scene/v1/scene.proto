@@ -2,7 +2,7 @@ syntax = "proto3";
 package realmmesh.protocol.scene.v1;
 option optimize_for = LITE_RUNTIME;
 
-// #161: 已定义线契约，Realm 在 S2 接线前仍拒绝这些业务消息。
+// S2 已接线进入、移动与查询;转场在 S3 接线。
 enum MessageId {
     MESSAGE_ID_UNSPECIFIED = 0;
     MESSAGE_ID_C2S_ENTER_SCENE = 1501;

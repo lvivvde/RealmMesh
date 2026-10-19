@@ -142,6 +142,18 @@ constexpr std::string_view kNonMetrics[] = {
         "edge_fetch_retry_total",
         "edge_fetch_duration_seconds",
         "edge_jti_replay_rejected_total",
+        // Scene S2(Realm 编排与 Scene 成员)
+        "scene_commands_total",
+        "scene_command_duration_seconds",
+        "scene_active_bindings",
+        "scene_queue_rejections_total",
+        "scene_stale_rejections_total",
+        "scene_write_uncertain_total",
+        "scene_pending_readbacks",
+        "scene_snapshot_resync_total",
+        "scene_shard_members",
+        "scene_prepared_members",
+        "scene_draining",
         // 既有暴露(LoggerMetricsServer / ServiceHost)
         "realmmesh_service_ready",
         "realmmesh_log_events_accepted_total",
@@ -209,8 +221,13 @@ void assert_refs_known(
 
 /// 仪表盘交付清单(六块,#34 定案):五服务 + 洪峰总览。
 constexpr std::string_view kDashboards[] = {
-    "login-verify.json", "queue.json",   "gateway.json",
-    "realm.json",        "platform.json", "surge-overview.json",
+    "login-verify.json",
+    "queue.json",
+    "gateway.json",
+    "realm.json",
+    "platform.json",
+    "surge-overview.json",
+    "scene.json",
 };
 
 TEST(ObservabilityArtifactsTest, AlertRulesReferenceExposedMetrics) {
@@ -225,8 +242,8 @@ TEST(ObservabilityArtifactsTest, AlertRulesReferenceExposedMetrics) {
          it != std::sregex_iterator{}; ++it) {
         alerts.insert((*it)[1].str());
     }
-    ASSERT_EQ(alerts.size(), 6U)
-        << "expected 6 v1 alerts, got " << alerts.size();
+    ASSERT_EQ(alerts.size(), 8U)
+        << "expected 6 v1 + 2 Scene alerts, got " << alerts.size();
     assert_refs_known(extract_exprs(rules), "rules/realmmesh.yaml");
 }
 

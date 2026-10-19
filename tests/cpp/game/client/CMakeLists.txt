@@ -34,3 +34,11 @@ realm_add_gtest(wire_login_transport_integration_test
     LABELS integration
     DISCOVER_PROPERTIES RUN_SERIAL TRUE
 )
+
+realm_add_gtest(scene_session_test SOURCES scene_session_test.cpp
+    LIBS realm_game_client realm_game_common realm_network
+    DEFINITIONS
+        REALMMESH_TEST_TLS_CERTIFICATE="${REALMMESH_TEST_TLS_CERTIFICATE}"
+        REALMMESH_TEST_TLS_PRIVATE_KEY="${REALMMESH_TEST_TLS_PRIVATE_KEY}"
+    DEPENDS realmmesh_test_tls_identity
+    LABELS integration DISCOVER_PROPERTIES TIMEOUT 10)
