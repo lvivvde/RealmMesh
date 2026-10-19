@@ -26,6 +26,9 @@ public:
         const service_host::ServiceModuleContext& context, RealmConfig config)
         : EdgeServiceModule(context) {
         // 选角与训练读写权威角色数据,没有「无存储」的 Realm 装配。
+        scene_instances_.push_back(config.scene.instance_id);
+        for (const auto& target : config.scene.targets)
+            scene_instances_.push_back(target.instance_id);
         const auto& player_data = config.player_data;
         if (player_data.uri.empty()) {
             throw std::invalid_argument("realm requires player_data.uri");
@@ -53,9 +56,11 @@ public:
     }
 
     void tick(const service_host::ServiceTickContext& context) override {
-        scenes_->endpoint(
-            context.resolver == nullptr ? std::nullopt
-                                        : context.resolver->endpoint());
+        for (const auto& instance : scene_instances_)
+            scenes_->endpoint(
+                context.resolver ? context.resolver->endpoint(instance)
+                                 : std::nullopt,
+                instance);
         frame_->tick(logger(), runtime(), context.budget_reporter);
     }
 
@@ -70,6 +75,7 @@ public:
 
 private:
     cluster::BudgetPublishPolicy budget_policy_;
+    std::vector<std::string> scene_instances_;
     /// Session 表在三者之后声明、先于它们析构:先回收数据访问工作线程,
     /// 再释放它引用的存储、规则与出站缝。
     std::unique_ptr<common::MongoPlayerDataStore> characters_;

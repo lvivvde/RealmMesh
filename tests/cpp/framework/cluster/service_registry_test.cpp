@@ -151,6 +151,30 @@ TEST(ServiceRegistryTest, ResolverReceivesInstancesPresentBeforeSubscription) {
     EXPECT_EQ(resolver.endpoint()->port, 8100);
 }
 
+TEST(
+    ServiceRegistryTest,
+    ResolverSelectsExactInstanceEvenWhenAnotherHasHigherWeight) {
+    using namespace std::chrono_literals;
+    test_support::FakeServiceRegistry registry;
+    auto first = make_instance("scene", "scene-a", 7200);
+    first.weight = 100;
+    auto second = make_instance("scene", "scene-b", 7201);
+    second.weight = 1;
+    ServiceResolver resolver(
+        registry, "scene", network::TransportProtocol::TlsTcp);
+    ASSERT_EQ(
+        registry.register_instance(first, 10s).status, RegistryStatus::Success);
+    const auto registration = registry.register_instance(second, 10s);
+    ASSERT_EQ(registration.status, RegistryStatus::Success);
+    ASSERT_TRUE(resolver.endpoint("scene-b"));
+    EXPECT_EQ(resolver.endpoint("scene-b")->port, 7201);
+    EXPECT_EQ(resolver.endpoint()->port, 7200);
+    EXPECT_FALSE(resolver.endpoint("missing"));
+    ASSERT_TRUE(registry.unregister_instance(registration.id));
+    EXPECT_FALSE(resolver.endpoint("scene-b"));
+    EXPECT_TRUE(resolver.endpoint("scene-a"));
+}
+
 TEST(ServiceRegistryTest, PublisherRegistersAndUnregistersWithItsLifetime) {
     using namespace std::chrono_literals;
 

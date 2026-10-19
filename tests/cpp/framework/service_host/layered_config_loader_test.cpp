@@ -99,6 +99,45 @@ TEST_F(LayeredConfigTest, ServiceLayerOverridesCommon) {
         std::size_t{30});
 }
 
+TEST_F(LayeredConfigTest, RealmSceneTargetLoadsIdentityAndServerChosenEntry) {
+    write(
+        root_ / "services/realm.lua",
+        R"(return {realm={training_rule_file="rule.lua", scene={enabled=true,
+      ca_file="ca.pem", certificate_file="realm.pem", private_key_file="realm.key",
+      targets={{shard_id=2,port=7201,instance_id="scene-dev-02",server_identity="scene-dev-02.scene.service",entry_x=200,entry_y=300}}}}})");
+    const auto layered = LayeredConfigLoader::load(root_, "realm");
+    const auto value = game::realm::load_realm_config(layered);
+    ASSERT_EQ(value.scene.targets.size(), 1);
+    EXPECT_EQ(value.scene.targets[0].shard_id, 2);
+    EXPECT_EQ(value.scene.targets[0].entry_x, 200);
+    EXPECT_EQ(value.scene.targets[0].entry_y, 300);
+    EXPECT_EQ(value.scene.targets[0].instance_id, "scene-dev-02");
+}
+TEST_F(
+    LayeredConfigTest,
+    RealmSceneTargetRejectsReassignmentBadCoordinatesAndUnknownShards) {
+    for (const auto target :
+         {"{shard_id=1}",
+          "{shard_id=3}",
+          "{entry_x=-1}",
+          "{entry_y=10001}",
+          "{instance_id='scene-dev-01'}",
+          "{port=65536}",
+          "{server_identity=''}"}) {
+        write(
+            root_ / "services/realm.lua",
+            std::string(
+                R"(return {realm={training_rule_file="rule.lua", scene={enabled=true,
+          ca_file="ca.pem",certificate_file="realm.pem",private_key_file="realm.key",targets={)") +
+                target + "}}}}");
+        const auto layered = LayeredConfigLoader::load(root_, "realm");
+        EXPECT_THROW(
+            static_cast<void>(game::realm::load_realm_config(layered)),
+            std::invalid_argument)
+            << target;
+    }
+}
+
 TEST_F(LayeredConfigTest, CliOverridesInstanceIdentity) {
     write(
         root_ / "services" / "realm.lua",

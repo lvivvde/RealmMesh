@@ -1,7 +1,7 @@
 # 独立于客户端接入证书的服务 CA;生成规则登记全部产物与脚本输入。
 set(REALMMESH_TEST_SERVICE_TLS_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/test-service-tls")
 set(service_identity_outputs "${REALMMESH_TEST_SERVICE_TLS_DIRECTORY}/ca.pem")
-foreach(role IN ITEMS realm scene other)
+foreach(role IN ITEMS realm scene scene2 other)
     list(APPEND service_identity_outputs
         "${REALMMESH_TEST_SERVICE_TLS_DIRECTORY}/${role}.pem"
         "${REALMMESH_TEST_SERVICE_TLS_DIRECTORY}/${role}.key")

@@ -6,12 +6,28 @@
 #include "realmmesh/service_host/edge_service_module.hpp"
 
 #include <map>
+#include <sol/sol.hpp>
 #include <stdexcept>
 #include <unordered_map>
+#include "realmmesh/service_host/layered_config_lua.hpp"
 
 namespace realm::game::scene {
 namespace internal = ::realmmesh::protocol::scene_internal::v1;
 namespace {
+std::uint64_t configured_shard(const service_host::LayeredConfig& config) {
+    const auto section =
+        service_host::lua_root(config).raw_get<sol::object>("scene");
+    if (section == sol::lua_nil) return 1;
+    if (!section.is<sol::table>())
+        throw std::invalid_argument("scene must be table");
+    const auto shard =
+        section.as<sol::table>().raw_get<sol::object>("shard_id");
+    if (!shard.is<lua_Integer>() || shard.as<lua_Integer>() < 1 ||
+        shard.as<lua_Integer>() > 2)
+        throw std::invalid_argument(
+            "S3 Scene requires configured shard 1 or 2");
+    return static_cast<std::uint64_t>(shard.as<lua_Integer>());
+}
 class SceneModule final : public service_host::EdgeServiceModule {
 public:
     explicit SceneModule(const service_host::ServiceModuleContext& context)
@@ -20,7 +36,8 @@ public:
           metrics_(context.metrics),
           shard_(
               instance_id_,
-              common::correlation_id_hex(common::make_correlation_id())) {
+              common::correlation_id_hex(common::make_correlation_id()),
+              configured_shard(context.config)) {
         std::size_t enabled = 0;
         for (const auto& transport : context.config.edge().transports) {
             if (!transport.enabled) continue;

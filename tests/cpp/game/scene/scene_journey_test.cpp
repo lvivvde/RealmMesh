@@ -1,7 +1,12 @@
+#include <atomic>
+#include <future>
 #include <map>
 #include "../realm/journey_fixture.hpp"
+#include "realmmesh/cluster/etcd_service_registry.hpp"
 #include "realmmesh/game/client/scene_session.hpp"
 #include "realmmesh/game/common/scene_store.hpp"
+#include "realmmesh/game/scene/scene_shard.hpp"
+#include "realmmesh/network/transport/transport_factory.hpp"
 
 namespace realm::game::realm {
 namespace {
@@ -261,6 +266,363 @@ TEST_F(
     ASSERT_TRUE(restored.ok());
     EXPECT_EQ(restored.value.last_scene_seq(), 2);
     EXPECT_EQ(restored.value.confirmed_location().x(), 10);
+}
+class SceneTransferJourneyTest : public SceneJourneyTest {
+protected:
+    void prepare_services(const std::string& database) override {
+        SceneJourneyTest::prepare_services(database);
+        const auto tls =
+            std::filesystem::path(REALMMESH_TEST_SERVICE_TLS_DIRECTORY);
+        set_environment(
+            "REALMMESH_SCENE2_CERTIFICATE_FILE", (tls / "scene2.pem").string());
+        set_environment(
+            "REALMMESH_SCENE2_PRIVATE_KEY_FILE", (tls / "scene2.key").string());
+        port_b_ = test_support::unused_loopback_ports(1).front();
+        copy_configs(
+            root_b_.path(), "return { services = { { name = \"scene\" } } }");
+        const auto config = root_b_.path() / "services/scene.lua";
+        rewrite(config, "scene-dev-01", "scene-dev-02");
+        rewrite(config, "shard_id = 1", "shard_id = 2");
+        rewrite(
+            config,
+            "listen_port = 7200",
+            "listen_port = " + std::to_string(port_b_));
+        rewrite(config, "metrics_port = 9106", "metrics_port = 0");
+        rewrite(
+            config,
+            "REALMMESH_SCENE_CERTIFICATE_FILE",
+            "REALMMESH_SCENE2_CERTIFICATE_FILE");
+        rewrite(
+            config,
+            "REALMMESH_SCENE_PRIVATE_KEY_FILE",
+            "REALMMESH_SCENE2_PRIVATE_KEY_FILE");
+        rewrite(
+            root_b_.path() / "common/discovery.lua",
+            "enabled = false",
+            "enabled = true");
+        rewrite(
+            root_b_.path() / "common/discovery.lua",
+            "http://127.0.0.1:2379",
+            etcd_.endpoint());
+        rewrite(
+            realm_root_.path() / "services/realm.lua",
+            "targets = {},",
+            "targets = {{ shard_id = 2, host = \"127.0.0.1\", port = " +
+                std::to_string(port_b_) +
+                ", instance_id = \"scene-dev-02\", server_identity = \"scene-dev-02.scene.service\", entry_x = 200, entry_y = 300 }},");
+        scene_b_.emplace(root_b_.path());
+        wait_for_port(port_b_, "scene-b");
+    }
+    void TearDown() override {
+        SceneJourneyTest::TearDown();
+        scene_b_.reset();
+        if (const char* directory =
+                std::getenv("REALMMESH_SCENE_ARTIFACT_DIRECTORY")) {
+            const auto target = std::filesystem::path(directory) /
+                                ::testing::UnitTest::GetInstance()
+                                    ->current_test_info()
+                                    ->name() /
+                                "scene-b";
+            if (std::filesystem::exists(root_b_.path() / "logs"))
+                std::filesystem::copy(
+                    root_b_.path() / "logs",
+                    target,
+                    std::filesystem::copy_options::recursive |
+                        std::filesystem::copy_options::overwrite_existing);
+        }
+        ::unsetenv("REALMMESH_SCENE2_CERTIFICATE_FILE");
+        ::unsetenv("REALMMESH_SCENE2_PRIVATE_KEY_FILE");
+    }
+    std::unique_ptr<client::RealmSession> selected(
+        std::uint64_t& character,
+        std::string_view account = journey_account,
+        std::string_view credential = journey_credential) {
+        auto session = login(account, credential);
+        if (!session) return {};
+        const auto hero = session->create_character(
+            account == journey_account ? "TransferAlpha" : "TransferBeta",
+            soon());
+        if (!hero.ok()) {
+            ADD_FAILURE() << hero.error_code;
+            return {};
+        }
+        character = hero.value.character_id;
+        if (!session->select_character(character, soon()).ok()) {
+            ADD_FAILURE();
+            return {};
+        }
+        return session;
+    }
+    void wait_instance_expired(
+        const std::string& type, const std::string& instance) {
+        cluster::EtcdServiceRegistry registry(
+            {.endpoint = etcd_.endpoint(), .background_maintenance = false});
+        const auto deadline = client::Clock::now() + 12s;
+        while (client::Clock::now() < deadline) {
+            bool found = false;
+            for (const auto& value : registry.discover(type))
+                if (value.instance_id == instance) found = true;
+            if (!found && registry.last_error().empty()) return;
+            std::this_thread::sleep_for(10ms);
+        }
+        throw std::runtime_error("old registration lease did not expire");
+    }
+    void stale_write_rejected(
+        const common::SceneStateRecord& old,
+        std::uint64_t seq,
+        const common::SceneLocation& expected) {
+        common::MongoPlayerDataStore database(
+            test_support::MongodProcess::shared().uri(), database_);
+        const auto prior = database.scene_state(old.character);
+        common::SceneWrite stale{
+            old.character,
+            old.binding_epoch,
+            old.owner,
+            *old.owner,
+            {common::SceneCommandType::Move,
+             seq,
+             old.confirmed_location->x + 10,
+             old.confirmed_location->y},
+            {old.confirmed_location->shard_id,
+             old.confirmed_location->x + 10,
+             old.confirmed_location->y}};
+        EXPECT_EQ(
+            database.commit_scene(stale).outcome,
+            common::SceneWriteOutcome::StaleBinding);
+        const auto after = database.scene_state(old.character);
+        ASSERT_TRUE(after);
+        EXPECT_EQ(after, prior);
+        EXPECT_EQ(after->confirmed_location, std::optional(expected));
+    }
+    test_support::TemporaryDirectory root_b_{"scene-transfer-b-"};
+    std::optional<MeshProcess> scene_b_;
+    std::uint16_t port_b_{0};
+};
+TEST_F(
+    SceneTransferJourneyTest, TwoInstancesTransferReplayLeaveAndDatabaseAgree) {
+    std::uint64_t ca = 0, cb = 0;
+    auto a = selected(ca);
+    auto b = selected(cb, "scene-second", "second-secret");
+    ASSERT_NE(a, nullptr);
+    ASSERT_NE(b, nullptr);
+    ASSERT_TRUE(a->scene()->enter_scene(1, soon()).ok());
+    ASSERT_TRUE(b->scene()->enter_scene(1, soon()).ok());
+    EXPECT_EQ(a->scene()->transfer_scene(2, 99, soon()).error_code, 3102);
+    EXPECT_EQ(a->scene()->transfer_scene(2, 1, soon()).error_code, 3102);
+    const auto moved = a->scene()->transfer_scene(2, 2, soon());
+    ASSERT_TRUE(moved.ok()) << moved.error_code;
+    EXPECT_EQ(moved.value.location().shard_id(), 2);
+    EXPECT_EQ(moved.value.location().x(), 200);
+    EXPECT_EQ(moved.value.location().y(), 300);
+    static_cast<void>(event(*b->scene(), common::SceneEvent::KIND_LEAVE, ca));
+    const auto before_replay = a->scene()->get_scene_state(soon());
+    ASSERT_TRUE(before_replay.ok());
+    ASSERT_EQ(before_replay.value.snapshot().members_size(), 1);
+    const auto replay = a->scene()->transfer_scene(2, 2, soon());
+    ASSERT_TRUE(replay.ok());
+    EXPECT_TRUE(replay.value.replayed());
+    const auto after_replay = a->scene()->get_scene_state(soon());
+    ASSERT_TRUE(after_replay.ok());
+    EXPECT_EQ(
+        after_replay.value.snapshot().event_seq(),
+        before_replay.value.snapshot().event_seq());
+    const auto source = b->scene()->get_scene_state(soon());
+    ASSERT_TRUE(source.ok());
+    ASSERT_EQ(source.value.snapshot().members_size(), 1);
+    ASSERT_TRUE(b->scene()->transfer_scene(2, 2, soon()).ok());
+    static_cast<void>(event(*a->scene(), common::SceneEvent::KIND_JOIN, cb));
+    ASSERT_TRUE(a->scene()->move_in_scene(3, 210, 300, soon()).ok());
+    EXPECT_EQ(
+        event(*b->scene(), common::SceneEvent::KIND_MOVE, ca)
+            .member()
+            .location()
+            .x(),
+        210);
+    common::MongoPlayerDataStore database(
+        test_support::MongodProcess::shared().uri(), database_);
+    const auto old = database.scene_state({journey_account_id, 1, ca});
+    ASSERT_TRUE(old);
+    ASSERT_TRUE(old->owner);
+    ASSERT_TRUE(a->scene()->transfer_scene(4, 1, soon()).ok());
+    static_cast<void>(event(*b->scene(), common::SceneEvent::KIND_LEAVE, ca));
+    const auto state_a = a->scene()->get_scene_state(soon());
+    const auto state_b = b->scene()->get_scene_state(soon());
+    ASSERT_TRUE(state_a.ok());
+    ASSERT_TRUE(state_b.ok());
+    EXPECT_EQ(state_a.value.snapshot().shard_id(), 1);
+    EXPECT_EQ(state_b.value.snapshot().shard_id(), 2);
+    ASSERT_EQ(state_a.value.snapshot().members_size(), 1);
+    ASSERT_EQ(state_b.value.snapshot().members_size(), 1);
+    const auto durable_a = database.scene_state({journey_account_id, 1, ca});
+    const auto durable_b = database.scene_state({second_account_id, 1, cb});
+    EXPECT_EQ(durable_a->last_result->command.seq, 4);
+    EXPECT_EQ(durable_b->last_result->command.seq, 2);
+    EXPECT_EQ(durable_a->owner->scene_instance_id, "scene-dev-01");
+    EXPECT_EQ(durable_b->owner->scene_instance_id, "scene-dev-02");
+    stale_write_rejected(*old, 5, {1, 0, 0});
+    RecordProperty(
+        "database_verification",
+        "A->B->A; independent scenes; old epoch CAS rejected; confirmed positions match snapshots");
+}
+TEST_F(
+    SceneTransferJourneyTest,
+    SceneSigkillKeepsOtherShardMovingAndNewIncarnationRestoresLocation) {
+    std::uint64_t ca = 0, cb = 0;
+    auto a = selected(ca);
+    auto b = selected(cb, "scene-second", "second-secret");
+    ASSERT_NE(a, nullptr);
+    ASSERT_NE(b, nullptr);
+    ASSERT_TRUE(a->scene()->enter_scene(1, soon()).ok());
+    ASSERT_TRUE(b->scene()->enter_scene(1, soon()).ok());
+    ASSERT_TRUE(b->scene()->transfer_scene(2, 2, soon()).ok());
+    common::MongoPlayerDataStore database(
+        test_support::MongodProcess::shared().uri(), database_);
+    const auto old = database.scene_state({second_account_id, 1, cb});
+    ASSERT_TRUE(old);
+    ASSERT_TRUE(old->owner);
+    scene_b_->crash();
+    ASSERT_TRUE(a->scene()->move_in_scene(2, 10, 0, soon()).ok());
+    ASSERT_TRUE(a->heartbeat(soon()));
+    ASSERT_TRUE(a->train(1, soon()).ok());
+    const auto missing = b->scene()->get_scene_state(soon());
+    ASSERT_TRUE(missing.ok());
+    EXPECT_EQ(missing.value.last_scene_seq(), 2);
+    EXPECT_EQ(missing.value.confirmed_location().shard_id(), 2);
+    EXPECT_FALSE(missing.value.has_snapshot());
+    wait_instance_expired("scene", "scene-dev-02");
+    scene_b_.reset();
+    scene_b_.emplace(root_b_.path());
+    wait_for_port(port_b_, "scene-b restart");
+    ASSERT_TRUE(b->scene()->enter_scene(3, soon()).ok());
+    const auto recovered = database.scene_state({second_account_id, 1, cb});
+    ASSERT_TRUE(recovered);
+    ASSERT_TRUE(recovered->owner);
+    EXPECT_NE(
+        recovered->owner->scene_incarnation, old->owner->scene_incarnation);
+    EXPECT_GT(recovered->binding_epoch, old->binding_epoch);
+    EXPECT_EQ(recovered->confirmed_location, old->confirmed_location);
+    ASSERT_TRUE(b->scene()->move_in_scene(4, 210, 300, soon()).ok());
+    stale_write_rejected(*old, 5, {2, 210, 300});
+}
+
+// 只在切换故障用例中替代 B 的 IO：生产 SceneShard + mTLS，暂停激活确认。
+class PausedActivationScene {
+public:
+    explicit PausedActivationScene(std::uint16_t port) {
+        const auto tls =
+            std::filesystem::path(REALMMESH_TEST_SERVICE_TLS_DIRECTORY);
+        network::TransportConfig config;
+        config.name = "paused-b";
+        config.listen_address = "127.0.0.1";
+        config.listen_port = port;
+        config.tls = network::TransportConfig::TlsServerIdentity{
+            .certificate_chain_file = (tls / "scene2.pem").string(),
+            .private_key_file = (tls / "scene2.key").string(),
+            .alpn = common::scene_internal_alpn,
+            .client_ca_file = (tls / "ca.pem").string(),
+            .allowed_client_identities = {"realm-dev-01.realm.service"}};
+        auto transports =
+            network::TransportFactory::create_enabled(std::vector{config});
+        server_ = std::move(transports.front());
+        thread_ = std::jthread([this](std::stop_token stop) {
+            while (!stop.stop_requested())
+                for (const auto& event : server_->poll_once(1ms)) {
+                    if (event.kind ==
+                        network::TransportEventKind::SessionClosed)
+                        shard_.closed(event.session_id);
+                    if (event.kind !=
+                        network::TransportEventKind::MessageReceived)
+                        continue;
+                    const auto request =
+                        common::decode_scene_request(event.payload);
+                    if (!request) continue;
+                    if (request->operation() ==
+                        ::realmmesh::protocol::scene_internal::v1::
+                            OPERATION_ACTIVATE) {
+                        activation_seen = true;
+                        continue;
+                    }
+                    static_cast<void>(server_->send(
+                        event.session_id,
+                        common::encode(
+                            shard_.handle(event.session_id, *request),
+                            *common::scene_internal_request_id(
+                                event.payload))));
+                    static_cast<void>(shard_.drain_events());
+                }
+        });
+    }
+    ~PausedActivationScene() {
+        thread_.request_stop();
+        thread_.join();
+    }
+    std::atomic_bool activation_seen{false};
+
+private:
+    std::unique_ptr<network::IMessageTransport> server_;
+    scene::SceneShard shard_{"scene-dev-02", "paused-b-incarnation", 2};
+    std::jthread thread_;
+};
+TEST_F(
+    SceneTransferJourneyTest,
+    RealmSigkillAfterTargetCommitRecoversWithoutRollingBackSource) {
+    std::uint64_t character = 0;
+    auto first = selected(character);
+    ASSERT_NE(first, nullptr);
+    ASSERT_TRUE(first->scene()->enter_scene(1, soon()).ok());
+    common::MongoPlayerDataStore database(
+        test_support::MongodProcess::shared().uri(), database_);
+    // 让 B 的准备成功、激活停住；数据库已经越过唯一切换点。
+    scene_b_.reset();
+    auto paused = std::make_unique<PausedActivationScene>(port_b_);
+    auto transfer = std::async(std::launch::async, [&] {
+        return first->scene()->transfer_scene(2, 2, soon());
+    });
+    const auto deadline = client::Clock::now() + 5s;
+    while (!paused->activation_seen && client::Clock::now() < deadline)
+        std::this_thread::sleep_for(1ms);
+    ASSERT_TRUE(paused->activation_seen);
+    const auto old = database.scene_state({journey_account_id, 1, character});
+    ASSERT_TRUE(old);
+    ASSERT_TRUE(old->owner);
+    ASSERT_EQ(old->last_result->command.seq, 2);
+    ASSERT_EQ(old->confirmed_location->shard_id, 2);
+    realm_->crash();
+    static_cast<void>(transfer.get());
+    first->close();
+    paused.reset();
+    scene_b_.emplace(root_b_.path());
+    wait_for_port(port_b_, "real scene-b restart");
+    wait_instance_expired("realm", "realm-dev-01");
+    realm_.reset();
+    start_realm();
+    auto again = login();
+    ASSERT_NE(again, nullptr);
+    ASSERT_TRUE(again->select_character(character, soon()).ok());
+    const auto state = again->scene()->get_scene_state(soon());
+    ASSERT_TRUE(state.ok());
+    EXPECT_EQ(state.value.last_scene_seq(), 2);
+    EXPECT_EQ(state.value.confirmed_location().shard_id(), 2);
+    EXPECT_EQ(state.value.confirmed_location().x(), 200);
+    EXPECT_EQ(state.value.confirmed_location().y(), 300);
+    const auto replay = again->scene()->transfer_scene(2, 2, soon());
+    ASSERT_TRUE(replay.ok());
+    EXPECT_TRUE(replay.value.replayed());
+    EXPECT_EQ(
+        database.scene_state({journey_account_id, 1, character})->binding_epoch,
+        old->binding_epoch);
+    ASSERT_TRUE(again->scene()->enter_scene(3, soon()).ok());
+    const auto recovered =
+        database.scene_state({journey_account_id, 1, character});
+    ASSERT_TRUE(recovered);
+    ASSERT_TRUE(recovered->owner);
+    EXPECT_NE(
+        recovered->owner->realm_incarnation, old->owner->realm_incarnation);
+    EXPECT_GT(recovered->binding_epoch, old->binding_epoch);
+    EXPECT_EQ(recovered->confirmed_location, old->confirmed_location);
+    stale_write_rejected(*old, 4, {2, 200, 300});
+    ASSERT_TRUE(again->heartbeat(soon()));
+    ASSERT_TRUE(again->train(1, soon()).ok());
 }
 }  // namespace
 }  // namespace realm::game::realm

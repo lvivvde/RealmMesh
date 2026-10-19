@@ -8,11 +8,13 @@ umask 077
 "$openssl_bin" req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes \
     -keyout "$out/ca.key" -out "$out/ca.pem" -days 3650 -subj /CN=RealmMesh-Test-Service-CA \
     -addext basicConstraints=critical,CA:TRUE >/dev/null 2>&1
-for role in realm scene other; do
+for role in realm scene scene2 other; do
+    identity="$role-dev-01.$role.service"
+    if [[ "$role" == scene2 ]]; then identity="scene-dev-02.scene.service"; fi
     "$openssl_bin" req -new -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes \
         -keyout "$out/$role.key" -out "$out/$role.csr" -subj "/CN=$role-test" >/dev/null 2>&1
     printf '%s\n' 'basicConstraints=critical,CA:FALSE' 'keyUsage=critical,digitalSignature' \
-        'extendedKeyUsage=serverAuth,clientAuth' "subjectAltName=DNS:$role-dev-01.$role.service" > "$out/$role.ext"
+        'extendedKeyUsage=serverAuth,clientAuth' "subjectAltName=DNS:$identity" > "$out/$role.ext"
     "$openssl_bin" x509 -req -in "$out/$role.csr" -CA "$out/ca.pem" -CAkey "$out/ca.key" \
         -CAcreateserial -out "$out/$role.pem" -days 3650 -extfile "$out/$role.ext" >/dev/null 2>&1
 done

@@ -94,7 +94,8 @@ bool RealmSessions::handle(
         const auto found = sessions_.find(id);
         if (found == sessions_.end()) return false;
         const auto kind = static_cast<int>(*common::scene_message_id(payload));
-        const bool supported = kind == 1501 || kind == 1503 || kind == 1504;
+        const bool supported =
+            kind == 1501 || kind == 1503 || kind == 1504 || kind == 1507;
         if (!supported) return false;
         if (found->second.phase != RealmSessionPhase::InGame) {
             send_error(
@@ -106,12 +107,14 @@ bool RealmSessions::handle(
         }
         if (!common::decode_enter_scene(payload) &&
             !common::decode_move_in_scene(payload) &&
-            !common::decode_get_scene_state(payload)) {
+            !common::decode_get_scene_state(payload) &&
+            !common::decode_transfer_scene(payload)) {
             send_error(
                 id,
                 common::scene_request_id(payload).value_or(0),
-                kind == 1503 ? common::scene_error_invalid_target
-                             : common::scene_error_invalid_seq,
+                (kind == 1503 || kind == 1507)
+                    ? common::scene_error_invalid_target
+                    : common::scene_error_invalid_seq,
                 "invalid scene request");
             return true;
         }

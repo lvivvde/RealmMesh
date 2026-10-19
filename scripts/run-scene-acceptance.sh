@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Scene S2 本机多进程验收:总是先构建,只使用隔离测试数据库与服务证书。
+# Scene S1–S3 本机多进程验收:总是先构建,只使用隔离测试数据库与服务证书。
 set -euo pipefail
 project_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 source "${project_root}/scripts/lib/build-dir.sh"
@@ -41,9 +41,11 @@ if ! "$cmake_bin" --build --preset "$preset" --parallel "$realmmesh_build_jobs" 
     python3 "$project_root/scripts/lib/scene-acceptance-report.py" finish "$project_root" "$report_dir" build-failed
     exit 1
 fi
+mkdir -p "$report_dir/gtest"
+export GTEST_OUTPUT="xml:$report_dir/gtest/"
 set +e
 "$ctest_bin" --preset "$preset" -j 1 --output-on-failure \
-    -R '^(SceneJourneyTest|RealmScenesTest|SceneShardTest|MutualTlsTest|SceneSessionTest)\.' \
+    -R '^(SceneJourneyTest|RealmScenesTest|SceneShardTest|MutualTlsTest|SceneSessionTest|SceneTransferTest|SceneTransferJourneyTest)\.' \
     --output-junit "$report_dir/results.xml" >"$report_dir/ctest.log" 2>&1
 result=$?
 set -e

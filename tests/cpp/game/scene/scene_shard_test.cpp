@@ -193,5 +193,21 @@ TEST(SceneShardTest, WrongIncarnationCannotMutateAndOnlySnapshotCanDiscover) {
     r.set_scene_incarnation("discover");
     EXPECT_EQ(shard.handle(1, r).scene_incarnation(), "boot");
 }
+TEST(SceneShardTest, ConfiguredSecondShardRejectsFirstShardRoutes) {
+    SceneShard shard("scene", "boot", 2);
+    auto prepare = request(internal::OPERATION_PREPARE);
+    EXPECT_EQ(shard.handle(1, prepare).status(), internal::STATUS_NOT_FOUND);
+    prepare.mutable_route()->set_shard_id(2);
+    prepare.mutable_location()->set_shard_id(2);
+    EXPECT_EQ(shard.handle(1, prepare).status(), internal::STATUS_OK);
+    auto activate = request(internal::OPERATION_ACTIVATE);
+    activate.mutable_route()->set_shard_id(2);
+    const auto reply = shard.handle(1, activate);
+    ASSERT_EQ(reply.status(), internal::STATUS_OK);
+    EXPECT_EQ(reply.snapshot().shard_id(), 2);
+    EXPECT_EQ(reply.snapshot().members(0).location().shard_id(), 2);
+    auto wrong = request(internal::OPERATION_SNAPSHOT);
+    EXPECT_EQ(shard.handle(1, wrong).status(), internal::STATUS_NOT_FOUND);
+}
 }  // namespace
 }  // namespace realm::game::scene

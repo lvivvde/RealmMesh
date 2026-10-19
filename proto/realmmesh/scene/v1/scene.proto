@@ -2,7 +2,7 @@ syntax = "proto3";
 package realmmesh.protocol.scene.v1;
 option optimize_for = LITE_RUNTIME;
 
-// S2 已接线进入、移动与查询;转场在 S3 接线。
+// S1–S3 已接线进入、移动、查询与静态双实例转场。
 enum MessageId {
     MESSAGE_ID_UNSPECIFIED = 0;
     MESSAGE_ID_C2S_ENTER_SCENE = 1501;

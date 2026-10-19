@@ -8,9 +8,11 @@ namespace realm::game::scene {
 namespace internal = ::realmmesh::protocol::scene_internal::v1;
 namespace wire = ::realmmesh::protocol::scene::v1;
 
-SceneShard::SceneShard(std::string instance_id, std::string incarnation)
+SceneShard::SceneShard(
+    std::string instance_id, std::string incarnation, std::uint64_t shard_id)
     : instance_id_(std::move(instance_id)),
-      incarnation_(std::move(incarnation)) {}
+      incarnation_(std::move(incarnation)),
+      shard_id_(shard_id) {}
 
 bool SceneShard::same_binding(
     const Member& member,
@@ -24,7 +26,7 @@ bool SceneShard::same_binding(
 
 wire::Snapshot SceneShard::snapshot() const {
     wire::Snapshot result;
-    result.set_shard_id(1);
+    result.set_shard_id(shard_id_);
     result.set_shard_incarnation(incarnation_);
     result.set_event_seq(event_seq_);
     for (const auto& [id, member] : active_) {
@@ -38,7 +40,7 @@ wire::Snapshot SceneShard::snapshot() const {
 
 void SceneShard::emit(common::SceneEvent::Kind kind, const Member& member) {
     common::SceneEvent event;
-    event.set_shard_id(1);
+    event.set_shard_id(shard_id_);
     event.set_shard_incarnation(incarnation_);
     event.set_event_seq(++event_seq_);
     event.set_kind(kind);
@@ -67,7 +69,7 @@ common::SceneReply SceneShard::handle(
         (!bootstrap && request.scene_incarnation() != incarnation_))
         return reply;
     if (request.operation() == internal::OPERATION_SNAPSHOT) {
-        if (request.shard_id() != 1) {
+        if (request.shard_id() != shard_id_) {
             reply.set_status(internal::STATUS_NOT_FOUND);
             return reply;
         }
@@ -82,7 +84,8 @@ common::SceneReply SceneShard::handle(
         reply.set_active_members(static_cast<std::uint32_t>(active_.size()));
         return reply;
     }
-    if (request.route().realm_id() != 1 || request.route().shard_id() != 1) {
+    if (request.route().realm_id() != 1 ||
+        request.route().shard_id() != shard_id_) {
         reply.set_status(internal::STATUS_NOT_FOUND);
         return reply;
     }

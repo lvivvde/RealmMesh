@@ -222,6 +222,18 @@ public:
             deadline);
         return scene_result(exchange);
     }
+    [[nodiscard]] RealmReply<common::SceneCommandResult> transfer_scene(
+        std::uint64_t seq, std::uint64_t shard, TimePoint deadline) override {
+        return scene_result(call(
+            [=](std::uint64_t id) {
+                common::TransferScene request;
+                request.set_scene_seq(seq);
+                request.set_target_shard_id(shard);
+                return common::encode(request, id);
+            },
+            1502,
+            deadline));
+    }
     [[nodiscard]] RealmReply<common::SceneState> get_scene_state(
         TimePoint deadline) override {
         const auto exchange = call(

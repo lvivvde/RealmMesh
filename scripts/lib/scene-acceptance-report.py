@@ -31,7 +31,7 @@ if mode == "freeze":
         "difference_sha256": tree_hash.hexdigest(), "preset": value,
         "platform": platform.platform(), "architecture": platform.machine(),
         "scene_transport": "TLS/TCP, mutual TLS, realmmesh-scene/1",
-        "scope": "S2 local multi-process; no Scene QUIC/cross-host/capacity claim",
+        "scope": "S1-S3 local multi-process; no Scene QUIC/cross-host/capacity claim",
         "configuration_sha256": manifest,
     }
     (output / "metadata.json").write_text(json.dumps(metadata, ensure_ascii=False, indent=2) + "\n")
@@ -46,18 +46,29 @@ else:
             cases.append({"name": case.get("name"), "seconds": case.get("time"),
                           "outcome": "failed" if failed else "skipped" if skipped else "passed",
                           "properties": {p.get("name"): p.get("value") for p in case.findall("./properties/property")}})
-    expected = ("SceneJourneyTest.", "RealmScenesTest.", "SceneShardTest.", "MutualTlsTest.", "SceneSessionTest.")
+    raw_properties = {}
+    for raw_xml in sorted((output / "gtest").glob("*.xml")):
+        for case in ET.parse(raw_xml).iter("testcase"):
+            name = f"{case.get('classname')}.{case.get('name')}"
+            properties = {p.get("name"): p.get("value") for p in case.findall("./properties/property")}
+            if "database_verification" in case.attrib:
+                properties["database_verification"] = case.attrib["database_verification"]
+            if properties:
+                raw_properties[name] = {"raw_gtest": str(raw_xml.relative_to(output)), **properties}
+    for case in cases:
+        case["properties"].update(raw_properties.get(case["name"], {}))
+    expected = ("SceneJourneyTest.", "RealmScenesTest.", "SceneShardTest.", "MutualTlsTest.", "SceneSessionTest.", "SceneTransferTest.", "SceneTransferJourneyTest.")
     complete = all(any(c["name"].startswith(prefix) for c in cases) for prefix in expected)
     passed = value == "0" and complete and all(c["outcome"] == "passed" for c in cases)
     metadata.update({"result": "passed" if passed else "failed", "exit_status": value, "cases": cases})
     (output / "metadata.json").write_text(json.dumps(metadata, ensure_ascii=False, indent=2) + "\n")
-    lines = ["# Scene S2 本机多进程验收", "", f"- 结果：{metadata['result']}",
+    lines = ["# Scene S1–S3 本机多进程验收", "", f"- 结果：{metadata['result']}",
              f"- 版本：`{metadata['revision']}`；工作树差异 SHA256：`{metadata['difference_sha256']}`",
              f"- 环境：{metadata['platform']}；预设：`{metadata['preset']}`",
              "- 传输：TLS/TCP，双向服务身份校验；不代表 Scene QUIC、跨机或玩法容量验收。",
-             "- 拓扑：入口组、Realm、Scene 三个独立 realm_mesh 进程，隔离 etcd 与 MongoDB 副本集。",
+             "- 拓扑：常规/SIGKILL Scene 用例为入口组、Realm、Scene A/B 四个独立 realm_mesh 进程；Realm 激活边界故障使用生产 SceneShard 的 mTLS 替身，隔离 etcd 与 MongoDB 副本集。",
              "- 数据库核对项：双人各 10 次移动后，双方快照、事件水位及数据库 seq=11、落点一致；任何断言失败即验收失败。",
-             "- 原始证据：`results.xml`、`ctest.log`、`build.log`、`configure.log`、`services/`。",
+             "- 原始证据：`results.xml`、`ctest.log`、`build.log`、`configure.log`、`services/`、`gtest/`。",
              "- 配置哈希与逐例结果：`metadata.json`；每次运行单独保存，不覆盖旧报告。", "",
              "| 用例 | 秒 | 结果 |", "|---|---:|---|"]
     lines += [f"| {c['name']} | {c['seconds']} | {c['outcome']} |" for c in cases]
