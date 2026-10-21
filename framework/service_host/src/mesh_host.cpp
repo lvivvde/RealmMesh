@@ -166,6 +166,13 @@ void MeshHost::tick() {
     }
 }
 
+void MeshHost::record_frame(
+    std::chrono::nanoseconds work, std::chrono::nanoseconds budget) {
+    for (auto& [name, host] : hosts_) {
+        host->record_frame(work, budget);
+    }
+}
+
 void MeshHost::shutdown() {
     for (const auto& name : topology_.shutdown_order()) {
         const auto host = hosts_.find(name);

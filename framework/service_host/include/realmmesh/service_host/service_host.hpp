@@ -6,6 +6,7 @@
 #include "realmmesh/service_host/service_module.hpp"
 
 #include <atomic>
+#include <chrono>
 #include <filesystem>
 #include <memory>
 #include <optional>
@@ -59,8 +60,14 @@ public:
     /// 依赖解析(发现开启且注册项声明依赖时);否则返回 nullptr。
     [[nodiscard]] cluster::ServiceResolver* resolver() noexcept;
 
-    /// 每帧模块业务 + 发现续约轮询(由编排器调用)。
+    /// 每帧模块业务 + 发现续约轮询(由编排器调用);模块业务耗时记入
+    /// service_tick_duration_seconds。
     void tick();
+    /// 所在主循环一帧的实际耗时(由编排器在帧尾转交):记入
+    /// frame_work_duration_seconds,超过 budget 时 frame_overrun_total +1,
+    /// frame_budget_seconds 发布帧周期。
+    void record_frame(
+        std::chrono::nanoseconds work, std::chrono::nanoseconds budget);
     /// Prometheus 指标含 realmmesh_service_ready gauge。
     [[nodiscard]] std::string prometheus_metrics() const;
 

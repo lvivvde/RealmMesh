@@ -16,8 +16,9 @@ using MetricLabel = std::pair<std::string_view, std::string_view>;
 /// 记账与文本格式渲染。只做计数与渲染,不做推送、不建连接——上报通道
 /// 仍是既有 MetricsServer。指标名不加服务前缀:/metrics 端点按服务隔离。
 /// counter 两态:counter_add 事件累计;counter_set 轮询发布累计源
-/// (下调按 Prometheus 语义视为 reset)。histogram 固定默认桶
-/// (0.005~10,+Inf)。渲染按指标名排序、家族内按标签序列排序,输出确定。
+/// (下调按 Prometheus 语义视为 reset)。histogram 缺省用默认桶
+/// (0.005~10,+Inf);亚毫秒级的帧内耗时等用 histogram_buckets 按指标名
+/// 注册自定义桶。渲染按指标名排序、家族内按标签序列排序,输出确定。
 class MetricsRegistry final {
 public:
     MetricsRegistry();
@@ -41,7 +42,13 @@ public:
         std::string_view name,
         double value,
         std::initializer_list<MetricLabel> labels = {});
-    /// histogram 累计一次观测。
+    /// 为指标名注册自定义桶上界(秒等单位由指标名约定,+Inf 自动追加),
+    /// 同名所有标签系列共用。须在该名首次 observe 前调用;上界须非空、
+    /// 有限且严格递增,否则抛 std::invalid_argument。已有观测或已注册
+    /// 不同的桶时抛 std::logic_error;重复注册相同的桶为无操作。
+    void histogram_buckets(
+        std::string_view name, std::initializer_list<double> upper_bounds);
+    /// histogram 累计一次观测(未注册自定义桶的名字用默认桶)。
     void histogram_observe(
         std::string_view name,
         double value,

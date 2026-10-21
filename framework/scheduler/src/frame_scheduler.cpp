@@ -3,6 +3,7 @@
 #include <chrono>
 #include <stdexcept>
 #include <thread>
+#include <utility>
 
 namespace realm::scheduler {
 namespace {
@@ -41,6 +42,10 @@ std::uint32_t FrameScheduler::tick_rate() const noexcept { return tick_rate_; }
 
 std::chrono::nanoseconds FrameScheduler::frame_duration() const noexcept {
     return frame_duration_;
+}
+
+void FrameScheduler::set_frame_observer(FrameObserver observer) {
+    observer_ = std::move(observer);
 }
 
 }  // namespace realm::scheduler

@@ -8,6 +8,7 @@
 #include <gtest/gtest.h>
 #include <httplib.h>
 
+#include <chrono>
 #include <cstdint>
 #include <cstdlib>
 #include <filesystem>
@@ -174,6 +175,36 @@ TEST_F(ServiceHostTest, RuntimeStopClearsReadinessOnNextTick) {
     host.tick();
 
     EXPECT_FALSE(host.ready());
+}
+
+TEST_F(ServiceHostTest, PublishesFrameTimingAndOverrunMetrics) {
+    using namespace std::chrono_literals;
+    const ScopedTlsEnvironment tls_environment;
+    ServiceHost host(root_, "host_test", modules_);
+
+    // 超帧计数从 0 起发布。
+    EXPECT_NE(
+        host.prometheus_metrics().find("\nframe_overrun_total 0\n"),
+        std::string::npos);
+
+    ASSERT_TRUE(host.start());
+    host.tick();
+    host.record_frame(300us, 50ms);
+    host.record_frame(70ms, 50ms);
+
+    const auto metrics = host.prometheus_metrics();
+    EXPECT_NE(
+        metrics.find("frame_work_duration_seconds_bucket{le=\"0.0005\"} 1\n"),
+        std::string::npos);
+    EXPECT_NE(
+        metrics.find("frame_work_duration_seconds_count 2\n"),
+        std::string::npos);
+    EXPECT_NE(metrics.find("\nframe_overrun_total 1\n"), std::string::npos);
+    EXPECT_NE(metrics.find("\nframe_budget_seconds 0.05\n"), std::string::npos);
+    EXPECT_NE(
+        metrics.find("service_tick_duration_seconds_count 1\n"),
+        std::string::npos);
+    host.stop();
 }
 
 /// 网关装配的环境契约:#79 起准入凭据是 Admission Grant,装配需要
