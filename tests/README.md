@@ -140,3 +140,6 @@ S3 的 SceneTransferTest 注入准备/CAS/激活/移除响应丢失，验证旧�
 隔离；SceneTransferJourneyTest 使用真实 Realm、MongoDB、etcd 和 Scene A/B。SIGKILL 重启
 前等待旧注册实际消失；Realm 切换点崩溃用生产 SceneShard 的 mTLS IO 替身暂停激活，证明
 目标已提交而未激活时不会回滚。GTest 原始 XML 保存在专项报告 gtest/，包含数据库核对属性。
+
+RealmScenesTest 还覆盖数据库撤销持续失败、移除持续返回 BUSY 时的有界停机，及停机必须
+等待已发出的持久写结算。回归失败时夹具解除注入故障并回收线程，不让失败测试永久挂起。

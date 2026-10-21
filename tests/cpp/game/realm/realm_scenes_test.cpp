@@ -67,6 +67,7 @@ public:
         const common::SceneCharacterKey& key,
         std::uint64_t epoch,
         const common::SceneOwner& owner) override {
+        if (fail_revoke) throw std::runtime_error("injected database outage");
         const std::scoped_lock lock(mutex);
         auto& record = records[key.character_id];
         if (!record || record->binding_epoch != epoch ||
@@ -80,6 +81,7 @@ public:
     std::atomic_bool block_initialize{false}, initialize_entered{false},
         block_commit{false}, commit_entered{false}, uncertain{false};
     std::atomic_bool reject_commit{false}, uncertain_before_commit{false};
+    std::atomic_bool fail_revoke{false};
     std::atomic_int commits{0}, revokes{0};
     mutable std::mutex mutex;
     std::map<std::uint64_t, std::optional<common::SceneStateRecord>> records;
@@ -131,8 +133,16 @@ protected:
                     if (!request) continue;
                     last_session_ = event.session_id;
                     last_realm_incarnation_ = request->realm_incarnation();
-                    const auto reply =
-                        shard_.handle(event.session_id, *request);
+                    common::SceneReply reply;
+                    if (busy_remove_ && request->operation() ==
+                                            internal::OPERATION_REMOVE) {
+                        reply.set_realm_incarnation(request->realm_incarnation());
+                        reply.set_scene_instance_id("scene-dev-01");
+                        reply.set_scene_incarnation("scene-boot");
+                        reply.set_operation(request->operation());
+                        reply.set_status(internal::STATUS_BUSY);
+                    } else
+                        reply = shard_.handle(event.session_id, *request);
                     const auto delay =
                         request->operation() == internal::OPERATION_REMOVE
                             ? remove_delay_ms_.load()
@@ -227,7 +237,7 @@ protected:
     scene::SceneShard shard_{"scene-dev-01", "scene-boot"};
     std::unique_ptr<network::IMessageTransport> server_;
     std::atomic_bool drop_activation_{false}, drop_remove_{false},
-        inject_gap_{false};
+        inject_gap_{false}, busy_remove_{false};
     std::atomic_int remove_delay_ms_{0}, snapshot_delay_ms_{0};
     std::atomic_int removals_completed_{0}, delayed_snapshots_completed_{0};
     network::SessionId last_session_{network::invalid_session_id};
@@ -235,6 +245,81 @@ protected:
     std::jthread server_thread_;
     std::unique_ptr<RealmScenes> scenes_;
 };
+TEST_F(
+    RealmScenesTest,
+    ShutdownFinishesWhenDatabaseRevocationKeepsFailing) {
+    enter({1}, 1, 11);
+    wait([&] { return reply(11).has_value(); });
+    ASSERT_TRUE(common::decode_scene_command_result(*reply(11)));
+    const auto confirmed = store_.scene_state({7001, 1, 10});
+    store_.fail_revoke = true;
+    std::atomic_bool finished{false};
+    std::jthread stopper([owned = std::move(scenes_), &finished]() mutable {
+        owned.reset();
+        finished = true;
+    });
+    const auto deadline = std::chrono::steady_clock::now() + 2s;
+    while (!finished && std::chrono::steady_clock::now() < deadline)
+        std::this_thread::sleep_for(1ms);
+    const bool bounded = finished;
+    // 失败实现也能自行回收，避免回归测试把整个 CTest 挂住。
+    store_.fail_revoke = false;
+    stopper.join();
+    EXPECT_TRUE(bounded);
+    if (bounded) {
+        EXPECT_EQ(store_.scene_state({7001, 1, 10}), confirmed);
+        EXPECT_EQ(store_.revokes, 0);
+    }
+}
+TEST_F(RealmScenesTest, ShutdownFinishesWhenRemovalKeepsReturningBusy) {
+    enter({1}, 1, 11);
+    wait([&] { return reply(11).has_value(); });
+    ASSERT_TRUE(common::decode_scene_command_result(*reply(11)));
+    busy_remove_ = true;
+    scenes_->closed({1});
+    wait([&] { return removals_completed_.load() >= 1; });
+    std::atomic_bool finished{false};
+    std::jthread stopper([owned = std::move(scenes_), &finished]() mutable {
+        owned.reset();
+        finished = true;
+    });
+    const auto deadline = std::chrono::steady_clock::now() + 2s;
+    while (!finished && std::chrono::steady_clock::now() < deadline)
+        std::this_thread::sleep_for(1ms);
+    const bool bounded = finished;
+    busy_remove_ = false;
+    stopper.join();
+    EXPECT_TRUE(bounded);
+    EXPECT_GE(removals_completed_.load(), 1);
+    const auto record = store_.scene_state({7001, 1, 10});
+    ASSERT_TRUE(record);
+    EXPECT_FALSE(record->owner);
+    ASSERT_TRUE(record->confirmed_location);
+    EXPECT_EQ(record->confirmed_location->shard_id, 1);
+}
+TEST_F(RealmScenesTest, ShutdownWaitsForSubmittedWriteBeforeRevokingBinding) {
+    store_.block_commit = true;
+    enter({1}, 1, 11);
+    wait([&] { return store_.commit_entered.load(); });
+    std::atomic_bool finished{false};
+    std::jthread stopper([owned = std::move(scenes_), &finished]() mutable {
+        owned.reset();
+        finished = true;
+    });
+    std::this_thread::sleep_for(30ms);
+    EXPECT_FALSE(finished);
+    store_.block_commit = false;
+    stopper.join();
+    EXPECT_TRUE(finished);
+    EXPECT_EQ(store_.commits, 1);
+    EXPECT_EQ(store_.revokes, 1);
+    const auto record = store_.scene_state({7001, 1, 10});
+    ASSERT_TRUE(record);
+    EXPECT_FALSE(record->owner);
+    ASSERT_TRUE(record->last_result);
+    EXPECT_EQ(record->last_result->command.seq, 1);
+    EXPECT_EQ(record->binding_epoch, 2);
+}
 TEST_F(
     RealmScenesTest,
     ClosedDuringWriteNeverRepliesAndNewBindingSurvivesCleanup) {

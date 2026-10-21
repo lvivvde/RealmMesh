@@ -778,6 +778,7 @@ private:
                     value.outcome == common::SceneWriteOutcome::StaleBinding)
                     session->unresolved.reset();
                 else {
+                    if (stopping_) session->reclaimed = true;
                     session->cleaning = false;
                     co_return;
                 }
@@ -799,6 +800,9 @@ private:
             session->reclaimed = true;
         } catch (...) {
         }
+        // 运行时保留重试；停机时已发出的写均已结算，只尝试一次清理。
+        // 数据源故障时保留旧持久事实，由新 Realm incarnation 重新绑定。
+        if (stopping_) session->reclaimed = true;
         session->cleaning = false;
     }
     void push(const common::ScenePush& value) {
@@ -894,6 +898,7 @@ private:
     }
     void run(std::stop_token stop) noexcept {
         while (true) {
+            stopping_ = stop.stop_requested();
             for (auto& value : pushes_.drain(256)) push(value);
             scheduler_.poll();
             if (database_) database_->drain();
@@ -953,7 +958,8 @@ private:
                     session->waiting.pop_front();
                     scheduler_.spawn(process(std::move(job)));
                 }
-                if (!session->retiring && !session->retirements.empty() &&
+                if (!stopping_ && !session->retiring &&
+                    !session->retirements.empty() &&
                     Clock::now() >= session->retire_after) {
                     session->retiring = true;
                     scheduler_.spawn(retire(session));
@@ -964,6 +970,10 @@ private:
                     session->cleaning = true;
                     scheduler_.spawn(cleanup(session));
                 }
+                // 不再向故障实例续发 REMOVE；等待在途调用结束后，由 Peer
+                // 析构关闭连接，Scene 按连接失效回收可见成员。
+                if (stopping_ && !session->retiring)
+                    session->retirements.clear();
             }
             std::erase_if(tracked_, [](const auto& item) {
                 const auto& s = *item.second;
@@ -998,6 +1008,7 @@ private:
     std::map<std::uint64_t, std::shared_ptr<Session>> tracked_;
     scene_detail::Scheduler scheduler_;
     std::unique_ptr<scene_detail::DatabaseJobs> database_;
+    bool stopping_{false};  // 仅编排线程访问。
     std::jthread thread_;
 };
 RealmScenes::RealmScenes(
