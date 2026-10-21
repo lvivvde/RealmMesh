@@ -1,8 +1,8 @@
-# Scene S2 参考闭环
+# Scene S1–S3 参考闭环
 
 S2 提供独立 Scene、分片 1、至多 16 个角色的进入和移动互见。客户端仍只连 Realm；
 Realm 按 ADR-0015 条件写入 MongoDB 后才确认和广播。单步曼哈顿距离至多 100，坐标为
-0..10000 的整数，首次出生点 (0,0)。转场、动态分片和完整故障矩阵分别属于 S3–S5。
+0..10000 的整数，首次出生点 (0,0)。静态双实例转场与归属恢复已在 S3 接线；动态分配/排空与完整矩阵属于 S4/S5。
 
 ## 自动验收
 
@@ -65,7 +65,9 @@ Realm 按 ADR-0015 条件写入 MongoDB 后才确认和广播。单步曼哈顿�
 三秒指令总截止包含排队；帧线程对尚未发写的任务取消并回 3104，已发写只能回 3105，后台继续
 对账，不能把超时当作未提交。数据访问和内部网络各自受已有连接超时约束；阻塞调用只在
 专用场景线程，训练工作池、心跳帧处理独立。Scene 暂存成员/候选三秒回收，链路关闭移除
-该链路的可见成员。S2 一个 Scene 实例使用一个专用线程；多实例隔离扩展在后续阶段实现。
+该链路的可见成员。S3 使用一个编排线程、每实例一个惰性 IO 线程，以及独立于训练的惰性四线程场景数据池。
+协程只在编排线程恢复，线程之间只传递有界任务/future；同一角色的旧、新会话串行结算。
+每实例最多 64 个指令、两个实例最多 128 条编排记录，回包/内部推送各 1024，数据池至多 256。
 
 ## 观测
 
@@ -75,3 +77,36 @@ Realm 9102 暴露 `scene_commands_total{operation,outcome}`、`scene_command_dur
 Scene 9106 暴露 `scene_shard_members`、`scene_prepared_members`、`scene_draining`。
 标签只有有限操作/结果集；账号、角色和 request_id 不作指标标签。
 Grafana 的 `scene.json` 和两条 Scene 告警与实际指标名一起验证；排空编排仍待 S4。
+
+
+## 双实例转场与重启恢复（S3）
+
+第二个 Scene 配置使用相同服务名 scene、独立 instance_id（示例 scene-dev-02）、监听端口
+7201 与服务证书 DNS SAN scene-dev-02.scene.service，将 scene.shard_id 设为 2。两个进程各
+使用自己的配置树；默认四服务拓扑仍可独立运行。Realm 的 realm.scene.targets 显式增加：
+
+```lua
+targets = {{ shard_id = 2, host = "127.0.0.1", port = 7201,
+    instance_id = "scene-dev-02", server_identity = "scene-dev-02.scene.service",
+    entry_x = 200, entry_y = 300 }},
+```
+
+主分片 1 沿用原配置与入口 (0,0)。S3 只接受一个额外目标分片 2；同分片转场和未知目标回
+3102。发现按配置 instance_id 查找；双向 TLS 仍必须验证精确服务身份。
+
+参考客户端 transfer_scene(next_seq, target_shard_id, deadline) 等待目标持久结果；成功后
+get_scene_state() 获取目标快照。提交前失败可以继续在源分片移动；已提交结果不确定先查询、
+原序号重试，不能跳号或回滚源分片。A 的条件移除失败不会阻塞 B 的已确认移动。
+
+Realm 或 Scene 崩溃后，先等旧 etcd 注册租约失效，再启动同名实例，保留原服务身份/分片配置。
+重登并选角后查询最后序号与落点；需要重新激活时用最后序号 + 1 enter_scene()，位置从数据库
+恢复，不重置序号。同序号回放本身不会复活旧进程的成员。S3 不把原分片重新分配给其他实例。
+
+正常停机等待已发出的持久写结算，再对每个会话尝试一次清理；数据库持续失败或 Scene
+持续返回移除繁忙时，不无限续试。实例链路关闭后 Scene 回收可见成员，持久清理失败的
+旧归属仍按上述新 incarnation 流程恢复，已确认指令与落点不会为退出而删除。
+
+统一验收包含两个真实 Scene 进程间的 A→B→A、相同序号回放、旧版本 CAS 拒绝、Scene SIGKILL
+后另一分片继续移动、以及 Realm 在目标已持久提交但尚未激活时 SIGKILL 后恢复。最后一项用
+生产 SceneShard 与真实 mTLS 暂停 B 的激活边界；Realm 与 MongoDB 保持真实进程和后端。
+常规与 Scene SIGKILL 用例使用入口组、Realm、Scene A/B 四个独立 realm_mesh 进程。

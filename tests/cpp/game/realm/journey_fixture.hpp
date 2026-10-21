@@ -66,6 +66,14 @@ public:
     MeshProcess(const MeshProcess&) = delete;
     MeshProcess& operator=(const MeshProcess&) = delete;
 
+    void crash() noexcept {
+        if (pid_ <= 0) return;
+        static_cast<void>(::kill(pid_, SIGKILL));
+        int status = 0;
+        static_cast<void>(::waitpid(pid_, &status, 0));
+        pid_ = -1;
+    }
+
     void stop() noexcept {
         if (pid_ <= 0) return;
         static_cast<void>(::kill(pid_, SIGINT));

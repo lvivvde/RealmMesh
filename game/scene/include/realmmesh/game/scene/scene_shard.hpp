@@ -16,7 +16,10 @@ namespace realm::game::scene {
 class SceneShard final {
 public:
     using Clock = std::chrono::steady_clock;
-    SceneShard(std::string instance_id, std::string incarnation);
+    SceneShard(
+        std::string instance_id,
+        std::string incarnation,
+        std::uint64_t shard_id = 1);
     [[nodiscard]] common::SceneReply handle(
         std::uint64_t connection,
         const common::SceneRequest& request,
@@ -53,6 +56,7 @@ private:
     void emit(common::SceneEvent::Kind kind, const Member& member);
     std::string instance_id_;
     std::string incarnation_;
+    std::uint64_t shard_id_;
     bool draining_{false};
     std::uint64_t event_seq_{0};
     std::map<std::uint64_t, Member> active_;

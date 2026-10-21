@@ -55,13 +55,13 @@ QUIC 在一个客户端发起的长期可靠双向流上承载该字节流；不
 | 1407 | C2S | `Train` |
 | 1408 | S2C | `TrainResult` |
 | 1409 | S2C | `RealmSessionDisplaced` |
-| 1501 | C2S | `EnterScene`（仅线契约，S2 接线） |
+| 1501 | C2S | `EnterScene`（已接线） |
 | 1502 | S2C | `SceneCommandResult` |
-| 1503 | C2S | `MoveInScene`（仅线契约，S2 接线） |
-| 1504 | C2S | `GetSceneState`（仅线契约，S2 接线） |
+| 1503 | C2S | `MoveInScene`（已接线） |
+| 1504 | C2S | `GetSceneState`（已接线） |
 | 1505 | S2C | `SceneState` |
 | 1506 | S2C | `SceneEvent` |
-| 1507 | C2S | `TransferScene`（仅线契约，S3 接线） |
+| 1507 | C2S | `TransferScene`（已接线） |
 | 1508 | S2C | `SceneUnavailable` |
 | 1999 | S2C | `EdgeError` |
 
@@ -184,11 +184,11 @@ Login Verifier 的 HTTPS 错误体为 `{code, message, retry_after_seconds?}`：
 证书链/主机名、ALPN、业务鉴权和协议版本错误属于终止错误。当前规则只覆盖初次
 建连；已建立 QUIC 连接断开后需重新走候选选择和鉴权。
 
-## Scene 线契约（S1/S2）
+## Scene 线契约（S1–S3）
 
 1501–1508 已定义于 `scene/v1/scene.proto`，共用 Envelope v1，编解码在
 `game/common/scene_protocol`；S2 已在 Realm 接线进入、移动与查询，选角前回 3003。
-[Scene 规格](specs/2026-10-17-scene-reference-loop.md)中的 S3 才接线转场，1507 当前仍不受理。请求/响应的 `request_id` 必须非零，1506/1508 推送必须为 0。
+S3 已接线 1507 转场，目标必须在服务端允许列表（当前静态分片 1/2），不能转向当前分片。请求/响应的 `request_id` 必须非零，1506/1508 推送必须为 0。
 
 `EnterScene{scene_seq}` 不传账号或目标；`MoveInScene{scene_seq,x,y}` 为绝对整数坐标，
 范围 0..10000；`TransferScene{scene_seq,target_shard_id}` 只能指定非零目标分片。
@@ -279,7 +279,7 @@ Player Data Store 的部署连接，不改变上述客户端消息、HTTP 契约
 - 兼容新增字段使用新编号，接收方接受未知字段。
 - 破坏兼容性的变化进入新包版本并提升 Envelope 协议版本。
 
-S2 内部通道的首个请求是 `SNAPSHOT{shard_id=1,scene_incarnation="discover"}`：仅在 mTLS
+内部通道先以配置的 shard_id 做 `SNAPSHOT{scene_incarnation="discover"}` 探测：仅在 mTLS
 身份验证成功后返回该 Scene 的新运行 incarnation；所有角色操作必须携带精确 incarnation。
 准备成员与移动候选各保留三秒，同一角色只留一个；同一已提交指令的重复激活/确认不增加事件。
 已提交但候选过期时，Realm 可用权威落点重新 PREPARE/ACTIVATE 同一绑定；不会重新写入或
@@ -290,3 +290,14 @@ EnterScene 完成表示 Realm 已取得激活快照；参考客户端随后以 G
 SceneUnavailable，暂停该观察者事件直到 GetSceneState 交付快照；不把缺口后事件直接透传。
 Scene 链路失败同样发出暂不可用通知，权威已确认落点保持。参考客户端的 poll_scene 与
 场景请求复用同一 Realm 帧流，心跳和训练不会吞掉推送；有界缓存满时终结该客户端会话。
+
+
+S3 的 TransferScene 与进入/移动共用同一序号。服务端冻结该角色变更，结算已派发移动；
+B PREPARE 不可见成员后，Realm 以旧版本、完整 owner 与前一序号 CAS 原子切到 B，随后
+B ACTIVATE 并交付快照，A REMOVE 独立执行。提交前失败保留 A，提交后激活失败为 3105，
+只能从已提交的 B 落点恢复；移除失败不能回滚或阻塞 B。条件移除不会删除后续新版本。
+
+GetSceneState 不推进序号，返回最后持久结果；重登或同名 Scene 重启后可能为 UNAVAILABLE。
+同序号重试只回放已存结果，不复活旧 incarnation/旧会话的成员；需要重新进入时以最后序号
+加一 EnterScene 取得新 binding_epoch，落点保持。恢复前后的旧条件写必须失败。
+跨分片切换后丢弃源实例事件；旧 LEAVE 只可移除观察者快照中同版本的旧成员，不能移除新成员。

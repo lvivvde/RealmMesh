@@ -6,6 +6,7 @@
 #include <mutex>
 #include <optional>
 #include <string>
+#include <string_view>
 
 namespace realm::cluster {
 
@@ -21,6 +22,8 @@ public:
     ServiceResolver& operator=(const ServiceResolver&) = delete;
 
     [[nodiscard]] std::optional<network::TransportEndpoint> endpoint() const;
+    [[nodiscard]] std::optional<network::TransportEndpoint> endpoint(
+        std::string_view instance_id) const;
 
 private:
     void apply(const ServiceEvent& event);

@@ -3,6 +3,7 @@
 #include <memory>
 #include <optional>
 #include <span>
+#include <string_view>
 #include "realmmesh/edge/edge_connection_table.hpp"
 #include "realmmesh/game/common/scene_store.hpp"
 
@@ -34,7 +35,9 @@ public:
     [[nodiscard]] bool handle(
         edge::EdgeConnectionId id, std::span<const std::byte> payload);
     void complete(std::size_t max_completions);
-    void endpoint(const std::optional<network::TransportEndpoint>& value);
+    void endpoint(
+        const std::optional<network::TransportEndpoint>& value,
+        std::string_view instance_id = {});
 
 private:
     // RealmSessions 的现有消费者不需要带入 TLS、线程队列和内部协议布局。

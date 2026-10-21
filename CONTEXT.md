@@ -25,7 +25,7 @@ _Avoid_: driver、provider
 ### Cluster
 
 **Service Instance**:
-一个服务进程在 etcd 里的一次注册:身份(服务名即 `realm::cluster::ServiceType` 字符串,当前线名 gateway/realm/login_verify/queue)、instance_id 与端点列表,随租约存活。
+一个服务进程在 etcd 里的一次注册:身份(服务名即 `realm::cluster::ServiceType` 字符串,当前线名 gateway/realm/login_verify/queue/scene)、instance_id 与端点列表,随租约存活。
 _Avoid_: node(node_id 指承载它的机器)、endpoint(端点只是实例的字段)
 
 **Service Module**:
@@ -148,7 +148,7 @@ _Avoid_: action(泛指,须指明是训练)、tick、XP grind
 
 ### Scene
 
-以下术语描述阶段 4 的场景业务；单分片进入与移动已实现，跨分片转场仍在规划中。
+以下术语描述阶段 4 的场景业务；静态双实例的进入、移动、转场与归属恢复已实现；动态分配与排空仍在规划中。
 
 **Scene**（场景服务）:
 管理场景分片及其中角色的空间状态、判定场景指令并产生可见事件的独立业务服务；客户端经 Realm 与它交互。

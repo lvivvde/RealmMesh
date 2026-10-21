@@ -1,7 +1,7 @@
 # 多实例 Scene 参考业务与首个闭环
 
 - 日期：2026-10-17
-- 状态：S1（#161）与 S2 单实例双人闭环（#162）已实现，S3–S5 尚未实现；本文不构成运行或容量验收记录。
+- 状态：S1（#161）、S2（#162）与 S3 静态双实例转场恢复（#163）已实现，S4–S5 尚未实现；本文不构成运行或容量验收记录。
 - 路线图：阶段 4；依赖已落地的角色业务（#93）与四层依赖迁移（#152）。
 - 决策：[ADR-0015](../adr/0015-scene-confirmed-location-and-binding.md)；术语以 [CONTEXT](../../CONTEXT.md) 为准。
 
@@ -94,7 +94,7 @@ Realm 丢弃旧 incarnation、失效绑定和重复事件，遇到事件缺口�
 
 ## 线协议计划
 
-下表编号已在 S1 加入 proto、编解码与权威消息表；S2 已接线进入、移动与查询，1507 仍待 S3。
+下表编号已在 S1 加入 proto、编解码与权威消息表；S2 已接线进入、移动与查询，S3 已接线转场。
 客户端只经 Realm 使用既有 `realmmesh-edge/1` 与 Envelope v1。
 
 | 规划 ID | 消息 | 内容与阶段 |
@@ -105,7 +105,7 @@ Realm 丢弃旧 incarnation、失效绑定和重复事件，遇到事件缺口�
 | 1504 | C2S `GetSceneState` | 查询本人权威状态和最后提交结果 |
 | 1505 | S2C `SceneState` | 当前绑定阶段、已确认落点、最后序号与结果、可用时的分片快照 |
 | 1506 | S2C `SceneEvent` | 加入/位置变更/离场；分片 incarnation、事件序号、角色与绑定版本 |
-| 1507 | C2S `TransferScene` | `scene_seq, target_shard_id`；S3 才受理，目标必须在服务端允许列表 |
+| 1507 | C2S `TransferScene` | `scene_seq, target_shard_id`；S3 已受理，目标必须在服务端允许列表 |
 | 1508 | S2C `SceneUnavailable` | 当前分片暂不可用或需要重新同步，带有限重试建议；保留 Realm Session |
 
 响应回显请求 `request_id`，通知为 0。场景错误使用 1999 `EdgeError`：
@@ -176,7 +176,7 @@ draining 并可见地报告未完成，不能先注销发现伪装完成。截�
 | S4：加入与排空 | 运行中加第二实例承载新分片；并发分配无双承载；带玩家实例排空、无容量时不伪成功；其他分片继续移动 |
 | S5：阶段总验收 | 自动化组合故障矩阵、慢消费者与饱和；全量构建测试及三次完整 Scene 验收均通过，且无残留子进程/监听端口 |
 
-S2 起提供计划入口 `scripts/run-scene-acceptance.sh --preset NAME --jobs N`，默认先构建本步
+S2 起提供验收入口 `scripts/run-scene-acceptance.sh --preset NAME --jobs N`，默认先构建本步
 验收目标，不复用与源码不一致的旧二进制；S3/S4 逐步加入分组，最终默认运行所有组。
 按既有 `build-dir.sh` 解析构建目录，报告写到 `<构建目录>/acceptance/scene-reference-loop/`。
 报告记录 revision、工作树差异摘要、配置哈希、机器与传输能力、逐例结果、数据库核对与原始

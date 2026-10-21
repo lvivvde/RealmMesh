@@ -44,6 +44,16 @@ std::optional<network::TransportEndpoint> ServiceResolver::endpoint() const {
     return *selected;
 }
 
+std::optional<network::TransportEndpoint> ServiceResolver::endpoint(
+    std::string_view instance_id) const {
+    const std::scoped_lock lock(mutex_);
+    const auto found = instances_.find(std::string(instance_id));
+    if (found == instances_.end()) return std::nullopt;
+    for (const auto& endpoint : found->second.endpoints)
+        if (endpoint.protocol == protocol_) return endpoint;
+    return std::nullopt;
+}
+
 void ServiceResolver::apply(const ServiceEvent& event) {
     const std::scoped_lock lock(mutex_);
     if (event.kind == ServiceEventKind::Added) {

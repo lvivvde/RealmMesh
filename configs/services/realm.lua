@@ -21,6 +21,9 @@ return {
             ca_file_environment = "REALMMESH_SERVICE_CA_FILE",
             certificate_file_environment = "REALMMESH_REALM_CERTIFICATE_FILE",
             private_key_file_environment = "REALMMESH_REALM_PRIVATE_KEY_FILE",
+            -- 显式启用第二分片；服务端决定转场落点。
+            targets = {}, -- { { shard_id = 2, host = "127.0.0.1", port = 7201,
+            -- instance_id = "scene-dev-02", server_identity = "scene-dev-02.scene.service", entry_x = 0, entry_y = 0 } }
         },
         data_workers = 4,
         data_capacity = 256,

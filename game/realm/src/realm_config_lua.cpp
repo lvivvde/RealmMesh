@@ -89,6 +89,51 @@ RealmConfig parse_realm_config(const sol::table& root) {
             config.scene.ca_file = path("ca_file");
             config.scene.certificate_file = path("certificate_file");
             config.scene.private_key_file = path("private_key_file");
+            const auto targets = options.raw_get<sol::object>("targets");
+            if (targets != sol::lua_nil) {
+                if (!targets.is<sol::table>())
+                    throw std::invalid_argument("scene.targets must be array");
+                const auto list = targets.as<sol::table>();
+                std::size_t count = 0;
+                for (const auto& item : list) {
+                    if (++count > 1 || !item.first.is<lua_Integer>() ||
+                        item.first.as<lua_Integer>() != 1 ||
+                        !item.second.is<sol::table>())
+                        throw std::invalid_argument(
+                            "S3 permits only one additional Scene target");
+                    const auto target = item.second.as<sol::table>();
+                    RealmConfig::SceneTarget value;
+                    value.shard_id = optional_positive(target, "shard_id", 2);
+                    const auto target_port =
+                        optional_positive(target, "port", value.port);
+                    if (value.shard_id != 2 || target_port > 65535)
+                        throw std::invalid_argument(
+                            "invalid Scene target shard/port");
+                    value.port = static_cast<std::uint16_t>(target_port);
+                    value.host = target.get_or("host", value.host);
+                    value.instance_id =
+                        target.get_or("instance_id", value.instance_id);
+                    value.server_identity =
+                        target.get_or("server_identity", value.server_identity);
+                    const auto coordinate = [&](const char* field) {
+                        const auto x = target.raw_get<sol::object>(field);
+                        if (x == sol::lua_nil) return std::int32_t{0};
+                        if (!x.is<lua_Integer>() || x.as<lua_Integer>() < 0 ||
+                            x.as<lua_Integer>() > 10000)
+                            throw std::invalid_argument(
+                                "invalid Scene entry coordinate");
+                        return static_cast<std::int32_t>(x.as<lua_Integer>());
+                    };
+                    value.entry_x = coordinate("entry_x");
+                    value.entry_y = coordinate("entry_y");
+                    if (value.host.empty() || value.instance_id.empty() ||
+                        value.server_identity.empty() ||
+                        value.instance_id == config.scene.instance_id)
+                        throw std::invalid_argument(
+                            "Scene target requires independent identity");
+                    config.scene.targets.push_back(std::move(value));
+                }
+            }
         }
     }
     config.player_data = common::parse_player_data_config(root);
