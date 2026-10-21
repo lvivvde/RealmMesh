@@ -154,6 +154,11 @@ constexpr std::string_view kNonMetrics[] = {
         "scene_shard_members",
         "scene_prepared_members",
         "scene_draining",
+        // 帧耗时(ServiceHost,每个服务的 /metrics 都有)
+        "frame_work_duration_seconds",
+        "service_tick_duration_seconds",
+        "frame_overrun_total",
+        "frame_budget_seconds",
         // 既有暴露(LoggerMetricsServer / ServiceHost)
         "realmmesh_service_ready",
         "realmmesh_log_events_accepted_total",

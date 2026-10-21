@@ -179,6 +179,134 @@
           "refId": "D"
         }
       ]
+    },
+    {
+      "type": "timeseries",
+      "title": "帧耗时 P50 / P99",
+      "description": "所在主循环每帧实际工作耗时(不含帧间睡眠)与本服务 tick 份额;虚线为帧周期,P99 贴近即临近超帧。",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "realmmesh-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 14
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "帧周期"
+            },
+            "properties": [
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dash",
+                  "dash": [
+                    10,
+                    10
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "realmmesh-prometheus"
+          },
+          "expr": "histogram_quantile(0.5, sum by (le) (rate(frame_work_duration_seconds_bucket[5m]) and on (instance) realmmesh_service_ready{service_name=\"realm\"}))",
+          "legendFormat": "帧 P50",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "realmmesh-prometheus"
+          },
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(frame_work_duration_seconds_bucket[5m]) and on (instance) realmmesh_service_ready{service_name=\"realm\"}))",
+          "legendFormat": "帧 P99",
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "realmmesh-prometheus"
+          },
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(service_tick_duration_seconds_bucket[5m]) and on (instance) realmmesh_service_ready{service_name=\"realm\"}))",
+          "legendFormat": "服务 tick P99",
+          "refId": "C"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "realmmesh-prometheus"
+          },
+          "expr": "max(frame_budget_seconds and on (instance) realmmesh_service_ready{service_name=\"realm\"})",
+          "legendFormat": "帧周期",
+          "refId": "D"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "超帧",
+      "description": "帧工作耗时超过帧周期的次数(每分钟);持续非零说明主循环落后于 tick 率。",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "realmmesh-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 14
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "realmmesh-prometheus"
+          },
+          "expr": "sum(increase(frame_overrun_total[1m]) and on (instance) realmmesh_service_ready{service_name=\"realm\"})",
+          "legendFormat": "超帧/分钟",
+          "refId": "A"
+        }
+      ]
     }
   ]
 }

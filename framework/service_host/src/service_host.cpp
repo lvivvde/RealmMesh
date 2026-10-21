@@ -6,6 +6,7 @@
 #include "realmmesh/cluster/service_publisher.hpp"
 #include "realmmesh/cluster/service_resolver.hpp"
 #include "realmmesh/observability/logger.hpp"
+#include "realmmesh/observability/scoped_timer.hpp"
 
 #include <chrono>
 #include <optional>
@@ -43,6 +44,21 @@ constexpr std::string_view service_version = "0.1.0";
     return escaped;
 }
 
+/// 帧耗时指标(帧周期默认 50ms):帧内工作多在亚毫秒到数毫秒,默认桶
+/// (起于 5ms)分辨不出,改用 0.1ms~250ms 的桶。
+constexpr std::string_view frame_work_metric = "frame_work_duration_seconds";
+constexpr std::string_view service_tick_metric =
+    "service_tick_duration_seconds";
+constexpr std::string_view frame_overrun_metric = "frame_overrun_total";
+constexpr std::string_view frame_budget_metric = "frame_budget_seconds";
+void register_frame_buckets(
+    observability::MetricsRegistry& registry, std::string_view name) {
+    registry.histogram_buckets(
+        name,
+        {0.0001, 0.00025, 0.0005, 0.001, 0.0025, 0.005,
+         0.01, 0.025, 0.05, 0.075, 0.1, 0.25});
+}
+
 }  // namespace
 
 ServiceHost::ServiceHost(
@@ -51,6 +67,10 @@ ServiceHost::ServiceHost(
     const ServiceModuleRegistry& modules,
     const CliOverrides& overrides)
     : service_name_(service_name) {
+    register_frame_buckets(metrics_registry_, frame_work_metric);
+    register_frame_buckets(metrics_registry_, service_tick_metric);
+    // 超帧计数从 0 起发布,面板与 increase() 无需等首次超帧。
+    metrics_registry_.counter_add(frame_overrun_metric, 0.0);
     // 纯配置校验先行:未注册服务名在装载配置或触碰 etcd 前即失败。
     const ServiceModuleRegistration* registration = modules.find(service_name);
     if (registration == nullptr) {
@@ -189,10 +209,14 @@ cluster::ServiceResolver* ServiceHost::resolver() noexcept {
 }
 
 void ServiceHost::tick() {
-    module_->tick(ServiceTickContext{
-        .resolver = resolver_.get(),
-        .budget_reporter = budget_reporter_.get(),
-    });
+    {
+        const observability::ScopedTimer timer(
+            metrics_registry_, service_tick_metric);
+        module_->tick(ServiceTickContext{
+            .resolver = resolver_.get(),
+            .budget_reporter = budget_reporter_.get(),
+        });
+    }
     const bool running = module_->running();
     if (!running) {
         ready_.store(false);
@@ -225,6 +249,17 @@ void ServiceHost::tick() {
         !discovery_config_.enabled ||
         (publisher_ != nullptr && publisher_->registered());
     ready_.store(running && discovery_ready && module_->ready());
+}
+
+void ServiceHost::record_frame(
+    std::chrono::nanoseconds work, std::chrono::nanoseconds budget) {
+    metrics_registry_.histogram_observe(
+        frame_work_metric, std::chrono::duration<double>(work).count());
+    metrics_registry_.gauge_set(
+        frame_budget_metric, std::chrono::duration<double>(budget).count());
+    if (work > budget) {
+        metrics_registry_.counter_add(frame_overrun_metric);
+    }
 }
 
 std::string ServiceHost::prometheus_metrics() const {

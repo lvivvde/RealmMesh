@@ -5,6 +5,7 @@
 #include "realmmesh/service_host/service_module.hpp"
 #include "realmmesh/service_host/startup_topology.hpp"
 
+#include <chrono>
 #include <filesystem>
 #include <map>
 #include <memory>
@@ -44,6 +45,9 @@ public:
 
     /// 每 tick 轮询全部 host 的发现续约。
     void tick();
+    /// 把主循环一帧的实际耗时转交拓扑内每个 host(见 ServiceHost::record_frame)。
+    void record_frame(
+        std::chrono::nanoseconds work, std::chrono::nanoseconds budget);
 
     /// 反序关停全部服务;hosts 保留,service() 与指标查询仍可用。
     void shutdown();
