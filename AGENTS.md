@@ -14,6 +14,12 @@ C++20 分布式游戏服务端框架：CMake 构建，Lua 写配置与业务规�
 
 Linux 是生产基线，始终编入 QUIC；macOS 是开发基线，装了 Homebrew `libmsquic` 才编入 QUIC，否则只有 TLS/TCP（ADR-0002、ADR-0012）。在 macOS 上采信 QUIC 路径的结果前，确认 configure 输出含 `realm_network: QUIC transport enabled`。CI 的 `macos` job 不编 QUIC，QUIC 的门槛是 `linux` job。Linux 开发环境见 `docs/operations/linux-arm64-development.md`。
 
+### Linux SSH 开发环境
+
+- 本机 Lima 的 `ubuntu` 实例已配置 Git 环境，项目已完成构建；需要在 Linux 中开发或验证时，通过 `ssh lima-ubuntu` 进入。
+- Linux 仓库位置：`/home/edwin.guest/code/RealmMesh`；连接后执行 `cd /home/edwin.guest/code/RealmMesh`。
+- SSH 连接沿用本机 `~/.ssh/config` 与 Lima 生成的配置；认证材料及 Git 凭据保存在仓库外。此处只记录环境指引，密钥、令牌、口令及凭据内容不得写入或提交到仓库。
+
 ## 玩家数据
 
 手动开发运行连远端共享 MongoDB（SSH 隧道 + TLS + 认证）：启动服务、排查 DB 连接或配置新机器前读 `docs/operations/shared-mongodb.md`，经 `scripts/with-shared-mongodb.sh` 启动。地址、凭据与 CA 留在仓库外，输出与提交中只写占位符。自动化测试只用夹具拉起的隔离本地 `mongod`。
