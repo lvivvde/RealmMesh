@@ -1,3 +1,6 @@
+#include "constrained_tls_stream.hpp"
+#include "realmmesh/game/common/edge_protocol.hpp"
+#include "realmmesh/game/common/realm_protocol.hpp"
 #include <fcntl.h>
 #include <httplib.h>
 #include <array>
@@ -19,6 +22,7 @@ constexpr std::uint64_t second_account_id = 7002;
 class SceneJourneyTest : public RealmJourneyTest {
 protected:
     virtual bool dynamic_scene() const { return false; }
+    virtual bool constrain_realm_output() const { return false; }
     virtual void stop_extra_scene() {}
     void configure_dynamic_scene(
         const std::filesystem::path& root, const std::string& database) {
@@ -110,6 +114,9 @@ protected:
                 "metrics_port = 0",
                 "metrics_port = " + std::to_string(realm_metrics_port_));
         }
+        if (constrain_realm_output())
+            rewrite(realm_root_.path() / "services/realm.lua",
+                    "max_pending_output_bytes = 1048576", "max_pending_output_bytes = 4096");
         scene_.emplace(scene_root_.path());
         wait_for_port(scene_port_, "scene");
     }
@@ -1378,6 +1385,122 @@ TEST_F(
     RecordProperty(
         "fault_matrix_verification",
         "slow_consumer+notification_overflow+relogin+other_shard_isolation");
+}
+class SceneOutboundJourneyTest : public SceneFaultJourneyTest {
+protected:
+    bool constrain_realm_output() const override { return true; }
+    bool output_rejected() const {
+        for (const auto& file : std::filesystem::recursive_directory_iterator(realm_root_.path() / "logs")) {
+            if (!file.is_regular_file()) continue;
+            std::ifstream input(file.path());
+            std::string line;
+            while (std::getline(input, line)) {
+                if (line.find("outbound_queue_rejected") == std::string::npos) continue;
+                const auto event = nlohmann::json::parse(line, nullptr, false);
+                if (event.is_discarded()) continue;
+                // 小回复、已有积压的 4KiB 上限排除单帧超限和业务队列拒绝。
+                const auto& attributes = event.at("attributes");
+                return attributes.at("max_pending_output_bytes") == 4096 &&
+                       attributes.at("has_pending_output") == true &&
+                       attributes.at("payload_bytes").get<std::size_t>() < 4096;
+            }
+        }
+        return false;
+    }
+};
+TEST_F(SceneOutboundJourneyTest, ServerOutputSaturationClosesOnlySlowSessionAndRestoresBinding) {
+    std::uint64_t ca = 0, cb = 0;
+    auto initial = selected(ca);
+    auto healthy = selected(cb, "scene-second", "second-secret");
+    ASSERT_TRUE(initial && healthy);
+    ASSERT_TRUE(initial->scene()->enter_scene(1, soon()).ok());
+    ASSERT_TRUE(initial->scene()->move_in_scene(2, 50, 0, soon()).ok());
+    ASSERT_TRUE(healthy->scene()->enter_scene(1, soon()).ok());
+    ASSERT_TRUE(healthy->scene()->transfer_scene(2, 2, soon()).ok());
+    initial->close();
+    // 只捕获未消费的 EnterRealm 票据；在收紧接收窗口的真实 TLS 上兑换。
+    class TicketCapture final : public client::EnterRealmRedeemer {
+    public:
+        std::string ticket;
+        client::PortStatus redeem(network::client::ISecureByteStream&, std::string_view value,
+                                  client::TimePoint) override {
+            ticket.assign(value);
+            return client::PortStatus::success();
+        }
+    } capture;
+    client::WireEndpoints endpoints;
+    endpoints.login_verify_port = ports_.login_verify;
+    endpoints.queue_port = ports_.queue;
+    endpoints.verify_peer = false;
+    client::WireLoginTransport transport(endpoints, capture);
+    auto unused = login(journey_account, journey_credential, &transport);
+    ASSERT_TRUE(unused);
+    unused->close();
+    test_support::ConstrainedTlsStream slow(ports_.realm, soon());
+    ASSERT_TRUE(redeemer_.redeem(slow, capture.ticket, soon()).ok);
+    capture.ticket.clear();
+    network::client::EdgeClientConnection edge(slow);
+    common::SelectCharacter select;
+    select.set_character_id(ca);
+    ASSERT_TRUE(edge.send_frame(common::encode(select, 1), soon()));
+    auto reply = edge.receive_frame(soon());
+    ASSERT_TRUE(reply && common::decode_character_selected(*reply));
+    common::EnterScene enter;
+    enter.set_scene_seq(3);
+    ASSERT_TRUE(edge.send_frame(common::encode(enter, 2), soon()));
+    reply = edge.receive_frame(soon());
+    ASSERT_TRUE(reply && common::decode_scene_command_result(*reply));
+    auto store = database();
+    const auto old = store.scene_state({journey_account_id, 1, ca});
+    ASSERT_TRUE(old && old->owner && old->last_result->command.seq == 3);
+    // 从此停止读取；仅生产心跳回包产生压力，不经过 Scene/数据等待队列。
+    network::LengthFieldCodec codec(4096);
+    std::vector<std::byte> batch;
+    for (std::uint64_t i = 0; i < 512; ++i) {
+        const auto frame = codec.encode(common::encode(common::HeartbeatRequest{}, 1000000000000ULL + i));
+        batch.insert(batch.end(), frame.begin(), frame.end());
+    }
+    const auto deadline = client::Clock::now() + 60s;
+    std::size_t batches = 0;
+    while (!output_rejected() && client::Clock::now() < deadline && batches++ < 600) {
+        if (!slow.write_all(batch, client::Clock::now() + 1s)) break;
+        if (batches % 16 == 0) ASSERT_TRUE(healthy->heartbeat(soon()));
+        std::this_thread::sleep_for(10ms);
+    }
+    // 日志异步刷盘；写入失败与拒绝事件可见之间允许短暂传播。
+    const auto log_deadline = client::Clock::now() + 2s;
+    while (!output_rejected() && client::Clock::now() < log_deadline)
+        std::this_thread::sleep_for(5ms);
+    ASSERT_TRUE(output_rejected()) << "server output watermark was not reached";
+    ASSERT_TRUE(healthy->heartbeat(soon()));
+    ASSERT_TRUE(healthy->scene()->move_in_scene(3, 210, 300, soon()).ok());
+    ASSERT_TRUE(healthy->train(1, soon()).ok());
+    // 保持慢端仍打开，等待服务端关闭后撤销旧绑定；排除客户端主动 close。
+    bool revoked = false;
+    const auto revoke_deadline = client::Clock::now() + 5s;
+    while (client::Clock::now() < revoke_deadline) {
+        const auto value = store.scene_state(old->character);
+        if (value && !value->owner) { revoked = true; break; }
+        std::this_thread::sleep_for(10ms);
+    }
+    ASSERT_TRUE(revoked);
+    slow.shutdown();
+    auto again = login();
+    ASSERT_TRUE(again && again->select_character(ca, soon()).ok());
+    const auto restored = again->scene()->get_scene_state(soon());
+    ASSERT_TRUE(restored.ok());
+    EXPECT_EQ(restored.value.last_scene_seq(), 3);
+    EXPECT_EQ(restored.value.confirmed_location().x(), 50);
+    ASSERT_TRUE(again->scene()->enter_scene(4, soon()).ok());
+    ASSERT_TRUE(again->scene()->move_in_scene(5, 60, 0, soon()).ok());
+    stale_write_rejected(*old, 6, {1, 60, 0});
+    const auto durable = store.scene_state(old->character);
+    ASSERT_TRUE(durable && durable->owner);
+    EXPECT_EQ(durable->last_result->command.seq, 5);
+    EXPECT_EQ(durable->confirmed_location, std::optional(common::SceneLocation{1, 60, 0}));
+    static_cast<void>(metrics(realm_metrics_port_));
+    RecordProperty("database_verification", "server output full revokes binding while slow socket remains open; re-login restores seq3 at(50,0), enters seq4 and moves seq5 at(60,0); prior binding fenced; other shard move, heartbeat and training succeed");
+    RecordProperty("fault_matrix_verification", "SO_RCVBUF_before_TLS+no_reads+server_4KiB_output_rejection+server_revocation+relogin");
 }
 }  // namespace
 }  // namespace realm::game::realm

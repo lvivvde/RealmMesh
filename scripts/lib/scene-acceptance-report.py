@@ -16,7 +16,7 @@ GROUPS = (
     "SceneSessionTest", "SceneTransferTest", "SceneTransferJourneyTest",
     "SceneShardStoreTest", "SceneDynamicJourneyTest", "SceneDynamicJoinJourneyTest",
     "SceneStoreTest", "SceneProtocolTest", "SceneCommitRecoveryTest",
-    "ObservabilityArtifactsTest", "SceneFaultJourneyTest", "SceneAcceptanceReportTest",
+    "ObservabilityArtifactsTest", "SceneFaultJourneyTest", "SceneOutboundJourneyTest", "SceneAcceptanceReportTest",
 )
 MATRIX = {
     "Scene/Realm SIGKILL": ["SceneTransferJourneyTest.SceneSigkillKeepsOtherShardMovingAndNewIncarnationRestoresLocation", "SceneTransferJourneyTest.RealmSigkillAfterTargetCommitRecoversWithoutRollingBackSource"],
@@ -29,11 +29,20 @@ MATRIX = {
     "MongoDB 暂不可用+承载故障": ["SceneFaultJourneyTest.MongoWriteOutageThenCarrierLossPreservesConfirmedLocation"],
     "排空失败+同名恢复+重试": ["SceneFaultJourneyTest.TargetCrashDrainFailureAndSameNameRestartRetryRemainFenced"],
     "慢消费者+重新入场": ["SceneFaultJourneyTest.SlowConsumerOverflowRejoinsFromDurableStateWithoutBlockingOtherShard", "SceneSessionTest.NotificationOverflowClosesOnlySlowSessionWithoutDereferencingReleasedStream"],
+    "服务端出站满额": ["SceneOutboundJourneyTest.ServerOutputSaturationClosesOnlySlowSessionAndRestoresBinding"],
     "队列满/截止": ["RealmScenesTest.InstanceCapacityIncludesQueuedRunningAndUndrainedResults", "RealmScenesTest.QueueLimitAndWaitingTimeAreIncludedInCommandDeadline"],
     "运行中加入/容量排空": ["SceneDynamicJoinJourneyTest.RuntimeJoinAllocatesNewShardWithoutRebalancing", "SceneDynamicJourneyTest.FullTargetKeepsDrainingAndBothShardsMovableUntilExplicitFailure"],
     "停机故障回收": ["RealmScenesTest.ShutdownFinishesWhenDatabaseRevocationKeepsFailing", "RealmScenesTest.ShutdownFinishesWhenRemovalKeepsReturningBusy"],
 }
-METRICS = {
+CORE_METRICS = {
+    "scene_commands_total", "scene_command_duration_seconds_bucket",
+    "scene_command_duration_seconds_count", "scene_command_duration_seconds_sum",
+    "scene_active_bindings", "scene_queue_rejections_total",
+    "scene_stale_rejections_total", "scene_pending_readbacks",
+    "scene_snapshot_resync_total", "scene_write_uncertain_total",
+}
+OPERATIONS = {"enter", "move", "transfer"}
+METRICS = CORE_METRICS | {
     "scene_owned_shards", "scene_ready_instances", "scene_drain_remaining_members",
     "scene_drain_pending_transfers", "scene_drain_failed", "scene_drain_attempts_total",
     "scene_drain_transfers_total", "scene_drain_retries_total", "scene_drain_failures_total",
@@ -121,13 +130,14 @@ def evidence_errors(output, cases):
                 errors.append("缺少进程/监听回收证明：" + name)
             if not name.endswith("ControlRequiresExactServerAndAuthorizedClientIdentity") and not props.get("database_verification"):
                 errors.append("缺少数据库核对：" + name)
-        if name.startswith("SceneFaultJourneyTest."):
+        if name.startswith(("SceneFaultJourneyTest.", "SceneOutboundJourneyTest.")):
             for key in ("backend_cleanup_verification", "fault_matrix_verification", "metrics_verification"):
                 if not props.get(key):
                     errors.append("缺少 " + key + "：" + name)
     if not {"MongoCtestFixturePrepare", "MongoCtestFixtureCleanup"} <= names:
         errors.append("缺少共享 MongoDB 准备/回收结果")
     seen = set()
+    operations = {name: set() for name in ("scene_commands_total", "scene_command_duration_seconds_count")}
     samples = []
     for path in sorted((output / "services").rglob("metrics-*.prom")):
         samples.append(str(path.relative_to(output)))
@@ -143,9 +153,16 @@ def evidence_errors(output, cases):
                 errors.append("无效指标样本：" + str(path.relative_to(output)))
                 continue
             seen.add(match[1])
+            if match[1] in operations:
+                operation = re.search(r'\boperation="([^"]+)"', line)
+                if operation and float(match[2]) > 0:
+                    operations[match[1]].add(operation[1])
     if METRICS - seen:
         errors.append("缺少实际 HTTP 指标：" + ", ".join(sorted(METRICS - seen)))
-    return errors, {"samples": samples, "observed_names": sorted(seen), "required_names": sorted(METRICS)}
+    for name, observed in operations.items():
+        if OPERATIONS - observed:
+            errors.append("缺少实际操作指标：" + name + ": " + ", ".join(sorted(OPERATIONS - observed)))
+    return errors, {"operations": {k: sorted(v) for k, v in operations.items()}, "samples": samples, "observed_names": sorted(seen), "required_names": sorted(METRICS)}
 
 
 def finish(root, output, value):

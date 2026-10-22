@@ -28,6 +28,8 @@ TlsConnection::TlsConnection(
         throw std::runtime_error("SSL_set_fd failed");
     }
     SSL_set_accept_state(ssl_.get());
+    // ByteBuffer 追加可能重分配；重试仍保持原消息字节及长度。
+    SSL_set_mode(ssl_.get(), SSL_MODE_ACCEPT_MOVING_WRITE_BUFFER);
 }
 
 void TlsConnection::Deleter::operator()(SSL* ssl) const noexcept {
@@ -124,11 +126,13 @@ bool TlsConnection::queue_bytes(std::span<const std::byte> payload) {
 TlsIoState TlsConnection::flush_output() {
     while (!output_.empty()) {
         const auto pending = output_.readable_data();
+        if (retry_write_bytes_ == 0) retry_write_bytes_ = pending.size();
         std::size_t written = 0;
         ERR_clear_error();
         const int result = SSL_write_ex(
-            ssl_.get(), pending.data(), pending.size(), &written);
+            ssl_.get(), pending.data(), retry_write_bytes_, &written);
         if (result == 1) {
+            retry_write_bytes_ = 0;
             output_.consume(written);
             continue;
         }

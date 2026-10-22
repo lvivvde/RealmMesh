@@ -86,6 +86,15 @@ bool TlsTcpTransport::send(
     }
     auto& entry = iterator->second;
     if (!entry.connection.queue_frame(payload)) {
+        if (logger_ != nullptr) {
+            static_cast<void>(logger_->warn(
+                "outbound_queue_rejected", "tls output high watermark exceeded",
+                {observability::field("transport_name", config_.name),
+                 observability::field("session_id", session_id),
+                 observability::field("payload_bytes", payload.size()),
+                 observability::field("max_pending_output_bytes", config_.max_pending_output_bytes),
+                 observability::field("has_pending_output", entry.connection.has_pending_output())}));
+        }
         return false;
     }
     entry.io_need = entry.connection.flush_output();

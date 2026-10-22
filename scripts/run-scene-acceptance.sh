@@ -42,7 +42,7 @@ if ! "$cmake_bin" --build --preset "$preset" --parallel "$realmmesh_build_jobs" 
     printf 'Scene acceptance report: %s/report.md\n' "$report_dir"
     exit 1
 fi
-test_regex='^(SceneJourneyTest|RealmScenesTest|SceneShardTest|MutualTlsTest|SceneSessionTest|SceneTransferTest|SceneTransferJourneyTest|SceneShardStoreTest|SceneDynamicJourneyTest|SceneDynamicJoinJourneyTest|SceneStoreTest|SceneProtocolTest|SceneCommitRecoveryTest|ObservabilityArtifactsTest|SceneFaultJourneyTest|SceneAcceptanceReportTest)\.'
+test_regex='^(SceneJourneyTest|RealmScenesTest|SceneShardTest|MutualTlsTest|SceneSessionTest|SceneTransferTest|SceneTransferJourneyTest|SceneShardStoreTest|SceneDynamicJourneyTest|SceneDynamicJoinJourneyTest|SceneStoreTest|SceneProtocolTest|SceneCommitRecoveryTest|ObservabilityArtifactsTest|SceneOutboundJourneyTest|SceneFaultJourneyTest|SceneAcceptanceReportTest)\.'
 if ! "$ctest_bin" --preset "$preset" --show-only=json-v1 -R "$test_regex" >"$report_dir/expected-cases.json"; then
     python3 "$project_root/scripts/lib/scene-acceptance-report.py" finish "$project_root" "$report_dir" discovery-failed || true
     printf 'Scene acceptance report: %s/report.md\n' "$report_dir"

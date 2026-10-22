@@ -31,6 +31,10 @@ class ReportContract(unittest.TestCase):
         (self.output / "services").mkdir()
         self.metric_text = "\n".join(name + " 0" for name in sorted(report.METRICS)) + "\n"
 
+        for metric in ("scene_commands_total", "scene_command_duration_seconds_count"):
+            for operation in report.OPERATIONS:
+                self.metric_text += f'{metric}{{operation="{operation}"}} 1\n'
+
     def run_report(self, expected=None):
         expected = self.names if expected is None else expected
         (self.output / "expected-cases.json").write_text(json.dumps({"tests": [{"name": n} for n in expected]}))
@@ -67,6 +71,18 @@ class ReportContract(unittest.TestCase):
         self.metric_text = ""
         self.assertEqual(self.run_report(), 1)
         self.assertTrue(any("HTTP 指标" in error for error in self.errors))
+
+    def test_missing_core_metrics_fails_with_drain_metrics_present(self):
+        self.metric_text = "\n".join(line for line in self.metric_text.splitlines()
+                                     if line.split(" ")[0].split("{")[0] not in report.CORE_METRICS)
+        self.assertEqual(self.run_report(), 1)
+        self.assertTrue(any("scene_active_bindings" in error for error in self.errors))
+
+    def test_missing_move_series_fails(self):
+        self.metric_text = "\n".join(line for line in self.metric_text.splitlines()
+                                     if 'operation="move"' not in line)
+        self.assertEqual(self.run_report(), 1)
+        self.assertTrue(any("实际操作指标" in error and "move" in error for error in self.errors))
 
     def test_invalid_metrics_fail_with_report(self):
         self.metric_text += "scene_drain_failed invalid\n"
