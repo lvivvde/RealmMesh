@@ -154,7 +154,8 @@ struct PlayerDataConfig final {
 class MongoPlayerDataStore final : public AccountStore,
                                    public PlayerDataReader,
                                    public RealmCharacterStore,
-                                   public RealmSceneStore {
+                                   public RealmSceneStore,
+                                   public SceneShardStore {
 public:
     /// 连接失败、不是副本集或 schema 版本高于本二进制时抛 PlayerDataError。
     MongoPlayerDataStore(
@@ -201,6 +202,16 @@ public:
         const SceneCharacterKey& character,
         std::uint64_t expected_epoch,
         const SceneOwner& expected_owner) override;
+    [[nodiscard]] std::optional<SceneShardRecord> shard_state(
+        std::uint32_t realm_id, std::uint64_t shard_id) const override;
+    [[nodiscard]] std::optional<SceneInstanceState> scene_instance_state(
+        const std::string& instance_id) const override;
+    [[nodiscard]] bool compare_exchange_scene_instance(
+        const std::optional<SceneInstanceState>& expected,
+        const SceneInstanceState& desired) override;
+    [[nodiscard]] bool compare_exchange_shard(
+        const std::optional<SceneShardRecord>& expected,
+        const SceneShardRecord& desired) override;
 
     /// Provisioning 写路径；服务热路径只使用上面的只读边界。
     void provision_account(const AccountProvisioning& account);

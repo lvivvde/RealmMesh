@@ -66,6 +66,8 @@ class RealmScenes::Worker final {
         std::uint64_t generation{0};
         bool health_busy{false};
         Clock::time_point next_health{Clock::now()};
+        bool ready{false}, draining{false}, drain_failed{false};
+        std::map<std::uint64_t, internal::ShardStatus> hosted;
     };
 
 public:
@@ -84,6 +86,7 @@ public:
         std::optional<common::SceneCommand> command;
         Clock::time_point submitted, deadline;
         PeerSlot* budget;
+        bool drain_transfer{false};
     };
     struct Session {
         edge::EdgeConnectionId id;
@@ -105,6 +108,9 @@ public:
         bool active{false}, confirmation_pending{false}, resync{false},
             snapshot_required{false};
         wire::Snapshot snapshot;
+        PeerSlot* drain_origin{nullptr};
+        std::optional<common::SceneCommand> drain_command;
+        Clock::time_point next_drain{Clock::now()};
     };
     struct Output {
         std::shared_ptr<Session> session;
@@ -117,12 +123,29 @@ public:
         common::RealmSceneStore& store,
         RealmOutbox& outbox,
         const RealmConfig& config,
-        observability::MetricsRegistry& metrics)
+        observability::MetricsRegistry& metrics,
+        common::SceneShardStore* shards)
         : store_(store),
           outbox_(outbox),
           metrics_(metrics),
+          shard_store_(shards),
+          dynamic_(config.scene.enabled && config.scene.dynamic),
           incarnation_(
               common::correlation_id_hex(common::make_correlation_id())) {
+        if (dynamic_ && !shard_store_)
+            throw std::invalid_argument("dynamic Scene requires shard store");
+        if (dynamic_) {
+            metrics_.counter_add("scene_shard_reconcile_errors_total", 0);
+            metrics_.counter_add("scene_drain_transfers_total", 0);
+            for (const auto* operation : {"assign", "recover", "release"})
+                metrics_.counter_add(
+                    "scene_shard_assignments_total",
+                    0,
+                    {{"operation", operation}});
+            for (const auto* reason : {"capacity", "unavailable"})
+                metrics_.counter_add(
+                    "scene_drain_retries_total", 0, {{"reason", reason}});
+        }
         RealmConfig::SceneTarget first;
         first.shard_id = 1;
         first.host = config.scene.host;
@@ -135,7 +158,8 @@ public:
             throw std::invalid_argument(
                 "S3 permits two configured Scene shards");
         for (const auto& target : targets) {
-            if (target.shard_id == 0 || peers_.contains(target.shard_id))
+            if (target.shard_id == 0 || target.shard_id > 2 ||
+                peers_.contains(target.shard_id))
                 throw std::invalid_argument("duplicate Scene shard");
             for (const auto& [id, slot] : peers_) {
                 static_cast<void>(id);
@@ -147,6 +171,7 @@ public:
             slot->peer = std::make_unique<scene_detail::Peer>(
                 config.scene, target, incarnation_, pushes_);
             peers_.emplace(target.shard_id, std::move(slot));
+            targets_.emplace(target.shard_id, target);
         }
         thread_ = std::jthread([this](std::stop_token stop) {
             run(stop);
@@ -204,14 +229,16 @@ public:
             command && command->type == common::SceneCommandType::Transfer
                 ? command->target_shard_id
                 : session->routed_shard.load();
-        const auto destination = peers_.find(shard);
-        if (destination == peers_.end()) {
+        if (!targets_.contains(shard)) {
             outbox_.send(
                 id, error(request_id, common::scene_error_invalid_target));
             return true;
         }
+        demand_[static_cast<std::size_t>(shard - 1)] = true;
+        const auto destination =
+            peers_.find(routes_[static_cast<std::size_t>(shard - 1)].load());
         auto* budget = destination->second.get();
-        if (session->outstanding >= 9 || budget->in_flight.load() >= 64) {
+        if (session->outstanding >= 9 || !reserve(*budget)) {
             outbox_.send(id, error(request_id, common::edge_error_throttled));
             metrics_.counter_add("scene_queue_rejections_total");
             return true;
@@ -220,7 +247,6 @@ public:
         control->request_id = request_id;
         const auto now = Clock::now();
         control->deadline = now + scene_operation_timeout;
-        ++budget->in_flight;
         if (!jobs_.try_push(
                 {session,
                  request_id,
@@ -286,20 +312,40 @@ public:
                 slot->peer->endpoint(value);
         }
     }
+    void discovery_ready(bool ready) { discovery_ready_ = ready; }
 
 private:
+    static bool reserve(PeerSlot& slot) {
+        auto value = slot.in_flight.load();
+        while (value < 64) {
+            if (slot.in_flight.compare_exchange_weak(value, value + 1))
+                return true;
+        }
+        return false;
+    }
+    PeerSlot* instance(std::string_view id) {
+        for (auto& [key, slot] : peers_) {
+            static_cast<void>(key);
+            if (slot->peer->target.instance_id == id) return slot.get();
+        }
+        return nullptr;
+    }
     PeerSlot& peer(std::uint64_t shard) {
-        const auto found = peers_.find(shard);
-        if (found == peers_.end())
+        if (!targets_.contains(shard))
             throw Failure{common::scene_error_invalid_target};
+        if (dynamic_ &&
+            (!ownership_[static_cast<std::size_t>(shard - 1)] ||
+             !ownership_[static_cast<std::size_t>(shard - 1)]->owner))
+            throw Failure{common::scene_error_unavailable};
+        const auto found =
+            peers_.find(routes_[static_cast<std::size_t>(shard - 1)].load());
         return *found->second;
     }
     PeerSlot& peer(const common::SceneStateRecord& record) {
-        auto& slot = peer(record.confirmed_location->shard_id);
-        if (!record.owner ||
-            slot.peer->target.instance_id != record.owner->scene_instance_id)
-            throw Failure{common::scene_error_stale_binding};
-        return slot;
+        auto* slot =
+            record.owner ? instance(record.owner->scene_instance_id) : nullptr;
+        if (!slot) throw Failure{common::scene_error_stale_binding};
+        return *slot;
     }
     template <class F>
     auto database(F action) {
@@ -364,6 +410,7 @@ private:
         route->set_binding_epoch(record.binding_epoch);
         route->set_session_binding(record.owner->session_binding);
         route->set_shard_id(record.confirmed_location->shard_id);
+        route->set_shard_version(record.owner->shard_version);
         return value;
     }
     auto exchange(
@@ -375,8 +422,11 @@ private:
     }
     Task<> connect(PeerSlot& slot, Clock::time_point deadline) {
         if (!slot.peer->incarnation().empty()) co_return;
-        auto probe = request(slot, internal::OPERATION_SNAPSHOT);
-        probe.set_shard_id(slot.peer->target.shard_id);
+        auto probe = request(
+            slot,
+            dynamic_ ? internal::OPERATION_STATUS
+                     : internal::OPERATION_SNAPSHOT);
+        if (!dynamic_) probe.set_shard_id(slot.peer->target.shard_id);
         static_cast<void>(co_await exchange(slot, std::move(probe), deadline));
     }
     common::SceneState state(const Session& session) const {
@@ -404,7 +454,8 @@ private:
     Task<> snapshot(Session& session, Clock::time_point deadline) {
         auto& slot = peer(*session.record);
         auto probe = request(slot, internal::OPERATION_SNAPSHOT);
-        probe.set_shard_id(slot.peer->target.shard_id);
+        probe.set_shard_id(session.record->confirmed_location->shard_id);
+        probe.set_shard_version(session.record->owner->shard_version);
         const auto reply = co_await exchange(slot, std::move(probe), deadline);
         bool contains = false;
         for (const auto& member : reply.snapshot().members())
@@ -516,6 +567,7 @@ private:
             throw Failure{common::scene_error_outcome_unknown};
         }
         session.confirmation_pending = false;
+        if (job.drain_transfer) co_return;
         output(
             job.session,
             common::encode(
@@ -527,7 +579,7 @@ private:
             false,
             job.control);
     }
-    Task<> execute(const Job& job) {
+    Task<> execute(Job& job) {
         auto& session = *job.session;
         if (!session.alive) co_return;
         Stage queued = Stage::Queued;
@@ -542,6 +594,10 @@ private:
         if (!session.record) throw Failure{common::scene_error_stale_binding};
         if (session.record->confirmed_location)
             session.routed_shard = session.record->confirmed_location->shard_id;
+        if (session.record->confirmed_location &&
+            targets_.contains(session.record->confirmed_location->shard_id))
+            demand_[static_cast<std::size_t>(
+                session.record->confirmed_location->shard_id - 1)] = true;
         if (!owned(session) && session.active) unavailable(job.session);
         if (session.unresolved) {
             if (common::resolve_scene_write(
@@ -581,6 +637,7 @@ private:
                 }
             }
             session.snapshot_required = false;
+            if (job.drain_transfer) co_return;
             output(
                 job.session,
                 common::encode(state(session), job.request_id),
@@ -610,11 +667,12 @@ private:
                 }
                 if (stale) session.confirmation_pending = false;
             }
-            output(
-                job.session,
-                common::encode(result(*previous, true), job.request_id),
-                false,
-                job.control);
+            if (!job.drain_transfer)
+                output(
+                    job.session,
+                    common::encode(result(*previous, true), job.request_id),
+                    false,
+                    job.control);
             co_return;
         }
         if (session.confirmation_pending) {
@@ -630,7 +688,7 @@ private:
             if (stale) session.confirmation_pending = false;
         }
         if (command.type != common::SceneCommandType::Enter &&
-            (!session.active || !owned(session)))
+            ((!session.active && !job.drain_transfer) || !owned(session)))
             throw Failure{common::scene_error_not_active};
         const auto shard = command.type == common::SceneCommandType::Transfer
                                ? command.target_shard_id
@@ -638,10 +696,15 @@ private:
                                ? session.record->confirmed_location->shard_id
                                : 1;
         auto& slot = peer(shard);
+        if (job.budget != &slot) {
+            if (!reserve(slot)) throw Failure{common::edge_error_throttled};
+            --job.budget->in_flight;
+            job.budget = &slot;
+        }
         if (command.type == common::SceneCommandType::Transfer &&
             shard == session.record->confirmed_location->shard_id)
             throw Failure{common::scene_error_invalid_target};
-        if (command.type == common::SceneCommandType::Enter &&
+        if (!dynamic_ && command.type == common::SceneCommandType::Enter &&
             session.record->owner &&
             session.record->owner->scene_instance_id !=
                 slot.peer->target.instance_id)
@@ -657,10 +720,20 @@ private:
             session.binding,
             slot.peer->target.instance_id,
             slot.peer->incarnation()};
+        if (dynamic_) {
+            const auto& shard_owner =
+                ownership_[static_cast<std::size_t>(shard - 1)];
+            if (!shard_owner || !shard_owner->owner ||
+                shard_owner->owner->instance_id !=
+                    slot.peer->target.instance_id ||
+                shard_owner->owner->incarnation != slot.peer->incarnation())
+                throw Failure{common::scene_error_unavailable};
+            write.owner.shard_version = shard_owner->version;
+        }
         write.location = command.type == common::SceneCommandType::Enter
             ? session.record->confirmed_location.value_or(common::SceneLocation{1, 0, 0})
             : command.type == common::SceneCommandType::Transfer
-                ? common::SceneLocation{shard, slot.peer->target.entry_x, slot.peer->target.entry_y}
+                ? common::SceneLocation{shard, targets_.at(shard).entry_x, targets_.at(shard).entry_y}
                 : common::SceneLocation{shard, command.x, command.y};
         if (session.record->binding_epoch >= common::scene_counter_max)
             throw Failure{common::scene_error_stale_binding};
@@ -709,10 +782,46 @@ private:
         }
         if (code == common::scene_error_stale_binding)
             metrics_.counter_add("scene_stale_rejections_total");
-        if (code != 0)
-            output(
-                job.session, error(job.request_id, code), false, job.control);
-        output(job.session, {}, true, job.control, job.budget);
+        if (job.drain_transfer) {
+            auto& session = *job.session;
+            if (code == 0 && session.active && !session.confirmation_pending) {
+                session.drain_origin = nullptr;
+                session.drain_command.reset();
+                metrics_.counter_add("scene_drain_transfers_total");
+                common::SceneUnavailable notice;
+                notice.set_shard_id(
+                    session.record->confirmed_location->shard_id);
+                notice.set_binding_epoch(session.record->binding_epoch);
+                notice.set_retry_after_seconds(1);
+                output(job.session, common::encode(notice));
+            } else if (
+                code != common::scene_error_outcome_unknown &&
+                !session.unresolved && !session.confirmation_pending &&
+                session.record && session.record->owner &&
+                session.drain_origin &&
+                session.record->owner->scene_instance_id ==
+                    session.drain_origin->peer->target.instance_id) {
+                session.drain_origin = nullptr;
+                session.drain_command.reset();
+            }
+            session.next_drain = Clock::now() + std::chrono::milliseconds(100);
+            --job.budget->in_flight;
+            if (code != 0)
+                metrics_.counter_add(
+                    "scene_drain_retries_total",
+                    1,
+                    {{"reason",
+                      code == common::edge_error_throttled ? "capacity"
+                                                           : "unavailable"}});
+        } else {
+            if (code != 0)
+                output(
+                    job.session,
+                    error(job.request_id, code),
+                    false,
+                    job.control);
+            output(job.session, {}, true, job.control, job.budget);
+        }
         job.control->stage = Stage::Finished;
         const auto operation =
             !job.command                                           ? "state"
@@ -739,8 +848,20 @@ private:
         const auto shard = old.confirmed_location->shard_id;
         bool finished = false;
         try {
+            if (dynamic_) {
+                const auto& current =
+                    ownership_[static_cast<std::size_t>(shard - 1)];
+                finished =
+                    current && (current->version != old.owner->shard_version ||
+                                !current->owner ||
+                                current->owner->instance_id !=
+                                    old.owner->scene_instance_id ||
+                                current->owner->incarnation !=
+                                    old.owner->scene_incarnation);
+            }
             auto& slot = peer(old);
-            if (slot.peer->incarnation() == old.owner->scene_incarnation)
+            if (!finished &&
+                slot.peer->incarnation() == old.owner->scene_incarnation)
                 static_cast<void>(co_await exchange(
                     slot,
                     routed(internal::OPERATION_REMOVE, old),
@@ -807,12 +928,10 @@ private:
     }
     void push(const common::ScenePush& value) {
         const auto shard = value.event().shard_id();
-        const auto found = peers_.find(shard);
-        if (found == peers_.end() ||
+        auto* found = instance(value.scene_instance_id());
+        if (!found || !targets_.contains(shard) ||
             value.realm_incarnation() != incarnation_ ||
-            value.scene_instance_id() !=
-                found->second->peer->target.instance_id ||
-            value.scene_incarnation() != found->second->peer->incarnation())
+            value.scene_incarnation() != found->peer->incarnation())
             return;
         const auto& event = value.event();
         for (const auto& [binding, session] : tracked_) {
@@ -823,7 +942,8 @@ private:
                 session->record->owner->scene_instance_id !=
                     value.scene_instance_id() ||
                 session->record->owner->scene_incarnation !=
-                    value.scene_incarnation())
+                    value.scene_incarnation() ||
+                session->record->confirmed_location->shard_id != shard)
                 continue;
             if (session->snapshot.shard_incarnation() !=
                     event.shard_incarnation() ||
@@ -870,31 +990,308 @@ private:
     }
     Task<> health(PeerSlot& slot) {
         try {
-            auto probe = request(slot, internal::OPERATION_SNAPSHOT);
-            probe.set_shard_id(slot.peer->target.shard_id);
-            const auto reply = co_await exchange(
-                slot, std::move(probe), Clock::now() + scene_operation_timeout);
-            for (const auto& [binding, session] : tracked_) {
-                static_cast<void>(binding);
-                if (session->active && session->resync && owned(*session) &&
-                    session->record->owner->scene_instance_id ==
-                        slot.peer->target.instance_id &&
-                    session->record->owner->scene_incarnation ==
-                        reply.scene_incarnation()) {
-                    session->snapshot = reply.snapshot();
-                    session->resync = false;
-                    session->snapshot_required = true;
-                    common::SceneUnavailable notice;
-                    notice.set_shard_id(slot.peer->target.shard_id);
-                    notice.set_binding_epoch(session->record->binding_epoch);
-                    notice.set_retry_after_seconds(1);
-                    output(session, common::encode(notice));
+            auto probe = request(
+                slot,
+                dynamic_ ? internal::OPERATION_STATUS
+                         : internal::OPERATION_SNAPSHOT);
+            if (!dynamic_) probe.set_shard_id(slot.peer->target.shard_id);
+            const auto deadline = Clock::now() + scene_operation_timeout;
+            const auto reply =
+                co_await exchange(slot, std::move(probe), deadline);
+            if (dynamic_) {
+                slot.ready = reply.dynamic() && reply.business_ready();
+                slot.draining = reply.draining();
+                slot.drain_failed =
+                    reply.drain_phase() == internal::DRAIN_PHASE_FAILED;
+                slot.hosted.clear();
+                for (const auto& shard : reply.shards())
+                    slot.hosted[shard.shard_id()] = shard;
+                std::vector<std::shared_ptr<Session>> affected;
+                for (const auto& [binding, session] : tracked_) {
+                    static_cast<void>(binding);
+                    if (session->active && session->resync && !session->busy &&
+                        owned(*session) &&
+                        session->record->owner->scene_instance_id ==
+                            slot.peer->target.instance_id)
+                        affected.push_back(session);
+                }
+                for (const auto& session : affected) {
+                    if (session->busy || !session->alive || !session->active)
+                        continue;
+                    session->busy = true;
+                    try {
+                        co_await snapshot(*session, deadline);
+                        session->snapshot_required = true;
+                        common::SceneUnavailable notice;
+                        notice.set_shard_id(
+                            session->record->confirmed_location->shard_id);
+                        notice.set_binding_epoch(
+                            session->record->binding_epoch);
+                        notice.set_retry_after_seconds(1);
+                        output(session, common::encode(notice));
+                    } catch (...) {
+                        unavailable(session);
+                    }
+                    session->busy = false;
+                }
+            } else {
+                for (const auto& [binding, session] : tracked_) {
+                    static_cast<void>(binding);
+                    if (session->active && session->resync && owned(*session) &&
+                        session->record->owner->scene_instance_id ==
+                            slot.peer->target.instance_id &&
+                        session->record->owner->scene_incarnation ==
+                            reply.scene_incarnation()) {
+                        session->snapshot = reply.snapshot();
+                        session->resync = false;
+                        session->snapshot_required = true;
+                        common::SceneUnavailable notice;
+                        notice.set_shard_id(slot.peer->target.shard_id);
+                        notice.set_binding_epoch(
+                            session->record->binding_epoch);
+                        notice.set_retry_after_seconds(1);
+                        output(session, common::encode(notice));
+                    }
                 }
             }
         } catch (...) {
+            if (dynamic_) slot.ready = false;
         }
         slot.health_busy = false;
-        slot.next_health = Clock::now() + std::chrono::seconds(1);
+        slot.next_health =
+            Clock::now() + (dynamic_ ? std::chrono::milliseconds(100)
+                                     : std::chrono::milliseconds(1000));
+    }
+    void remember(const common::SceneShardRecord& record) {
+        const auto index = static_cast<std::size_t>(record.shard_id - 1);
+        if (ownership_[index] &&
+            (ownership_[index]->version > record.version ||
+             (ownership_[index]->version == record.version &&
+              ownership_[index]->draining && !record.draining)))
+            return;
+        ownership_[index] = record;
+        if (record.owner) {
+            for (const auto& [id, slot] : peers_)
+                if (slot->peer->target.instance_id == record.owner->instance_id)
+                    routes_[index] = id;
+        }
+        for (const auto& [binding, session] : tracked_) {
+            static_cast<void>(binding);
+            if (!session->active || !session->record ||
+                !session->record->owner ||
+                session->record->confirmed_location->shard_id !=
+                    record.shard_id)
+                continue;
+            const auto& old = *session->record->owner;
+            if (!record.owner || record.version != old.shard_version ||
+                record.owner->instance_id != old.scene_instance_id ||
+                record.owner->incarnation != old.scene_incarnation)
+                unavailable(session);
+        }
+    }
+    bool pending_on(const PeerSlot& slot) const {
+        if (slot.in_flight.load() != 0 || slot.health_busy) return true;
+        for (const auto& [binding, session] : tracked_) {
+            static_cast<void>(binding);
+            if (session->drain_origin == &slot) return true;
+            if (session->alive && owned(*session) &&
+                session->record->owner->scene_instance_id ==
+                    slot.peer->target.instance_id)
+                return true;
+            for (const auto& [shard, old] : session->retirements) {
+                static_cast<void>(shard);
+                if (old.owner->scene_instance_id ==
+                    slot.peer->target.instance_id)
+                    return true;
+            }
+            if (session->unresolved &&
+                (session->unresolved->owner.scene_instance_id ==
+                     slot.peer->target.instance_id ||
+                 (session->unresolved->expected_owner &&
+                  session->unresolved->expected_owner->scene_instance_id ==
+                      slot.peer->target.instance_id)))
+                return true;
+        }
+        return false;
+    }
+    bool candidate(const PeerSlot& slot) const {
+        return slot.peer->available() && slot.ready && !slot.draining &&
+               !slot.peer->incarnation().empty();
+    }
+    Task<> topology() {
+        try {
+            for (const auto& [shard, target] : targets_) {
+                static_cast<void>(target);
+                auto pending = database([this, shard] {
+                    return shard_store_->shard_state(1, shard);
+                });
+                auto current = co_await pending;
+                if (stopping_ || !discovery_ready_) break;
+                if (current) remember(*current);
+                PeerSlot* old = current && current->owner
+                                    ? instance(current->owner->instance_id)
+                                    : nullptr;
+                const bool failed =
+                    old &&
+                    (!old->peer->available() ||
+                     (!old->peer->incarnation().empty() &&
+                      old->peer->incarnation() != current->owner->incarnation));
+                if (current && current->owner && !failed) {
+                    if (old && current->draining && !old->drain_failed &&
+                        !pending_on(*old)) {
+                        const auto reported = old->hosted.find(shard);
+                        if (reported != old->hosted.end() &&
+                            reported->second.version() == current->version &&
+                            reported->second.active_members() == 0 &&
+                            reported->second.prepared_members() == 0) {
+                            auto desired = *current;
+                            desired.owner.reset();
+                            desired.draining = false;
+                            if (desired.version == common::scene_counter_max)
+                                continue;
+                            ++desired.version;
+                            auto saved = database([this, current, desired] {
+                                return shard_store_->compare_exchange_shard(
+                                    current, desired);
+                            });
+                            if (co_await saved) {
+                                remember(desired);
+                                demand_[static_cast<std::size_t>(shard - 1)] =
+                                    false;
+                                metrics_.counter_add(
+                                    "scene_shard_assignments_total",
+                                    1,
+                                    {{"operation", "release"}});
+                            }
+                        }
+                    }
+                    continue;
+                }
+                if (current && !current->owner &&
+                    !demand_[static_cast<std::size_t>(shard - 1)])
+                    continue;
+                PeerSlot* selected = nullptr;
+                // 首次分配等待配置偏好实例真实加入；恢复才在其他就绪实例中选择。
+                if (!current) {
+                    auto& preferred = *peers_.at(shard);
+                    if (candidate(preferred)) selected = &preferred;
+                } else {
+                    for (auto& [id, slot] : peers_) {
+                        static_cast<void>(id);
+                        if (candidate(*slot)) {
+                            selected = slot.get();
+                            break;
+                        }
+                    }
+                }
+                if (!selected) continue;
+                const auto version = current ? current->version : 0;
+                if (version == common::scene_counter_max) continue;
+                common::SceneShardRecord desired{
+                    1,
+                    shard,
+                    version + 1,
+                    common::SceneShardOwner{
+                        selected->peer->target.instance_id,
+                        selected->peer->incarnation()},
+                    false};
+                auto saved = database([this, current, desired] {
+                    return shard_store_->compare_exchange_shard(
+                        current, desired);
+                });
+                if (co_await saved) {
+                    remember(desired);
+                    demand_[static_cast<std::size_t>(shard - 1)] = false;
+                    metrics_.counter_add(
+                        "scene_shard_assignments_total",
+                        1,
+                        {{"operation", failed ? "recover" : "assign"}});
+                }
+            }
+        } catch (...) {
+            // CAS 响应不确定时不猜测，下一轮 majority 回读同一记录。
+            metrics_.counter_add("scene_shard_reconcile_errors_total");
+        }
+        topology_busy_ = false;
+        next_topology_ = Clock::now() + std::chrono::milliseconds(100);
+    }
+    bool drain(const std::shared_ptr<Session>& session) {
+        if (!session->alive || session->busy || session->cleaning ||
+            !session->waiting.empty() || !owned(*session) ||
+            Clock::now() < session->next_drain)
+            return false;
+        if (session->drain_origin && session->drain_command &&
+            session->active && !session->unresolved &&
+            !session->confirmation_pending &&
+            session->record->confirmed_location->shard_id ==
+                session->drain_command->target_shard_id &&
+            session->record->last_result->command.seq >=
+                session->drain_command->seq) {
+            session->drain_origin = nullptr;
+            session->drain_command.reset();
+            metrics_.counter_add("scene_drain_transfers_total");
+            return false;
+        }
+        auto* origin = session->drain_origin;
+        if (!origin) {
+            if (session->unresolved || session->confirmation_pending)
+                return false;
+            origin = instance(session->record->owner->scene_instance_id);
+            if (!origin || !origin->draining || origin->drain_failed)
+                return false;
+        }
+        std::optional<common::SceneCommand> command = session->drain_command;
+        if (!command) {
+            for (const auto& [shard, target] : targets_) {
+                static_cast<void>(target);
+                const auto& record =
+                    ownership_[static_cast<std::size_t>(shard - 1)];
+                if (shard == session->record->confirmed_location->shard_id ||
+                    !record || !record->owner || record->draining)
+                    continue;
+                auto* destination = instance(record->owner->instance_id);
+                if (!destination || destination == origin ||
+                    !candidate(*destination))
+                    continue;
+                const auto seq = session->record->last_result->command.seq;
+                if (seq == common::scene_counter_max) return false;
+                command = common::SceneCommand{
+                    common::SceneCommandType::Transfer, seq + 1, 0, 0, shard};
+                break;
+            }
+        }
+        if (!command) return false;
+        PeerSlot* destination = nullptr;
+        if (session->unresolved)
+            destination =
+                instance(session->unresolved->owner.scene_instance_id);
+        else if (
+            session->drain_command &&
+            session->record->last_result->command == *command)
+            destination = instance(session->record->owner->scene_instance_id);
+        else {
+            const auto& record = ownership_[static_cast<std::size_t>(
+                command->target_shard_id - 1)];
+            if (record && record->owner)
+                destination = instance(record->owner->instance_id);
+        }
+        if (!destination || !reserve(*destination)) return false;
+        auto control = std::make_shared<Control>();
+        const auto now = Clock::now();
+        control->deadline = now + scene_operation_timeout;
+        session->drain_origin = origin;
+        session->drain_command = command;
+        session->busy = true;
+        scheduler_.spawn(process(
+            Job{session,
+                0,
+                control,
+                command,
+                now,
+                control->deadline,
+                destination,
+                true}));
+        return true;
     }
     void run(std::stop_token stop) noexcept {
         while (true) {
@@ -931,11 +1328,17 @@ private:
                     }
                 }
                 if (!stop.stop_requested() && !slot->health_busy &&
-                    !slot->peer->incarnation().empty() &&
+                    (dynamic_ ? slot->peer->available()
+                              : !slot->peer->incarnation().empty()) &&
                     Clock::now() >= slot->next_health) {
                     slot->health_busy = true;
                     scheduler_.spawn(health(*slot));
                 }
+            }
+            if (dynamic_ && !stopping_ && discovery_ready_ && !topology_busy_ &&
+                Clock::now() >= next_topology_) {
+                topology_busy_ = true;
+                scheduler_.spawn(topology());
             }
             std::map<std::uint64_t, Session*> character_busy;
             for (const auto& [binding, session] : tracked_) {
@@ -958,6 +1361,12 @@ private:
                     session->waiting.pop_front();
                     scheduler_.spawn(process(std::move(job)));
                 }
+                if (dynamic_ && !stopping_ &&
+                    (owner == character_busy.end() ||
+                     owner->second == session.get()) &&
+                    drain(session))
+                    character_busy[session->character.character_id] =
+                        session.get();
                 if (!stopping_ && !session->retiring &&
                     !session->retirements.empty() &&
                     Clock::now() >= session->retire_after) {
@@ -979,12 +1388,23 @@ private:
                 const auto& s = *item.second;
                 return s.reclaimed && !s.retiring && s.retirements.empty();
             });
-            std::size_t active = 0, unresolved = 0;
+            std::size_t active = 0, unresolved = 0, drain_pending = 0;
             for (const auto& [binding, session] : tracked_) {
                 static_cast<void>(binding);
                 if (session->alive && session->active) ++active;
                 if (session->unresolved) ++unresolved;
+                if (session->drain_origin) ++drain_pending;
             }
+            metrics_.gauge_set(
+                "scene_drain_pending_transfers",
+                static_cast<double>(drain_pending));
+            std::size_t ready_instances = 0;
+            for (const auto& [id, slot] : peers_) {
+                static_cast<void>(id);
+                if (dynamic_ && candidate(*slot)) ++ready_instances;
+            }
+            metrics_.gauge_set(
+                "scene_ready_instances", static_cast<double>(ready_instances));
             metrics_.gauge_set(
                 "scene_active_bindings", static_cast<double>(active));
             metrics_.gauge_set(
@@ -997,8 +1417,17 @@ private:
     common::RealmSceneStore& store_;
     RealmOutbox& outbox_;
     observability::MetricsRegistry& metrics_;
+    common::SceneShardStore* shard_store_;
+    bool dynamic_;
     std::string incarnation_;
     std::map<std::uint64_t, std::unique_ptr<PeerSlot>> peers_;
+    std::map<std::uint64_t, RealmConfig::SceneTarget> targets_;
+    std::array<std::atomic_uint64_t, 2> routes_{1, 2};
+    std::array<std::atomic_bool, 2> demand_{false, false};
+    std::array<std::optional<common::SceneShardRecord>, 2> ownership_;
+    std::atomic_bool discovery_ready_{false};
+    bool topology_busy_{false};
+    Clock::time_point next_topology_{Clock::now()};
     std::unordered_map<edge::EdgeConnectionId, std::shared_ptr<Session>>
         sessions_;
     std::uint64_t next_binding_{1};
@@ -1015,8 +1444,10 @@ RealmScenes::RealmScenes(
     common::RealmSceneStore& store,
     RealmOutbox& outbox,
     const RealmConfig& config,
-    observability::MetricsRegistry& metrics)
-    : worker_(std::make_unique<Worker>(store, outbox, config, metrics)) {}
+    observability::MetricsRegistry& metrics,
+    common::SceneShardStore* shards)
+    : worker_(
+          std::make_unique<Worker>(store, outbox, config, metrics, shards)) {}
 RealmScenes::~RealmScenes() = default;
 void RealmScenes::selected(
     edge::EdgeConnectionId id, common::SceneCharacterKey character) {
@@ -1032,5 +1463,8 @@ void RealmScenes::endpoint(
     const std::optional<network::TransportEndpoint>& value,
     std::string_view instance_id) {
     worker_->endpoint(value, instance_id);
+}
+void RealmScenes::discovery_ready(bool ready) {
+    worker_->discovery_ready(ready);
 }
 }  // namespace realm::game::realm

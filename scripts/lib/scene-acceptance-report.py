@@ -31,7 +31,7 @@ if mode == "freeze":
         "difference_sha256": tree_hash.hexdigest(), "preset": value,
         "platform": platform.platform(), "architecture": platform.machine(),
         "scene_transport": "TLS/TCP, mutual TLS, realmmesh-scene/1",
-        "scope": "S1-S3 local multi-process; no Scene QUIC/cross-host/capacity claim",
+        "scope": "S1-S4 local multi-process; no Scene QUIC/cross-host/capacity claim",
         "configuration_sha256": manifest,
     }
     (output / "metadata.json").write_text(json.dumps(metadata, ensure_ascii=False, indent=2) + "\n")
@@ -57,17 +57,18 @@ else:
                 raw_properties[name] = {"raw_gtest": str(raw_xml.relative_to(output)), **properties}
     for case in cases:
         case["properties"].update(raw_properties.get(case["name"], {}))
-    expected = ("SceneJourneyTest.", "RealmScenesTest.", "SceneShardTest.", "MutualTlsTest.", "SceneSessionTest.", "SceneTransferTest.", "SceneTransferJourneyTest.")
+    expected = ("SceneJourneyTest.", "RealmScenesTest.", "SceneShardTest.", "MutualTlsTest.", "SceneSessionTest.", "SceneTransferTest.", "SceneTransferJourneyTest.", "SceneShardStoreTest.", "SceneDynamicJourneyTest.", "SceneDynamicJoinJourneyTest.")
     complete = all(any(c["name"].startswith(prefix) for c in cases) for prefix in expected)
     passed = value == "0" and complete and all(c["outcome"] == "passed" for c in cases)
     metadata.update({"result": "passed" if passed else "failed", "exit_status": value, "cases": cases})
     (output / "metadata.json").write_text(json.dumps(metadata, ensure_ascii=False, indent=2) + "\n")
-    lines = ["# Scene S1–S3 本机多进程验收", "", f"- 结果：{metadata['result']}",
+    lines = ["# Scene S1–S4 本机多进程验收", "", f"- 结果：{metadata['result']}",
              f"- 版本：`{metadata['revision']}`；工作树差异 SHA256：`{metadata['difference_sha256']}`",
              f"- 环境：{metadata['platform']}；预设：`{metadata['preset']}`",
              "- 传输：TLS/TCP，双向服务身份校验；不代表 Scene QUIC、跨机或玩法容量验收。",
              "- 拓扑：常规/SIGKILL Scene 用例为入口组、Realm、Scene A/B 四个独立 realm_mesh 进程；Realm 激活边界故障使用生产 SceneShard 的 mTLS 替身，隔离 etcd 与 MongoDB 副本集。",
              "- 数据库核对项：双人各 10 次移动后，双方快照、事件水位及数据库 seq=11、落点一致；任何断言失败即验收失败。",
+             "- S4 核对项：运行中加入与无自动重平衡、承载 CAS/实例排空事务栅栏、排空成功/满目标明确失败与重复幂等、故障同分片重建、旧承载拒绝和多分片事件隔离。",
              "- 原始证据：`results.xml`、`ctest.log`、`build.log`、`configure.log`、`services/`、`gtest/`。",
              "- 配置哈希与逐例结果：`metadata.json`；每次运行单独保存，不覆盖旧报告。", "",
              "| 用例 | 秒 | 结果 |", "|---|---:|---|"]

@@ -91,6 +91,8 @@ public:
     [[nodiscard]] virtual WatchId watch(
         const ServiceType& type, ServiceEventHandler handler) = 0;
     [[nodiscard]] virtual bool cancel_watch(WatchId watch_id) = 0;
+    /// 完整快照已交付且不在发布差分中；未知/不支持的后端保守返回 false。
+    [[nodiscard]] virtual bool watch_ready(WatchId) const { return false; }
 };
 
 }  // namespace realm::cluster

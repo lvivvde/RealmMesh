@@ -4,6 +4,7 @@
 #include "realmmesh/game/scene/scene_shard.hpp"
 #include "realmmesh/observability/metrics_registry.hpp"
 #include "realmmesh/service_host/edge_service_module.hpp"
+#include "scene_dynamic.hpp"
 
 #include <map>
 #include <sol/sol.hpp>
@@ -123,6 +124,16 @@ private:
 }  // namespace
 std::unique_ptr<service_host::ServiceModule> make_scene_module(
     const service_host::ServiceModuleContext& context) {
+    const auto section =
+        service_host::lua_root(context.config).raw_get<sol::object>("scene");
+    if (section.is<sol::table>()) {
+        const auto dynamic =
+            section.as<sol::table>().raw_get<sol::object>("dynamic");
+        if (dynamic != sol::lua_nil && !dynamic.is<bool>())
+            throw std::invalid_argument("scene.dynamic must be boolean");
+        if (section.as<sol::table>().get_or("dynamic", false))
+            return make_dynamic_scene_module(context);
+    }
     return std::make_unique<SceneModule>(context);
 }
 }  // namespace realm::game::scene

@@ -19,7 +19,8 @@ public:
     SceneShard(
         std::string instance_id,
         std::string incarnation,
-        std::uint64_t shard_id = 1);
+        std::uint64_t shard_id = 1,
+        std::uint64_t shard_version = 0);
     [[nodiscard]] common::SceneReply handle(
         std::uint64_t connection,
         const common::SceneRequest& request,
@@ -34,6 +35,7 @@ public:
         return prepared_.size();
     }
     [[nodiscard]] bool draining() const noexcept { return draining_; }
+    void begin_draining() noexcept { draining_ = true; }
     [[nodiscard]] const std::string& incarnation() const noexcept {
         return incarnation_;
     }
@@ -57,6 +59,8 @@ private:
     std::string instance_id_;
     std::string incarnation_;
     std::uint64_t shard_id_;
+    std::uint64_t shard_version_;
+    std::string event_incarnation_;
     bool draining_{false};
     std::uint64_t event_seq_{0};
     std::map<std::uint64_t, Member> active_;

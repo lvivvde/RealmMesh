@@ -9,6 +9,7 @@
 #include "realmmesh/game/realm/realm_sessions.hpp"
 #include "realmmesh/game/realm/training_rule.hpp"
 #include "realmmesh/service_host/edge_service_module.hpp"
+#include "realmmesh/service_host/host_config.hpp"
 #include "realmmesh/service_host/layered_config_lua.hpp"
 
 #include <memory>
@@ -27,6 +28,12 @@ public:
         : EdgeServiceModule(context) {
         // 选角与训练读写权威角色数据,没有「无存储」的 Realm 装配。
         scene_instances_.push_back(config.scene.instance_id);
+        dynamic_scene_ = config.scene.enabled && config.scene.dynamic;
+        if (dynamic_scene_ &&
+            (!context.config.host().service_discovery.enabled ||
+             !context.config.host().service_discovery.required))
+            throw std::invalid_argument(
+                "dynamic Realm Scene requires mandatory service discovery");
         for (const auto& target : config.scene.targets)
             scene_instances_.push_back(target.instance_id);
         const auto& player_data = config.player_data;
@@ -43,7 +50,7 @@ public:
             player_data.uri, player_data.database, player_data.options);
         outbox_ = std::make_unique<EdgeRuntimeRealmOutbox>(runtime());
         scenes_ = std::make_unique<RealmScenes>(
-            *characters_, *outbox_, config, context.metrics);
+            *characters_, *outbox_, config, context.metrics, characters_.get());
         sessions_ = std::make_unique<RealmSessions>(
             *characters_,
             *training_rule_,
@@ -56,11 +63,27 @@ public:
     }
 
     void tick(const service_host::ServiceTickContext& context) override {
-        for (const auto& instance : scene_instances_)
-            scenes_->endpoint(
-                context.resolver ? context.resolver->endpoint(instance)
-                                 : std::nullopt,
-                instance);
+        if (dynamic_scene_) {
+            scenes_->discovery_ready(false);
+            const auto snapshot =
+                context.resolver ? context.resolver->endpoints() : std::nullopt;
+            if (snapshot) {
+                for (const auto& instance : scene_instances_) {
+                    const auto found = snapshot->find(instance);
+                    scenes_->endpoint(
+                        found == snapshot->end() ? std::nullopt
+                                                 : std::optional(found->second),
+                        instance);
+                }
+                scenes_->discovery_ready(true);
+            }
+        } else {
+            for (const auto& instance : scene_instances_)
+                scenes_->endpoint(
+                    context.resolver ? context.resolver->endpoint(instance)
+                                     : std::nullopt,
+                    instance);
+        }
         frame_->tick(logger(), runtime(), context.budget_reporter);
     }
 
@@ -76,6 +99,7 @@ public:
 private:
     cluster::BudgetPublishPolicy budget_policy_;
     std::vector<std::string> scene_instances_;
+    bool dynamic_scene_{false};
     /// Session 表在三者之后声明、先于它们析构:先回收数据访问工作线程,
     /// 再释放它引用的存储、规则与出站缝。
     std::unique_ptr<common::MongoPlayerDataStore> characters_;

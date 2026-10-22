@@ -374,7 +374,8 @@ protected:
     /// 走完整 Login Chain 直到 Realm 入场,返回已认证的 Realm Session。
     [[nodiscard]] std::unique_ptr<client::RealmSession> login(
         std::string_view account = journey_account,
-        std::string_view credential = journey_credential) {
+        std::string_view credential = journey_credential,
+        client::LoginChainTransport* isolated_transport = nullptr) {
         client::LoginChainConfig config;
         config.gateway_endpoints.push_back(
             network::client::EndpointCandidate{
@@ -383,7 +384,9 @@ protected:
                 .port = ports_.gateway,
                 .priority = 1,
             });
-        client::LoginChain chain(*transport_, std::move(config));
+        client::LoginChain chain(
+            isolated_transport ? *isolated_transport : *transport_,
+            std::move(config));
         auto result = chain.run(
             client::LoginRun::full(
                 std::string(account),

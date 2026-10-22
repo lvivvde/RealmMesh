@@ -25,6 +25,8 @@ struct RealmConfig {
     };
     struct SceneClient {
         bool enabled{false};
+        /// 动态分片承载 CAS 与排空；只使用已发现且认证就绪的实例。
+        bool dynamic{false};
         std::string host{"127.0.0.1"};
         std::uint16_t port{7200};
         std::string instance_id{"scene-dev-01"};

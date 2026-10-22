@@ -1,8 +1,8 @@
-# Scene S1–S3 参考闭环
+# Scene S1–S4 参考闭环
 
 S2 提供独立 Scene、分片 1、至多 16 个角色的进入和移动互见。客户端仍只连 Realm；
 Realm 按 ADR-0015 条件写入 MongoDB 后才确认和广播。单步曼哈顿距离至多 100，坐标为
-0..10000 的整数，首次出生点 (0,0)。静态双实例转场与归属恢复已在 S3 接线；动态分配/排空与完整矩阵属于 S4/S5。
+0..10000 的整数，首次出生点 (0,0)。静态双实例转场与归属恢复已在 S3 接线；S4 已增加动态分配、同分片重建与排空；完整故障矩阵属于 S5。
 
 ## 自动验收
 
@@ -15,7 +15,7 @@ Realm 按 ADR-0015 条件写入 MongoDB 后才确认和广播。单步曼哈顿�
 接入证书。验收不会连接共享开发库，也不读取其 URI 环境变量。
 
 报告位于 `<所选构建目录>/acceptance/scene-reference-loop/<运行编号>/`，包含版本、工作树
-差异摘要、配置 SHA256、平台、逐例结果、原始 CTest/JUnit 和三组服务日志。双人用例
+差异摘要、配置 SHA256、平台、逐例结果、原始 CTest/JUnit 和各实例服务日志。双人用例
 核对双方各十次移动后的快照、连续事件和数据库最终 seq=11、落点 (100,0)/(0,100)。
 重复指令不增加事件/写入，非法移动不消费序号，离场可见；Scene 缺失时心跳和训练仍成功。
 该入口仅验证本机多进程 TLS/TCP，不代表 Scene QUIC、跨机或玩法容量。
@@ -44,7 +44,7 @@ Realm 按 ADR-0015 条件写入 MongoDB 后才确认和广播。单步曼哈顿�
 
 默认精确 DNS SAN 为 `scene-dev-01.scene.service` 与 `realm-dev-01.realm.service`；
 换实例需同时修改证书与允许列表。通道仅 TLS 1.3、ALPN `realmmesh-scene/1`，缺证书、
-错误 CA、角色身份或 ALPN 均无法执行内部操作。首次认证后用 SNAPSHOT 探测 incarnation，
+错误 CA、角色身份或 ALPN 均无法执行内部操作。静态模式首次认证后用 SNAPSHOT 探测 incarnation，
 之后每条消息绑定该次进程运行，不能以同名重启复用旧身份。
 
 ## 参考客户端与恢复
@@ -110,3 +110,79 @@ Realm 或 Scene 崩溃后，先等旧 etcd 注册租约失效，再启动同名�
 后另一分片继续移动、以及 Realm 在目标已持久提交但尚未激活时 SIGKILL 后恢复。最后一项用
 生产 SceneShard 与真实 mTLS 暂停 B 的激活边界；Realm 与 MongoDB 保持真实进程和后端。
 常规与 Scene SIGKILL 用例使用入口组、Realm、Scene A/B 四个独立 realm_mesh 进程。
+
+
+## 动态分片承载与排空（S4）
+
+有界参考配置为一个逻辑 Realm、分片 1/2、两个预授权 Scene 实例；每片至多 16 人，每实例
+可承载两片。Realm 启动时配置两个实例的身份允许列表与逻辑分片入口，第二实例可运行中加入；
+已有角色不会因为新实例加入而自动重平衡。`scene.shard_id` 只决定静态模式的分片，动态模式
+按共享承载记录工作。超出配置允许列表的实例不参与分配。
+
+在 Realm 与两个 Scene 的独立配置树中显式设置：
+
+```lua
+-- common/discovery.lua：动态模式要求真实注册，初次失败不发布业务就绪。
+service_discovery = { enabled = true, required = true }
+-- services/realm.lua：保留上方 targets 分片2允许列表和独立mTLS身份。
+realm = { scene = { enabled = true, dynamic = true } }
+-- 两个 services/scene.lua：instance_id、端口、证书各自独立。
+scene = { dynamic = true }
+```
+
+以上为要合入现有配置表的字段，不替代训练、TLS、日志或数据源配置。Realm/Scene 指向相同
+Player Data 数据库；手动开发仍须按共享库说明经 `with-shared-mongodb.sh` 启动，URI、CA 与
+凭据留在仓库外。动态模式不使用静态端点后备；发现完整快照、精确服务身份和业务就绪全部
+成立后才分配。Scene 缺失不阻塞 Realm 登录后的心跳、训练；etcd 必需注册失败会让服务启动
+失败，不能把发现故障当成所有实例已退出。
+
+MongoDB 的 `scene_instances`、`scene_shards` 是实例接纳/分片承载事实，不手工删除记录或
+重置版本。实例排空事务同时禁止新分配并标记其全部分片；新承载版本与角色写在事务内互相
+栅栏。旧进程/旧版本不能继续提交位置。故障分片在另一就绪实例上重建时保留 shard_id 和
+已确认坐标；客户端按最后序号 + 1 EnterScene 重新绑定，不是转往另一个逻辑分片。
+
+### 有身份校验的控制入口
+
+先构建 `realm_mesh_scene_control`。它使用 Realm 服务身份的 mTLS 客户端证书，默认读
+`REALMMESH_SERVICE_CA_FILE`、`REALMMESH_REALM_CERTIFICATE_FILE`、
+`REALMMESH_REALM_PRIVATE_KEY_FILE`，也可显式指定 `--ca`、`--certificate`、`--key` 文件路径。
+不接受公网客户端票据；Scene 证书或错误 CA/服务端身份无法调用。
+
+```bash
+# dev 预设示例；其他预设使用其实际构建目录。
+./build/dev-ninja/bin/realm_mesh_scene_control --status \
+  --port 7200 --instance scene-dev-01 --server-identity scene-dev-01.scene.service
+./build/dev-ninja/bin/realm_mesh_scene_control --drain \
+  --port 7200 --instance scene-dev-01 --server-identity scene-dev-01.scene.service \
+  --operation-id deploy-1 --timeout-ms 20000
+```
+
+输出逐行 JSON，含 phase、draining、operation_id、active_members、prepared_members 与
+owned_shards。`--drain` 退出 0 只代表 COMPLETE；退出 2 是失败或客户端等待结束但未完成，
+此时查看 JSON phase，实例仍保持 draining。`--status` 退出 0 代表查询成功，仍需看 phase；
+认证、配置或传输错误退出 1。
+
+尝试标识默认使用实例 id。同一标识重复调用不会延长服务端截止或重复迁出；RUNNING 期间
+不同标识也合并到原尝试。FAILED 后修复目标容量/连接，再以新的 `--operation-id` 重试；
+这不会恢复接纳源角色。单次服务端截止为 100..60000 毫秒。完成后的重复调用仍返回 COMPLETE。
+
+Realm 先结算该角色已经派发的场景指令，再以下一 scene_seq 做 S3 转场。成功后 1508 通知
+客户端查询 SceneState，取得新序号和目标快照继续；与排空竞争的请求若获 3103，同样先查询，
+不猜测序号。持久结果不确定、目标激活/源移除未完时不报告完成。目标满员或不可用时源角色
+仍可移动，实例保持排空并在截止后明确失败。只有成员/准备清空、在途写及未完迁出均结算后
+才释放分片；业务停用后保留管理端点与发现注册，确认 COMPLETE 后再停止该进程。
+
+### 观测与验收
+
+Scene 新增 `scene_owned_shards`、`scene_drain_remaining_members`、`scene_drain_failed`、
+`scene_drain_attempts_total`、`scene_drain_failures_total{reason="timeout"}`。
+Realm 新增 `scene_ready_instances`、`scene_drain_pending_transfers`、`scene_drain_transfers_total`、
+`scene_drain_retries_total{reason="capacity"|"unavailable"}`、
+`scene_shard_assignments_total{operation="assign"|"recover"|"release"}` 与
+`scene_shard_reconcile_errors_total`。剩余成员为零时仍要核对未完转场及承载分片；不能单凭一个
+指标宣称完成。Grafana Scene 面板和排空/承载协调告警引用同一组指标。
+
+统一脚本强制包含 SceneShardStoreTest、SceneDynamicJourneyTest 和 SceneDynamicJoinJourneyTest。
+真实 MongoDB 验证并发分配及排空/分配事务竞态；多进程验证运行中加入、成功排空与重复请求、
+16 个真实角色占满目标时保留源服务并明确失败、同分片故障重建和旧版本拒绝。角色入场仍走
+生产 LoginChain、选角、进入和转场；四路独立 transport 仅并发准备登录，容量与全部断言不缩减。

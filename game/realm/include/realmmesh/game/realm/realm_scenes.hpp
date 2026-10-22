@@ -25,7 +25,8 @@ public:
         common::RealmSceneStore& store,
         RealmOutbox& outbox,
         const RealmConfig& config,
-        observability::MetricsRegistry& metrics);
+        observability::MetricsRegistry& metrics,
+        common::SceneShardStore* shards = nullptr);
     ~RealmScenes();
     RealmScenes(const RealmScenes&) = delete;
     RealmScenes& operator=(const RealmScenes&) = delete;
@@ -38,6 +39,7 @@ public:
     void endpoint(
         const std::optional<network::TransportEndpoint>& value,
         std::string_view instance_id = {});
+    void discovery_ready(bool ready);
 
 private:
     // RealmSessions 的现有消费者不需要带入 TLS、线程队列和内部协议布局。
