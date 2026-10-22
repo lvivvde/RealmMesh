@@ -3,6 +3,7 @@
 #include <array>
 #include <atomic>
 #include <future>
+#include <initializer_list>
 #include <map>
 #include <vector>
 #include "../realm/journey_fixture.hpp"
@@ -18,6 +19,7 @@ constexpr std::uint64_t second_account_id = 7002;
 class SceneJourneyTest : public RealmJourneyTest {
 protected:
     virtual bool dynamic_scene() const { return false; }
+    virtual void stop_extra_scene() {}
     void configure_dynamic_scene(
         const std::filesystem::path& root, const std::string& database) {
         rewrite(
@@ -33,8 +35,7 @@ protected:
             root / "services/scene.lua",
             "metrics_port = 0",
             "metrics_port = " + std::to_string(metrics_port));
-        test_support::point_player_data_at(
-            root, test_support::MongodProcess::shared(), database);
+        test_support::point_player_data_at(root, player_data(), database);
     }
     void prepare_services(const std::string& database) override {
         database_ = database;
@@ -85,7 +86,7 @@ protected:
             "http://127.0.0.1:2379",
             etcd_.endpoint());
         common::MongoPlayerDataStore provisioning(
-            test_support::MongodProcess::shared().uri(), database);
+            player_data().uri(), database);
         provisioning.provision_account(
             {.account_id = second_account_id,
              .account_name = "scene-second",
@@ -115,6 +116,24 @@ protected:
     void TearDown() override {
         RealmJourneyTest::TearDown();
         scene_.reset();
+        stop_extra_scene();
+        const auto endpoint = etcd_.endpoint();
+        const auto etcd_port = static_cast<std::uint16_t>(
+            std::stoul(endpoint.substr(endpoint.rfind(':') + 1)));
+        etcd_.stop();
+        verify_closed_ports({etcd_port});
+        verify_closed_ports(
+            {ports_.login_verify,
+             ports_.queue,
+             ports_.gateway,
+             ports_.realm,
+             scene_port_,
+             realm_metrics_port_});
+        for (const auto& [root, port] : scene_metrics_ports_)
+            if (root == scene_root_.path()) verify_closed_ports({port});
+        RecordProperty(
+            "cleanup_verification",
+            "entry, Realm, Scene A and etcd reaped; listener ports closed");
         if (const char* directory =
                 std::getenv("REALMMESH_SCENE_ARTIFACT_DIRECTORY")) {
             const auto case_name =
@@ -141,6 +160,17 @@ protected:
               "REALMMESH_REALM_CERTIFICATE_FILE",
               "REALMMESH_REALM_PRIVATE_KEY_FILE"})
             ::unsetenv(name);
+    }
+    void verify_closed_ports(std::initializer_list<std::uint16_t> ports) {
+        for (const auto port : ports) {
+            if (port == 0) continue;
+            const auto deadline = client::Clock::now() + 1s;
+            while (test_support::loopback_port_open(port) &&
+                   client::Clock::now() < deadline)
+                std::this_thread::sleep_for(5ms);
+            EXPECT_FALSE(test_support::loopback_port_open(port))
+                << "listener remains on " << port;
+        }
     }
     static std::map<std::uint64_t, common::SceneLocation> positions(
         const common::SceneState& state) {
@@ -244,8 +274,7 @@ TEST_F(
     EXPECT_EQ(positions(final_a.value), positions(final_b.value));
     EXPECT_EQ(final_a.value.snapshot().event_seq(), event_seq);
     EXPECT_EQ(final_b.value.snapshot().event_seq(), event_seq);
-    common::MongoPlayerDataStore database(
-        test_support::MongodProcess::shared().uri(), database_);
+    common::MongoPlayerDataStore database(player_data().uri(), database_);
     const auto durable_a = database.scene_state({journey_account_id, 1, ca});
     const auto durable_b = database.scene_state({second_account_id, 1, cb});
     ASSERT_TRUE(durable_a);
@@ -308,6 +337,9 @@ TEST_F(
     ASSERT_TRUE(restored.ok());
     EXPECT_EQ(restored.value.last_scene_seq(), 2);
     EXPECT_EQ(restored.value.confirmed_location().x(), 10);
+    RecordProperty(
+        "database_verification",
+        "Scene absent and Realm restart retain committed seq2 at(10,0); heartbeat/training remain available");
 }
 class SceneTransferJourneyTest : public SceneJourneyTest {
 protected:
@@ -360,9 +392,18 @@ protected:
         if (dynamic_scene()) configure_dynamic_scene(root_b_.path(), database);
         if (start_second_scene()) start_b();
     }
+    void stop_extra_scene() override {
+        scene_b_.reset();
+        verify_closed_ports({port_b_});
+        if (const auto it = scene_metrics_ports_.find(root_b_.path());
+            it != scene_metrics_ports_.end())
+            verify_closed_ports({it->second});
+    }
     void TearDown() override {
         SceneJourneyTest::TearDown();
-        scene_b_.reset();
+        RecordProperty(
+            "cleanup_verification",
+            "entry, Realm, Scene A/B and etcd reaped; listener ports closed");
         if (const char* directory =
                 std::getenv("REALMMESH_SCENE_ARTIFACT_DIRECTORY")) {
             const auto target = std::filesystem::path(directory) /
@@ -418,8 +459,7 @@ protected:
         const common::SceneStateRecord& old,
         std::uint64_t seq,
         const common::SceneLocation& expected) {
-        common::MongoPlayerDataStore database(
-            test_support::MongodProcess::shared().uri(), database_);
+        common::MongoPlayerDataStore database(player_data().uri(), database_);
         const auto prior = database.scene_state(old.character);
         common::SceneWrite stale{
             old.character,
@@ -485,8 +525,7 @@ TEST_F(
             .location()
             .x(),
         210);
-    common::MongoPlayerDataStore database(
-        test_support::MongodProcess::shared().uri(), database_);
+    common::MongoPlayerDataStore database(player_data().uri(), database_);
     const auto old = database.scene_state({journey_account_id, 1, ca});
     ASSERT_TRUE(old);
     ASSERT_TRUE(old->owner);
@@ -522,8 +561,7 @@ TEST_F(
     ASSERT_TRUE(a->scene()->enter_scene(1, soon()).ok());
     ASSERT_TRUE(b->scene()->enter_scene(1, soon()).ok());
     ASSERT_TRUE(b->scene()->transfer_scene(2, 2, soon()).ok());
-    common::MongoPlayerDataStore database(
-        test_support::MongodProcess::shared().uri(), database_);
+    common::MongoPlayerDataStore database(player_data().uri(), database_);
     const auto old = database.scene_state({second_account_id, 1, cb});
     ASSERT_TRUE(old);
     ASSERT_TRUE(old->owner);
@@ -550,6 +588,9 @@ TEST_F(
     EXPECT_EQ(recovered->confirmed_location, old->confirmed_location);
     ASSERT_TRUE(b->scene()->move_in_scene(4, 210, 300, soon()).ok());
     stale_write_rejected(*old, 5, {2, 210, 300});
+    RecordProperty(
+        "database_verification",
+        "Scene SIGKILL and same-name restart retain target location; new incarnation/epoch; old binding rejected; other shard, heartbeat and training continue");
 }
 
 // 只在切换故障用例中替代 B 的 IO：生产 SceneShard + mTLS，暂停激活确认。
@@ -617,8 +658,7 @@ TEST_F(
     auto first = selected(character);
     ASSERT_NE(first, nullptr);
     ASSERT_TRUE(first->scene()->enter_scene(1, soon()).ok());
-    common::MongoPlayerDataStore database(
-        test_support::MongodProcess::shared().uri(), database_);
+    common::MongoPlayerDataStore database(player_data().uri(), database_);
     // 让 B 的准备成功、激活停住；数据库已经越过唯一切换点。
     scene_b_.reset();
     auto paused = std::make_unique<PausedActivationScene>(port_b_);
@@ -670,6 +710,9 @@ TEST_F(
     stale_write_rejected(*old, 4, {2, 200, 300});
     ASSERT_TRUE(again->heartbeat(soon()));
     ASSERT_TRUE(again->train(1, soon()).ok());
+    RecordProperty(
+        "database_verification",
+        "Realm SIGKILL after target commit: seq2 replay cannot roll back target; new Realm epoch restores target location and rejects previous owner");
 }
 class SceneControlProcess final {
 public:
@@ -739,8 +782,7 @@ protected:
     common::MongoPlayerDataStore database() const {
         common::MongoPlayerDataOptions options;
         options.credential_hash_cost = common::CredentialHashCost::Minimum;
-        return {
-            test_support::MongodProcess::shared().uri(), database_, options};
+        return {player_data().uri(), database_, options};
     }
     common::SceneShardRecord wait_shard(
         std::uint64_t id, const std::string& instance) {
@@ -774,6 +816,16 @@ protected:
             ADD_FAILURE() << "metrics endpoint unavailable";
             return {};
         }
+        const auto path = scene_root_.path() / "logs" /
+                          ("metrics-" + std::to_string(port) + ".prom");
+        std::filesystem::create_directories(path.parent_path());
+        std::ofstream sample(path);
+        sample << response->body;
+        sample.flush();
+        EXPECT_TRUE(sample.good()) << "cannot persist metrics sample " << path;
+        RecordProperty(
+            "metrics_verification",
+            "HTTP /metrics samples captured with service logs");
         return response->body;
     }
     std::unique_ptr<SceneControlProcess> control(
@@ -1093,6 +1145,239 @@ TEST_F(
     ASSERT_EQ(valid->wait(5s), 0) << valid->output();
     EXPECT_EQ(valid->last().value("phase", "missing"), "idle");
     EXPECT_FALSE(database().scene_instance_state("scene-dev-01")->draining);
+}
+// 故障只作用于此夹具独占副本集，永不影响 CTest 共享后端。
+class SceneFaultJourneyTest : public SceneDynamicJourneyTest {
+protected:
+    const test_support::MongodProcess& player_data() const override {
+        return fault_mongo_;
+    }
+    common::SceneShardRecord wait_restarted_shard(
+        std::uint64_t shard, const common::SceneOwner& old) {
+        auto store = database();
+        const auto deadline = client::Clock::now() + 10s;
+        while (client::Clock::now() < deadline) {
+            const auto value = store.shard_state(1, shard);
+            if (value && value->owner &&
+                value->owner->instance_id == old.scene_instance_id &&
+                value->owner->incarnation != old.scene_incarnation &&
+                value->version > old.shard_version)
+                return *value;
+            std::this_thread::sleep_for(10ms);
+        }
+        throw std::runtime_error(
+            "new carrier incarnation/version did not become ready");
+    }
+
+    void TearDown() override {
+        // 断言提前失败时也先解除暂停，再停止依赖数据库的服务。
+        try {
+            fault_mongo_.resume();
+        } catch (const std::exception& error) {
+            ADD_FAILURE() << error.what();
+        }
+        SceneDynamicJourneyTest::TearDown();
+        const auto port = fault_mongo_.port();
+        fault_mongo_.stop();
+        verify_closed_ports({port});
+        RecordProperty(
+            "backend_cleanup_verification",
+            "private MongoDB reaped; listener port closed");
+    }
+    test_support::MongodProcess fault_mongo_;
+};
+TEST_F(
+    SceneFaultJourneyTest,
+    MongoWriteOutageThenCarrierLossPreservesConfirmedLocation) {
+    std::uint64_t ca = 0, cb = 0;
+    auto a = selected(ca);
+    auto b = selected(cb, "scene-second", "second-secret");
+    ASSERT_TRUE(a && b);
+    ASSERT_TRUE(a->scene()->enter_scene(1, soon()).ok());
+    ASSERT_TRUE(a->scene()->move_in_scene(2, 50, 0, soon()).ok());
+    ASSERT_TRUE(b->scene()->enter_scene(1, soon()).ok());
+    ASSERT_TRUE(b->scene()->transfer_scene(2, 2, soon()).ok());
+    auto store = database();
+    const auto old = store.scene_state({journey_account_id, 1, ca});
+    ASSERT_TRUE(old && old->owner);
+    fault_mongo_.pause();
+    const auto failed = a->scene()->move_in_scene(3, 60, 0, soon());
+    EXPECT_EQ(failed.error_code, 3104);
+    EXPECT_TRUE(a->heartbeat(soon()));
+    EXPECT_TRUE(b->heartbeat(soon()));
+    fault_mongo_.resume();
+    EXPECT_EQ(store.scene_state(old->character), old);
+    // 后端暂停也使 Scene 健康链路失效；查询已确认落点后显式重新进入。
+    const auto available = a->scene()->get_scene_state(soon());
+    ASSERT_TRUE(available.ok());
+    EXPECT_EQ(available.value.last_scene_seq(), 2);
+    EXPECT_EQ(available.value.confirmed_location().x(), 50);
+    const auto reentered = a->scene()->enter_scene(3, soon());
+    ASSERT_TRUE(reentered.ok()) << reentered.error_code;
+    ASSERT_TRUE(a->scene()->move_in_scene(4, 60, 0, soon()).ok());
+    ASSERT_TRUE(b->scene()->enter_scene(3, soon()).ok());
+    ASSERT_TRUE(b->scene()->move_in_scene(4, 210, 300, soon()).ok());
+    ASSERT_TRUE(a->train(1, soon()).ok());
+    ASSERT_TRUE(b->train(1, soon()).ok());
+    scene_->crash();
+    const auto rebuilt = wait_shard(1, "scene-dev-02");
+    EXPECT_EQ(rebuilt.version, 2);
+    const auto state = a->scene()->get_scene_state(soon());
+    ASSERT_TRUE(state.ok());
+    EXPECT_EQ(state.value.last_scene_seq(), 4);
+    EXPECT_EQ(state.value.confirmed_location().x(), 60);
+    ASSERT_TRUE(a->scene()->enter_scene(5, soon()).ok());
+    ASSERT_TRUE(a->scene()->move_in_scene(6, 70, 0, soon()).ok());
+    ASSERT_TRUE(b->scene()->move_in_scene(5, 220, 300, soon()).ok());
+    stale_write_rejected(*old, 5, {1, 70, 0});
+    const auto durable = store.scene_state(old->character);
+    ASSERT_TRUE(durable && durable->owner);
+    EXPECT_EQ(durable->last_result->command.seq, 6);
+    EXPECT_EQ(durable->owner->shard_version, 2);
+    static_cast<void>(metrics(realm_metrics_port_));
+    RecordProperty(
+        "database_verification",
+        "private MongoDB SIGSTOP/SIGCONT: seq2 at(50,0) unchanged; read-stage 3104; Get then Enter seq3 and Move seq4 commit(60,0); A SIGKILL rebuilds shard1 on B/version2; seq6 at(70,0); other shard moves and heartbeat/training recover; old owner fenced");
+    RecordProperty(
+        "fault_matrix_verification",
+        "mongodb_process_pause+reenter+move_retry+Scene_SIGKILL+same_shard_rebuild");
+}
+TEST_F(
+    SceneFaultJourneyTest,
+    TargetCrashDrainFailureAndSameNameRestartRetryRemainFenced) {
+    std::uint64_t ca = 0, cb = 0;
+    auto a = selected(ca);
+    auto b = selected(cb, "scene-second", "second-secret");
+    ASSERT_TRUE(a && b);
+    ASSERT_TRUE(a->scene()->enter_scene(1, soon()).ok());
+    ASSERT_TRUE(a->scene()->move_in_scene(2, 30, 0, soon()).ok());
+    ASSERT_TRUE(b->scene()->enter_scene(1, soon()).ok());
+    ASSERT_TRUE(b->scene()->transfer_scene(2, 2, soon()).ok());
+    auto store = database();
+    const auto old_a = store.scene_state({journey_account_id, 1, ca});
+    const auto old_b = store.scene_state({second_account_id, 1, cb});
+    ASSERT_TRUE(old_a && old_a->owner && old_b && old_b->owner);
+    scene_b_->crash();
+    auto draining = control(false, true, "target-offline", 600);
+    ASSERT_EQ(draining->wait(8s), 2) << draining->output();
+    EXPECT_EQ(draining->last().value("phase", "missing"), "failed");
+    ASSERT_TRUE(store.shard_state(1, 1)->draining);
+    ASSERT_TRUE(a->scene()->move_in_scene(3, 40, 0, soon()).ok());
+    ASSERT_TRUE(a->heartbeat(soon()));
+    ASSERT_TRUE(b->heartbeat(soon()));
+    ASSERT_TRUE(a->train(1, soon()).ok());
+    wait_instance_expired("scene", "scene-dev-02");
+    scene_b_.reset();
+    start_b();
+    const auto restored = wait_restarted_shard(2, *old_b->owner);
+    EXPECT_EQ(restored.version, 2);
+    EXPECT_NE(restored.owner->incarnation, old_b->owner->scene_incarnation);
+    ASSERT_TRUE(b->scene()->enter_scene(3, soon()).ok());
+    ASSERT_TRUE(b->scene()->move_in_scene(4, 220, 300, soon()).ok());
+    auto retry = control(false, true, "target-restored", 20000);
+    ASSERT_EQ(retry->wait(), 0) << retry->output();
+    EXPECT_EQ(retry->last().value("phase", "missing"), "complete");
+    const auto durable = store.scene_state(old_a->character);
+    ASSERT_TRUE(durable && durable->owner);
+    EXPECT_EQ(durable->last_result->command.seq, 4);
+    EXPECT_EQ(
+        durable->confirmed_location,
+        std::optional(common::SceneLocation{2, 200, 300}));
+    EXPECT_EQ(durable->owner->shard_version, 2);
+    stale_write_rejected(*old_a, 5, {2, 200, 300});
+    stale_write_rejected(*old_b, 5, {2, 220, 300});
+    ASSERT_TRUE(b->heartbeat(soon()));
+    ASSERT_TRUE(b->train(1, soon()).ok());
+    static_cast<void>(metrics(realm_metrics_port_));
+    static_cast<void>(metrics(scene_metrics_ports_.at(scene_root_.path())));
+    RecordProperty(
+        "database_verification",
+        "B SIGKILL: A drain fails and keeps seq3 movement; B same-name restart owns shard2/version2; new drain attempt transfers A at seq4; both previous owners rejected; B seq4 remains(220,300)");
+    RecordProperty(
+        "fault_matrix_verification",
+        "target_SIGKILL+drain_deadline+same_name_restart+new_attempt");
+}
+TEST_F(
+    SceneFaultJourneyTest,
+    SlowConsumerOverflowRejoinsFromDurableStateWithoutBlockingOtherShard) {
+    std::uint64_t ca = 0, cb = 0;
+    auto a = selected(ca);
+    auto slow = selected(cb, "scene-second", "second-secret");
+    ASSERT_TRUE(a && slow);
+    ASSERT_TRUE(a->scene()->enter_scene(1, soon()).ok());
+    ASSERT_TRUE(slow->scene()->enter_scene(1, soon()).ok());
+    auto store = database();
+    store.provision_account(
+        {.account_id = 7003,
+         .account_name = "scene-healthy",
+         .credential = "third-secret",
+         .banned = false,
+         .whitelisted = true});
+    auto healthy = login("scene-healthy", "third-secret");
+    ASSERT_TRUE(healthy);
+    const auto hero = healthy->create_character("SlowHealthy", soon());
+    ASSERT_TRUE(hero.ok());
+    ASSERT_TRUE(
+        healthy->select_character(hero.value.character_id, soon()).ok());
+    ASSERT_TRUE(healthy->scene()->enter_scene(1, soon()).ok());
+    ASSERT_TRUE(healthy->scene()->transfer_scene(2, 2, soon()).ok());
+    const auto old = store.scene_state({second_account_id, 1, cb});
+    ASSERT_TRUE(old && old->owner);
+    // 257 是参考客户端 256 条通知边界的最小越界规模，两平台保持相同语义。
+    for (std::uint64_t i = 1; i <= 257; ++i) {
+        const auto x = static_cast<std::int32_t>(i % 2 == 1 ? 10 : 20);
+        const auto moved = a->scene()->move_in_scene(i + 1, x, 0, soon());
+        ASSERT_TRUE(moved.ok()) << "move " << i << ": " << moved.error_code;
+        while (a->scene()->poll_scene(client::Clock::now() + 1ms)) {
+        }
+        if (i % 64 == 0) {
+            const auto step = i / 64;
+            ASSERT_TRUE(healthy->scene()
+                            ->move_in_scene(
+                                step + 2,
+                                200 + static_cast<std::int32_t>(step) * 10,
+                                300,
+                                soon())
+                            .ok());
+            ASSERT_TRUE(healthy->heartbeat(soon()));
+        }
+    }
+    EXPECT_FALSE(slow->heartbeat(soon()));
+    slow->close();
+    ASSERT_TRUE(a->heartbeat(soon()));
+    ASSERT_TRUE(a->train(1, soon()).ok());
+    ASSERT_TRUE(healthy->train(1, soon()).ok());
+    const auto durable_a = store.scene_state({journey_account_id, 1, ca});
+    ASSERT_TRUE(durable_a);
+    EXPECT_EQ(durable_a->last_result->command.seq, 258);
+    EXPECT_EQ(
+        durable_a->confirmed_location,
+        std::optional(common::SceneLocation{1, 10, 0}));
+    auto again = login("scene-second", "second-secret");
+    ASSERT_TRUE(again);
+    ASSERT_TRUE(again->select_character(cb, soon()).ok());
+    const auto before = again->scene()->get_scene_state(soon());
+    ASSERT_TRUE(before.ok());
+    EXPECT_EQ(before.value.last_scene_seq(), 1);
+    EXPECT_EQ(before.value.confirmed_location().x(), 0);
+    ASSERT_TRUE(again->scene()->enter_scene(2, soon()).ok());
+    stale_write_rejected(*old, 3, {1, 0, 0});
+    const auto snapshot = again->scene()->get_scene_state(soon());
+    ASSERT_TRUE(snapshot.ok());
+    EXPECT_EQ(positions(snapshot.value).at(ca), *durable_a->confirmed_location);
+    const auto other = healthy->scene()->get_scene_state(soon());
+    ASSERT_TRUE(other.ok());
+    EXPECT_EQ(other.value.snapshot().shard_id(), 2);
+    EXPECT_EQ(other.value.last_scene_seq(), 6);
+    EXPECT_EQ(other.value.confirmed_location().x(), 240);
+    EXPECT_EQ(other.value.snapshot().members_size(), 1);
+    static_cast<void>(metrics(realm_metrics_port_));
+    RecordProperty(
+        "database_verification",
+        "257 real committed moves: A seq258 at(10,0); only slow notification consumer closes; re-login keeps seq1 at(0,0), Enter seq2 fences prior binding; other shard seq6 at(240,300), heartbeat/training and snapshot intact");
+    RecordProperty(
+        "fault_matrix_verification",
+        "slow_consumer+notification_overflow+relogin+other_shard_isolation");
 }
 }  // namespace
 }  // namespace realm::game::realm

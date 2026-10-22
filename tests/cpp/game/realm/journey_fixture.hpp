@@ -14,6 +14,7 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+#include <cerrno>
 #include <chrono>
 #include <cstdint>
 #include <cstdlib>
@@ -70,15 +71,27 @@ public:
         if (pid_ <= 0) return;
         static_cast<void>(::kill(pid_, SIGKILL));
         int status = 0;
-        static_cast<void>(::waitpid(pid_, &status, 0));
+        while (::waitpid(pid_, &status, 0) < 0 && errno == EINTR) {
+        }
         pid_ = -1;
     }
 
     void stop() noexcept {
         if (pid_ <= 0) return;
         static_cast<void>(::kill(pid_, SIGINT));
+        const auto deadline = std::chrono::steady_clock::now() + 5s;
         int status = 0;
-        static_cast<void>(::waitpid(pid_, &status, 0));
+        for (;;) {
+            const auto reaped = ::waitpid(pid_, &status, WNOHANG);
+            if (reaped == pid_ || (reaped < 0 && errno == ECHILD)) break;
+            if (std::chrono::steady_clock::now() >= deadline) {
+                static_cast<void>(::kill(pid_, SIGKILL));
+                while (::waitpid(pid_, &status, 0) < 0 && errno == EINTR) {
+                }
+                break;
+            }
+            std::this_thread::sleep_for(5ms);
+        }
         pid_ = -1;
     }
 
@@ -136,7 +149,8 @@ void prepare_config(
     const std::filesystem::path& root,
     const Ports& ports,
     const std::string& etcd_endpoint,
-    const std::string& database) {
+    const std::string& database,
+    const test_support::MongodProcess& mongod) {
     const auto services = root / "services";
     rewrite(
         services / "login_verify.lua",
@@ -178,8 +192,7 @@ void prepare_config(
         root / "common" / "discovery.lua",
         "http://127.0.0.1:2379",
         etcd_endpoint);
-    test_support::point_player_data_at(
-        root, test_support::MongodProcess::shared(), database);
+    test_support::point_player_data_at(root, mongod, database);
 }
 
 void set_environment(const char* name, std::string_view value) {
@@ -320,8 +333,18 @@ protected:
         copy_configs(
             realm_root_.path(),
             "return { services = { { name = \"realm\" } } }");
-        prepare_config(mesh_root_.path(), ports_, etcd_.endpoint(), database);
-        prepare_config(realm_root_.path(), ports_, etcd_.endpoint(), database);
+        prepare_config(
+            mesh_root_.path(),
+            ports_,
+            etcd_.endpoint(),
+            database,
+            player_data());
+        prepare_config(
+            realm_root_.path(),
+            ports_,
+            etcd_.endpoint(),
+            database,
+            player_data());
 
         // Provisioning:先完成开发账号的 Lua 首次导入(给 "pinned" 一个默认
         // 角色),再建一个没有角色的旅程账号。
@@ -330,7 +353,7 @@ protected:
             std::filesystem::path(REALMMESH_TEST_SOURCE_DIR) / "configs" /
             "common" / "accounts.lua";
         game::common::MongoPlayerDataStore provisioning(
-            test_support::MongodProcess::shared().uri(), database, options);
+            player_data().uri(), database, options);
         provisioning.provision_account(
             game::common::AccountProvisioning{
                 .account_id = journey_account_id,
@@ -358,6 +381,9 @@ protected:
         realm_.reset();
     }
 
+    virtual const test_support::MongodProcess& player_data() const {
+        return test_support::MongodProcess::shared();
+    }
     virtual void prepare_services(const std::string&) {}
 
     void start_realm() {

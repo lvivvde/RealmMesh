@@ -126,7 +126,7 @@ Native 夹具按实际编译输入（两个源码、普通头与存在时的生�
 缓存；冷/热及生成头重建另外断言两个编译请求的 direct hit。[#119 后续评估](../docs/research/build-fixture-waits-119.md)
 记录局部收益与完整入口门槛的区别。
 
-## Scene S1–S4 验收
+## Scene S1–S5 验收
 
 `./scripts/run-scene-acceptance.sh --preset NAME --jobs N` 先构建再执行单分片状态机、
 mTLS、Realm 工作线程/双实例隔离边界和真实多进程旅程。新增 `scene_shard_test` 为 unit；
@@ -155,3 +155,15 @@ WireLoginTransport/EnterRealmRedeemer 只并发准备登录，后续选角、进
 
 Scene 控制子进程也有 RAII 退出/回收，日志随该旅程归档。统一入口增加上述三组必选项，漏组或
 跳过均不能形成通过报告；它依然只证明本机多进程 TLS/TCP，Linux 既有 QUIC 门禁单独保留。
+
+
+S5 的 SceneFaultJourneyTest 使用独占的真实 MongoDB 副本集与生产服务，组合MongoDB 暂停恢复
+后的重试/承载丢失、排空目标故障/同名重启/新尝试，以及慢消费者溢出/重新登录/其他分片
+隔离。通知边界保留 257 次真实提交（两平台相同），因宿主固定 20Hz 调度，旅程目标截止
+为 360 秒；不改变生产循环或稀释边界。私有后端故障不影响共享副本集。夹具结束有界回收
+服务并核对监听端口，私有 MongoDB 另核对回收；共享后端由 CTest 清理入口收尾。
+
+统一脚本对照构建后的 CTest 发现清单和显式故障矩阵，要求数据库/回收属性与实际 HTTP
+指标齐备，源码运行前后相同；失败、跳过或缺证据均非零。SceneAcceptanceReportTest 的
+八项合成输入契约验证拒绝边界，不替代业务外部后端证据。阶段交付要求双平台当前源码
+全量与各三次统一验收，所有原始日志、逐例与配置哈希独立保存，失败目录不得覆盖。

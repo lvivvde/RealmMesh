@@ -1,42 +1,79 @@
 #!/usr/bin/env python3
-"""冻结 Scene 验收版本与配置,将 CTest 原始结果汇成可复核报告。"""
+"""冻结 Scene 阶段总验收；缺分组、指标、数据库或回收证据一律失败。"""
 import datetime
 import hashlib
 import json
+import math
 from pathlib import Path
 import platform
+import re
 import subprocess
 import sys
 import xml.etree.ElementTree as ET
 
-mode, root_arg, output_arg, value = sys.argv[1:]
-root, output = Path(root_arg), Path(output_arg)
+GROUPS = (
+    "SceneJourneyTest", "RealmScenesTest", "SceneShardTest", "MutualTlsTest",
+    "SceneSessionTest", "SceneTransferTest", "SceneTransferJourneyTest",
+    "SceneShardStoreTest", "SceneDynamicJourneyTest", "SceneDynamicJoinJourneyTest",
+    "SceneStoreTest", "SceneProtocolTest", "SceneCommitRecoveryTest",
+    "ObservabilityArtifactsTest", "SceneFaultJourneyTest", "SceneAcceptanceReportTest",
+)
+MATRIX = {
+    "Scene/Realm SIGKILL": ["SceneTransferJourneyTest.SceneSigkillKeepsOtherShardMovingAndNewIncarnationRestoresLocation", "SceneTransferJourneyTest.RealmSigkillAfterTargetCommitRecoversWithoutRollingBackSource"],
+    "同名实例重启": ["SceneTransferTest.SameInstanceRestartNeedsNewEpochAndPreservesLastLocation"],
+    "链路断开/恢复": ["SceneJourneyTest.MissingScenePreservesHeartbeatTrainingAndDurableLocation"],
+    "准备响应丢失": ["SceneTransferTest.PreparationReplyLostKeepsSourceAndCandidateInvisible"],
+    "切换响应丢失": ["SceneTransferTest.LostCasResponseReadsTargetReceiptBeforeActivation"],
+    "激活/移除响应丢失": ["SceneTransferTest.LostActivationNeverRollsBackAndSameSequenceRestoresTarget", "SceneTransferTest.LostSourceRemovalCannotBlockTargetMovementOrRollback"],
+    "提交不确定": ["SceneTransferTest.UnknownUncommittedCasRetriesExactWriteWithoutSkipping", "SceneCommitRecoveryTest.FailedDurabilityAcknowledgementRequiresReadback"],
+    "MongoDB 暂不可用+承载故障": ["SceneFaultJourneyTest.MongoWriteOutageThenCarrierLossPreservesConfirmedLocation"],
+    "排空失败+同名恢复+重试": ["SceneFaultJourneyTest.TargetCrashDrainFailureAndSameNameRestartRetryRemainFenced"],
+    "慢消费者+重新入场": ["SceneFaultJourneyTest.SlowConsumerOverflowRejoinsFromDurableStateWithoutBlockingOtherShard", "SceneSessionTest.NotificationOverflowClosesOnlySlowSessionWithoutDereferencingReleasedStream"],
+    "队列满/截止": ["RealmScenesTest.InstanceCapacityIncludesQueuedRunningAndUndrainedResults", "RealmScenesTest.QueueLimitAndWaitingTimeAreIncludedInCommandDeadline"],
+    "运行中加入/容量排空": ["SceneDynamicJoinJourneyTest.RuntimeJoinAllocatesNewShardWithoutRebalancing", "SceneDynamicJourneyTest.FullTargetKeepsDrainingAndBothShardsMovableUntilExplicitFailure"],
+    "停机故障回收": ["RealmScenesTest.ShutdownFinishesWhenDatabaseRevocationKeepsFailing", "RealmScenesTest.ShutdownFinishesWhenRemovalKeepsReturningBusy"],
+}
+METRICS = {
+    "scene_owned_shards", "scene_ready_instances", "scene_drain_remaining_members",
+    "scene_drain_pending_transfers", "scene_drain_failed", "scene_drain_attempts_total",
+    "scene_drain_transfers_total", "scene_drain_retries_total", "scene_drain_failures_total",
+    "scene_shard_assignments_total", "scene_shard_reconcile_errors_total",
+}
+PROPERTIES = ("database_verification", "cleanup_verification", "backend_cleanup_verification",
+              "fault_matrix_verification", "metrics_verification")
 
-def git(*args):
+
+def git(root, *args):
     return subprocess.check_output(["git", "-C", str(root), *args], text=True).strip()
 
-if mode == "freeze":
-    files = sorted((root / "configs").rglob("*.lua")) + [root / "configs/main.config"]
-    manifest = {str(p.relative_to(root)): hashlib.sha256(p.read_bytes()).hexdigest() for p in files}
+
+def source_state(root):
     diff = subprocess.check_output(["git", "-C", str(root), "diff", "HEAD", "--"])
-    untracked = git("ls-files", "--others", "--exclude-standard").splitlines()
     tree_hash = hashlib.sha256(diff)
-    for name in sorted(untracked):
+    for name in sorted(git(root, "ls-files", "--others", "--exclude-standard").splitlines()):
         path = root / name
         if path.is_file():
             tree_hash.update(name.encode() + b"\0" + path.read_bytes())
+    return {"revision": git(root, "rev-parse", "HEAD"),
+            "status": git(root, "status", "--porcelain"),
+            "difference_sha256": tree_hash.hexdigest()}
+
+
+def freeze(root, output, preset):
+    files = sorted((root / "configs").rglob("*.lua")) + [root / "configs/main.config"]
+    manifest = {str(p.relative_to(root)): hashlib.sha256(p.read_bytes()).hexdigest() for p in files}
     metadata = {
+        **source_state(root),
         "started_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-        "revision": git("rev-parse", "HEAD"), "status": git("status", "--porcelain"),
-        "difference_sha256": tree_hash.hexdigest(), "preset": value,
-        "platform": platform.platform(), "architecture": platform.machine(),
+        "preset": preset, "platform": platform.platform(), "architecture": platform.machine(),
         "scene_transport": "TLS/TCP, mutual TLS, realmmesh-scene/1",
-        "scope": "S1-S4 local multi-process; no Scene QUIC/cross-host/capacity claim",
+        "scope": "S1-S5 local multi-process; no Scene QUIC/cross-host/capacity claim",
         "configuration_sha256": manifest,
     }
     (output / "metadata.json").write_text(json.dumps(metadata, ensure_ascii=False, indent=2) + "\n")
-else:
-    metadata = json.loads((output / "metadata.json").read_text())
+
+
+def read_cases(output):
     cases = []
     xml = output / "results.xml"
     if xml.exists():
@@ -51,28 +88,110 @@ else:
         for case in ET.parse(raw_xml).iter("testcase"):
             name = f"{case.get('classname')}.{case.get('name')}"
             properties = {p.get("name"): p.get("value") for p in case.findall("./properties/property")}
-            if "database_verification" in case.attrib:
-                properties["database_verification"] = case.attrib["database_verification"]
+            properties.update({p: case.attrib[p] for p in PROPERTIES if p in case.attrib})
             if properties:
                 raw_properties[name] = {"raw_gtest": str(raw_xml.relative_to(output)), **properties}
     for case in cases:
         case["properties"].update(raw_properties.get(case["name"], {}))
-    expected = ("SceneJourneyTest.", "RealmScenesTest.", "SceneShardTest.", "MutualTlsTest.", "SceneSessionTest.", "SceneTransferTest.", "SceneTransferJourneyTest.", "SceneShardStoreTest.", "SceneDynamicJourneyTest.", "SceneDynamicJoinJourneyTest.")
-    complete = all(any(c["name"].startswith(prefix) for c in cases) for prefix in expected)
-    passed = value == "0" and complete and all(c["outcome"] == "passed" for c in cases)
-    metadata.update({"result": "passed" if passed else "failed", "exit_status": value, "cases": cases})
+    return cases
+
+
+def evidence_errors(output, cases):
+    errors = []
+    names = {c["name"] for c in cases}
+    expected_file = output / "expected-cases.json"
+    try:
+        expected = {t["name"] for t in json.loads(expected_file.read_text())["tests"]}
+    except (OSError, ValueError, KeyError, TypeError):
+        expected = set()
+    if not expected or names != expected or len(names) != len(cases):
+        errors.append("CTest 发现清单与实际结果不一致、缺失或重复")
+    for group in GROUPS:
+        if not any(name.startswith(group + ".") for name in names):
+            errors.append("缺少测试分组：" + group)
+    for axis, required in MATRIX.items():
+        if not set(required) <= names:
+            errors.append("缺少故障边界：" + axis)
+    for case in cases:
+        name, props = case["name"], case["properties"]
+        if case["outcome"] != "passed":
+            errors.append("失败或跳过：" + name)
+        if name.split(".")[0].endswith("JourneyTest"):
+            if not props.get("cleanup_verification"):
+                errors.append("缺少进程/监听回收证明：" + name)
+            if not name.endswith("ControlRequiresExactServerAndAuthorizedClientIdentity") and not props.get("database_verification"):
+                errors.append("缺少数据库核对：" + name)
+        if name.startswith("SceneFaultJourneyTest."):
+            for key in ("backend_cleanup_verification", "fault_matrix_verification", "metrics_verification"):
+                if not props.get(key):
+                    errors.append("缺少 " + key + "：" + name)
+    if not {"MongoCtestFixturePrepare", "MongoCtestFixtureCleanup"} <= names:
+        errors.append("缺少共享 MongoDB 准备/回收结果")
+    seen = set()
+    samples = []
+    for path in sorted((output / "services").rglob("metrics-*.prom")):
+        samples.append(str(path.relative_to(output)))
+        for line in path.read_text().splitlines():
+            if not line or line.startswith("#"):
+                continue
+            match = re.match(r"([a-zA-Z_:][a-zA-Z0-9_:]*)(?:\{[^}]*\})?\s+([^\s]+)$", line)
+            try:
+                valid = match is not None and math.isfinite(float(match[2]))
+            except ValueError:
+                valid = False
+            if not valid:
+                errors.append("无效指标样本：" + str(path.relative_to(output)))
+                continue
+            seen.add(match[1])
+    if METRICS - seen:
+        errors.append("缺少实际 HTTP 指标：" + ", ".join(sorted(METRICS - seen)))
+    return errors, {"samples": samples, "observed_names": sorted(seen), "required_names": sorted(METRICS)}
+
+
+def finish(root, output, value):
+    metadata = json.loads((output / "metadata.json").read_text())
+    parse_error = None
+    try:
+        cases = read_cases(output)
+    except (OSError, ET.ParseError) as error:
+        cases = []
+        parse_error = "原始测试证据不可读取：" + str(error)
+    errors, metrics = evidence_errors(output, cases)
+    if parse_error:
+        errors.append(parse_error)
+    final = source_state(root)
+    if any(final[k] != metadata[k] for k in ("revision", "status", "difference_sha256")):
+        errors.append("验收期间源码或工作树变化")
+    if value != "0":
+        errors.append("构建/测试退出非零：" + value)
+    passed = not errors
+    metadata.update({"result": "passed" if passed else "failed", "exit_status": value,
+                     "finished_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                     "final_source": final, "cases": cases, "evidence_errors": errors,
+                     "fault_matrix": MATRIX, "metrics_evidence": metrics})
     (output / "metadata.json").write_text(json.dumps(metadata, ensure_ascii=False, indent=2) + "\n")
-    lines = ["# Scene S1–S4 本机多进程验收", "", f"- 结果：{metadata['result']}",
+    lines = ["# Scene S1–S5 本机多进程阶段总验收", "", f"- 结果：{metadata['result']}",
              f"- 版本：`{metadata['revision']}`；工作树差异 SHA256：`{metadata['difference_sha256']}`",
              f"- 环境：{metadata['platform']}；预设：`{metadata['preset']}`",
-             "- 传输：TLS/TCP，双向服务身份校验；不代表 Scene QUIC、跨机或玩法容量验收。",
-             "- 拓扑：常规/SIGKILL Scene 用例为入口组、Realm、Scene A/B 四个独立 realm_mesh 进程；Realm 激活边界故障使用生产 SceneShard 的 mTLS 替身，隔离 etcd 与 MongoDB 副本集。",
-             "- 数据库核对项：双人各 10 次移动后，双方快照、事件水位及数据库 seq=11、落点一致；任何断言失败即验收失败。",
-             "- S4 核对项：运行中加入与无自动重平衡、承载 CAS/实例排空事务栅栏、排空成功/满目标明确失败与重复幂等、故障同分片重建、旧承载拒绝和多分片事件隔离。",
-             "- 原始证据：`results.xml`、`ctest.log`、`build.log`、`configure.log`、`services/`、`gtest/`。",
-             "- 配置哈希与逐例结果：`metadata.json`；每次运行单独保存，不覆盖旧报告。", "",
-             "| 用例 | 秒 | 结果 |", "|---|---:|---|"]
+             "- 传输：TLS/TCP、双向服务身份校验；不代表 Scene QUIC、跨机或玩法容量验收。",
+             "- 拓扑：真实入口组、Realm、Scene A/B；响应丢失边界另用生产 SceneShard 的 mTLS 替身，角色写入与存储契约使用真实隔离 MongoDB。MongoDB 暂停故障只注入独占副本集，不影响共享夹具。",
+             "- 排除项：Chat、M5、AOI、战斗、跨机器及性能容量实验。未注入真实网络设备丢包；以 mTLS 操作响应丢弃/进程故障验证相应恢复边界。",
+             "- 原始证据：`results.xml`、`expected-cases.json`、`ctest.log`、`build.log`、`configure.log`、`services/` 与 `gtest/`。数据库、组合故障、回收核对属性与 HTTP 指标文件列于 `metadata.json`。",
+             "- 缺测试/指标/核对属性、跳过、失败或运行中改源码均判失败；每次独立目录保留。", ""]
+    if errors:
+        lines += ["## 证据缺口", ""] + ["- " + error for error in errors] + [""]
+    lines += ["## 故障矩阵", "", "| 边界 | 必须通过的用例 |", "|---|---|"]
+    lines += [f"| {axis} | {'、'.join(required)} |" for axis, required in MATRIX.items()]
+    lines += ["", "## 逐例结果", "", "| 用例 | 秒 | 结果 |", "|---|---:|---|"]
     lines += [f"| {c['name']} | {c['seconds']} | {c['outcome']} |" for c in cases]
     (output / "report.md").write_text("\n".join(lines) + "\n")
-    if value == "0" and not passed:
-        raise SystemExit("Incomplete or skipped Scene acceptance groups")
+    return 0 if passed else 1
+
+
+if __name__ == "__main__":
+    mode, root_arg, output_arg, value = sys.argv[1:]
+    root, output = Path(root_arg), Path(output_arg)
+    if mode == "freeze":
+        freeze(root, output, value)
+    else:
+        raise SystemExit(finish(root, output, value))

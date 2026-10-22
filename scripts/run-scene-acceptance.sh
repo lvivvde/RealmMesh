@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Scene S1–S4 本机多进程验收:总是先构建,只使用隔离测试数据库与服务证书。
+# Scene S1–S5 本机多进程验收:总是先构建,只使用隔离测试数据库与服务证书。
 set -euo pipefail
 project_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 source "${project_root}/scripts/lib/build-dir.sh"
@@ -35,21 +35,32 @@ cp "$configure_log" "$report_dir/configure.log"
 export REALMMESH_SCENE_ARTIFACT_DIRECTORY="$report_dir/services"
 python3 "$project_root/scripts/lib/scene-acceptance-report.py" freeze "$project_root" "$report_dir" "$preset"
 if ! "$cmake_bin" --build --preset "$preset" --parallel "$realmmesh_build_jobs" \
-    --target scene_journey_test realm_scenes_test scene_shard_test scene_store_test tls_mutual_auth_test scene_session_test \
+    --target scene_journey_test realm_scenes_test scene_shard_test scene_store_test tls_mutual_auth_test scene_session_test scene_protocol_test service_host_test \
     >"$report_dir/build.log" 2>&1; then
     cat "$report_dir/build.log" >&2
-    python3 "$project_root/scripts/lib/scene-acceptance-report.py" finish "$project_root" "$report_dir" build-failed
+    python3 "$project_root/scripts/lib/scene-acceptance-report.py" finish "$project_root" "$report_dir" build-failed || true
+    printf 'Scene acceptance report: %s/report.md\n' "$report_dir"
+    exit 1
+fi
+test_regex='^(SceneJourneyTest|RealmScenesTest|SceneShardTest|MutualTlsTest|SceneSessionTest|SceneTransferTest|SceneTransferJourneyTest|SceneShardStoreTest|SceneDynamicJourneyTest|SceneDynamicJoinJourneyTest|SceneStoreTest|SceneProtocolTest|SceneCommitRecoveryTest|ObservabilityArtifactsTest|SceneFaultJourneyTest|SceneAcceptanceReportTest)\.'
+if ! "$ctest_bin" --preset "$preset" --show-only=json-v1 -R "$test_regex" >"$report_dir/expected-cases.json"; then
+    python3 "$project_root/scripts/lib/scene-acceptance-report.py" finish "$project_root" "$report_dir" discovery-failed || true
+    printf 'Scene acceptance report: %s/report.md\n' "$report_dir"
     exit 1
 fi
 mkdir -p "$report_dir/gtest"
 export GTEST_OUTPUT="xml:$report_dir/gtest/"
 set +e
 "$ctest_bin" --preset "$preset" -j 1 --output-on-failure \
-    -R '^(SceneJourneyTest|RealmScenesTest|SceneShardTest|MutualTlsTest|SceneSessionTest|SceneTransferTest|SceneTransferJourneyTest|SceneShardStoreTest|SceneDynamicJourneyTest|SceneDynamicJoinJourneyTest)\.' \
+    -R "$test_regex" \
     --output-junit "$report_dir/results.xml" >"$report_dir/ctest.log" 2>&1
 result=$?
 set -e
 cat "$report_dir/ctest.log"
+set +e
 python3 "$project_root/scripts/lib/scene-acceptance-report.py" finish "$project_root" "$report_dir" "$result"
+report_result=$?
+set -e
 printf 'Scene acceptance report: %s/report.md\n' "$report_dir"
-exit "$result"
+if [[ "$result" -ne 0 ]]; then exit "$result"; fi
+exit "$report_result"

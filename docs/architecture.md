@@ -43,7 +43,7 @@ Queue 在返回 `202` 前，用一笔 etcd 事务同时提交 `identity_jti → 
 候选端点含主机名、数字端口、
 协议与优先级,不依赖客户端隐式约定。排队号牌只用于位次查询与找回,网关不接受它。
 
-## Scene 逐步业务拓扑（S1–S4）
+## Scene 逐步业务拓扑（S1–S5）
 
 阶段 4 的逐步交付契约见 [Scene 参考业务规格](specs/2026-10-17-scene-reference-loop.md)。
 首个闭环为一个独立 Scene 进程承载一个分片、两个角色移动互相可见；随后才实现双实例
@@ -311,7 +311,7 @@ DevServices 用例使用独立数据库；各测试回收自己的服务，守�
 `realm::cluster::ServiceType` 是开放字符串(ADR-0014 第 4 步),框架只用
 `is_valid_service_type` 校验字符集 `[a-z0-9_]`,不枚举具体服务;服务名即服务类型线名。
 已实现身份的权威列表是进程入口 `apps/mesh_host` 的 `game_service_modules()` 注册表,
-当前 4 个:
+当前 5 个:
 
 | 服务名(线名) | 模块 | 状态 |
 |---|---|---|
@@ -319,6 +319,7 @@ DevServices 用例使用独立数据库；各测试回收自己的服务，守�
 | `realm` | `game/realm` 的 `make_realm_module` | 已接线,端口 7100 |
 | `login_verify` | `game/login_verify` 的 `make_login_verify_module` | 已接线,HTTPS 服务边(端口见服务配置) |
 | `queue` | `game/queue` 的 `make_queue_module` | 已接线,HTTPS 服务边,排队调度(端口见服务配置) |
+| `scene` | `game/scene` 的 `make_scene_module` | 已接线,独立 mTLS 内部服务,静态或动态分片 |
 
 旧 Login 链路(身份 `login`、端口 7000,以及登录票据与网关重入消息)已整体退役,
 线名 `login` 永不复用。
@@ -338,3 +339,12 @@ ADR-0014 第 4 步改为字符串)。`realm_mesh --service` 只接受已注册�
 Framework 侧同样按需新建。`base`、`memory`、`rpc`、`serialization`、`storage` 这几个名字
 曾被空目录预留,但代码与文档都没有定义它们的职责;需要时从第一个真实用例开始设计,
 不预设分层。
+
+
+S5 的 SceneFaultJourneyTest 在生产入口组、Realm、Scene A/B 上组合 MongoDB 进程暂停、
+承载进程 SIGKILL、目标故障后的排空截止/同名重启/新尝试，以及慢通知消费者溢出后重新入场。
+Mongo 故障注入只使用独占副本集；S2–S4 的真实后端与 mTLS 替身边界用例全部保留。夹具等待
+业务新 incarnation/承载版本，不以端口打开或实例名相同冒充重建完成。服务子进程优雅退出有
+截止，必要时 KILL 并 waitpid 回收；每例核对其监听端口关闭，独占 MongoDB 另行回收核对。
+统一报告对照 CTest 发现清单、显式故障矩阵、数据库/回收属性和实际 HTTP 指标样本；缺项、
+跳过、失败或源码中途变化均返回非零。三次验收独立保存，不覆盖失败证据。
