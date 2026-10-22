@@ -253,8 +253,8 @@ TEST(ObservabilityArtifactsTest, AlertRulesReferenceExposedMetrics) {
          it != std::sregex_iterator{}; ++it) {
         alerts.insert((*it)[1].str());
     }
-    ASSERT_EQ(alerts.size(), 8U)
-        << "expected 6 v1 + 2 Scene alerts, got " << alerts.size();
+    ASSERT_EQ(alerts.size(), 10U)
+        << "expected 6 v1 + 4 Scene alerts, got " << alerts.size();
     assert_refs_known(extract_exprs(rules), "rules/realmmesh.yaml");
 }
 
