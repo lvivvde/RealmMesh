@@ -159,8 +159,8 @@ MongoDB 的 `scene_instances`、`scene_shards` 是实例接纳/分片承载事�
 
 输出逐行 JSON，含 phase、draining、operation_id、active_members、prepared_members 与
 owned_shards。`--drain` 退出 0 只代表 COMPLETE；退出 2 是失败或客户端等待结束但未完成，
-此时查看 JSON phase，实例仍保持 draining。`--status` 退出 0 代表查询成功，仍需看 phase；
-认证、配置或传输错误退出 1。
+此时查看 JSON phase，实例仍保持 draining。`--status` 查询到 FAILED 时也退出 2；
+其余查询成功退出 0，仍需查看 phase 判断是否完成。认证、配置或传输错误退出 1。
 
 尝试标识默认使用实例 id。同一标识重复调用不会延长服务端截止或重复迁出；RUNNING 期间
 不同标识也合并到原尝试。FAILED 后修复目标容量/连接，再以新的 `--operation-id` 重试；
