@@ -1331,11 +1331,17 @@ TEST_F(
     const auto old = store.scene_state({second_account_id, 1, cb});
     ASSERT_TRUE(old && old->owner);
     // 257 是参考客户端 256 条通知边界的最小越界规模，两平台保持相同语义。
+    auto next_heartbeat = client::Clock::now() + 1s;
     for (std::uint64_t i = 1; i <= 257; ++i) {
         const auto x = static_cast<std::int32_t>(i % 2 == 1 ? 10 : 20);
         const auto moved = a->scene()->move_in_scene(i + 1, x, 0, soon());
         ASSERT_TRUE(moved.ok()) << "move " << i << ": " << moved.error_code;
         while (a->scene()->poll_scene(client::Clock::now() + 1ms)) {
+        }
+        // CI 单次持久移动更慢；按时间保活，不能依赖累计次数赶在空闲截止前。
+        if (client::Clock::now() >= next_heartbeat) {
+            ASSERT_TRUE(healthy->heartbeat(soon()));
+            next_heartbeat = client::Clock::now() + 1s;
         }
         if (i % 64 == 0) {
             const auto step = i / 64;
