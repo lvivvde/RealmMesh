@@ -9,10 +9,18 @@ namespace internal = ::realmmesh::protocol::scene_internal::v1;
 namespace wire = ::realmmesh::protocol::scene::v1;
 
 SceneShard::SceneShard(
-    std::string instance_id, std::string incarnation, std::uint64_t shard_id)
+    std::string instance_id,
+    std::string incarnation,
+    std::uint64_t shard_id,
+    std::uint64_t shard_version)
     : instance_id_(std::move(instance_id)),
       incarnation_(std::move(incarnation)),
-      shard_id_(shard_id) {}
+      shard_id_(shard_id),
+      shard_version_(shard_version),
+      event_incarnation_(
+          incarnation_ + (shard_version == 0
+                              ? std::string{}
+                              : ":" + std::to_string(shard_version))) {}
 
 bool SceneShard::same_binding(
     const Member& member,
@@ -27,7 +35,7 @@ bool SceneShard::same_binding(
 wire::Snapshot SceneShard::snapshot() const {
     wire::Snapshot result;
     result.set_shard_id(shard_id_);
-    result.set_shard_incarnation(incarnation_);
+    result.set_shard_incarnation(event_incarnation_);
     result.set_event_seq(event_seq_);
     for (const auto& [id, member] : active_) {
         auto* value = result.add_members();
@@ -41,7 +49,7 @@ wire::Snapshot SceneShard::snapshot() const {
 void SceneShard::emit(common::SceneEvent::Kind kind, const Member& member) {
     common::SceneEvent event;
     event.set_shard_id(shard_id_);
-    event.set_shard_incarnation(incarnation_);
+    event.set_shard_incarnation(event_incarnation_);
     event.set_event_seq(++event_seq_);
     event.set_kind(kind);
     auto* value = event.mutable_member();
@@ -69,7 +77,8 @@ common::SceneReply SceneShard::handle(
         (!bootstrap && request.scene_incarnation() != incarnation_))
         return reply;
     if (request.operation() == internal::OPERATION_SNAPSHOT) {
-        if (request.shard_id() != shard_id_) {
+        if (request.shard_id() != shard_id_ ||
+            request.shard_version() != shard_version_) {
             reply.set_status(internal::STATUS_NOT_FOUND);
             return reply;
         }
@@ -85,7 +94,8 @@ common::SceneReply SceneShard::handle(
         return reply;
     }
     if (request.route().realm_id() != 1 ||
-        request.route().shard_id() != shard_id_) {
+        request.route().shard_id() != shard_id_ ||
+        request.route().shard_version() != shard_version_) {
         reply.set_status(internal::STATUS_NOT_FOUND);
         return reply;
     }

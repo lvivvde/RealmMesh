@@ -54,6 +54,20 @@ std::optional<network::TransportEndpoint> ServiceResolver::endpoint(
     return std::nullopt;
 }
 
+std::optional<std::map<std::string, network::TransportEndpoint>>
+ServiceResolver::endpoints() const {
+    const std::scoped_lock lock(mutex_);
+    if (!registry_.watch_ready(watch_id_)) return std::nullopt;
+    std::map<std::string, network::TransportEndpoint> values;
+    for (const auto& [id, instance] : instances_)
+        for (const auto& endpoint : instance.endpoints)
+            if (endpoint.protocol == protocol_) {
+                values.emplace(id, endpoint);
+                break;
+            }
+    return values;
+}
+
 void ServiceResolver::apply(const ServiceEvent& event) {
     const std::scoped_lock lock(mutex_);
     if (event.kind == ServiceEventKind::Added) {

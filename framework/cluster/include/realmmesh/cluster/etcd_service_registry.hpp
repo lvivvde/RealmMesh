@@ -59,6 +59,7 @@ public:
     [[nodiscard]] WatchId watch(
         const ServiceType& type, ServiceEventHandler handler) override;
     [[nodiscard]] bool cancel_watch(WatchId watch_id) override;
+    [[nodiscard]] bool watch_ready(WatchId watch_id) const override;
 
     void poll_once();
     [[nodiscard]] std::string last_error() const;

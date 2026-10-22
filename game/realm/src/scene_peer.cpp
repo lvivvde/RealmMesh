@@ -12,7 +12,8 @@ Peer::Peer(
     : target(std::move(destination)),
       tls_(std::move(tls)),
       realm_incarnation_(std::move(realm_incarnation)),
-      pushes_(pushes) {}
+      pushes_(pushes),
+      available_(!tls_.dynamic) {}
 Peer::~Peer() {
     if (thread_.joinable()) {
         thread_.request_stop();
@@ -25,7 +26,10 @@ std::string Peer::incarnation() const {
 }
 void Peer::endpoint(std::optional<network::TransportEndpoint> value) {
     const std::scoped_lock lock(mutex_);
+    const bool changed = endpoint_ != value;
     endpoint_ = std::move(value);
+    available_ = endpoint_.has_value() || !tls_.dynamic;
+    if (tls_.dynamic && changed) ++endpoint_revision_;
 }
 std::future<common::SceneReply> Peer::exchange(
     common::SceneRequest request, Clock::time_point deadline) {
@@ -128,6 +132,8 @@ common::SceneReply Peer::roundtrip(
 void Peer::connect(Clock::time_point deadline) {
     if (stream_) return;
     if (!tls_.enabled) throw Failure{common::scene_error_unavailable};
+    if (tls_.dynamic && !available_)
+        throw Failure{common::scene_error_unavailable};
     auto host = target.host;
     auto port = target.port;
     {
@@ -150,13 +156,17 @@ void Peer::connect(Clock::time_point deadline) {
         throw Failure{common::scene_error_unavailable};
     stream_ = dial.stream;
     common::SceneRequest probe;
-    probe.set_operation(internal::OPERATION_SNAPSHOT);
+    probe.set_operation(
+        tls_.dynamic ? internal::OPERATION_STATUS
+                     : internal::OPERATION_SNAPSHOT);
     probe.set_realm_incarnation(realm_incarnation_);
     probe.set_scene_instance_id(target.instance_id);
     probe.set_scene_incarnation("discover");
-    probe.set_shard_id(target.shard_id);
+    if (!tls_.dynamic) probe.set_shard_id(target.shard_id);
     try {
         const auto reply = roundtrip(std::move(probe), deadline);
+        if (tls_.dynamic && (!reply.dynamic() || !reply.business_ready()))
+            throw Failure{common::scene_error_unavailable};
         const std::scoped_lock lock(mutex_);
         incarnation_ = reply.scene_incarnation();
     } catch (...) {
@@ -166,6 +176,11 @@ void Peer::connect(Clock::time_point deadline) {
 }
 void Peer::run(std::stop_token stop) {
     while (!stop.stop_requested()) {
+        if (tls_.dynamic &&
+            applied_endpoint_revision_ != endpoint_revision_.load()) {
+            applied_endpoint_revision_ = endpoint_revision_.load();
+            disconnect();
+        }
         if (auto call = calls_.try_pop()) {
             try {
                 if (Clock::now() >= call->deadline)

@@ -1,6 +1,6 @@
 -- 在自己的 main.config 加入 scene 后独立运行 --service scene。服务 CA 与公网接入证书分离。
 return {
-    scene = { shard_id = 1 },
+    scene = { shard_id = 1, dynamic = false },
     logging = { service_name = "scene", metrics_listen_address = "127.0.0.1", metrics_port = 9106 },
     service_discovery = {
         instance_id = "scene-dev-01", node_id = "development-node", zone = "development",

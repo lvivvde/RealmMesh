@@ -16,6 +16,7 @@ return {
         -- 可选 Scene 玩法:提供独立服务 CA/身份后启用;缺少 Scene 不影响训练。
         scene = {
             enabled = false,
+            dynamic = false,
             host = "127.0.0.1", port = 7200,
             instance_id = "scene-dev-01", server_identity = "scene-dev-01.scene.service",
             ca_file_environment = "REALMMESH_SERVICE_CA_FILE",

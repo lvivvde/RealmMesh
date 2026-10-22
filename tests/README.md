@@ -126,7 +126,7 @@ Native 夹具按实际编译输入（两个源码、普通头与存在时的生�
 缓存；冷/热及生成头重建另外断言两个编译请求的 direct hit。[#119 后续评估](../docs/research/build-fixture-waits-119.md)
 记录局部收益与完整入口门槛的区别。
 
-## Scene S1–S3 验收
+## Scene S1–S4 验收
 
 `./scripts/run-scene-acceptance.sh --preset NAME --jobs N` 先构建再执行单分片状态机、
 mTLS、Realm 工作线程/双实例隔离边界和真实多进程旅程。新增 `scene_shard_test` 为 unit；
@@ -143,3 +143,15 @@ S3 的 SceneTransferTest 注入准备/CAS/激活/移除响应丢失，验证旧�
 
 RealmScenesTest 还覆盖数据库撤销持续失败、移除持续返回 BUSY 时的有界停机，及停机必须
 等待已发出的持久写结算。回归失败时夹具解除注入故障并回收线程，不让失败测试永久挂起。
+
+
+S4 的 SceneShardStoreTest 使用真实 MongoDB 事务覆盖承载并发 CAS、实例排空与首次分配
+竞态、旧承载写拒绝及稳定 shard_id 恢复。SceneDynamicJourneyTest 与
+SceneDynamicJoinJourneyTest 使用隔离 MongoDB、真实 etcd、生产 Realm/Scene A/B 与控制 CLI，
+核对动态加入、排空完成/满目标明确失败、幂等尝试和同片重建；同时查询真实 /metrics 核对进度、
+失败及承载计数。目标容量测试保留 16 个实际登录选角的角色，两平台同规模；四路私有
+WireLoginTransport/EnterRealmRedeemer 只并发准备登录，后续选角、进入、转场与全部断言仍逐个
+执行，避免无关的串行等待占满 macOS CI 测试预算。每个客户端独占其 Realm Session，结束时回收。
+
+Scene 控制子进程也有 RAII 退出/回收，日志随该旅程归档。统一入口增加上述三组必选项，漏组或
+跳过均不能形成通过报告；它依然只证明本机多进程 TLS/TCP，Linux 既有 QUIC 门禁单独保留。

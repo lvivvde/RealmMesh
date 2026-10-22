@@ -59,6 +59,10 @@ RealmConfig parse_realm_config(const sol::table& root) {
             throw std::invalid_argument("realm.scene must be table");
         const auto options = scene.as<sol::table>();
         config.scene.enabled = options.get_or("enabled", false);
+        const auto dynamic = options.raw_get<sol::object>("dynamic");
+        if (dynamic != sol::lua_nil && !dynamic.is<bool>())
+            throw std::invalid_argument("realm.scene.dynamic must be boolean");
+        config.scene.dynamic = options.get_or("dynamic", false);
         if (config.scene.enabled) {
             const auto text = [&](const char* field, std::string fallback) {
                 const auto value = options.get_or(field, std::move(fallback));

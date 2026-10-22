@@ -8,7 +8,8 @@ namespace internal = ::realmmesh::protocol::scene_internal::v1;
 bool valid_route(const internal::Route& route) {
     return route.realm_id() != 0 && route.character_id() != 0 &&
            detail::scene_counter(route.binding_epoch()) &&
-           route.session_binding() != 0 && route.shard_id() != 0;
+           route.session_binding() != 0 && route.shard_id() != 0 &&
+           route.shard_version() <= scene_counter_max;
 }
 template <typename Message>
 bool valid_identity(const Message& message) {
@@ -18,21 +19,34 @@ bool valid_identity(const Message& message) {
 }
 bool valid_operation(internal::Operation op) {
     return op >= internal::OPERATION_PREPARE &&
-           op <= internal::OPERATION_SET_DRAINING;
+           op <= internal::OPERATION_STATUS;
 }
 bool valid(const SceneRequest& m, std::uint64_t id) {
     if (id == 0 || !valid_identity(m) || !valid_operation(m.operation()))
         return false;
-    if (m.operation() == internal::OPERATION_SET_DRAINING) {
+    if (m.shard_version() > scene_counter_max) return false;
+    if (m.operation() == internal::OPERATION_SET_DRAINING ||
+        m.operation() == internal::OPERATION_STATUS) {
+        if (m.operation() == internal::OPERATION_STATUS &&
+            (m.draining() || !m.drain_id().empty() ||
+             m.drain_timeout_ms() != 0))
+            return false;
+        if ((!m.drain_id().empty() &&
+             !detail::scene_identity_text(m.drain_id())) ||
+            m.drain_timeout_ms() > 60000)
+            return false;
         return !m.has_route() && !m.has_location() && m.scene_seq() == 0 &&
-               m.shard_id() == 0 && m.command_digest().empty();
+               m.shard_id() == 0 && m.shard_version() == 0 &&
+               m.command_digest().empty();
     }
-    if (m.draining()) return false;
+    if (m.draining() || !m.drain_id().empty() || m.drain_timeout_ms() != 0)
+        return false;
     if (m.operation() == internal::OPERATION_SNAPSHOT) {
         return m.shard_id() != 0 && !m.has_route() && !m.has_location() &&
                m.scene_seq() == 0 && m.command_digest().empty();
     }
-    if (m.shard_id() != 0 || !m.has_route() || !valid_route(m.route()))
+    if (m.shard_id() != 0 || m.shard_version() != 0 || !m.has_route() ||
+        !valid_route(m.route()))
         return false;
     if (m.operation() == internal::OPERATION_REMOVE) {
         return m.scene_seq() == 0 && m.command_digest().empty() &&
@@ -53,12 +67,54 @@ bool valid(const SceneReply& m, std::uint64_t id) {
     // 拒绝回复不携带快照、候选位置或不完整路由；关联 ID 和操作足够定位原请求。
     if (m.status() != internal::STATUS_OK)
         return !m.has_route() && !m.has_location() && !m.has_snapshot() &&
-               m.scene_seq() == 0 && m.active_members() == 0 && !m.draining();
-    if (m.operation() == internal::OPERATION_SET_DRAINING) {
+               m.scene_seq() == 0 && m.active_members() == 0 && !m.draining() &&
+               m.prepared_members() == 0 && !m.dynamic() &&
+               !m.business_ready() &&
+               m.drain_phase() == internal::DRAIN_PHASE_UNSPECIFIED &&
+               m.drain_id().empty() && m.shards_size() == 0;
+    if (m.operation() == internal::OPERATION_SET_DRAINING ||
+        m.operation() == internal::OPERATION_STATUS) {
+        if (m.active_members() > 32 || m.prepared_members() > 32 ||
+            m.shards_size() > 2 ||
+            m.drain_phase() < internal::DRAIN_PHASE_UNSPECIFIED ||
+            m.drain_phase() > internal::DRAIN_PHASE_FAILED ||
+            (!m.drain_id().empty() &&
+             !detail::scene_identity_text(m.drain_id())))
+            return false;
+        std::unordered_set<std::uint64_t> shards;
+        std::uint32_t active = 0, prepared = 0;
+        for (const auto& shard : m.shards())
+            if (shard.realm_id() == 0 || shard.shard_id() == 0 ||
+                !detail::scene_counter(shard.version()) ||
+                shard.active_members() > 16 || shard.prepared_members() > 16 ||
+                !shards.insert(shard.shard_id()).second)
+                return false;
+            else {
+                active += shard.active_members();
+                prepared += shard.prepared_members();
+            }
+        if (m.dynamic()) {
+            if (m.drain_phase() == internal::DRAIN_PHASE_UNSPECIFIED ||
+                active != m.active_members() ||
+                prepared != m.prepared_members() ||
+                (m.drain_phase() == internal::DRAIN_PHASE_IDLE &&
+                 m.draining()) ||
+                (m.drain_phase() != internal::DRAIN_PHASE_IDLE &&
+                 !m.draining()))
+                return false;
+            if (m.drain_phase() == internal::DRAIN_PHASE_COMPLETE &&
+                (active != 0 || prepared != 0 || m.shards_size() != 0 ||
+                 m.business_ready()))
+                return false;
+        }
         return !m.has_route() && !m.has_location() && !m.has_snapshot() &&
                m.scene_seq() == 0;
     }
-    if (m.draining() || m.active_members() != 0) return false;
+    if (m.draining() || m.active_members() != 0 || m.prepared_members() != 0 ||
+        m.dynamic() || m.business_ready() ||
+        m.drain_phase() != internal::DRAIN_PHASE_UNSPECIFIED ||
+        !m.drain_id().empty() || m.shards_size() != 0)
+        return false;
     if (m.operation() == internal::OPERATION_SNAPSHOT) {
         return !m.has_route() && !m.has_location() && m.scene_seq() == 0 &&
                m.has_snapshot() && detail::valid_scene_snapshot(m.snapshot());

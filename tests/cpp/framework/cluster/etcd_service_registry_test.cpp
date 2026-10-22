@@ -1,4 +1,5 @@
 #include "realmmesh/cluster/etcd_service_registry.hpp"
+#include "realmmesh/cluster/service_resolver.hpp"
 
 #include <gtest/gtest.h>
 #include <nlohmann/json.hpp>
@@ -296,6 +297,61 @@ TEST(EtcdServiceRegistryTest, PublishesSnapshotChangesToWatchers) {
         events[1],
         (ServiceEvent{ServiceEventKind::Removed, gateway_instance()}));
     EXPECT_TRUE(registry.cancel_watch(watch));
+    EXPECT_TRUE(http->complete());
+}
+
+TEST(
+    EtcdServiceRegistryTest,
+    ResolverSeparatesUnknownEmptyAndCompleteSnapshots) {
+    using Step = ScriptedEtcdHttpClient::Step;
+    const auto populated =
+        Json({{"kvs", Json::array({{{"value", encoded_gateway_value()}}})}})
+            .dump();
+    auto http = std::make_shared<ScriptedEtcdHttpClient>(std::vector<Step>{
+        {"/v3/kv/range", std::nullopt, "unavailable"},
+        {"/v3/kv/range", R"({"kvs":[]})", {}},
+        {"/v3/kv/range", populated, {}},
+    });
+    EtcdServiceRegistry registry(test_options(), http);
+    ServiceResolver resolver(
+        registry, "gateway", network::TransportProtocol::TlsTcp);
+    EXPECT_FALSE(resolver.endpoints());
+    registry.poll_once();
+    const auto empty = resolver.endpoints();
+    ASSERT_TRUE(empty);
+    EXPECT_TRUE(empty->empty());
+    registry.poll_once();
+    const auto endpoints = resolver.endpoints();
+    ASSERT_TRUE(endpoints);
+    ASSERT_EQ(endpoints->size(), 1);
+    EXPECT_EQ(endpoints->at("gateway-01"), gateway_instance().endpoints[1]);
+    EXPECT_TRUE(http->complete());
+}
+TEST(EtcdServiceRegistryTest, WatchIsNotReadyWhilePublishingChanges) {
+    using Step = ScriptedEtcdHttpClient::Step;
+    const auto populated =
+        Json({{"kvs", Json::array({{{"value", encoded_gateway_value()}}})}})
+            .dump();
+    auto http = std::make_shared<ScriptedEtcdHttpClient>(std::vector<Step>{
+        {"/v3/kv/range", R"({"kvs":[]})", {}},
+        {"/v3/kv/range", populated, {}},
+        {"/v3/kv/range", R"({"kvs":[]})", {}},
+    });
+    EtcdServiceRegistry registry(test_options(), http);
+    WatchId watch = invalid_watch_id;
+    int delivered = 0;
+    watch = registry.watch("gateway", [&](const ServiceEvent&) {
+        EXPECT_FALSE(registry.watch_ready(watch));
+        ++delivered;
+    });
+    EXPECT_TRUE(registry.watch_ready(watch));
+    registry.poll_once();
+    EXPECT_TRUE(registry.watch_ready(watch));
+    registry.poll_once();
+    EXPECT_EQ(delivered, 2);
+    EXPECT_TRUE(registry.watch_ready(watch));
+    EXPECT_TRUE(registry.cancel_watch(watch));
+    EXPECT_FALSE(registry.watch_ready(watch));
     EXPECT_TRUE(http->complete());
 }
 

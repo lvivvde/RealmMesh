@@ -1,4 +1,4 @@
-add_library(realm_game_scene src/scene_shard.cpp src/scene_module.cpp)
+add_library(realm_game_scene src/scene_shard.cpp src/scene_module.cpp src/scene_dynamic.cpp)
 add_library(RealmMesh::SceneService ALIAS realm_game_scene)
 target_include_directories(realm_game_scene PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>

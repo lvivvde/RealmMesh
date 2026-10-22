@@ -184,11 +184,11 @@ Login Verifier 的 HTTPS 错误体为 `{code, message, retry_after_seconds?}`：
 证书链/主机名、ALPN、业务鉴权和协议版本错误属于终止错误。当前规则只覆盖初次
 建连；已建立 QUIC 连接断开后需重新走候选选择和鉴权。
 
-## Scene 线契约（S1–S3）
+## Scene 线契约（S1–S4）
 
 1501–1508 已定义于 `scene/v1/scene.proto`，共用 Envelope v1，编解码在
 `game/common/scene_protocol`；S2 已在 Realm 接线进入、移动与查询，选角前回 3003。
-S3 已接线 1507 转场，目标必须在服务端允许列表（当前静态分片 1/2），不能转向当前分片。请求/响应的 `request_id` 必须非零，1506/1508 推送必须为 0。
+S3 已接线 1507 转场，目标必须在服务端允许列表（当前允许分片 1/2，动态模式下承载者可变），不能转向当前分片。请求/响应的 `request_id` 必须非零，1506/1508 推送必须为 0。
 
 `EnterScene{scene_seq}` 不传账号或目标；`MoveInScene{scene_seq,x,y}` 为绝对整数坐标，
 范围 0..10000；`TransferScene{scene_seq,target_shard_id}` 只能指定非零目标分片。
@@ -225,7 +225,7 @@ Realm 的服务端身份均由服务配置指定；框架不认识游戏服务�
 1603 `ScenePush`，由 `scene_internal_protocol` 编解码。两组消息不会互相认领。
 所有内部消息带 `realm_incarnation`、`scene_instance_id`、`scene_incarnation`（各为
 1..128 个非空白可打印 ASCII 字节），用于认证后再核对进程代次；字段不能替代 TLS 身份。
-Route 含非零 realm_id、character_id、binding_epoch、session_binding 与 shard_id。
+Route 含非零 realm_id、character_id、binding_epoch、session_binding 与 shard_id；动态模式额外要求非零 shard_version，0 只兼容静态模式。
 
 | operation | 请求必需内容 | STATUS_OK 回复必需内容 |
 |---|---|---|
@@ -233,15 +233,24 @@ Route 含非零 realm_id、character_id、binding_epoch、session_binding 与 sh
 | 2 PROPOSE_MOVE | Route、scene_seq、command_digest、location | Route、scene_seq、合法候选 location |
 | 3 CONFIRM | Route、scene_seq、command_digest、已持久 location | Route、scene_seq、location（已应用） |
 | 4 ACTIVATE | Route、scene_seq、command_digest，不带 location | Route、scene_seq、原子快照 |
-| 5 SNAPSHOT | shard_id，无 Route/序号/摘要 | 快照，无 Route/序号 |
+| 5 SNAPSHOT | shard_id，动态模式另带 shard_version；无 Route/序号/摘要 | 快照，无 Route/序号 |
 | 6 REMOVE | Route，无序号/摘要/location | Route，无序号 |
-| 7 SET_DRAINING | draining 布尔值，无角色字段 | draining 与 active_members |
+| 7 SET_DRAINING | 动态模式 draining=true、drain_id、drain_timeout_ms，无角色字段 | draining、active/prepared_members、drain_phase、drain_id、shards |
+| 8 STATUS | 无角色、分片、序号、排空参数 | dynamic、business_ready、draining、drain_phase、drain_id、shards 与成员总数 |
 
 成功值为 1 OK；拒绝值为 2 INVALID、3 STALE_BINDING、4 BUSY、5 DRAINING、
 6 NOT_FOUND、7 UNAVAILABLE。拒绝回复只回身份、操作和关联 ID，不夹带半份候选或快照。
 请求/回复关联 ID 非零，1603 推送 ID 为 0、携带完整 `SceneEvent`。角色操作的 location、
 快照 shard_id 必须与 Route 一致。字节摘要是规范业务参数 SHA-256；数据库使用等价的
 64 字符 hex 表示，摘要不含 request_id、序号或传输身份，重放还要核对序号与原结果。
+
+动态 `STATUS{scene_incarnation="discover"}` 只作认证后的业务就绪/进程探测，不授予分片。
+`ShardStatus` 含 realm_id、shard_id、承载 version、active_members 与 prepared_members，
+至多两个不同分片，单片各至多 16 人；回复聚合成员数必须与分片之和相同。`DrainPhase` 为
+IDLE、RUNNING、COMPLETE 或 FAILED；COMPLETE 必须零成员、零准备、零承载且业务停用。
+`drain_id` 为 1..128 非空白可打印 ASCII 字节，单次截止为 100..60000 毫秒；相同标识重复调用
+不延长截止、不中断存量移动，失败后以新标识继续尝试。管理通道沿用 Realm 服务身份的 mTLS
+允许列表，公网票据或其他服务证书不能调用；状态字段不是角色授权凭据。
 
 ### 已实现的持久边界
 
@@ -253,7 +262,7 @@ Route 含非零 realm_id、character_id、binding_epoch、session_binding 与 sh
 确认落点及最后序号。绑定与场景序号不允许 INT64_MAX 回绕；域 id 仍保留完整 uint64。
 
 提交的过滤条件包括当前版本、完整旧 owner 与前一场景序号；owner 包含 Realm incarnation、
-会话绑定、Scene 实例与 incarnation。进入不能改变既有落点，移动不能改承载者或分片，
+会话绑定、Scene 实例与 incarnation，动态模式还包含 shard_version。进入不能改变既有落点，移动不能改承载者或分片，
 转场不能换 Realm 会话；合法移动判定由 SceneShard 负责，单步曼哈顿距离上限 100。
 相同序号只有业务参数、结果位置、结果版本与结果 owner 全部相同才回放，不重复写。
 已发出的写若驱动或结果解析失败，抛 `SceneWriteUncertain`；调用方不得宣称未生效。
@@ -301,3 +310,19 @@ GetSceneState 不推进序号，返回最后持久结果；重登或同名 Scene
 同序号重试只回放已存结果，不复活旧 incarnation/旧会话的成员；需要重新进入时以最后序号
 加一 EnterScene 取得新 binding_epoch，落点保持。恢复前后的旧条件写必须失败。
 跨分片切换后丢弃源实例事件；旧 LEAVE 只可移除观察者快照中同版本的旧成员，不能移除新成员。
+
+
+S4 动态承载使用 `SceneShardStore`：`scene_shards` 按 `(realm_id,shard_id)` 唯一，保存承载者
+instance_id/incarnation、version 与 draining；释放保留记录并增加版本，不删除或复用编号。
+`scene_instances` 的接纳状态与分配、排空互相栅栏。新承载/释放增加版本，draining 标记不
+改变版本；新进入/转场提交要求目标未排空，存量移动仍可提交。角色条件写与分片承载栅栏在
+同一 majority/journal 事务内完成，旧承载或旧 incarnation 不能推进角色落点。
+
+动态快照与事件的 `shard_incarnation` 为进程 incarnation 和承载版本的组合，外层
+`scene_incarnation` 仍是进程身份。故障重建保持 shard_id 和数据库落点，客户端显式以
+下一 EnterScene 取得新角色版本。Scene 同时承载两片时，Realm 额外按 shard_id 过滤推送。
+
+排空产生的服务端 Transfer 与客户端动作共享 scene_seq：先结算已到达指令，再以最后序号
+加一提交转场，结果同样可查询和回放。成功后 1508 通知客户端读取 SceneState，取得新序号
+及目标快照继续；它不表示已确认落点丢失，查询可能已是 ACTIVE。若在序号竞争中收到 3103，
+先查询当前结果，不能自行跳号。未确定的持久写、目标激活和源移除没有结算前，不报告排空完成。

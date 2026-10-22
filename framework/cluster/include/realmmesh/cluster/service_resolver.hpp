@@ -24,6 +24,11 @@ public:
     [[nodiscard]] std::optional<network::TransportEndpoint> endpoint() const;
     [[nodiscard]] std::optional<network::TransportEndpoint> endpoint(
         std::string_view instance_id) const;
+    /// 一次完整发现快照的端点集合；初始化失败/差分发布中为 nullopt，
+    /// 不能把未知当成权威空列表。仅拷贝已交付缓存，不执行网络 IO。
+    [[nodiscard]] std::optional<
+        std::map<std::string, network::TransportEndpoint>>
+    endpoints() const;
 
 private:
     void apply(const ServiceEvent& event);

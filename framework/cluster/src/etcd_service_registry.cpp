@@ -471,6 +471,9 @@ public:
             for (const auto& instance : *initial) {
                 handler({ServiceEventKind::Added, instance});
             }
+            const std::scoped_lock lock(mutex_);
+            const auto found = watches_.find(id);
+            if (found != watches_.end()) found->second.published = true;
         }
         wakeup_.notify_all();
         return id;
@@ -479,6 +482,11 @@ public:
     bool cancel_watch(WatchId watch_id) {
         const std::scoped_lock lock(mutex_);
         return watches_.erase(watch_id) == 1U;
+    }
+    bool watch_ready(WatchId id) const {
+        const std::scoped_lock lock(mutex_);
+        const auto found = watches_.find(id);
+        return found != watches_.end() && found->second.published;
     }
 
     void poll_once() {
@@ -514,6 +522,7 @@ public:
                 const auto found = watches_.find(id);
                 if (found == watches_.end()) continue;
                 handler = found->second.handler;
+                found->second.published = false;
                 if (found->second.initialized) {
                     for (const auto& [instance_id, instance] :
                          found->second.instances) {
@@ -538,6 +547,11 @@ public:
                 found->second.initialized = true;
             }
             for (const auto& event : events) handler(event);
+            {
+                const std::scoped_lock lock(mutex_);
+                const auto found = watches_.find(id);
+                if (found != watches_.end()) found->second.published = true;
+            }
         }
     }
 
@@ -563,6 +577,7 @@ private:
         ServiceEventHandler handler;
         std::map<std::string, ServiceInstance> instances;
         bool initialized;
+        bool published{false};
     };
 
     static std::chrono::seconds refresh_delay(std::chrono::seconds ttl) {
@@ -741,6 +756,9 @@ WatchId EtcdServiceRegistry::watch(
 
 bool EtcdServiceRegistry::cancel_watch(WatchId watch_id) {
     return impl_->cancel_watch(watch_id);
+}
+bool EtcdServiceRegistry::watch_ready(WatchId watch_id) const {
+    return impl_->watch_ready(watch_id);
 }
 
 void EtcdServiceRegistry::poll_once() { impl_->poll_once(); }
