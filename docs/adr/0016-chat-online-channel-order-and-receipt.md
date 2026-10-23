@@ -1,7 +1,7 @@
 # Chat 首版提供在线受理与单频道排序，回执不承诺持久送达
 
 ---
-status: proposed
+status: accepted
 ---
 
 阶段5承诺在线频道、消息顺序与故障反馈，历史和离线补投不在范围。Scene 已确认落点必须持久
@@ -20,4 +20,4 @@ Realm派生角色和成员资格，Chat只从已认证Realm链路受理，不让
 
 此决策不更改ADR-0011的权威玩家数据源或ADR-0015的场景持久语义；Gateway仍只登录
 （ADR-0005），服务之间仍不互相include/链接（ADR-0014）。详细失败边界与C1–C5见
-[Chat规格](../specs/2026-10-23-chat-reference-loop.md)。本ADR在规格提案评审中，尚未实现。
+[Chat规格](../specs/2026-10-23-chat-reference-loop.md)。规格PR #181已合并，本ADR已接受；C1仅落实线契约，运行时顺序和故障边界尚待C2–C5验证。

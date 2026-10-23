@@ -63,6 +63,15 @@ QUIC 在一个客户端发起的长期可靠双向流上承载该字节流；不
 | 1506 | S2C | `SceneEvent` |
 | 1507 | C2S | `TransferScene`（已接线） |
 | 1508 | S2C | `SceneUnavailable` |
+| 1701 | C2S | `GetChatState`（C1编解码，未接线） |
+| 1702 | S2C | `ChatState` |
+| 1703 | C2S | `SendChat`（C1编解码，未接线） |
+| 1704 | S2C | `ChatSendResult` |
+| 1705 | S2C | `ChatMessage`（通知） |
+| 1706 | S2C | `ChatUnavailable`（通知） |
+| 1801 | Realm→Chat | `ChatInternalRequest`（仅内部线，未监听） |
+| 1802 | Chat→Realm | `ChatInternalReply`（仅内部线，未监听） |
+| 1803 | Chat→Realm | `ChatInternalPush`（仅内部线，未监听） |
 | 1999 | S2C | `EdgeError` |
 
 1101–1305 定义在 `edge/v1/edge.proto`，1401–1409 定义在 `realm/v1/realm.proto`；两者共用
@@ -338,15 +347,96 @@ MongoDB 在 initialize_scene 读取/初始化阶段不可用时返回 3104；发
 避免背压期间改变重试参数导致 bad write retry。
 
 
-## Chat 线契约提案（阶段5，未实现）
+## Chat 线契约（C1：编解码已实现，服务尚未接线）
 
-[Chat规格](specs/2026-10-23-chat-reference-loop.md)定义GetChatState、SendChat、ChatMessage及
-ChatUnavailable的语义目标，目前不添加消息号、错误码或proto枚举；权威消息表仍只列已实现编号。
-C1加入实际编解码时再统一登记，避免规划编号被误当作可用wire。
+`chat/v1/chat.proto` 定义 1701–1706 客户端消息与 1801–1803 内部消息；两组的编号白名单
+独立，均沿用 Envelope v1。`game/common/chat_protocol` 提供严格双向编解码，非法对象编码
+抛 `std::invalid_argument`，非法输入解码返回空值。所有 Envelope **含头**至多 65536 字节；
+请求/响应 request_id 非零，通知为零。未知字段按 protobuf 演进规则保留，未知枚举拒绝。
+C1没有服务身份、监听或 Realm/客户端调用；下述运行时义务由 C2–C5 实现和验证。
 
-提案复用客户端现有Realm连接、Envelope v1与realmmesh-edge/1。频道是Scene Shard范围或本Realm
-范围；Realm从已选角色派生资格，客户端不能指定可信发送者或服务实例。频道按Epoch/seq排序，
-加入W水位衔接后续消息；Chat Receipt表示在线受理，派发后超时属于Unknown，同号重试不得重复分发。
-Chat重启或资格结束后不承诺恢复回执或补投消息，缺口/轮次变化必须明确反馈。Scene转场只异步
-更换Scene Channel资格，Realm Channel保持；现有Scene/训练持久确认语义不变。
-Realm–Chat的专用mTLS/TLS与realmmesh-chat/1也只是实施计划，不代表当前已有监听或配置。
+### 值与客户端消息
+
+- `Channel{realm_id,kind,shard_id}`：realm_id非零；kind为1 SCENE或2 REALM。
+  SCENE只允许shard_id=1/2，REALM必须为0；客户端只用kind选择当前服务端派生频道。
+- `Epoch{channel,chat_incarnation}`：轮次包含完整频道；incarnation为1..128个非空白可打印
+  ASCII字节。不同轮次/频道序号不比较，空频道仍不能复用同轮次的序号。
+- `Membership{channel,character_id,realm_incarnation,session_binding,generation,scene_binding_epoch}`：
+  角色和会话非零，Realm incarnation同上。Scene资格必须有场景绑定版本，Realm资格必须为0。
+  generation在每条活动Realm–Chat链路上跨角色/频道严格递增，不能按资格各自重用。
+- generation、link_generation、scene_binding_epoch及消息/发送计数取1..INT64_MAX，水位允许0，
+  耗尽拒绝且不回绕；角色/会话ID仍支持完整非零uint64。
+- `Receipt{epoch,channel_seq,client_send_seq}`：只表示内存在线Accepted，不表示持久、送达或已读。
+
+| 消息 | 严格形状 |
+|---|---|
+| GetChatState | 仅kind；不接受可信发送者身份 |
+| ChatState | kind、phase、资格代次、Epoch、join_watermark W、last_client_send_seq及可选last_receipt |
+| SendChat | kind、资格代次、expected_epoch、client_send_seq和原始text；Epoch频道种类须与kind一致 |
+| ChatSendResult | kind、资格代次、Epoch、client_send_seq、outcome、reason、可选receipt和retry_after_ms |
+| ChatMessage | 接收者资格代次、Epoch、channel_seq、sender_character_id与text；发送者也收自己的推送 |
+| ChatUnavailable | kind、非零有限reason及rejoin_required；不表示场景或训练丢失 |
+
+phase为1 UNAVAILABLE或2 ACTIVE。UNAVAILABLE只带kind/reason，不夹带旧资格、轮次、水位或
+回执；ACTIVE必须带有效资格/Epoch，reason=NONE。last_client_send_seq=0时无回执，否则必须
+匹配回执的发送序号/Epoch，且回执channel_seq减原加入水位W不得小于last_client_send_seq。回执channel_seq也不得小于
+client_send_seq；校验用减法防溢出，初次JOIN可以W=0。
+重复活动JOIN必须回原Epoch/W和原发送回执；解码不会代替C2保存这些状态。
+
+text是1..512个UTF-8字节，拒绝过长/截断/孤立续字节/过长编码/代理码点/超出U+10FFFF、
+NUL和ASCII控制字符（含CR/LF/DEL）；保留原始正文，不归一化、不去首尾空格。proto用bytes，
+避免protobuf在非法UTF-8错误日志中打印正文。应用日志和指标也不得记录原始正文。
+
+outcome为1 ACCEPTED、2 REJECTED或3 UNKNOWN：
+
+- ACCEPTED必须有同Epoch、同client_send_seq的回执，reason=NONE，retry_after_ms=0。
+- REJECTED无回执且reason非零，不能用OUTCOME_LOST/GAP当作确定未受理。
+- UNKNOWN无回执，reason仅DEADLINE/OUTCOME_LOST/UNAVAILABLE，重试建议为0；不能自动换号重发。
+
+同资格每次新SEND必须last+1，至多一个在途；只保留最后受理的原始参数与回执。同号同参数
+返回原回执且不重发，同号冲突、过旧或跳号拒绝。STATE无记录不证明迟到请求不会受理；资格
+结束或重启后不承诺恢复旧回执。以上状态迁移、受理前资源预留及有界分发由C2实现，C1只校验形状。
+
+| reason编号 | 含义 |
+|---|---|
+| 0 | NONE |
+| 1–5 | NOT_CONFIGURED、UNAVAILABLE、NOT_MEMBER、STALE_MEMBERSHIP、WRONG_EPOCH |
+| 6–10 | INVALID_TEXT、RATE_LIMITED、BUSY、DEADLINE、OUTCOME_LOST |
+| 11–15 | INVALID_SEQUENCE、SEQUENCE_CONFLICT、GAP、RESOURCE_LIMIT、COUNTER_EXHAUSTED |
+
+REJECTED的RATE_LIMITED/BUSY/RESOURCE_LIMIT必须带1..1000ms建议，其他原因不带重试建议。
+DEADLINE可以表示派发前确定拒绝或派发后UNKNOWN，接收者必须按outcome判断，不能单看reason。
+EdgeError新增3201（Chat输入形状非法）与3202（尚未选角）；C3接线前不会发出这些业务错误。
+
+### Realm–Chat内部线
+
+内部规划独立TLS/TCP、`realmmesh-chat/1`、服务CA和精确DNS SAN允许列表；编解码不提供认证。
+`Link{realm_id,realm_instance_id,realm_incarnation,chat_instance_id,chat_incarnation,link_generation}`
+的身份字符串均为1..128个非空白可打印ASCII字节。HELLO请求只留chat_incarnation为空、
+link_generation=0，成功回复取得精确轮次与新链路代次；拒绝HELLO回显请求形状。其余消息必须
+携带完整活动链路。C2必须核对证书/允许实例/Realm并替换旧链路，不允许etcd或客户端票据授权。
+
+| operation | 请求必需内容 | STATUS_OK回复内容 |
+|---|---|---|
+| 1 HELLO | Link探测形状，无资格/SEND | 完整新Link，无资格/状态/发送结果 |
+| 2 JOIN | Link、完整Membership | 同Membership、ACTIVE ChatState（原Epoch/W/最后回执） |
+| 3 LEAVE | Link、完整旧Membership | 同旧Membership，无状态/结果 |
+| 4 SEND | Link、Membership、SendChat | 同Membership、ChatSendResult；OK不等于Accepted |
+| 5 STATE | Link、Membership | 同Membership、ACTIVE ChatState；无资格用失败状态 |
+
+status取1 OK、2 INVALID、3 STALE_LINK、4 STALE_MEMBERSHIP、5 FORBIDDEN、6 BUSY、
+7 UNAVAILABLE。非OK只回Link/operation/status，不夹带半份资格、状态或回执。内部通知1803带
+Link、接收者Membership与ChatMessage，ID=0。编解码要求资格Realm/Realm incarnation匹配Link、
+嵌套资格代次匹配、频道匹配且Epoch Chat incarnation匹配Link；它无法确认一个非零角色ID是否
+属于已认证会话，也不能确认配置承载者。C2/C3必须再核对活动连接、会话、当前场景绑定和权限。
+旧链路完成、旧LEAVE和旧JOIN不能影响新资格；LEAVE先到也要推进链路highest_seen_generation，
+活动资格的重复JOIN回原水位；具体有界状态机见[规格](specs/2026-10-23-chat-reference-loop.md)。
+
+### 资源边界
+
+轻量`chat_limits.hpp`固化规格中的三个频道、至多两个实例、64角色、每角色2资格、Scene16人/
+Realm64人、每资格一个在途、5条/秒/突发10条、内部64请求、每链路8排队、1秒总截止、
+1024待分发事件/4MiB、每客户端256通知/256KiB、16条传输连接、每轮64请求/64推送/每资格一个新
+SEND、每链路1MiB出站及最多64接收者。`ChatBudget`的纯预留检查同时校验计数和字节，以减法
+避免size_t溢出；不代替C2/C3的原子占用、释放、公平调度、计时器、全角色跨频道限流及实际背压。
+运行、排队、待撤销和未收结果的占用都必须计入。C1单测不证明真实网络、认证、幂等或故障隔离。

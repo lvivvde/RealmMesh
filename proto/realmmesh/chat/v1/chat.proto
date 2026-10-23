@@ -1,0 +1,165 @@
+syntax = "proto3";
+package realmmesh.protocol.chat.v1;
+option optimize_for = LITE_RUNTIME;
+
+// 两组消息共用值类型；客户端线和 realmmesh-chat/1 的编号白名单独立。
+enum MessageId {
+    MESSAGE_ID_UNSPECIFIED = 0;
+    MESSAGE_ID_GET_CHAT_STATE = 1701;
+    MESSAGE_ID_CHAT_STATE = 1702;
+    MESSAGE_ID_SEND_CHAT = 1703;
+    MESSAGE_ID_CHAT_SEND_RESULT = 1704;
+    MESSAGE_ID_CHAT_MESSAGE = 1705;
+    MESSAGE_ID_CHAT_UNAVAILABLE = 1706;
+    MESSAGE_ID_CHAT_INTERNAL_REQUEST = 1801;
+    MESSAGE_ID_CHAT_INTERNAL_REPLY = 1802;
+    MESSAGE_ID_CHAT_INTERNAL_PUSH = 1803;
+}
+enum ChannelKind {
+    CHANNEL_KIND_UNSPECIFIED = 0;
+    CHANNEL_KIND_SCENE = 1;
+    CHANNEL_KIND_REALM = 2;
+}
+message Channel {
+    uint32 realm_id = 1;
+    ChannelKind kind = 2;
+    uint64 shard_id = 3;
+}
+message Epoch {
+    Channel channel = 1;
+    string chat_incarnation = 2;
+}
+// 只由已认证 Realm 安装，不是可转交的客户端凭据。
+message Membership {
+    Channel channel = 1;
+    uint64 character_id = 2;
+    string realm_incarnation = 3;
+    uint64 session_binding = 4;
+    uint64 generation = 5;
+    uint64 scene_binding_epoch = 6;
+}
+message Receipt {
+    Epoch epoch = 1;
+    uint64 channel_seq = 2;
+    uint64 client_send_seq = 3;
+}
+enum Phase {
+    PHASE_UNSPECIFIED = 0;
+    PHASE_UNAVAILABLE = 1;
+    PHASE_ACTIVE = 2;
+}
+enum Outcome {
+    OUTCOME_UNSPECIFIED = 0;
+    OUTCOME_ACCEPTED = 1;
+    OUTCOME_REJECTED = 2;
+    OUTCOME_UNKNOWN = 3;
+}
+enum Reason {
+    REASON_NONE = 0;
+    REASON_NOT_CONFIGURED = 1;
+    REASON_UNAVAILABLE = 2;
+    REASON_NOT_MEMBER = 3;
+    REASON_STALE_MEMBERSHIP = 4;
+    REASON_WRONG_EPOCH = 5;
+    REASON_INVALID_TEXT = 6;
+    REASON_RATE_LIMITED = 7;
+    REASON_BUSY = 8;
+    REASON_DEADLINE = 9;
+    REASON_OUTCOME_LOST = 10;
+    REASON_INVALID_SEQUENCE = 11;
+    REASON_SEQUENCE_CONFLICT = 12;
+    REASON_GAP = 13;
+    REASON_RESOURCE_LIMIT = 14;
+    REASON_COUNTER_EXHAUSTED = 15;
+}
+// 客户端只选择频道种类；不传可信 realm/角色/shard/实例身份。
+message GetChatState { ChannelKind kind = 1; }
+message ChatState {
+    ChannelKind kind = 1;
+    Phase phase = 2;
+    uint64 membership_generation = 3;
+    Epoch epoch = 4;
+    uint64 join_watermark = 5;
+    uint64 last_client_send_seq = 6;
+    Receipt last_receipt = 7;
+    Reason reason = 8;
+}
+message SendChat {
+    ChannelKind kind = 1;
+    uint64 membership_generation = 2;
+    Epoch expected_epoch = 3;
+    uint64 client_send_seq = 4;
+    // bytes 避免 protobuf 在非法 UTF-8 的错误日志中输出正文；编解码显式校验。
+    bytes text = 5;
+}
+message ChatSendResult {
+    ChannelKind kind = 1;
+    uint64 membership_generation = 2;
+    Epoch epoch = 3;
+    uint64 client_send_seq = 4;
+    Outcome outcome = 5;
+    Reason reason = 6;
+    Receipt receipt = 7;
+    uint32 retry_after_ms = 8;
+}
+message ChatMessage {
+    uint64 membership_generation = 1;
+    Epoch epoch = 2;
+    uint64 channel_seq = 3;
+    uint64 sender_character_id = 4;
+    bytes text = 5;
+}
+message ChatUnavailable {
+    ChannelKind kind = 1;
+    Reason reason = 2;
+    bool rejoin_required = 3;
+}
+// HELLO 请求的 chat_incarnation 为空且 link_generation=0；成功回复安装新链路代次。
+message Link {
+    uint32 realm_id = 1;
+    string realm_instance_id = 2;
+    string realm_incarnation = 3;
+    string chat_instance_id = 4;
+    string chat_incarnation = 5;
+    uint64 link_generation = 6;
+}
+enum Operation {
+    OPERATION_UNSPECIFIED = 0;
+    OPERATION_HELLO = 1;
+    OPERATION_JOIN = 2;
+    OPERATION_LEAVE = 3;
+    OPERATION_SEND = 4;
+    OPERATION_STATE = 5;
+}
+enum Status {
+    STATUS_UNSPECIFIED = 0;
+    STATUS_OK = 1;
+    STATUS_INVALID = 2;
+    STATUS_STALE_LINK = 3;
+    STATUS_STALE_MEMBERSHIP = 4;
+    STATUS_FORBIDDEN = 5;
+    STATUS_BUSY = 6;
+    STATUS_UNAVAILABLE = 7;
+}
+message ChatInternalRequest {
+    Link link = 1;
+    Operation operation = 2;
+    Membership membership = 3;
+    // 只有 SEND 携带；成员及发送字段须匹配。
+    SendChat send = 4;
+}
+message ChatInternalReply {
+    Link link = 1;
+    Operation operation = 2;
+    Status status = 3;
+    Membership membership = 4;
+    // JOIN/STATE 成功：原资格的 Epoch/W/最后回执；JOIN 重试不得刷新 W。
+    ChatState state = 5;
+    // SEND 成功调用仍可返回 Rejected/Unknown，不能用 STATUS_OK 代替受理结论。
+    ChatSendResult result = 6;
+}
+message ChatInternalPush {
+    Link link = 1;
+    Membership membership = 2;
+    ChatMessage message = 3;
+}
