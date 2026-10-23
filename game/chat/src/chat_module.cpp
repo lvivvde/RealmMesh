@@ -39,6 +39,8 @@ public:
         transport_ = std::move(transports.front());
         endpoints_ = {transport_->local_endpoint()};
         metrics_.counter_set("chat_ingress_rejected_total", 0);
+        for (const auto outcome : {"accepted", "rejected", "unknown"})
+            metrics_.counter_set("chat_send_total", 0, {{"outcome", outcome}});
         publish();
     }
     void stop() override {
@@ -108,14 +110,13 @@ private:
         metrics_.histogram_observe("chat_operation_duration_seconds", seconds, {{"operation", operation}});
         if (reply.operation() == wire::OPERATION_SEND) {
             const std::string_view outcome = reply.has_result() && reply.result().outcome() == wire::OUTCOME_ACCEPTED ? "accepted" : "rejected";
+            metrics_.counter_add("chat_send_total", 1, {{"outcome", outcome}});
             metrics_.histogram_observe("chat_send_duration_seconds", seconds, {{"outcome", outcome}});
         }
     }
     void publish() {
         const auto& s = channels_->stats();
-        metrics_.counter_set("chat_send_total", static_cast<double>(s.accepted + s.replayed), {{"outcome", "accepted"}});
-        metrics_.counter_set("chat_send_total", static_cast<double>(s.rejected), {{"outcome", "rejected"}});
-        metrics_.counter_set("chat_send_total", 0, {{"outcome", "unknown"}});
+        metrics_.counter_set("chat_messages_accepted_total", static_cast<double>(s.accepted));
         metrics_.counter_set("chat_receipt_replays_total", static_cast<double>(s.replayed));
         metrics_.counter_set("chat_queue_rejected_total", static_cast<double>(s.queue_rejected));
         metrics_.counter_set("chat_deadline_expired_total", static_cast<double>(s.expired));

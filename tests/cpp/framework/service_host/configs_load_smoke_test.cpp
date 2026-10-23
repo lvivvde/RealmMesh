@@ -4,6 +4,7 @@
 #include "realmmesh/game/login_verify/login_verify_module.hpp"
 #include "realmmesh/game/queue/queue_module.hpp"
 #include "realmmesh/game/chat/chat_config.hpp"
+#include "realmmesh/test_support/temporary_directory.hpp"
 #include "realmmesh/game/realm/realm_module.hpp"
 #include "realmmesh/service_host/layered_config_loader.hpp"
 #include "realmmesh/service_host/startup_topology.hpp"
@@ -156,6 +157,26 @@ TEST_F(ConfigsLoadSmokeTest, EveryServiceConfigLoadsThroughLayeredLoader) {
         // 冒烟只关心生产加载路径不抛:宿主层节段由分层装载解析,服务专属
         // 节段经各自模块的装载入口解析;结果配置这里不展开。
         EXPECT_NO_THROW(load_service_sections(name)) << name;
+    }
+}
+
+TEST_F(ConfigsLoadSmokeTest, ChatConfigRejectsSparseDuplicateTypedAndOutOfRangeValues) {
+    test_support::TemporaryDirectory root("realmmesh-chat-config-");
+    std::filesystem::copy(configs_root(), root.path(), std::filesystem::copy_options::recursive);
+    const auto file = root.path() / "services/chat.lua";
+    const auto original = read_file(file);
+    const std::vector<std::pair<std::string, std::string>> invalid{
+        {"channels = { 0, 1, 2 }", "channels = {[1]=0, [3]=1}"},
+        {"channels = { 0, 1, 2 }", "channels = {1, 1}"},
+        {"channels = { 0, 1, 2 }", "channels = 'invalid'"},
+        {"realm_id = 1", "realm_id = -1"},
+        {"pending_requests = 64", "pending_requests = 65"},
+        {"operation_timeout_ms = 1000", "operation_timeout_ms = 1001"},
+        {"queued_per_link = 8", "queued_per_link = 'eight'"}};
+    for (const auto& [from, to] : invalid) {
+        auto contents = original; const auto at = contents.find(from); ASSERT_NE(at, std::string::npos);
+        contents.replace(at, from.size(), to); { std::ofstream out(file); out << contents; }
+        EXPECT_THROW(static_cast<void>(game::chat::load_chat_config(LayeredConfigLoader::load(root.path(), "chat"))), std::invalid_argument);
     }
 }
 

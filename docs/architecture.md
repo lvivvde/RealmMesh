@@ -349,7 +349,7 @@ DevServices 用例使用独立数据库；各测试回收自己的服务，守�
 `realm::cluster::ServiceType` 是开放字符串(ADR-0014 第 4 步),框架只用
 `is_valid_service_type` 校验字符集 `[a-z0-9_]`,不枚举具体服务;服务名即服务类型线名。
 已实现身份的权威列表是进程入口 `apps/mesh_host` 的 `game_service_modules()` 注册表,
-当前 5 个:
+当前6个:
 
 | 服务名(线名) | 模块 | 状态 |
 |---|---|---|
@@ -358,6 +358,7 @@ DevServices 用例使用独立数据库；各测试回收自己的服务，守�
 | `login_verify` | `game/login_verify` 的 `make_login_verify_module` | 已接线,HTTPS 服务边(端口见服务配置) |
 | `queue` | `game/queue` 的 `make_queue_module` | 已接线,HTTPS 服务边,排队调度(端口见服务配置) |
 | `scene` | `game/scene` 的 `make_scene_module` | 已接线,独立 mTLS 内部服务,静态或动态分片 |
+| `chat` | `game/chat` 的 `make_chat_module` | C2独立mTLS服务/频道排序者，Realm业务接线待C3 |
 
 旧 Login 链路(身份 `login`、端口 7000,以及登录票据与网关重入消息)已整体退役,
 线名 `login` 永不复用。
@@ -367,7 +368,7 @@ DevServices 用例使用独立数据库；各测试回收自己的服务，守�
 职责由单一 Gateway Login Pipeline 承载,`GatewayFrame` 只解析 Realm 端点、驱动管线并
 上报额度;Realm 的入场兑换在 `RealmFrame`,兑换后的业务消息转交 `RealmSessions`。
 `login_verify` 与 `queue` 是第二种服务形态:独立业务库,走 HTTPS 请求循环,
-不经 EdgeRuntime 管线。五个服务的 `ServiceModule` 都在各自服务目录内,
+不经 EdgeRuntime 管线。Chat直接拥有独立非阻塞TLS Transport。六个服务的 `ServiceModule` 都在各自服务目录内,
 `framework/service_host` 不链接任何 `game/*`。
 
 不预先登记未实现的服务身份:新服务进入实现时才在 `game_service_modules()` 注册模块

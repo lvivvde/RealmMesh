@@ -138,11 +138,17 @@ TEST_F(ChatServiceTest, ProductionModuleOrdersTwoCharactersReplaysOnceAndPublish
     const auto state = call(client, request(link, wire::OPERATION_STATE, a));
     EXPECT_EQ(state.state().join_watermark(), 0); EXPECT_EQ(state.state().last_client_send_seq(), 1);
     EXPECT_EQ(call(client, send(link, b)).result().receipt().channel_seq(), 2);
+    for (int i = 0; i < 2; ++i) {
+        const auto bytes = client.receive_frame(ChatChannels::Clock::now() + 1s);
+        ASSERT_TRUE(bytes); ASSERT_TRUE(common::decode_chat_internal_push(*bytes));
+    }
+    EXPECT_EQ(call(client, send(link, member(99))).status(), wire::STATUS_STALE_MEMBERSHIP);
     std::string body;
     const auto until = ChatChannels::Clock::now() + 2s;
     do { body = metrics(); if (body.find("chat_receipt_replays_total 1") != std::string::npos) break; } while (ChatChannels::Clock::now() < until);
     EXPECT_NE(body.find("chat_receipt_replays_total 1"), std::string::npos);
     EXPECT_NE(body.find("chat_queue_rejected_total 0"), std::string::npos);
+    EXPECT_NE(body.find("chat_send_total{outcome=\"rejected\"} 1"), std::string::npos);
     EXPECT_NE(body.find("chat_send_duration_seconds_count{outcome=\"accepted\"} 3"), std::string::npos);
     EXPECT_EQ(body.find("你好"), std::string::npos);
 }
