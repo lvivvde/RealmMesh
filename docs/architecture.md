@@ -122,7 +122,11 @@ Scene 实例动态加入与排空时保持路由一致。两个玩家在同一�
 Scene 故障不能拖垮其他场景，受影响玩家可以重新入场并恢复已确认的角色落点。
 Chat 作为独立身份提供场景内及跨场景频道，保证在线同频道消息顺序与失败反馈；
 Chat 故障不阻断场景业务。聊天记录与离线补投不在已承诺范围内。
-阶段5的[Chat规格提案](specs/2026-10-23-chat-reference-loop.md)按C1–C5推进，尚无Chat实现或服务注册。
+阶段5的[Chat规格](specs/2026-10-23-chat-reference-loop.md)按C1–C5推进；C1（#176）已在
+`proto/realmmesh/chat/v1/chat.proto`定义客户端1701–1706与内部1801–1803，
+`game/common/chat_protocol`负责严格编解码，`chat_limits.hpp`只暴露轻量资源常量与计数/字节
+预留检查。内部与客户端编号白名单独立，不添加framework依赖、Chat服务注册、配置或监听；
+C2排序者及C3 Realm/客户端接线尚未实现，C1的结构校验不代替认证、权限与幂等状态机。
 提案由Realm派生成员资格，每频道静态指定一个Chat排序者；Chat轮次内的在线受理不等于持久
 送达，重启/缺口显式重新加入，转场不等待Chat。依据见[ADR-0016（提案）](adr/0016-chat-online-channel-order-and-receipt.md)。
 

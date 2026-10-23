@@ -112,3 +112,8 @@ realm_add_gtest(scene_store_test
     LABELS integration
     DISCOVER_PROPERTIES TIMEOUT 60
 )
+
+realm_add_gtest(chat_protocol_test
+    SOURCES chat_protocol_test.cpp
+    LIBS realm_game_common
+)

@@ -1,5 +1,6 @@
 add_library(realm_game_common
     src/account_store.cpp
+    src/chat_protocol.cpp
     src/admission_grant.cpp
     src/admission_security_config.cpp
     src/base64url.cpp
