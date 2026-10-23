@@ -15,14 +15,16 @@
 选角与训练。四层依赖迁移（#152）也已完成，当前基线见 README 实施状态与 ADR-0014。
 下文“现有代码”与文件路径记录的是 2026-09-27 至 09-30 的历史基线，不能当作当前待办。
 
-下一项业务交付为[阶段 4 Scene 规格](../specs/2026-10-17-scene-reference-loop.md)，按
-协议与持久边界、单实例双人闭环、双实例转场与恢复、动态加入与排空、总验收逐步交付。
-S1 的协议与持久边界已实现（#161），Scene 服务及 S2–S5 仍待交付；Chat 和 M5 留在后续阶段。
+### 2026-10-23 进度校准
 
-Scene 跟踪父票为 [#160](https://github.com/lvivvde/RealmMesh/issues/160)，实施任务按
-[#161](https://github.com/lvivvde/RealmMesh/issues/161) → [#162](https://github.com/lvivvde/RealmMesh/issues/162)
-→ [#163](https://github.com/lvivvde/RealmMesh/issues/163) → [#164](https://github.com/lvivvde/RealmMesh/issues/164)
-→ [#165](https://github.com/lvivvde/RealmMesh/issues/165) 顺序推进。
+Scene阶段4已完成：[父任务#160](https://github.com/lvivvde/RealmMesh/issues/160)与S1–S5均已关闭，
+S5由[PR #174](https://github.com/lvivvde/RealmMesh/pull/174)合并。双平台全量、各三轮Scene及
+Linux QUIC/M1–M4与CI的冻结版本/环境/归档SHA256见[最终验收记录](../research/scene-s5-acceptance-2026-10-23.md)。
+这些结果不代表跨机器Scene业务或玩法容量。
+
+下一项是[阶段5 Chat规格提案](../specs/2026-10-23-chat-reference-loop.md)，按C1协议、C2独立服务、
+C3 Realm/客户端接线、C4双Scene/双Chat与转场、C5阶段总验收推进，父任务为[#175](https://github.com/lvivvde/RealmMesh/issues/175)。Chat尚未实现，规格合并后
+才开始C1；M5仍排在Chat参考路径稳定之后。
 
 ### 初始基线（历史记录）
 
@@ -73,7 +75,7 @@ Scene 跟踪父票为 [#160](https://github.com/lvivvde/RealmMesh/issues/160)，
 
 **完成条件：** 账号和角色不依赖进程内样例数据；Gateway 实际读取并校验，同一账号能在 Realm 列出、创建、选择自己的角色；重启与数据故障均有测试及指标。
 
-### 4. 多实例 Scene 参考业务（已拆 Spec，尚未实现）
+### 4. 多实例 Scene 参考业务（已完成）
 
 执行契约与依赖顺序见 [2026-10-17 Scene 参考业务规格](../specs/2026-10-17-scene-reference-loop.md)。
 首版的持久写入边界见 [ADR-0015](../adr/0015-scene-confirmed-location-and-binding.md)，
@@ -89,9 +91,9 @@ Realm 保持客户端长连接和角色入口，将场景指令路由到独立�
 
 **完成条件：** 本机多进程自动化验收覆盖移动可见、转场、动态加入、排空、故障隔离与重新入场恢复。此结果不宣称已验证 Scene 业务的跨机器部署或玩法负载容量。
 
-### 5. 独立 Chat 服务（待拆 Spec）
+### 5. 独立 Chat 服务（规格提案，尚未实现）
 
-新增独立 `chat` 服务身份，由 Realm 路由客户端聊天请求。提供场景内频道和跨场景频道；
+按[Chat规格提案与C1–C5拆分](../specs/2026-10-23-chat-reference-loop.md)推进；真正实现时新增独立 `chat` 服务身份，由 Realm 路由客户端聊天请求。提供场景内频道和跨场景频道；
 同一频道的在线消息顺序和失败反馈应有明确契约。聊天记录、离线补投、好友与邮件不进入本阶段。
 
 **完成条件：** 本机多进程下，两个 Scene 实例中的玩家可按频道收发；跨实例转场后仍可收发；Chat 实例故障时场景移动与转场不被阻断，聊天失败可见，恢复后可再次发送。
@@ -104,6 +106,6 @@ Realm 保持客户端长连接和角色入口，将场景指令路由到独立�
 
 - **取号权威存储：** 阶段 1 开始时比较可用方案，给出崩溃一致性与吞吐证据，再定实现。不能仅凭目前的放行快照宣布取号持久化。
 - **真实数据源：** 阶段 3 开始时决定账号和角色存储技术、迁移与缓存策略；第一阶段的数据桩只用于接入契约验收。
-- **ADR 与术语：** 现有 Queue Number、Admission Grant、Edge Session、Login Chain 等术语沿用 `CONTEXT.md`。`scene`、`chat` 目前是规划中的服务身份，进入 Spec 时再明确角色、场景分片、频道等领域术语；只有遇到难逆转、非显然且有实际备选方案的取舍，才补 ADR。
+- **ADR 与术语：** 现有 Queue Number、Admission Grant、Edge Session、Login Chain 等术语沿用 `CONTEXT.md`。`scene`已实现，`chat`处于规格提案；场景、频道与回执等术语统一在`CONTEXT.md`维护；只有遇到难逆转、非显然且有实际备选方案的取舍，才补 ADR。
 - **目标范围：** [README 必做路线图](../../README.md#必做路线图)是承诺入口；[架构文档](../architecture.md#目标业务拓扑规划中)说明目标服务边界。好友、邮件、FPS 大厅/匹配/房间是非必做候选，不预建服务目录或身份。
-- **Issue 跟踪：** 阶段 0 的实施票是 #82；阶段 1–2 对应 #89–#91，阶段 3 从 #92、#93 开始，#94 对应 M5。Scene 与 Chat 的完整工作项还需单独拆分；#88 的 L1 soak 重试缺陷是 #91 的阻塞项。Issue 的实时状态仍以 GitHub 为准。
+- **Issue 跟踪：** 阶段 0 的实施票是 #82；阶段 1–2 对应 #89–#91，阶段 3 从 #92、#93 开始，#94 对应 M5。Scene工作项已完成，Chat工作项按新规格C1–C5跟踪；#88 的 L1 soak 重试缺陷是 #91 的阻塞项。Issue 的实时状态仍以 GitHub 为准。
