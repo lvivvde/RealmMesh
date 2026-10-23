@@ -336,3 +336,17 @@ MongoDB 在 initialize_scene 读取/初始化阶段不可用时返回 3104；发
 均由阶段故障矩阵核对，报告缺少证据时不宣称验收通过。服务端 TLS 出站满额也会关闭
 该会话；写入遇到 WANT_READ/WANT_WRITE 时保持原字节长度重试，后续排队字节单独发送，
 避免背压期间改变重试参数导致 bad write retry。
+
+
+## Chat 线契约提案（阶段5，未实现）
+
+[Chat规格](specs/2026-10-23-chat-reference-loop.md)定义GetChatState、SendChat、ChatMessage及
+ChatUnavailable的语义目标，目前不添加消息号、错误码或proto枚举；权威消息表仍只列已实现编号。
+C1加入实际编解码时再统一登记，避免规划编号被误当作可用wire。
+
+提案复用客户端现有Realm连接、Envelope v1与realmmesh-edge/1。频道是Scene Shard范围或本Realm
+范围；Realm从已选角色派生资格，客户端不能指定可信发送者或服务实例。频道按Epoch/seq排序，
+加入W水位衔接后续消息；Chat Receipt表示在线受理，派发后超时属于Unknown，同号重试不得重复分发。
+Chat重启或资格结束后不承诺恢复回执或补投消息，缺口/轮次变化必须明确反馈。Scene转场只异步
+更换Scene Channel资格，Realm Channel保持；现有Scene/训练持久确认语义不变。
+Realm–Chat的专用mTLS/TLS与realmmesh-chat/1也只是实施计划，不代表当前已有监听或配置。
