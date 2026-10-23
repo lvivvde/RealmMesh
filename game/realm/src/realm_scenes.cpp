@@ -132,6 +132,13 @@ public:
           dynamic_(config.scene.enabled && config.scene.dynamic),
           incarnation_(
               common::correlation_id_hex(common::make_correlation_id())) {
+        if (config.scene.enabled) {
+            for (const auto* name : {"scene_queue_rejections_total",
+                                     "scene_stale_rejections_total",
+                                     "scene_snapshot_resync_total",
+                                     "scene_write_uncertain_total"})
+                metrics_.counter_add(name, 0);
+        }
         if (dynamic_ && !shard_store_)
             throw std::invalid_argument("dynamic Scene requires shard store");
         if (dynamic_) {

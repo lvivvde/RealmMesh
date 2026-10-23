@@ -66,3 +66,12 @@ set_tests_properties(
     LinuxAcceptanceScriptTest.PlanDescribesEveryMilestone
     PROPERTIES LABELS integration
 )
+
+# 报告缺证据必须失败；合成输入只验证报告逻辑，不替代真实后端旅程。
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
+add_test(NAME SceneAcceptanceReportTest.FailClosed
+    COMMAND "${Python3_EXECUTABLE}"
+        "${PROJECT_SOURCE_DIR}/tests/scripts/scene_acceptance_report_test.py"
+        "${PROJECT_SOURCE_DIR}")
+set_tests_properties(SceneAcceptanceReportTest.FailClosed PROPERTIES
+    LABELS integration TIMEOUT 20)

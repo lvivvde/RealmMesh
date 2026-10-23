@@ -11,4 +11,8 @@ realm_add_gtest(scene_journey_test SOURCES scene_journey_test.cpp
         REALMMESH_TEST_SERVICE_TLS_DIRECTORY="${REALMMESH_TEST_SERVICE_TLS_DIRECTORY}"
     DEPENDS realm_mesh realm_mesh_scene_control realmmesh_test_tls_identity realmmesh_test_service_identities
     LABELS integration
-    DISCOVER_PROPERTIES RUN_SERIAL TRUE TIMEOUT 120)
+    # S5 的 257 次真实持久移动验证 256 通知边界；保留规模，为 CI 留出截止余量。
+    DISCOVER_PROPERTIES RUN_SERIAL TRUE TIMEOUT 360)
+
+# 仅故障客户端直接使用 OpenSSL，不向产品或其他测试传播使用需求。
+target_link_libraries(scene_journey_test PRIVATE OpenSSL::SSL)

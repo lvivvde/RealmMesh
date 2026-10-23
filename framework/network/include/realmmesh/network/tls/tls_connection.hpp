@@ -86,6 +86,8 @@ private:
     std::size_t max_pending_output_bytes_;
     ByteBuffer input_;
     ByteBuffer output_;
+    // WANT_READ/WANT_WRITE 后按同一长度重试，不并入后来排队的字节。
+    std::size_t retry_write_bytes_{0};
 };
 
 }  // namespace realm::network

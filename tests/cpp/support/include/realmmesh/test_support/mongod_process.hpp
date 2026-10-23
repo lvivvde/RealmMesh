@@ -152,6 +152,16 @@ public:
         std::filesystem::remove_all(data_dir_, error);
     }
 
+    /// 只允许暂停此对象独占的后端；共享 CTest 实例不可被故障注入。
+    void pause() {
+        if (borrowed_ || pid_ <= 0 || ::kill(pid_, SIGSTOP) != 0)
+            throw std::runtime_error("cannot pause private mongod process");
+    }
+    void resume() {
+        if (borrowed_ || pid_ <= 0 || ::kill(pid_, SIGCONT) != 0)
+            throw std::runtime_error("cannot resume private mongod process");
+    }
+
     [[nodiscard]] std::uint16_t port() const noexcept { return port_; }
 
     [[nodiscard]] std::string uri() const {

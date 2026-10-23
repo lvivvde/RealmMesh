@@ -748,8 +748,9 @@ TEST_F(
     ASSERT_TRUE(state);
     EXPECT_EQ(state->snapshot().shard_id(), 2);
     EXPECT_EQ(state->phase(), ::realmmesh::protocol::scene::v1::PHASE_ACTIVE);
-    EXPECT_EQ(
-        metrics_.render().find("scene_snapshot_resync_total"),
+    // 核心计数在启动时显式发布零值；旧源事件不能增加重同步次数。
+    EXPECT_NE(
+        metrics_.render().find("scene_snapshot_resync_total 0\n"),
         std::string::npos);
 }
 TEST_F(SceneTransferTest, CasRejectedAfterPreparationKeepsSource) {
