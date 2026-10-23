@@ -3,6 +3,7 @@
 #include "realmmesh/game/gateway/gateway_module.hpp"
 #include "realmmesh/game/login_verify/login_verify_module.hpp"
 #include "realmmesh/game/queue/queue_module.hpp"
+#include "realmmesh/game/chat/chat_config.hpp"
 #include "realmmesh/game/realm/realm_module.hpp"
 #include "realmmesh/service_host/layered_config_loader.hpp"
 #include "realmmesh/service_host/startup_topology.hpp"
@@ -26,6 +27,8 @@ namespace {
 class ScopedTlsEnvironment final {
 public:
     ScopedTlsEnvironment() {
+        ::setenv("REALMMESH_CHAT_CERTIFICATE_FILE", REALMMESH_TEST_TLS_CERTIFICATE, 1);
+        ::setenv("REALMMESH_CHAT_PRIVATE_KEY_FILE", REALMMESH_TEST_TLS_PRIVATE_KEY, 1);
         ::setenv(
             "REALMMESH_SCENE_CERTIFICATE_FILE",
             REALMMESH_TEST_TLS_CERTIFICATE,
@@ -50,6 +53,8 @@ public:
             0);
     }
     ~ScopedTlsEnvironment() {
+        ::unsetenv("REALMMESH_CHAT_CERTIFICATE_FILE");
+        ::unsetenv("REALMMESH_CHAT_PRIVATE_KEY_FILE");
         ::unsetenv("REALMMESH_SCENE_CERTIFICATE_FILE");
         ::unsetenv("REALMMESH_SCENE_PRIVATE_KEY_FILE");
         ::unsetenv("REALMMESH_SERVICE_CA_FILE");
@@ -93,6 +98,9 @@ protected:
                 game::login_verify::load_login_verify_config(layered));
         } else if (name == "queue") {
             static_cast<void>(game::queue::load_queue_config(layered));
+        } else if (name == "chat") {
+            const auto config = game::chat::load_chat_config(layered);
+            EXPECT_EQ(config.channels, (std::vector<std::uint64_t>{0, 1, 2}));
         } else if (name == "scene") {
             ASSERT_EQ(layered.edge().transports.size(), 1);
             EXPECT_FALSE(

@@ -44,6 +44,7 @@ realm_add_gtest(config_headers_test
 realm_add_gtest(configs_load_smoke_test
     SOURCES configs_load_smoke_test.cpp
     LIBS realm_service_host
+        realm_game_chat
         realm_gateway_service
         realm_game_realm
         realm_login_verify_service

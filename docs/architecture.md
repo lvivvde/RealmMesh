@@ -99,6 +99,35 @@ Scene 按稳定 shard_id 持有至多两个状态机；角色 Route 带承载版
 完成后实例业务停用，管理端点与发现注册保留供核对，再由运维停止进程；不会提前注销伪造完成。
 
 
+## Chat独立服务与频道排序（C1–C2）
+
+C1（#176、PR #182）已合并。C2（#177）新增`game/chat`，仅由`apps/mesh_host`注册`chat`
+模块。`ChatConfig`是轻量值，Lua解析留在实现文件；`ChatChannels`由Chat帧单线程拥有，
+负责三个配置频道的Epoch/水位、活动链路、资格、最后回执、令牌桶及计数/字节预算。
+没有MongoDB依赖，也不依赖其他服务或`game/client`。默认四服务登录拓扑保持独立。
+
+`ChatModule`直接拥有独立的非阻塞TLS/TCP Transport，每tick以零等待轮询；没有通往Realm
+或Scene帧的同步调用。监听最多16条连接（含握手），固定专用ALPN和服务CA，只允许配置指定的
+单个Realm精确DNS SAN；HELLO还必须匹配realm_id、Realm实例名和本Chat实例名，之后每次
+操作核对精确链路代次。HELLO替换旧链路时先释放旧资格和队列；迟到关闭不会删除新链路。
+宿主沿用通用ServicePublisher注册发现，发现不是授权；未发HELLO的已握手连接1秒内关闭。
+
+请求入队和未取走回复共同占64个名额，每链路最多8个排队，每资格一个SEND在途；每轮最多
+执行64请求，并最多消费64个待分发事件（含已失效资格的丢弃）。排队总截止1秒，过期不执行。
+公平扫描会跳过本轮已服务的发送资格。活动JOIN重试回原W/最后回执，LEAVE先到也推进链路
+highest_seen_generation；旧JOIN不复活资格，旧LEAVE不删新资格。空频道保留水位。
+
+Accepted前预留全部接收者的序列化推送、回执和原文缓存；预算不足不推进任何序号。提交后
+下游发送失败不能撤销回执或复用水位。待分发至多1024事件/4MiB，TLS每链路出站至多1MiB；
+TLS拒绝即关闭该链路并回收资格，重连从新W加入。未知wire字段可解析，但不留在资格缓存或
+放大到扇出。每资格5条/秒、突发10；Realm跨频道角色合计限流、未收结果预算和客户端队列由C3实现。
+
+TLS新增可选`max_receive_batch_bytes`原生预算，默认0保留既有策略，仅Chat设64KiB；
+预算结束后，下一poll会继续消费SSL已缓冲输入，不依赖新的fd可读事件。它是通用传输工作量
+约束，framework仍不认识Chat字段或身份。运行方式见[Chat服务说明](operations/chat-service.md)。
+C2覆盖真实生产进程mTLS、etcd、SIGKILL/同名重启、正常停止与单帧TLS输出预算拒绝；真实慢端
+积压饱和、双Scene/双Chat、转场和组合故障矩阵仍待C3–C5，不能据C2宣称整阶段完成。
+
 ## 目标业务拓扑（规划中）
 
 以下是 [README 必做路线图](../README.md#必做路线图) 的目标边界，不是当前运行拓扑。
@@ -125,8 +154,8 @@ Chat 故障不阻断场景业务。聊天记录与离线补投不在已承诺范
 阶段5的[Chat规格](specs/2026-10-23-chat-reference-loop.md)按C1–C5推进；C1（#176）已在
 `proto/realmmesh/chat/v1/chat.proto`定义客户端1701–1706与内部1801–1803，
 `game/common/chat_protocol`负责严格编解码，`chat_limits.hpp`只暴露轻量资源常量与计数/字节
-预留检查。内部与客户端编号白名单独立，不添加framework依赖、Chat服务注册、配置或监听；
-C2排序者及C3 Realm/客户端接线尚未实现，C1的结构校验不代替认证、权限与幂等状态机。
+预留检查。内部与客户端编号白名单独立，C2已注册独立服务并实现认证和排序者，C3 Realm/客户端接线尚未实现；C1结构校验不代替
+C2认证和幂等状态机，也不代替C3的当前会话/选角/场景权限核对。
 规格由Realm派生成员资格，每频道静态指定一个Chat排序者；Chat轮次内的在线受理不等于持久
 送达，重启/缺口显式重新加入，转场不等待Chat。依据见[ADR-0016](adr/0016-chat-online-channel-order-and-receipt.md)。
 
@@ -137,7 +166,7 @@ Scene 首版的设计由 Scene 判定移动、Realm 条件持久写入 MongoDB �
 [ADR-0015](adr/0015-scene-confirmed-location-and-binding.md)。Realm 与 Scene 的内部链路
 使用独立 TLS/TCP 监听、双向服务身份校验及 `realmmesh-scene/1`；客户端继续只连 Realm。
 
-六种目标服务身份（现有五种与计划新增的 `chat`）都应能独立进程部署和扩容，
+六种已注册服务身份（含 `chat`）都应能独立进程部署和扩容，
 开发环境可同机合并运行。账号、角色和落点的持久数据由对应业务边界持有并复用存储接口，
 不预设通用 `storage` 服务。Scene/Chat 参考业务的必做验收限定在本机多进程；既有
 Linux 跨机器 M1–M4 验收只针对登录链接入，不作为新业务链的跨机器验证。

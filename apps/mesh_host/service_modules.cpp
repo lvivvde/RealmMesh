@@ -5,6 +5,7 @@
 #include "realmmesh/game/queue/queue_module.hpp"
 #include "realmmesh/game/realm/realm_module.hpp"
 #include "realmmesh/game/scene/scene_module.hpp"
+#include "realmmesh/game/chat/chat_module.hpp"
 
 namespace realm::mesh_host {
 
@@ -21,6 +22,7 @@ service_host::ServiceModuleRegistry game_service_modules() {
         "realm",
         {.factory = game::realm::make_realm_module, .dependency = "scene"});
     modules.add("scene", {.factory = game::scene::make_scene_module});
+    modules.add("chat", {.factory = game::chat::make_chat_module});
     modules.add(
         "login_verify",
         {.factory = game::login_verify::make_login_verify_module});
