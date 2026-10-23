@@ -321,6 +321,32 @@ TEST(ChatProtocolTest, AcceptedRejectedAndUnknownHaveDisjointReceiptShapes) {
     m = result(); m.set_reason(static_cast<chat::Reason>(99)); EXPECT_FALSE(decode_chat_send_result(raw(m, 1704)));
 }
 
+TEST(ChatProtocolTest, ReceiptCountersMustFitAcceptedMessagesSinceJoinWithoutOverflow) {
+    auto accepted = result();
+    accepted.set_client_send_seq(2);
+    accepted.mutable_receipt()->set_client_send_seq(2);
+    accepted.mutable_receipt()->set_channel_seq(1);
+    EXPECT_FALSE(decode_chat_send_result(raw(accepted, 1704)));
+    accepted.mutable_receipt()->set_channel_seq(2);
+    roundtrip(accepted, decode_chat_send_result, 1704, 1);
+    auto m = state();
+    m.set_last_client_send_seq(2);
+    m.mutable_last_receipt()->set_client_send_seq(2);
+    EXPECT_FALSE(decode_chat_state(raw(m, 1702)));
+    m.mutable_last_receipt()->set_channel_seq(12);
+    roundtrip(m, decode_chat_state, 1702, 1);
+    m.set_join_watermark(chat_counter_max - 2);
+    m.mutable_last_receipt()->set_channel_seq(chat_counter_max);
+    roundtrip(m, decode_chat_state, 1702, 1);
+    m.set_last_client_send_seq(3);
+    m.mutable_last_receipt()->set_client_send_seq(3);
+    EXPECT_FALSE(decode_chat_state(raw(m, 1702)));
+    m.set_join_watermark(0);
+    m.set_last_client_send_seq(chat_counter_max);
+    m.mutable_last_receipt()->set_client_send_seq(chat_counter_max);
+    roundtrip(m, decode_chat_state, 1702, 1);
+}
+
 TEST(ChatProtocolTest, InternalOperationFieldsAndLinkIncarnationsMustMatch) {
     auto r = request(chat::OPERATION_HELLO);
     *r.mutable_membership() = membership(); EXPECT_FALSE(decode_chat_internal_request(raw(r, 1801)));

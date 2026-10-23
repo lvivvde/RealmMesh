@@ -127,8 +127,8 @@ Chat 故障不阻断场景业务。聊天记录与离线补投不在已承诺范
 `game/common/chat_protocol`负责严格编解码，`chat_limits.hpp`只暴露轻量资源常量与计数/字节
 预留检查。内部与客户端编号白名单独立，不添加framework依赖、Chat服务注册、配置或监听；
 C2排序者及C3 Realm/客户端接线尚未实现，C1的结构校验不代替认证、权限与幂等状态机。
-提案由Realm派生成员资格，每频道静态指定一个Chat排序者；Chat轮次内的在线受理不等于持久
-送达，重启/缺口显式重新加入，转场不等待Chat。依据见[ADR-0016（提案）](adr/0016-chat-online-channel-order-and-receipt.md)。
+规格由Realm派生成员资格，每频道静态指定一个Chat排序者；Chat轮次内的在线受理不等于持久
+送达，重启/缺口显式重新加入，转场不等待Chat。依据见[ADR-0016](adr/0016-chat-online-channel-order-and-receipt.md)。
 
 Scene 首版的设计由 Scene 判定移动、Realm 条件持久写入 MongoDB 后确认及广播；
 角色场景归属、已确认落点与场景指令幂等结果同文档原子推进。转场与重绑更新归属版本，

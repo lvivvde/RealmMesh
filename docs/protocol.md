@@ -379,7 +379,8 @@ C1没有服务身份、监听或 Realm/客户端调用；下述运行时义务�
 
 phase为1 UNAVAILABLE或2 ACTIVE。UNAVAILABLE只带kind/reason，不夹带旧资格、轮次、水位或
 回执；ACTIVE必须带有效资格/Epoch，reason=NONE。last_client_send_seq=0时无回执，否则必须
-匹配回执的发送序号/Epoch，且回执channel_seq>原加入水位W。初次JOIN可以W=0。
+匹配回执的发送序号/Epoch，且回执channel_seq减原加入水位W不得小于last_client_send_seq。回执channel_seq也不得小于
+client_send_seq；校验用减法防溢出，初次JOIN可以W=0。
 重复活动JOIN必须回原Epoch/W和原发送回执；解码不会代替C2保存这些状态。
 
 text是1..512个UTF-8字节，拒绝过长/截断/孤立续字节/过长编码/代理码点/超出U+10FFFF、

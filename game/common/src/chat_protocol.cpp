@@ -40,7 +40,8 @@ bool membership(const chat::Membership& m) {
                 counter(m.scene_binding_epoch()) : m.scene_binding_epoch() == 0);
 }
 bool receipt(const chat::Receipt& m) {
-    return m.has_epoch() && epoch(m.epoch()) && counter(m.channel_seq()) && counter(m.client_send_seq());
+    return m.has_epoch() && epoch(m.epoch()) && counter(m.channel_seq()) && counter(m.client_send_seq()) &&
+           m.channel_seq() >= m.client_send_seq();
 }
 bool valid(const GetChatState& m, std::uint64_t id) { return id != 0 && kind(m.kind()); }
 bool valid(const SendChat& m, std::uint64_t id) {
@@ -61,7 +62,8 @@ bool valid(const ChatState& m, std::uint64_t id) {
     return m.has_last_receipt() && receipt(m.last_receipt()) &&
            m.last_receipt().client_send_seq() == m.last_client_send_seq() &&
            same_epoch(m.last_receipt().epoch(), m.epoch()) &&
-           m.last_receipt().channel_seq() > m.join_watermark();
+           m.last_receipt().channel_seq() > m.join_watermark() &&
+           m.last_receipt().channel_seq() - m.join_watermark() >= m.last_client_send_seq();
 }
 bool valid(const ChatSendResult& m, std::uint64_t id) {
     if (id == 0 || !kind(m.kind()) || !counter(m.membership_generation()) ||
