@@ -347,13 +347,13 @@ MongoDB 在 initialize_scene 读取/初始化阶段不可用时返回 3104；发
 避免背压期间改变重试参数导致 bad write retry。
 
 
-## Chat线契约（C1编解码、C2内部服务已实现）
+## Chat线契约（C1–C3已实现）
 
 `chat/v1/chat.proto` 定义 1701–1706 客户端消息与 1801–1803 内部消息；两组的编号白名单
 独立，均沿用 Envelope v1。`game/common/chat_protocol` 提供严格双向编解码，非法对象编码
 抛 `std::invalid_argument`，非法输入解码返回空值。所有 Envelope **含头**至多 65536 字节；
 请求/响应 request_id 非零，通知为零。未知字段按 protobuf 演进规则保留，未知枚举拒绝。
-C2已有独立chat身份、内部TLS监听和频道状态机；Realm/客户端业务调用仍待C3，完整故障矩阵待C4/C5。
+C2已有独立chat身份、内部TLS监听和频道状态机；C3 已接通 Realm/客户端业务调用，完整故障矩阵待C4/C5。
 
 ### 值与客户端消息
 
@@ -406,7 +406,12 @@ outcome为1 ACCEPTED、2 REJECTED或3 UNKNOWN：
 
 REJECTED的RATE_LIMITED/BUSY/RESOURCE_LIMIT必须带1..1000ms建议，其他原因不带重试建议。
 DEADLINE可以表示派发前确定拒绝或派发后UNKNOWN，接收者必须按outcome判断，不能单看reason。
-EdgeError新增3201（Chat输入形状非法）与3202（尚未选角）；C3接线前不会发出这些业务错误。
+EdgeError新增3201（Chat输入形状非法）与3202（尚未选角）；C3由RealmSessions在客户端入口发出这些业务错误。
+
+客户端C3入口为`RealmSession::chat()`：GetChatState只取当前状态/最后回执；SendChat由应用显式
+提供原资格、Epoch、序号与文本。调用等待期间按类别缓存1705/1706，收到1704不推进1705水位。
+派发后超时回Unknown；同资格/轮次原参数重试可返回原回执。旧Unknown之后被旧资格拒绝不改变
+原结果的不确定性。客户端初次取状态前的推送有界暂存，取得原W后过滤；重复状态不重置通知水位。
 
 ### Realm–Chat内部线
 
@@ -428,7 +433,7 @@ status取1 OK、2 INVALID、3 STALE_LINK、4 STALE_MEMBERSHIP、5 FORBIDDEN、6 
 7 UNAVAILABLE。非OK只回Link/operation/status，不夹带半份资格、状态或回执。内部通知1803带
 Link、接收者Membership与ChatMessage，ID=0。编解码要求资格Realm/Realm incarnation匹配Link、
 嵌套资格代次匹配、频道匹配且Epoch Chat incarnation匹配Link；它无法确认一个非零角色ID是否
-属于已认证会话，也不能确认配置承载者。C2核对活动连接和配置Realm；C3仍须核对当前会话、场景绑定和角色权限。
+属于已认证会话，也不能确认配置承载者。C2核对活动连接和配置Realm；C3由RealmChat核对当前会话、已激活场景绑定、角色和精确资格。
 旧链路完成、旧LEAVE和旧JOIN不能影响新资格；LEAVE先到也要推进链路highest_seen_generation，
 活动资格的重复JOIN回原水位；具体有界状态机见[规格](specs/2026-10-23-chat-reference-loop.md)。
 
@@ -439,6 +444,6 @@ Realm64人、每资格一个在途、5条/秒/突发10条、内部64请求、每
 1024待分发事件/4MiB、每客户端256通知/256KiB、16条传输连接、每轮64请求/64推送/每资格一个新
 SEND、每链路1MiB出站及最多64接收者。`ChatBudget`的纯预留检查同时校验计数和字节，以减法
 避免size_t溢出；C2实现服务端原子占用/释放、公平调度、计时器及TLS出站拒绝；Realm的全角色跨频道限流与
-未收结果预算仍待C3。
+未收结果预算已由C3在独立Chat IO/帧完成边界实现。
 运行、排队、待撤销和未收结果的占用都必须计入。C1单测不证明真实网络。C2的生产进程测试证明内部mTLS/排序/回执与单帧TLS输出预算拒绝，
 不替代C4/C5的双实例隔离或真实慢消费者积压饱和验收。

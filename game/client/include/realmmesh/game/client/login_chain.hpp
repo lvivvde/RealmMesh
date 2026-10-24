@@ -139,6 +139,7 @@ struct RealmTraining final {
 };
 
 class SceneSession;
+class ChatSession;
 
 class RealmSession {
 public:
@@ -152,6 +153,7 @@ public:
     [[nodiscard]] virtual bool heartbeat(TimePoint deadline) = 0;
     virtual void close() noexcept = 0;
     [[nodiscard]] virtual SceneSession* scene() noexcept { return nullptr; }
+    [[nodiscard]] virtual ChatSession* chat() noexcept { return nullptr; }
 
     /// Realm 业务(#93):选角阶段 list/create/select,游戏中阶段 train。
     /// 阶段由服务端裁决,错位回 Rejected(3003)。一次只跑一个请求。
