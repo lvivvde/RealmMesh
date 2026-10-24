@@ -37,6 +37,22 @@ struct RealmConfig {
         /// 显式目标允许列表；主分片 1 沿用上方配置。S3 只允许增加分片 2。
         std::vector<SceneTarget> targets;
     } scene;
+    struct ChatTarget {
+        std::string instance_id{"chat-dev-01"};
+        std::string server_identity{"chat-dev-01.chat.service"};
+        std::string host{"127.0.0.1"};
+        std::uint16_t port{7300};
+        // 0 = Realm Channel，1/2 = 对应 Scene Channel。每频道仅一个承载。
+        std::vector<std::uint64_t> channels{0, 1, 2};
+    };
+    struct ChatClient {
+        bool enabled{false};
+        std::string realm_instance_id{"realm-dev-01"};
+        bool discovery_enabled{false};
+        std::string discovery_endpoint, discovery_prefix;
+        std::string ca_file, certificate_file, private_key_file;
+        std::vector<ChatTarget> targets;
+    } chat;
     /// 训练规则脚本;相对路径由分层加载器按 config_root 解析。必填。
     std::filesystem::path training_rule_file;
     /// 角色数据访问的工作线程数与在途上限(排队 + 运行中 + 未取走)。

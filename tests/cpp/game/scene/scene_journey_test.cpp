@@ -68,8 +68,8 @@ protected:
             "metrics_port = 0");
         rewrite(
             realm_root_.path() / "services/realm.lua",
-            "enabled = false",
-            "enabled = true");
+            "scene = {\n            enabled = false",
+            "scene = {\n            enabled = true");
         rewrite(
             realm_root_.path() / "services/realm.lua",
             "port = 7200",

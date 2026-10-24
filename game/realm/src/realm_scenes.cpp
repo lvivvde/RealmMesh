@@ -77,6 +77,7 @@ public:
         Clock::time_point deadline;
         std::atomic<Stage> stage{Stage::Queued};
         std::atomic_bool timed_out{false};
+        bool transfer{false};
     };
     struct Session;
     struct Job {
@@ -95,6 +96,8 @@ public:
         std::atomic_bool alive{true};
         std::atomic_uint64_t routed_shard{1};
         std::size_t outstanding{0};
+        std::shared_ptr<const RealmScenes::ChatBinding> chat_binding;
+        std::atomic_size_t transfers{0};
         std::vector<std::shared_ptr<Control>> pending;  // 仅帧线程。
         // 以下只由场景编排线程访问；同一会话一次只恢复一个指令协程。
         Clock::time_point retire_after{Clock::now()};
@@ -252,6 +255,7 @@ public:
         }
         auto control = std::make_shared<Control>();
         control->request_id = request_id;
+        control->transfer = command && command->type == common::SceneCommandType::Transfer;
         const auto now = Clock::now();
         control->deadline = now + scene_operation_timeout;
         if (!jobs_.try_push(
@@ -267,6 +271,8 @@ public:
             metrics_.counter_add("scene_queue_rejections_total");
             return true;
         }
+        if (command && command->type == common::SceneCommandType::Transfer)
+            ++session->transfers;
         ++session->outstanding;
         session->pending.push_back(std::move(control));
         return true;
@@ -275,6 +281,7 @@ public:
         for (auto& output : outputs_.drain(max)) {
             if (output.done) {
                 --output.session->outstanding;
+                if (output.control && output.control->transfer) --output.session->transfers;
                 --output.budget->in_flight;
                 std::erase(output.session->pending, output.control);
             }
@@ -320,6 +327,13 @@ public:
         }
     }
     void discovery_ready(bool ready) { discovery_ready_ = ready; }
+    std::optional<RealmScenes::ChatBinding> chat_binding(edge::EdgeConnectionId id) const {
+        const auto found = sessions_.find(id);
+        if (found == sessions_.end() || !found->second->alive || found->second->transfers != 0) return {};
+        const auto value = std::atomic_load(&found->second->chat_binding);
+        if (!value) return {};
+        return *value;
+    }
 
 private:
     static bool reserve(PeerSlot& slot) {
@@ -391,6 +405,7 @@ private:
     }
     void unavailable(const std::shared_ptr<Session>& session) {
         if (!session->active) return;
+        std::atomic_store(&session->chat_binding, std::shared_ptr<const RealmScenes::ChatBinding>{});
         session->active = false;
         common::SceneUnavailable notice;
         notice.set_shard_id(session->record->confirmed_location->shard_id);
@@ -493,6 +508,8 @@ private:
         session.snapshot =
             (co_await exchange(slot, std::move(activate), deadline)).snapshot();
         session.active = true;
+        std::atomic_store(&session.chat_binding, std::make_shared<const RealmScenes::ChatBinding>(
+            RealmScenes::ChatBinding{session.record->confirmed_location->shard_id, session.record->binding_epoch}));
         session.peer_generation = slot.peer->generation();
         session.resync = false;
     }
@@ -566,6 +583,7 @@ private:
                 static_cast<void>(
                     co_await exchange(slot, std::move(confirm), job.deadline));
             } else {
+                std::atomic_store(&session.chat_binding, std::shared_ptr<const RealmScenes::ChatBinding>{});
                 session.active = false;
                 co_await restore(session, job.deadline);
             }
@@ -777,6 +795,8 @@ private:
         co_await finish(job, std::move(value), false);
     }
     Task<> process(Job job) {
+        if (job.command && job.command->type == common::SceneCommandType::Transfer)
+            std::atomic_store(&job.session->chat_binding, std::shared_ptr<const RealmScenes::ChatBinding>{});
         int code = 0;
         try {
             co_await execute(job);
@@ -787,6 +807,12 @@ private:
                        ? common::scene_error_outcome_unknown
                        : common::scene_error_unavailable;
         }
+        if (job.session->alive && job.session->active && !job.session->unresolved &&
+            !job.session->confirmation_pending && owned(*job.session))
+            std::atomic_store(&job.session->chat_binding, std::make_shared<const RealmScenes::ChatBinding>(
+                RealmScenes::ChatBinding{job.session->record->confirmed_location->shard_id,
+                    job.session->record->binding_epoch}));
+        else std::atomic_store(&job.session->chat_binding, std::shared_ptr<const RealmScenes::ChatBinding>{});
         if (code == common::scene_error_stale_binding)
             metrics_.counter_add("scene_stale_rejections_total");
         if (job.drain_transfer) {
@@ -1466,6 +1492,9 @@ bool RealmScenes::handle(
     return worker_->handle(id, bytes);
 }
 void RealmScenes::complete(std::size_t max) { worker_->complete(max); }
+std::optional<RealmScenes::ChatBinding> RealmScenes::chat_binding(edge::EdgeConnectionId id) const {
+    return worker_->chat_binding(id);
+}
 void RealmScenes::endpoint(
     const std::optional<network::TransportEndpoint>& value,
     std::string_view instance_id) {
