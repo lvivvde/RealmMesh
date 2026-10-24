@@ -600,8 +600,8 @@ private:
                     common::encode(
                         unavailable(kind(p.index), wire::REASON_UNAVAILABLE),
                         p.request_id));
+            // 排队超时未终止远端资格；保留名额直到 LEAVE 或断链完成。
             retire(s, slot, wire::REASON_UNAVAILABLE);
-            if (!reply) clear(slot);
             return;
         }
         if (slot.retiring || !s.alive) return;
