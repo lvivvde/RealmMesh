@@ -1,8 +1,8 @@
 #include "realmmesh/game/client/wire_login_transport.hpp"
-#include <deque>
-#include "realmmesh/game/client/scene_session.hpp"
-#include "realmmesh/game/client/chat_session.hpp"
 #include <array>
+#include <deque>
+#include "realmmesh/game/client/chat_session.hpp"
+#include "realmmesh/game/client/scene_session.hpp"
 
 #include "realmmesh/game/common/edge_protocol.hpp"
 #include "realmmesh/game/common/realm_protocol.hpp"
@@ -169,7 +169,9 @@ template <typename T>
     return reply;
 }
 
-class WireRealmSession final : public RealmSession, public SceneSession, public ChatSession {
+class WireRealmSession final : public RealmSession,
+                               public SceneSession,
+                               public ChatSession {
 public:
     WireRealmSession(
         std::shared_ptr<net_client::ISecureConnection> connection,
@@ -196,57 +198,96 @@ public:
     [[nodiscard]] SceneSession* scene() noexcept override { return this; }
     [[nodiscard]] ChatSession* chat() noexcept override { return this; }
     RealmReply<common::ChatState> get_chat_state(
-        ::realmmesh::protocol::chat::v1::ChannelKind kind, TimePoint deadline) override {
-        const auto exchange = call([kind](std::uint64_t id) {
-            common::GetChatState query; query.set_kind(kind); return common::encode(query, id);
-        }, 1702, deadline);
+        ::realmmesh::protocol::chat::v1::ChannelKind kind,
+        TimePoint deadline) override {
+        const auto exchange = call(
+            [kind](std::uint64_t id) {
+                common::GetChatState query;
+                query.set_kind(kind);
+                return common::encode(query, id);
+            },
+            1702,
+            deadline);
         auto reply = reply_from<common::ChatState>(exchange);
         if (!reply.ok()) return reply;
         const auto state = common::decode_chat_state(exchange.payload);
-        if (!state || state->kind() != kind) return malformed<common::ChatState>();
+        if (!state || state->kind() != kind)
+            return malformed<common::ChatState>();
         reply.value = *state;
         apply_chat_state(*state);
         return reply;
     }
-    RealmReply<common::ChatSendResult> send_chat(const common::SendChat& send, TimePoint deadline) override {
+    RealmReply<common::ChatSendResult> send_chat(
+        const common::SendChat& send, TimePoint deadline) override {
         using namespace ::realmmesh::protocol::chat::v1;
         // 非法本地输入不应向 transport 写半个请求。
-        try { static_cast<void>(common::encode(send, 1)); }
-        catch (...) { return malformed<common::ChatSendResult>(); }
-        const auto exchange = call([&send](std::uint64_t id) { return common::encode(send, id); }, 1704, deadline);
+        try {
+            static_cast<void>(common::encode(send, 1));
+        } catch (...) {
+            return malformed<common::ChatSendResult>();
+        }
+        const auto exchange = call(
+            [&send](std::uint64_t id) {
+                return common::encode(send, id);
+            },
+            1704,
+            deadline);
         auto reply = reply_from<common::ChatSendResult>(exchange);
         auto& unknown = chat_unknown_[chat_index(send.kind())];
         if (!reply.ok()) {
             if (exchange.status == RealmCallStatus::Disconnected) {
                 unknown = send;
                 reply.status = RealmCallStatus::Ok;
-                reply.value.set_kind(send.kind()); reply.value.set_membership_generation(send.membership_generation());
-                *reply.value.mutable_epoch() = send.expected_epoch(); reply.value.set_client_send_seq(send.client_send_seq());
-                reply.value.set_outcome(OUTCOME_UNKNOWN); reply.value.set_reason(REASON_DEADLINE);
+                reply.value.set_kind(send.kind());
+                reply.value.set_membership_generation(
+                    send.membership_generation());
+                *reply.value.mutable_epoch() = send.expected_epoch();
+                reply.value.set_client_send_seq(send.client_send_seq());
+                reply.value.set_outcome(OUTCOME_UNKNOWN);
+                reply.value.set_reason(REASON_DEADLINE);
             }
             return reply;
         }
         const auto value = common::decode_chat_send_result(exchange.payload);
-        if (!value || value->kind() != send.kind() || value->membership_generation() != send.membership_generation() ||
-            value->client_send_seq() != send.client_send_seq() || value->epoch().SerializeAsString() != send.expected_epoch().SerializeAsString())
+        if (!value || value->kind() != send.kind() ||
+            value->membership_generation() != send.membership_generation() ||
+            value->client_send_seq() != send.client_send_seq() ||
+            value->epoch().SerializeAsString() !=
+                send.expected_epoch().SerializeAsString())
             return malformed<common::ChatSendResult>();
         reply.value = *value;
-        if (unknown && unknown->SerializeAsString() == send.SerializeAsString() && value->outcome() == OUTCOME_REJECTED) {
-            reply.value.set_outcome(OUTCOME_UNKNOWN); reply.value.set_reason(REASON_OUTCOME_LOST); reply.value.set_retry_after_ms(0);
-        } else if (value->outcome() == OUTCOME_UNKNOWN) unknown = send;
-        else if (value->outcome() == OUTCOME_ACCEPTED && unknown && unknown->SerializeAsString() == send.SerializeAsString()) unknown.reset();
+        if (unknown &&
+            unknown->SerializeAsString() == send.SerializeAsString() &&
+            value->outcome() == OUTCOME_REJECTED) {
+            reply.value.set_outcome(OUTCOME_UNKNOWN);
+            reply.value.set_reason(REASON_OUTCOME_LOST);
+            reply.value.set_retry_after_ms(0);
+        } else if (value->outcome() == OUTCOME_UNKNOWN)
+            unknown = send;
+        else if (
+            value->outcome() == OUTCOME_ACCEPTED && unknown &&
+            unknown->SerializeAsString() == send.SerializeAsString())
+            unknown.reset();
         return reply;
     }
     std::optional<ChatNotice> poll_chat(TimePoint deadline) override {
         while (chat_notices_.empty() && stream_) {
             const auto payload = edge().receive_frame(deadline);
             if (!payload) return {};
-            if (common::decode_realm_session_displaced(*payload)) { close(); return {}; }
+            if (common::decode_realm_session_displaced(*payload)) {
+                close();
+                return {};
+            }
             if (!notice(*payload)) return {};
         }
         if (chat_notices_.empty()) return {};
-        auto value = std::move(chat_notices_.front()); chat_notices_.pop_front();
-        chat_bytes_ -= std::visit([](const auto& m) { return common::encode(m).size(); }, value);
+        auto value = std::move(chat_notices_.front());
+        chat_notices_.pop_front();
+        chat_bytes_ -= std::visit(
+            [](const auto& m) {
+                return common::encode(m).size();
+            },
+            value);
         return value;
     }
 
@@ -320,14 +361,23 @@ public:
         if (notices_.empty()) return std::nullopt;
         auto value = std::move(notices_.front());
         notices_.pop_front();
-        scene_bytes_ -= std::visit([](const auto& m) { return common::encode(m).size(); }, value);
+        scene_bytes_ -= std::visit(
+            [](const auto& m) {
+                return common::encode(m).size();
+            },
+            value);
         return value;
     }
 
     void close() noexcept override {
-        notices_.clear(); scene_bytes_ = 0;
-        chat_notices_.clear(); chat_buffered_.clear(); chat_bytes_ = 0;
-        chat_states_ = {}; chat_watermarks_ = {}; chat_unknown_ = {};
+        notices_.clear();
+        scene_bytes_ = 0;
+        chat_notices_.clear();
+        chat_buffered_.clear();
+        chat_bytes_ = 0;
+        chat_states_ = {};
+        chat_watermarks_ = {};
+        chat_unknown_ = {};
         edge_.reset();
         if (stream_ != nullptr) {
             stream_->shutdown();
@@ -431,11 +481,15 @@ private:
         return reply;
     }
     bool notice(std::span<const std::byte> payload) {
-        if (const auto m = common::decode_chat_message(payload)) { chat_message(*m); return true; }
+        if (const auto m = common::decode_chat_message(payload)) {
+            chat_message(*m);
+            return true;
+        }
         if (const auto m = common::decode_chat_unavailable(payload)) {
             chat_states_[chat_index(m->kind())].reset();
             discard_chat(m->kind());
-            queue_chat(*m); return true;
+            queue_chat(*m);
+            return true;
         }
         std::optional<SceneNotice> value;
         if (const auto event = common::decode_scene_event(payload))
@@ -444,7 +498,8 @@ private:
             const auto unavailable = common::decode_scene_unavailable(payload))
             value = *unavailable;
         if (!value) return false;
-        if (notices_.size() >= 256 || payload.size() > 256 * 1024 - scene_bytes_) {
+        if (notices_.size() >= 256 ||
+            payload.size() > 256 * 1024 - scene_bytes_) {
             close();
             return true;
         }
@@ -452,31 +507,47 @@ private:
         notices_.push_back(std::move(*value));
         return true;
     }
-    static std::size_t chat_index(::realmmesh::protocol::chat::v1::ChannelKind k) {
+    static std::size_t chat_index(
+        ::realmmesh::protocol::chat::v1::ChannelKind k) {
         return k == ::realmmesh::protocol::chat::v1::CHANNEL_KIND_REALM ? 0 : 1;
     }
     void discard_chat(::realmmesh::protocol::chat::v1::ChannelKind kind) {
         std::erase_if(chat_buffered_, [&](const auto& m) {
             if (m.epoch().channel().kind() != kind) return false;
-            chat_bytes_ -= common::encode(m).size(); return true;
+            chat_bytes_ -= common::encode(m).size();
+            return true;
         });
         std::erase_if(chat_notices_, [&](const auto& value) {
-            return std::visit([&](const auto& m) {
-                using T = std::decay_t<decltype(m)>;
-                const auto k = [&] { if constexpr (std::is_same_v<T, common::ChatMessage>) return m.epoch().channel().kind(); else return m.kind(); }();
-                if (k != kind) return false;
-                chat_bytes_ -= common::encode(m).size(); return true;
-            }, value);
+            return std::visit(
+                [&](const auto& m) {
+                    using T = std::decay_t<decltype(m)>;
+                    const auto k = [&] {
+                        if constexpr (std::is_same_v<T, common::ChatMessage>)
+                            return m.epoch().channel().kind();
+                        else
+                            return m.kind();
+                    }();
+                    if (k != kind) return false;
+                    chat_bytes_ -= common::encode(m).size();
+                    return true;
+                },
+                value);
         });
     }
-    template <typename M> void queue_chat(const M& m) {
+    template <typename M>
+    void queue_chat(const M& m) {
         const auto bytes = common::encode(m).size();
-        if (!common::chat_budget_allows({chat_notices_.size() + chat_buffered_.size(), chat_bytes_}, {1, bytes},
-            {common::chat_client_notifications_max, common::chat_client_notification_bytes_max})) {
+        if (!common::chat_budget_allows(
+                {chat_notices_.size() + chat_buffered_.size(), chat_bytes_},
+                {1, bytes},
+                {common::chat_client_notifications_max,
+                 common::chat_client_notification_bytes_max})) {
             // 缓存溢出是连续交付终点；关闭会话同时清空所有旧资格。
-            close(); return;
+            close();
+            return;
         }
-        chat_bytes_ += bytes; chat_notices_.push_back(m);
+        chat_bytes_ += bytes;
+        chat_notices_.push_back(m);
     }
     void chat_message(const common::ChatMessage& message) {
         using namespace ::realmmesh::protocol::chat::v1;
@@ -484,47 +555,82 @@ private:
         const auto& state = chat_states_[index];
         if (!state || state->phase() != PHASE_ACTIVE) {
             const auto bytes = common::encode(message).size();
-            if (!common::chat_budget_allows({chat_notices_.size() + chat_buffered_.size(), chat_bytes_}, {1, bytes},
-                    {common::chat_client_notifications_max, common::chat_client_notification_bytes_max})) { close(); return; }
-            chat_bytes_ += bytes; chat_buffered_.push_back(message); return;
+            if (!common::chat_budget_allows(
+                    {chat_notices_.size() + chat_buffered_.size(), chat_bytes_},
+                    {1, bytes},
+                    {common::chat_client_notifications_max,
+                     common::chat_client_notification_bytes_max})) {
+                close();
+                return;
+            }
+            chat_bytes_ += bytes;
+            chat_buffered_.push_back(message);
+            return;
         }
-        if (state->phase() != PHASE_ACTIVE || state->membership_generation() != message.membership_generation() ||
-            state->epoch().SerializeAsString() != message.epoch().SerializeAsString()) return;
+        if (state->phase() != PHASE_ACTIVE ||
+            state->membership_generation() != message.membership_generation() ||
+            state->epoch().SerializeAsString() !=
+                message.epoch().SerializeAsString())
+            return;
         auto& watermark = chat_watermarks_[index];
         if (message.channel_seq() <= watermark) return;
         if (message.channel_seq() != watermark + 1) {
             const auto k = message.epoch().channel().kind();
             chat_states_[index] = common::ChatState{};
             discard_chat(k);
-            common::ChatUnavailable notice; notice.set_kind(k); notice.set_reason(REASON_GAP); notice.set_rejoin_required(true);
-            queue_chat(notice); return;
+            common::ChatUnavailable notice;
+            notice.set_kind(k);
+            notice.set_reason(REASON_GAP);
+            notice.set_rejoin_required(true);
+            queue_chat(notice);
+            return;
         }
-        watermark = message.channel_seq(); queue_chat(message);
+        watermark = message.channel_seq();
+        queue_chat(message);
     }
     void apply_chat_state(const common::ChatState& state) {
         using namespace ::realmmesh::protocol::chat::v1;
+        // 查询暂时 BUSY/UNAVAILABLE 不撤销通知资格；显式 ChatUnavailable
+        // 才暂停它。
+        if (state.phase() != PHASE_ACTIVE) return;
         const auto index = chat_index(state.kind());
         const auto previous = chat_states_[index];
-        const bool changed = !previous || previous->membership_generation() != state.membership_generation() ||
-            previous->epoch().SerializeAsString() != state.epoch().SerializeAsString();
+        const bool changed = !previous ||
+                             previous->membership_generation() !=
+                                 state.membership_generation() ||
+                             previous->epoch().SerializeAsString() !=
+                                 state.epoch().SerializeAsString();
         chat_states_[index] = state;
         if (changed) {
             chat_watermarks_[index] = state.join_watermark();
             // 删除上一资格已排入的通知；首次取状态前的推送留到下方过滤。
             std::erase_if(chat_notices_, [&](const auto& value) {
-                if (const auto* m = std::get_if<common::ChatMessage>(&value); m && m->epoch().channel().kind() == state.kind() &&
-                    (m->membership_generation() != state.membership_generation() || m->epoch().SerializeAsString() != state.epoch().SerializeAsString())) {
-                    chat_bytes_ -= common::encode(*m).size(); return true;
+                if (const auto* m = std::get_if<common::ChatMessage>(&value);
+                    m && m->epoch().channel().kind() == state.kind() &&
+                    (m->membership_generation() !=
+                         state.membership_generation() ||
+                     m->epoch().SerializeAsString() !=
+                         state.epoch().SerializeAsString())) {
+                    chat_bytes_ -= common::encode(*m).size();
+                    return true;
                 }
                 return false;
             });
         }
         std::deque<common::ChatMessage> waiting;
         for (auto it = chat_buffered_.begin(); it != chat_buffered_.end();) {
-            if (it->epoch().channel().kind() != state.kind()) { ++it; continue; }
-            chat_bytes_ -= common::encode(*it).size(); waiting.push_back(std::move(*it)); it = chat_buffered_.erase(it);
+            if (it->epoch().channel().kind() != state.kind()) {
+                ++it;
+                continue;
+            }
+            chat_bytes_ -= common::encode(*it).size();
+            waiting.push_back(std::move(*it));
+            it = chat_buffered_.erase(it);
         }
-        for (const auto& m : waiting) chat_message(m);
+        for (const auto& m : waiting) {
+            if (!stream_) break;
+            chat_message(m);
+        }
     }
     std::deque<SceneNotice> notices_;
     std::size_t scene_bytes_{0};
@@ -568,8 +674,11 @@ private:
                 continue;
             }
             if (const auto chat_id = common::chat_message_id(*payload)) {
-                if (static_cast<std::uint32_t>(*chat_id) == expected && common::chat_request_id(*payload) == request_id) {
-                    exchange.status = RealmCallStatus::Ok; exchange.payload = std::move(*payload); return exchange;
+                if (static_cast<std::uint32_t>(*chat_id) == expected &&
+                    common::chat_request_id(*payload) == request_id) {
+                    exchange.status = RealmCallStatus::Ok;
+                    exchange.payload = std::move(*payload);
+                    return exchange;
                 }
                 continue;
             }

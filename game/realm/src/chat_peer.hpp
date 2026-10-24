@@ -24,14 +24,19 @@ struct Call {
 /// 帧线程拥有计数（含未取完成），IO 线程独占 stream/link。队列最多8个。
 class Peer final {
 public:
-    Peer(RealmConfig::ChatClient, RealmConfig::ChatTarget, std::string incarnation);
+    Peer(
+        RealmConfig::ChatClient,
+        RealmConfig::ChatTarget,
+        std::string incarnation);
     ~Peer();
-    std::optional<std::future<Completion>> submit(common::ChatInternalRequest, Clock::time_point);
+    std::optional<std::future<Completion>> submit(
+        common::ChatInternalRequest, Clock::time_point);
     std::vector<common::ChatInternalPush> drain(std::size_t max);
     void collected() { --outstanding_; }
     std::uint64_t revision() const { return revision_.load(); }
     void invalidate() { reset_ = true; }
     const RealmConfig::ChatTarget target;
+
 private:
     void run(std::stop_token);
     void disconnect();
@@ -41,8 +46,9 @@ private:
     void push(common::ChatInternalPush);
     RealmConfig::ChatClient config_;
     std::string incarnation_;
-    concurrency::BoundedQueue<Call> calls_{common::chat_queued_requests_per_link_max};
-    std::size_t outstanding_{0}; // 仅帧线程；完成未取走不归还。
+    concurrency::BoundedQueue<Call> calls_{
+        common::chat_queued_requests_per_link_max};
+    std::size_t outstanding_{0};  // 仅帧线程；完成未取走不归还。
     std::atomic_uint64_t revision_{0};
     std::atomic_bool reset_{false};
     std::mutex mutex_;
@@ -55,4 +61,4 @@ private:
     std::uint64_t next_id_{1};
     std::jthread thread_;
 };
-}
+}  // namespace realm::game::realm::chat_detail

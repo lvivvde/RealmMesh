@@ -1,12 +1,12 @@
 #include "realmmesh/game/realm/realm_sessions.hpp"
 
 #include "realmmesh/edge/edge_runtime.hpp"
+#include "realmmesh/game/common/chat_protocol.hpp"
 #include "realmmesh/game/common/edge_protocol.hpp"
 #include "realmmesh/game/common/scene_protocol.hpp"
 #include "realmmesh/game/realm/character_name.hpp"
-#include "realmmesh/game/realm/realm_scenes.hpp"
 #include "realmmesh/game/realm/realm_chat.hpp"
-#include "realmmesh/game/common/chat_protocol.hpp"
+#include "realmmesh/game/realm/realm_scenes.hpp"
 #include "realmmesh/game/realm/training_rule.hpp"
 #include "realmmesh/observability/logger.hpp"
 
@@ -43,8 +43,10 @@ RealmSessions::RealmSessions(
     RealmOutbox& outbox,
     const RealmConfig& config,
     observability::Logger* logger,
-    RealmScenes* scenes, RealmChat* chat)
-    : scenes_(scenes), chat_(chat),
+    RealmScenes* scenes,
+    RealmChat* chat)
+    : scenes_(scenes),
+      chat_(chat),
       store_(store),
       rule_(rule),
       outbox_(outbox),
@@ -100,13 +102,20 @@ bool RealmSessions::handle(
         const auto type = static_cast<int>(*common::chat_message_id(payload));
         if (type != 1701 && type != 1703) return false;
         if (found->second.phase != RealmSessionPhase::InGame) {
-            send_error(id, common::chat_request_id(payload).value_or(0),
-                common::chat_error_character_not_selected, "character not selected");
+            send_error(
+                id,
+                common::chat_request_id(payload).value_or(0),
+                common::chat_error_character_not_selected,
+                "character not selected");
             return true;
         }
-        if (!common::decode_get_chat_state(payload) && !common::decode_send_chat(payload)) {
-            send_error(id, common::chat_request_id(payload).value_or(0),
-                common::chat_error_invalid_request, "invalid chat request");
+        if (!common::decode_get_chat_state(payload) &&
+            !common::decode_send_chat(payload)) {
+            send_error(
+                id,
+                common::chat_request_id(payload).value_or(0),
+                common::chat_error_invalid_request,
+                "invalid chat request");
             return true;
         }
         return chat_ && chat_->handle(id, payload);

@@ -16,4 +16,4 @@ public:
         const common::SendChat&, TimePoint deadline) = 0;
     virtual std::optional<ChatNotice> poll_chat(TimePoint deadline) = 0;
 };
-}
+}  // namespace realm::game::client

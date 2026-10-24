@@ -3,10 +3,10 @@
 #include "realmmesh/cluster/budget_publisher.hpp"
 #include "realmmesh/cluster/service_resolver.hpp"
 #include "realmmesh/game/common/player_data_store.hpp"
+#include "realmmesh/game/realm/realm_chat.hpp"
 #include "realmmesh/game/realm/realm_config_lua.hpp"
 #include "realmmesh/game/realm/realm_frame.hpp"
 #include "realmmesh/game/realm/realm_scenes.hpp"
-#include "realmmesh/game/realm/realm_chat.hpp"
 #include "realmmesh/game/realm/realm_sessions.hpp"
 #include "realmmesh/game/realm/training_rule.hpp"
 #include "realmmesh/service_host/edge_service_module.hpp"
@@ -57,14 +57,16 @@ public:
         config.chat.discovery_enabled = discovery.enabled;
         config.chat.discovery_endpoint = discovery.endpoint;
         config.chat.discovery_prefix = discovery.key_prefix;
-        chat_ = std::make_unique<RealmChat>(*outbox_, config, context.metrics, scenes_.get());
+        chat_ = std::make_unique<RealmChat>(
+            *outbox_, config, context.metrics, scenes_.get());
         sessions_ = std::make_unique<RealmSessions>(
             *characters_,
             *training_rule_,
             *outbox_,
             config,
             &logger(),
-            scenes_.get(), chat_.get());
+            scenes_.get(),
+            chat_.get());
         frame_ = std::make_unique<RealmFrame>(
             config.max_events_per_frame, conn_capacity, *sessions_);
     }
@@ -131,7 +133,10 @@ RealmConfig load_realm_config(const service_host::LayeredConfig& config) {
             config.resolve_path(realm.scene.private_key_file).string();
     }
     if (realm.chat.enabled) {
-        for (auto* path : {&realm.chat.ca_file, &realm.chat.certificate_file, &realm.chat.private_key_file})
+        for (auto* path :
+             {&realm.chat.ca_file,
+              &realm.chat.certificate_file,
+              &realm.chat.private_key_file})
             if (!path->empty()) *path = config.resolve_path(*path).string();
     }
     common::resolve_player_data_paths(realm.player_data, config.config_root());

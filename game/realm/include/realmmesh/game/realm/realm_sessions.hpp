@@ -76,7 +76,8 @@ public:
         RealmOutbox& outbox,
         const RealmConfig& config,
         observability::Logger* logger = nullptr,
-        RealmScenes* scenes = nullptr, RealmChat* chat = nullptr);
+        RealmScenes* scenes = nullptr,
+        RealmChat* chat = nullptr);
     ~RealmSessions();
 
     RealmSessions(const RealmSessions&) = delete;
