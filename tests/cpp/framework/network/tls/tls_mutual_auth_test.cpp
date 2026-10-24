@@ -15,9 +15,11 @@ std::string identity(std::string_view file) {
 }
 class MutualTlsTest : public ::testing::Test {
 protected:
+    virtual std::size_t receive_budget() const { return 0; }
     void SetUp() override {
         TransportConfig config;
         config.name = "internal";
+        config.max_receive_batch_bytes = receive_budget();
         config.listen_address = "127.0.0.1";
         config.tls = TransportConfig::TlsServerIdentity{
             .certificate_chain_file = identity("scene.pem"),
@@ -73,6 +75,24 @@ protected:
     std::atomic_int messages_{0};
     std::jthread worker_;
 };
+class BoundedMutualTlsTest : public MutualTlsTest {
+protected:
+    std::size_t receive_budget() const override { return 32; }
+};
+TEST_F(BoundedMutualTlsTest, BufferedTlsInputContinuesAcrossPollBudgetsWithoutNewSocketBytes) {
+    const auto deadline = std::chrono::steady_clock::now() + 3s;
+    const auto result = client::TlsClientStream::dial("127.0.0.1", port_, options(), deadline);
+    ASSERT_TRUE(result.ok()); client::EdgeClientConnection wire(result.stream);
+    for (int i = 1; i <= 3; ++i) {
+        const std::vector<std::byte> payload(2048, static_cast<std::byte>(i));
+        ASSERT_TRUE(wire.send_frame(payload, deadline));
+    }
+    for (int i = 1; i <= 3; ++i) {
+        const auto received = wire.receive_frame(deadline); ASSERT_TRUE(received);
+        EXPECT_EQ(*received, std::vector<std::byte>(2048, static_cast<std::byte>(i)));
+    }
+    EXPECT_EQ(messages_, 3);
+}
 TEST_F(MutualTlsTest, DedicatedCaAndExactBothPeerIdentitiesAllowFrames) {
     ASSERT_TRUE(roundtrip(options()));
     EXPECT_EQ(opened_, 1);

@@ -34,6 +34,8 @@ struct TransportConfig {
     std::size_t max_sessions{1024};
     std::size_t max_payload_size{64 * 1024};
     std::size_t max_pending_output_bytes{4 * 1024 * 1024};
+    // 0 保持原有读取策略；非零时限制每连接每轮解密读取字节数。
+    std::size_t max_receive_batch_bytes{0};
     std::optional<TlsServerIdentity> tls;
     std::chrono::milliseconds handshake_timeout{3'000};
     std::chrono::milliseconds idle_timeout{30'000};

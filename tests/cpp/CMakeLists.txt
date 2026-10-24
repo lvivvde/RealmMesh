@@ -34,6 +34,7 @@ add_subdirectory(game/login_verify)
 add_subdirectory(game/queue)
 add_subdirectory(game/realm)
 add_subdirectory(game/scene)
+add_subdirectory(game/chat)
 add_subdirectory(tools/loadgen)
 
 # 跨切面:不属于任何单个源码目录的测试入口。

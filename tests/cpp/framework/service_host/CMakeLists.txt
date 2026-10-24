@@ -43,7 +43,9 @@ realm_add_gtest(config_headers_test
 # 各服务节段经各自服务模块的装载入口读取(ADR-0014)。
 realm_add_gtest(configs_load_smoke_test
     SOURCES configs_load_smoke_test.cpp
+    INCLUDE_DIRS ${PROJECT_SOURCE_DIR}/tests/cpp/support/include
     LIBS realm_service_host
+        realm_game_chat
         realm_gateway_service
         realm_game_realm
         realm_login_verify_service

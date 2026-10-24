@@ -1,7 +1,7 @@
 # 独立 Chat 与在线频道参考闭环
 
 - 日期：2026-10-23；路线图阶段 5；跟踪父任务 [#175](https://github.com/lvivvde/RealmMesh/issues/175)。
-- 状态：规格PR #181已合并；C1（#176）协议/严格编解码已落地，C2–C5尚未实现；本文不声明运行、跨机器或容量验收通过。
+- 状态：规格PR #181已合并；C1（#176）协议/严格编解码已落地，C2（#177）独立服务/排序者已落地，C3–C5尚未实现；本文不声明运行、跨机器或容量验收通过。
 - 前置：Scene S1–S5 已合并，父任务 #160 完成；验收见 [Scene S5 记录](../research/scene-s5-acceptance-2026-10-23.md)。
 - 术语见 [CONTEXT](../../CONTEXT.md)，受理与排序边界见 [ADR-0016](../adr/0016-chat-online-channel-order-and-receipt.md)。
 
@@ -114,7 +114,7 @@ SEND 绑定当前资格、预期 Epoch、序号及原始 UTF-8 文本；Chat Rec
 ## 线协议与内部认证计划
 
 C1已在`chat/v1/chat.proto`定义以下契约，客户端1701–1706、内部1801–1803；字段、有限原因、
-错误码3201/3202、计数和字节上限以[protocol.md](../protocol.md)及proto为准。尚无运行时接线。
+错误码3201/3202、计数和字节上限以[protocol.md](../protocol.md)及proto为准。C2已实现内部服务监听和排序，Realm/客户端接线仍待C3。
 
 | 客户端概念消息 | 必需内容 |
 |---|---|
@@ -138,7 +138,7 @@ proto 及 framework，不相互 include/链接，也不依赖 game/client（ADR-
 
 ## 有界资源与故障隔离
 
-首版上限已由C1在`chat_limits.hpp`固化，C2/C3负责配置接线和运行时记账；这些是资源限制，不是容量测量：
+首版上限已由C1在`chat_limits.hpp`固化，C2已实现服务端配置和记账，Realm侧接线与记账待C3；这些是资源限制，不是容量测量：
 
 | 资源 | 上限与处理 |
 |---|---|
@@ -204,5 +204,4 @@ C5以所选preset的实际binaryDir生成冻结报告，记录源码/工作树�
 | [C5 #180](https://github.com/lvivvde/RealmMesh/issues/180) | 组合故障矩阵与阶段总验收 | 上述全部边界、两平台全量与各三次完整验收、CI、原始归档、文档和双轴复审齐备 | C4 |
 
 父任务[#175](https://github.com/lvivvde/RealmMesh/issues/175)登记了上述五张实施票；C2–C5已建立
-对前一步的原生阻塞关系。C1只交付线契约、结构校验与资源边界，JOIN/LEAVE竞态、
-SEND幂等、真实mTLS与排序由C2验证，Realm授权/异步隔离由C3验证。
+对前一步的原生阻塞关系。C1只交付线契约、结构校验与资源边界，C2已验证JOIN/LEAVE竞态、SEND幂等、真实mTLS与排序；Realm授权/异步隔离仍待C3验证。

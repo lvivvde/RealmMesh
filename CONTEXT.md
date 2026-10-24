@@ -25,7 +25,7 @@ _Avoid_: driver、provider
 ### Cluster
 
 **Service Instance**:
-一个服务进程在 etcd 里的一次注册:身份(服务名即 `realm::cluster::ServiceType` 字符串,当前线名 gateway/realm/login_verify/queue/scene)、instance_id 与端点列表,随租约存活。
+一个服务进程在 etcd 里的一次注册:身份(服务名即 `realm::cluster::ServiceType` 字符串,当前线名 gateway/realm/login_verify/queue/scene/chat)、instance_id 与端点列表,随租约存活。
 _Avoid_: node(node_id 指承载它的机器)、endpoint(端点只是实例的字段)
 
 **Service Module**:
