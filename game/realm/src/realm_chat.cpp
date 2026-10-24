@@ -57,7 +57,7 @@ class RealmChat::State {
         std::uint64_t watermark{0};
         std::deque<common::ChatMessage> buffered;
         std::size_t bytes{0};
-        std::optional<common::SendChat> charged;
+        std::optional<common::SendChat> charged, accepted;
     };
     struct CharacterBudget {
         double tokens{common::chat_send_burst};
@@ -257,7 +257,8 @@ public:
             return true;
         }
         bool charged = false;
-        if (send && (!slot.charged || !same(*slot.charged, *send))) {
+        if (send && (!slot.charged || !same(*slot.charged, *send)) &&
+            (!slot.accepted || !same(*slot.accepted, *send))) {
             const auto now = Clock::now();
             session->budget->tokens = std::min(
                 double(common::chat_send_burst),
@@ -568,6 +569,7 @@ private:
                                        : wire::REASON_UNAVAILABLE);
             send_result(s.id, value, p.request_id);
             if (ok && value.outcome() == wire::OUTCOME_ACCEPTED) {
+                slot.accepted = *p.send;
                 slot.state.set_last_client_send_seq(value.client_send_seq());
                 *slot.state.mutable_last_receipt() = value.receipt();
             }

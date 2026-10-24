@@ -498,12 +498,16 @@ private:
             const auto unavailable = common::decode_scene_unavailable(payload))
             value = *unavailable;
         if (!value) return false;
-        if (notices_.size() >= 256 ||
-            payload.size() > 256 * 1024 - scene_bytes_) {
+        const auto bytes = std::visit(
+            [](const auto& message) {
+                return common::encode(message).size();
+            },
+            *value);
+        if (notices_.size() >= 256 || bytes > 256 * 1024 - scene_bytes_) {
             close();
             return true;
         }
-        scene_bytes_ += payload.size();
+        scene_bytes_ += bytes;
         notices_.push_back(std::move(*value));
         return true;
     }

@@ -302,6 +302,30 @@ TEST_F(
     }));
     EXPECT_EQ(pushes(1), 0);
 }
+TEST_F(
+    RealmChatTest,
+    LastAcceptedReplayBypassesRateBudgetAfterRejectedDifferentRequest) {
+    chat_->selected({1}, 11);
+    const auto a = state(1);
+    const auto original = send(a, 1);
+    const auto receipt = perform(1, original);
+    ASSERT_EQ(receipt.outcome(), wire::OUTCOME_ACCEPTED);
+    bool exhausted = false;
+    for (int i = 0; i < 64; ++i) {
+        const auto rejected =
+            perform(1, send(a, 3, "invalid gap " + std::to_string(i)));
+        if (rejected.reason() == wire::REASON_RATE_LIMITED) {
+            exhausted = true;
+            break;
+        }
+    }
+    ASSERT_TRUE(exhausted);
+    const auto replay = perform(1, original);
+    ASSERT_EQ(replay.outcome(), wire::OUTCOME_ACCEPTED);
+    EXPECT_EQ(
+        replay.receipt().SerializeAsString(),
+        receipt.receipt().SerializeAsString());
+}
 TEST_F(RealmChatTest, RapidDisplacementKeepsCharacterRateBudget) {
     chat_->selected({1}, 11);
     const auto a = state(1);
