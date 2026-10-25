@@ -99,7 +99,7 @@ Scene 按稳定 shard_id 持有至多两个状态机；角色 Route 带承载版
 完成后实例业务停用，管理端点与发现注册保留供核对，再由运维停止进程；不会提前注销伪造完成。
 
 
-## Chat独立服务与频道排序（C1–C2）
+## Chat独立服务与频道排序（C1–C3）
 
 C1（#176、PR #182）已合并。C2（#177）新增`game/chat`，仅由`apps/mesh_host`注册`chat`
 模块。`ChatConfig`是轻量值，Lua解析留在实现文件；`ChatChannels`由Chat帧单线程拥有，
@@ -126,7 +126,28 @@ TLS新增可选`max_receive_batch_bytes`原生预算，默认0保留既有策略
 预算结束后，下一poll会继续消费SSL已缓冲输入，不依赖新的fd可读事件。它是通用传输工作量
 约束，framework仍不认识Chat字段或身份。运行方式见[Chat服务说明](operations/chat-service.md)。
 C2覆盖真实生产进程mTLS、etcd、SIGKILL/同名重启、正常停止与单帧TLS输出预算拒绝；真实慢端
-积压饱和、双Scene/双Chat、转场和组合故障矩阵仍待C3–C5，不能据C2宣称整阶段完成。
+积压饱和、双Scene/双Chat转场和组合故障矩阵仍待C4–C5，不能据C2宣称整阶段完成。
+
+### Realm异步接入与参考客户端（C3）
+
+`RealmChat`由Realm帧维护最多64个角色（待撤销/未收完成也占名额）、每角色两个资格。
+`RealmSessions`在选角、关闭和顶替时通知它；客户端只选择频道种类，资格中的角色、会话绑定、
+Realm incarnation与Scene Binding由服务端派生。`RealmScenes::chat_binding`以原子共享快照发布
+已确认且已激活的归属；接纳转场后立即暂停源Scene Channel，Chat清理不参与场景持久流程。
+旧资格撤销/在途完成结算前不安装第三个资格，顶替的新会话有界等待旧资格退出。
+
+每个配置承载有独立`chat_detail::Peer` IO线程、8项排队及64项总在途预算，完成未被帧取走
+不归还预算。帧不执行连接、发现或读写等待；开启发现时只在连接IO中查精确Chat实例，仍校验
+CA、精确SAN及HELLO，缺失不选其他承载。总截止1秒含排队/发现/认证，业务操作在剩余窗口内
+至多同号/原参数重试一次；失败链路使旧资格失效，旧SEND不能在重连链路派发。加入最多自动
+尝试3次，之后显式GetChatState才重启有限尝试。角色令牌桶跨两频道/承载合计5条/秒、突发10；顶替/重登继承同角色预算，离线桶保留至完整回填后才回收，最多64个。
+
+JOIN完成前保留后续推送；每客户端缓存同时限制256项/256KiB，按完整资格、Epoch与原W过滤。
+帧交付推进通知水位，SEND回执不推进；缺口/溢出明确暂停并重新加入。EdgeRuntime与TLS仍沿用
+各自出站预算，TLS满额关闭该Realm Session。客户端`RealmSession::chat()`提供窄`ChatSession`，
+复用既有连接，分别保留Scene及Chat通知，两个缓存均按数量/字节限制；等待心跳、训练或场景
+回包不会吞掉Chat推送。客户端发现缺口发ChatUnavailable，缓存满则关闭会话；原Unknown遇到
+旧资格重试被拒仍保持Unknown，不自动换号/资格重放。运行与测试见[接入说明](operations/realm-chat.md)。
 
 ## 目标业务拓扑（规划中）
 
@@ -154,7 +175,7 @@ Chat 故障不阻断场景业务。聊天记录与离线补投不在已承诺范
 阶段5的[Chat规格](specs/2026-10-23-chat-reference-loop.md)按C1–C5推进；C1（#176）已在
 `proto/realmmesh/chat/v1/chat.proto`定义客户端1701–1706与内部1801–1803，
 `game/common/chat_protocol`负责严格编解码，`chat_limits.hpp`只暴露轻量资源常量与计数/字节
-预留检查。内部与客户端编号白名单独立，C2已注册独立服务并实现认证和排序者，C3 Realm/客户端接线尚未实现；C1结构校验不代替
+预留检查。内部与客户端编号白名单独立，C2已注册独立服务并实现认证和排序者，C3 已接通 Realm/客户端的单 Chat 闭环；C1结构校验不代替
 C2认证和幂等状态机，也不代替C3的当前会话/选角/场景权限核对。
 规格由Realm派生成员资格，每频道静态指定一个Chat排序者；Chat轮次内的在线受理不等于持久
 送达，重启/缺口显式重新加入，转场不等待Chat。依据见[ADR-0016](adr/0016-chat-online-channel-order-and-receipt.md)。
@@ -358,7 +379,7 @@ DevServices 用例使用独立数据库；各测试回收自己的服务，守�
 | `login_verify` | `game/login_verify` 的 `make_login_verify_module` | 已接线,HTTPS 服务边(端口见服务配置) |
 | `queue` | `game/queue` 的 `make_queue_module` | 已接线,HTTPS 服务边,排队调度(端口见服务配置) |
 | `scene` | `game/scene` 的 `make_scene_module` | 已接线,独立 mTLS 内部服务,静态或动态分片 |
-| `chat` | `game/chat` 的 `make_chat_module` | C2独立mTLS服务/频道排序者，Realm业务接线待C3 |
+| `chat` | `game/chat` 的 `make_chat_module` | 独立mTLS服务/频道排序者；C3 Realm 异步接线 |
 
 旧 Login 链路(身份 `login`、端口 7000,以及登录票据与网关重入消息)已整体退役,
 线名 `login` 永不复用。

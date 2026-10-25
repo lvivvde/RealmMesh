@@ -30,7 +30,7 @@ flowchart LR
 - **业务服 `realm`**：EnterRealm 票据兑换点与客户端长连接落点；Realm Session 内完成
   角色列表、创建、选择与训练（Lua 规则，序号幂等），同账号新会话顶掉旧会话；选角后可显式进入 Scene。
 - **场景服务 `scene`**：独立 mTLS 服务，支持进入、移动互见、双实例转场、动态承载与排空；
-  Realm 持久确认后才广播。独立 Chat 已有C2服务与排序者，Realm/客户端接线仍待C3。
+  Realm 持久确认后才广播。独立 Chat 已有服务、排序者及 C3 Realm 异步路由/参考客户端闭环，双承载故障矩阵待 C4–C5。
 - **边缘 CDN/WAF**：只定契约（验签放行、DDoS 防护），不在本仓库实现；边缘验签是
   能力分级优化，健全服/排队服/网关的本地验签不可省略。
 - 业务消息为 4 字节大端长度 + Protobuf `Envelope`（上限 64KiB）；不支持裸 TCP/UDP、
@@ -81,7 +81,7 @@ flowchart LR
 | 开发 Supervisor 停止信号与进程回收（#143/#129） | 已修复解析竞态及 wait 再次中断后的提前清理；逆序停止与真实进程回收证据见[诊断记录](docs/research/dev-services-signal-stop.md) |
 | 四层依赖方向（ADR-0014）第 1–5 步：客户端库 `framework/client` 迁入 `game/client`；Gateway 来源地址归一化与凭据入口拆头；边缘连接运行时迁入 `framework/edge`（`EdgeRuntime`、Edge Connection）；通用 `ServiceHost` + `ServiceModule` 注册表，`ServiceType` 改为字符串，四个服务模块迁入各自服务目录，`ServiceFrame` 拆为 `GatewayFrame` 与 `RealmFrame`（#152） | 已完成，`framework/service_host` 不依赖任何 `game/*`，Realm 不依赖 `game/gateway`；`layering_guard_test` 白名单已清空并移除，任何反向依赖都直接失败 |
 | Scene 参考业务：协议与持久边界、双人移动互见、双实例转场、动态加入与排空 | [规格与任务拆分](docs/specs/2026-10-17-scene-reference-loop.md)已完成；S1 协议/编解码与 MongoDB 场景条件写原语（#161）已实现；S2 独立 Scene、双人移动互见与 mTLS 已实现（#162）；S3 双实例转场与归属恢复已实现（#163）；S4 动态加入、共享分片承载 CAS、同分片重建与有身份校验的排空已实现（#164）；S5 组合故障矩阵、真实背压与严格验收已完成并合并（#165、PR #174）；[双平台全量、各三轮验收与归档记录](docs/research/scene-s5-acceptance-2026-10-23.md) |
-| 独立 Chat 在线频道与故障隔离 | [阶段 5 规格提案与 C1–C5 拆分](docs/specs/2026-10-23-chat-reference-loop.md)（[#175](https://github.com/lvivvde/RealmMesh/issues/175)）；C1（#176）已合并；C2（#177）实现独立Chat、mTLS、频道排序/资格/回执及有界分发；Realm/客户端接线与双实例故障验收待C3–C5 |
+| 独立 Chat 在线频道与故障隔离 | [阶段 5 规格提案与 C1–C5 拆分](docs/specs/2026-10-23-chat-reference-loop.md)（[#175](https://github.com/lvivvde/RealmMesh/issues/175)）；C1（#176）已合并；C2（#177）实现独立Chat、mTLS、频道排序/资格/回执及有界分发；C3（#178）接通 Realm 独立有界 IO、选角/场景资格和参考客户端状态/发送/通知；双实例故障验收待 C4–C5 |
 
 旧 `Login → Realm 选角 → Gateway 入场` 链路已整体退役：`login` 服务身份、7000 端口与
 旧入场消息编号都已删除，线名 `login` 永不复用（见[架构文档](docs/architecture.md)）。

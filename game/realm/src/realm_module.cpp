@@ -3,6 +3,7 @@
 #include "realmmesh/cluster/budget_publisher.hpp"
 #include "realmmesh/cluster/service_resolver.hpp"
 #include "realmmesh/game/common/player_data_store.hpp"
+#include "realmmesh/game/realm/realm_chat.hpp"
 #include "realmmesh/game/realm/realm_config_lua.hpp"
 #include "realmmesh/game/realm/realm_frame.hpp"
 #include "realmmesh/game/realm/realm_scenes.hpp"
@@ -51,13 +52,21 @@ public:
         outbox_ = std::make_unique<EdgeRuntimeRealmOutbox>(runtime());
         scenes_ = std::make_unique<RealmScenes>(
             *characters_, *outbox_, config, context.metrics, characters_.get());
+        config.chat.realm_instance_id = context.instance_id;
+        const auto& discovery = context.config.host().service_discovery;
+        config.chat.discovery_enabled = discovery.enabled;
+        config.chat.discovery_endpoint = discovery.endpoint;
+        config.chat.discovery_prefix = discovery.key_prefix;
+        chat_ = std::make_unique<RealmChat>(
+            *outbox_, config, context.metrics, scenes_.get());
         sessions_ = std::make_unique<RealmSessions>(
             *characters_,
             *training_rule_,
             *outbox_,
             config,
             &logger(),
-            scenes_.get());
+            scenes_.get(),
+            chat_.get());
         frame_ = std::make_unique<RealmFrame>(
             config.max_events_per_frame, conn_capacity, *sessions_);
     }
@@ -106,6 +115,7 @@ private:
     std::unique_ptr<TrainingRule> training_rule_;
     std::unique_ptr<RealmOutbox> outbox_;
     std::unique_ptr<RealmScenes> scenes_;
+    std::unique_ptr<RealmChat> chat_;
     std::unique_ptr<RealmSessions> sessions_;
     std::unique_ptr<RealmFrame> frame_;
 };
@@ -121,6 +131,13 @@ RealmConfig load_realm_config(const service_host::LayeredConfig& config) {
             config.resolve_path(realm.scene.certificate_file).string();
         realm.scene.private_key_file =
             config.resolve_path(realm.scene.private_key_file).string();
+    }
+    if (realm.chat.enabled) {
+        for (auto* path :
+             {&realm.chat.ca_file,
+              &realm.chat.certificate_file,
+              &realm.chat.private_key_file})
+            if (!path->empty()) *path = config.resolve_path(*path).string();
     }
     common::resolve_player_data_paths(realm.player_data, config.config_root());
     return realm;

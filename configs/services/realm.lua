@@ -26,6 +26,16 @@ return {
             targets = {}, -- { { shard_id = 2, host = "127.0.0.1", port = 7201,
             -- instance_id = "scene-dev-02", server_identity = "scene-dev-02.scene.service", entry_x = 0, entry_y = 0 } }
         },
+        -- Chat 独立 IO；默认拓扑不依赖 Chat。
+        chat = {
+            enabled = false,
+            ca_file_environment = "REALMMESH_SERVICE_CA_FILE",
+            certificate_file_environment = "REALMMESH_REALM_CERTIFICATE_FILE",
+            private_key_file_environment = "REALMMESH_REALM_PRIVATE_KEY_FILE",
+            targets = { { instance_id = "chat-dev-01",
+                server_identity = "chat-dev-01.chat.service",
+                host = "127.0.0.1", port = 7300, channels = {0, 1, 2} } },
+        },
         data_workers = 4,
         data_capacity = 256,
         max_pending_per_session = 16,

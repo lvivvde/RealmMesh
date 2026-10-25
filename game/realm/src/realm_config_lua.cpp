@@ -140,6 +140,80 @@ RealmConfig parse_realm_config(const sol::table& root) {
             }
         }
     }
+    const auto chat = table.raw_get<sol::object>("chat");
+    if (chat != sol::lua_nil) {
+        if (!chat.is<sol::table>())
+            throw std::invalid_argument("realm.chat must be table");
+        const auto options = chat.as<sol::table>();
+        const auto enabled = options.raw_get<sol::object>("enabled");
+        if (enabled != sol::lua_nil && !enabled.is<bool>())
+            throw std::invalid_argument("realm.chat.enabled must be boolean");
+        config.chat.enabled = options.get_or("enabled", false);
+        if (config.chat.enabled) {
+            const auto path = [&](const char* field) {
+                const auto direct = options.get_or(field, std::string{});
+                if (!direct.empty()) return direct;
+                const auto env = options.get_or(
+                    std::string(field) + "_environment", std::string{});
+                const char* value =
+                    env.empty() ? nullptr : std::getenv(env.c_str());
+                // 缺少认证材料只使 Chat 不可用，不能阻塞 Realm 启动。
+                return value ? std::string(value) : std::string{};
+            };
+            config.chat.ca_file = path("ca_file");
+            config.chat.certificate_file = path("certificate_file");
+            config.chat.private_key_file = path("private_key_file");
+            const auto targets = options.raw_get<sol::object>("targets");
+            if (!targets.is<sol::table>())
+                throw std::invalid_argument("chat.targets must be array");
+            const auto list = targets.as<sol::table>();
+            for (std::size_t i = 1; i <= list.size(); ++i) {
+                const auto item = list.raw_get<sol::object>(i);
+                if (!item.is<sol::table>())
+                    throw std::invalid_argument("invalid Chat target");
+                const auto t = item.as<sol::table>();
+                RealmConfig::ChatTarget value;
+                value.instance_id = t.get_or("instance_id", value.instance_id);
+                value.server_identity =
+                    t.get_or("server_identity", value.server_identity);
+                value.host = t.get_or("host", value.host);
+                const auto port = optional_positive(t, "port", value.port);
+                if (port > 65535)
+                    throw std::invalid_argument("invalid Chat port");
+                value.port = static_cast<std::uint16_t>(port);
+                const auto channels = t.raw_get<sol::object>("channels");
+                if (!channels.is<sol::table>())
+                    throw std::invalid_argument("Chat channels must be array");
+                value.channels.clear();
+                const auto c = channels.as<sol::table>();
+                for (const auto& entry : c) {
+                    if (!entry.first.is<lua_Integer>() ||
+                        entry.first.as<lua_Integer>() < 1 ||
+                        static_cast<std::size_t>(
+                            entry.first.as<lua_Integer>()) > c.size() ||
+                        !entry.second.is<lua_Integer>() ||
+                        entry.second.as<lua_Integer>() < 0 ||
+                        entry.second.as<lua_Integer>() > 2)
+                        throw std::invalid_argument("invalid Chat channel");
+                    value.channels.push_back(static_cast<std::uint64_t>(
+                        entry.second.as<lua_Integer>()));
+                }
+                config.chat.targets.push_back(std::move(value));
+            }
+            std::size_t count = 0;
+            for (const auto& item : list) {
+                ++count;
+                if (!item.first.is<lua_Integer>() ||
+                    item.first.as<lua_Integer>() < 1 ||
+                    static_cast<std::size_t>(item.first.as<lua_Integer>()) >
+                        list.size())
+                    throw std::invalid_argument(
+                        "chat.targets must be dense array");
+            }
+            if (count != config.chat.targets.size())
+                throw std::invalid_argument("invalid Chat targets");
+        }
+    }
     config.player_data = common::parse_player_data_config(root);
     return config;
 }

@@ -189,7 +189,7 @@ _Avoid_: Gateway 聊天、消息存储服务、消息总线
 _Avoid_: channel（裸称，容易与传输混淆）、Scene Shard（空间状态的归属）、全服广播（未说明 Realm 范围）
 
 **Chat Membership**（聊天成员资格）:
-一个角色在单个 Chat Channel 中的当前在线收发资格，归属于该角色的 Realm Session。
+一个角色在单个 Chat Channel 中的当前在线收发资格，归属于该角色的 Realm Session；Scene Channel 还受当前已激活 Scene Binding 约束，Realm Channel 不随转场更换。
 _Avoid_: Scene Binding（场景状态归属）、好友关系、订阅凭据（不代表可转交的授权）
 
 **Chat Channel Epoch**（聊天频道轮次）:
@@ -197,7 +197,7 @@ _Avoid_: Scene Binding（场景状态归属）、好友关系、订阅凭据（�
 _Avoid_: Scene incarnation、全局消息序号、历史版本
 
 **Chat Receipt**（聊天回执）:
-说明消息已被频道受理并取得顺序的回执；不表示其他角色已收到或阅读，也不表示可离线恢复。
+说明消息已被频道受理并取得顺序的回执；它与接收者独立推进的通知水位不同，不表示其他角色已收到或阅读，也不表示可离线恢复。
 _Avoid_: 已送达、已读、持久提交
 
 ### Messaging

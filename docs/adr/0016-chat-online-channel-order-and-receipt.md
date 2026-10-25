@@ -20,4 +20,4 @@ Realm派生角色和成员资格，Chat只从已认证Realm链路受理，不让
 
 此决策不更改ADR-0011的权威玩家数据源或ADR-0015的场景持久语义；Gateway仍只登录
 （ADR-0005），服务之间仍不互相include/链接（ADR-0014）。详细失败边界与C1–C5见
-[Chat规格](../specs/2026-10-23-chat-reference-loop.md)。规格PR #181已合并，本ADR已接受；C1落实线契约，C2实现内部服务和排序状态机；Realm接线、双实例及组合故障边界尚待C3–C5验证。
+[Chat规格](../specs/2026-10-23-chat-reference-loop.md)。规格PR #181已合并，本ADR已接受；C1落实线契约，C2实现内部服务和排序状态机；C3实现Realm异步接线与参考客户端单Chat闭环；双实例及组合故障边界尚待C4–C5验证。
