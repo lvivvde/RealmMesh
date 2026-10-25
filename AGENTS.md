@@ -29,6 +29,7 @@ Linux 是生产基线，始终编入 QUIC；macOS 是开发基线，装了 Homeb
 - 添加测试前读 `tests/README.md`（位置、注册、标签、入口）。
 - 编辑循环用 `./scripts/test-fast.sh`（只建、只跑 `unit`）。阶段完成，或改了公共头、跨模块、网络、协议、存储行为时，`./scripts/build.sh` 全绿才算验证完成；未验证项在说明里列出。
 - macOS CI 比开发机慢数倍：负载（连接数、迭代、载荷）在 `__APPLE__` 下缩小，Linux 保持全量。macOS CI 的 `Timeout` 也可能是测试崩溃后孤儿子进程占住 ctest 输出管道，先读日志再缩数据。
+- 跑 CRAP（crapper）、重复代码（dryer）或变异测试（mutator）前读 `docs/agents/quality-checks.md`。
 
 ## 收尾
 
