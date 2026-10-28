@@ -2,8 +2,8 @@
 
 # 供脚本定位 mongod / mongosh(ADR-0011)。查找顺序:
 #   1. REALMMESH_MONGOD_BINARY / REALMMESH_MONGOSH_BINARY 显式覆盖;
-#   2. PATH —— macOS 开发机用 Homebrew 安装的 mongodb-community 与 mongosh;
-#   3. ./scripts/install-mongodb.sh 装到 .tools/ 的 Linux 固定版本(CI 用)。
+#   2. PATH —— 系统已装的 mongod / mongosh(macOS 即 Homebrew 的 mongodb-community);
+#   3. ./scripts/install-mongodb.sh 装到 .tools/ 的 Linux 固定版本(Linux 开发机与 CI 用)。
 # 与 tests/cpp/support 下 MongodProcess 夹具的查找顺序一致。
 #
 # 约定：调用方先设置 realmmesh_mongodb_root(仓库根)。找不到时输出为空并返回 1。
@@ -35,5 +35,5 @@ realmmesh_mongosh_binary() {
 }
 
 realmmesh_mongodb_install_hint() {
-    printf 'MongoDB is required: on macOS run "brew tap mongodb/brew && brew trust mongodb/brew && brew install mongodb-community mongosh"; on Linux run ./scripts/install-mongodb.sh\n'
+    printf 'MongoDB is required: on Linux run ./scripts/install-mongodb.sh; on macOS run "brew tap mongodb/brew && brew trust mongodb/brew && brew install mongodb-community mongosh"\n'
 }

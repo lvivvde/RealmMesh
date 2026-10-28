@@ -23,7 +23,7 @@
 |---|---|
 | 日常编辑循环(快速子集) | `./scripts/test-fast.sh`:配置后只构建 Unit 聚合目标 `realmmesh_unit_tests`,4 路运行全部 `unit` 用例 |
 | 聚焦一个 Unit 目标 | `./scripts/test-fast.sh --target lua_runtime_test`(Lua 套件用 `--target realm_lua_cli`);再收窄用例加 `--test-regex REGEX` |
-| TDD 反馈环(保存即重跑快速入口) | `./scripts/test-watch.sh`(单跑一轮加 `--once`;其余参数原样转给 `test-fast.sh`) |
+| TDD 反馈环(保存即重跑快速入口) | `./scripts/test-watch.sh`(单跑一轮加 `--once`;其余参数原样转给 `test-fast.sh`)。Linux 优先 `inotifywait`(`inotify-tools`;无 sudo 时 `apt-get download inotify-tools libinotifytools0` 解到 `.tools/` 并让 `inotifywait` 能找到 `libinotifytools.so.0`),起不来时告警并回退轮询 |
 | 手动快速子集 | `ctest --preset dev -L '^unit$'`(或 `-L '^lua$'` 只筛 Lua 用例、`-L '^target=<构建目标>$'` 只筛一个目标);需先构建 |
 | 一键全量(构建 ALL + 全部测试，串行) | `./scripts/build.sh` |
 | 仅全量测试 | `ctest --preset dev -j 1` |
@@ -33,7 +33,7 @@
 
 入口共同约定(#125,决策与失败行为见 [build-test-entry-decisions.md](../docs/research/build-test-entry-decisions.md#实施记录125)):
 
-- 都接受 `--preset NAME`(默认 `dev`)与 `--jobs N`。编译 jobs 缺省取非空的 `CMAKE_BUILD_PARALLEL_LEVEL`,再缺省取 CPU/内存预算(开发 Mac 8 路、Lima 2 路),每次打印 `build jobs: …`。
+- 都接受 `--preset NAME`(默认 `dev`)与 `--jobs N`。编译 jobs 缺省取非空的 `CMAKE_BUILD_PARALLEL_LEVEL`,再缺省取 CPU/内存预算(Linux 另计 cgroup 限额；如 8 GiB 机器 2 路，上限 8 路),每次打印 `build jobs: …`。
 - 测试并行与编译并行分开。`test-fast.sh` 默认 `--test-jobs 4`,可退回 1;`build.sh` 与 CI 显式 `-j 1`,不继承 `CTEST_PARALLEL_LEVEL`。
 - `test-fast.sh` 不是完整验证。阶段完成，或改了公共头、跨模块、网络、协议、存储行为时，跑 `./scripts/build.sh`。
 - P6 重新冻结后的 R0/最终完整合集为 649/667 项，Unit 为 496/504 项，旧项无删除；扩展合集的计时不代表严格同合集验收。双平台配对、恢复检查与完整回退证据见[阶段报告](../docs/research/build-optimization-results.md#p6双平台最终复测与有界后续决策129)。
@@ -43,9 +43,9 @@
 ## 前置条件
 
 - **etcd 二进制**:跨进程集成用例(`new_chain_flow_test`、`realm_journey_test`、`loadgen_integration_test`、`DevServicesScriptTest.*`)会各自拉起一个**真实单节点 etcd** —— 网关的准入消费存储是线性一致存储,attach 路径真实依赖它(ADR-0009),用假 CAS 替身去证明外部系统契约无法归因缺陷。先跑 `./scripts/install-etcd.sh`(安装到 `.tools/etcd-v3.6.14/`,可用 `REALMMESH_ETCD_BINARY` 覆盖路径);二进制缺失即用例失败并提示安装命令,不静默跳过。用例自带的 etcd 用空闲端口 + 临时数据目录,自起自停,因此**不需要**开发机上长期运行 `./scripts/run-etcd-dev.sh`,也不与它抢 2379。
-- **MongoDB 二进制**:Player Data 用例(`player_data_store_test`、`scene_store_test`、`login_verify_service_test`、`realm_journey_test`、`loadgen_integration_test`、`DevServicesScriptTest.*`)会拉起**真实单节点副本集 `rs0`** —— 准入事实的 majority 读写与事务只有在真副本集上才有意义(ADR-0011),内存替身只用在不涉及存储契约的单元测试(网关拉取口、Realm 角色存储)。macOS 用 Homebrew 安装 `brew tap mongodb/brew && brew trust mongodb/brew && brew install mongodb-community mongosh`;Linux 跑 `./scripts/install-mongodb.sh`(安装到 `.tools/`,CI 自动执行)。用例永远不连远程共享开发库:改写配置时会删掉 `uri_environment`,shell 里设置了 `REALMMESH_MONGODB_URI` 也不受影响。夹具按 `REALMMESH_MONGOD_BINARY` / `REALMMESH_MONGOSH_BINARY` → PATH → `.tools/` 的顺序查找,缺失即失败并提示安装命令。完整 CTest 通过夹具依赖共享一个真实 mongod，GTest 与每条 `DevServicesScriptTest.*` 使用独立库名；独立运行时仍自启实例。它们都用空闲端口 + 临时数据目录，自起自停，因此**不需要**运行 Homebrew 服务或 `./scripts/run-mongodb-dev.sh`,也不与它们抢 27017。
-- **Python 3**:编译缓存配置/原生契约与 CI 兼容键使用标准库脚本；构建入口不自动安装。macOS 的 Xcode 工具链、Linux 开发环境及 CI 都应提供 `python3`。
-- **Ninja 1.11+**:构建图用例(`BuildGraphTest`、`BuildDirScriptTest.*`、`TestFastScriptTest.*`)会在临时目录里用 `dev` 预设配置小工程，验证 Ninja 门槛、原生链接池(含测试可执行文件出池)与 libsodium 安装产物(#123),因此即使主构建用 `--preset dev-make` 回退，全量 ctest 仍需要 PATH 上有真实的 `ninja`。macOS `brew install ninja`,Ubuntu `sudo apt-get install ninja-build`;缺失即用例失败，不跳过。
+- **MongoDB 二进制**:Player Data 用例(`player_data_store_test`、`scene_store_test`、`login_verify_service_test`、`realm_journey_test`、`loadgen_integration_test`、`DevServicesScriptTest.*`)会拉起**真实单节点副本集 `rs0`** —— 准入事实的 majority 读写与事务只有在真副本集上才有意义(ADR-0011),内存替身只用在不涉及存储契约的单元测试(网关拉取口、Realm 角色存储)。Linux 跑 `./scripts/install-mongodb.sh`(安装到 `.tools/`,CI 自动执行);macOS 用 Homebrew 安装 `brew tap mongodb/brew && brew trust mongodb/brew && brew install mongodb-community mongosh`。用例永远不连远程共享开发库:改写配置时会删掉 `uri_environment`,shell 里设置了 `REALMMESH_MONGODB_URI` 也不受影响。夹具按 `REALMMESH_MONGOD_BINARY` / `REALMMESH_MONGOSH_BINARY` → PATH → `.tools/` 的顺序查找,缺失即失败并提示安装命令。完整 CTest 通过夹具依赖共享一个真实 mongod，GTest 与每条 `DevServicesScriptTest.*` 使用独立库名；独立运行时仍自启实例。它们都用空闲端口 + 临时数据目录，自起自停，因此**不需要**运行系统/Homebrew 的 MongoDB 服务或 `./scripts/run-mongodb-dev.sh`,也不与它们抢 27017。
+- **Python 3**:编译缓存配置/原生契约与 CI 兼容键使用标准库脚本；构建入口不自动安装。Linux 开发环境、CI 及 macOS 的 Xcode 工具链都应提供 `python3`。
+- **Ninja 1.11+**:构建图用例(`BuildGraphTest`、`BuildDirScriptTest.*`、`TestFastScriptTest.*`)会在临时目录里用 `dev` 预设配置小工程，验证 Ninja 门槛、原生链接池(含测试可执行文件出池)与 libsodium 安装产物(#123),因此即使主构建用 `--preset dev-make` 回退，全量 ctest 仍需要 PATH 上有真实的 `ninja`。Ubuntu `sudo apt-get install ninja-build`(无 sudo 时解到 `.tools/` 并加入 PATH),macOS `brew install ninja`;缺失即用例失败，不跳过。
 - 快速子集(`test-fast.sh`、`ctest -L '^unit$'`)不拉起任何进程,无此前置条件。
 - `DevServicesScriptTest.StopIsReverseOrdered`、`StopDuringProcessChecks`、
   `StopAfterInterruptedWorkerWait` 与 `StopDuringStartup` 分别验证正常逆序停止、
