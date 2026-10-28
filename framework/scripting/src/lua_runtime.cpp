@@ -91,6 +91,8 @@ ReloadReport LuaRuntime::reload_changed() {
         if (load_module(name, path, &error)) {
             report.reloaded.push_back(name);
         } else {
+            // 保留旧模块，但记住失败版本的 mtime；避免每帧重复编译同一坏文件，
+            // 只有文件再次发生变化才会重试。
             modules_.at(name).last_write = write_time;
             report.failures.push_back({name, std::move(error)});
         }
@@ -121,6 +123,7 @@ std::optional<LuaRuntime::Module> LuaRuntime::compile_module(
         return std::nullopt;
     }
 
+    // 每个模块有独立 _G，写入不会污染其他模块；读取仍回退到受限的共享标准库。
     sol::environment environment(lua_, sol::create, lua_.globals());
     environment["_G"] = environment;
     sol::protected_function script = loaded.get<sol::protected_function>();

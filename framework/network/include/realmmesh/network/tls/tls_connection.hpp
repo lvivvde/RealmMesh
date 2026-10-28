@@ -47,6 +47,8 @@ struct TlsStreamBatch {
 /// 单条 TLS 连接的收发状态机(唯一的 SSL 状态分类处)。收与发各有两条
 /// 互斥路径:帧路径(LengthFieldCodec,消息传输默认)与流路径(HTTP 边,
 /// 裸字节流);同一连接只走其中一种组合。
+/// 单个非阻塞 TLS 连接的握手、收发与长度帧状态机。WantRead/WantWrite 表示调用方
+/// 应等待对应 fd readiness 后重试；输出达到高水位时 queue_frame() 直接拒绝。
 class TlsConnection final {
 public:
     TlsConnection(

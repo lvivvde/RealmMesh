@@ -11,6 +11,8 @@
 
 namespace realm::concurrency {
 
+/// 线程安全的非阻塞有界 FIFO。队列满/空由调用方显式处理，不在内部等待，
+/// 因而可作为不同执行线程之间的背压边界。
 template <typename T>
 class BoundedQueue final {
 public:

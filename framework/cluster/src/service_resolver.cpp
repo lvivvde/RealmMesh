@@ -25,6 +25,8 @@ ServiceResolver::~ServiceResolver() {
 
 std::optional<network::TransportEndpoint> ServiceResolver::endpoint() const {
     const std::scoped_lock lock(mutex_);
+    // instances_ 按 instance_id 排序；相同权重时保留字典序最小者，使选择稳定，
+    // 但这里不做加权随机或健康探测。
     const network::TransportEndpoint* selected = nullptr;
     std::uint32_t selected_weight = 0;
     for (const auto& [instance_id, instance] : instances_) {
