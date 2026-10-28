@@ -23,6 +23,7 @@
 #include <charconv>
 #include <cerrno>
 #include <cstdint>
+#include <cstdio>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -44,7 +45,8 @@ private:
     enum class Ownership { Private, Ctest };
     explicit MongodProcess(
         Ownership ownership,
-        TestCommands test_commands = TestCommands::Disabled) {
+        TestCommands test_commands = TestCommands::Disabled)
+        : shared_(ownership == Ownership::Ctest) {
         if (ownership == Ownership::Ctest && borrow_ctest_fixture()) return;
         const auto binary = tool_binary(
             "REALMMESH_MONGOD_BINARY", "mongodb-8.0.32", "mongod");
@@ -164,6 +166,9 @@ public:
 
     [[nodiscard]] std::uint16_t port() const noexcept { return port_; }
 
+    /// 是否为 shared() 返回的共享副本集(CTest 借用或本二进制内共享)。
+    [[nodiscard]] bool is_shared() const noexcept { return shared_; }
+
     [[nodiscard]] std::string uri() const {
         return "mongodb://127.0.0.1:" + std::to_string(port_) +
                "/?replicaSet=rs0";
@@ -175,6 +180,43 @@ public:
                std::to_string(static_cast<long long>(::getpid())) + "_" +
                std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) + "_" +
                std::to_string(next_instance());
+    }
+
+    /// 删除 fresh_database() 建的库，控制共享副本集上库与集合的累积。
+    /// 只接受 realmmesh_test_ 前缀；清理失败不影响用例结论，故不抛错，
+    /// 但把失败写到 stderr,库静默累积时日志里有迹可查。
+    void drop_database(const std::string& database) const noexcept {
+        if (port_ == 0 || !database.starts_with("realmmesh_test_")) return;
+        try {
+            const char* initializer = selected_initializer();
+            const auto dropped =
+                initializer != nullptr && *initializer != '\0'
+                    ? run_process(
+                          initializer,
+                          {"--drop-database",
+                           "127.0.0.1:" + std::to_string(port_),
+                           database})
+                    : run_mongosh(
+                          "mongodb://127.0.0.1:" + std::to_string(port_) +
+                              "/" + database + "?replicaSet=rs0",
+                          "db.dropDatabase()");
+            if (dropped.status != 0) {
+                std::fprintf(
+                    stderr,
+                    "warning: dropping test database %s failed (status %d): "
+                    "%s\n",
+                    database.c_str(),
+                    dropped.status,
+                    dropped.output.c_str());
+            }
+        } catch (const std::exception& error) {
+            std::fprintf(
+                stderr,
+                "warning: dropping test database %s failed: %s\n",
+                database.c_str(),
+                error.what());
+        } catch (...) {
+        }
     }
 
     /// 在 database 上执行一段 mongosh 脚本并返回其标准输出(去掉末尾换行);
@@ -395,6 +437,7 @@ private:
         throw std::runtime_error("mongod did not become a writable primary");
     }
 
+    bool shared_{false};
     bool borrowed_{false};
     pid_t pid_{-1};
     std::uint16_t port_{0};
@@ -405,6 +448,15 @@ private:
 /// 拷贝真实 configs/ 并拉起 realm/gateway 的用例用它，免得连到开发机的
 /// 27017。同时删掉 uri_environment,免得 shell 里的私有 URI 把用例导向共享
 /// 开发库。找不到要替换的默认值即抛错，配置改名时不会静默连错库。
+///
+/// 指向共享副本集时放宽超时：全量 CTest 下共享 mongod 偶发 2 秒以上的
+/// journal/majority 等待，生产的 2 秒快速失败会让服务回 3010。写关注等待
+/// 放到 4.5 秒，套接字超时 7 秒必须长于它，免得驱动先断开、写结果未知;
+/// 用例经 retry_unavailable 发的请求截止再长于二者(见 journey_fixture.hpp
+/// 的 data_call_deadline),服务先回可重试的 3010。层级：写关注 < 套接字
+/// < 请求截止。with_transaction 对提交的写关注超时会自动重试，单次请求
+/// 的服务端耗时没有严格上界，截止只覆盖一次重试的常见情形。独占
+/// mongod(含故障注入夹具)保持生产值，暂停后端时的时序不变。
 inline void point_player_data_at(
     const std::filesystem::path& config_root,
     const MongodProcess& mongod,
@@ -429,6 +481,12 @@ inline void point_player_data_at(
         R"(uri = "mongodb://127.0.0.1:27017/?replicaSet=rs0")",
         "uri = \"" + mongod.uri() + "\"");
     replace(R"(database = "realmmesh")", "database = \"" + database + "\"");
+    if (mongod.is_shared()) {
+        replace("socket_timeout_ms = 2000", "socket_timeout_ms = 7000");
+        replace(
+            "write_concern_timeout_ms = 2000",
+            "write_concern_timeout_ms = 4500");
+    }
     if (const auto start = contents.find("uri_environment");
         start != std::string::npos) {
         const auto line_start = contents.rfind('\n', start);

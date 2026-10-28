@@ -90,6 +90,21 @@ GTest 每例及 DevServices 每条用例使用独立数据库；后者的服务�
 准备被中断时等待守护进程完成清理；初始化器与后端各自保留 2 秒 TERM/KILL
 预算，守护进程拥有独立的 5 秒收尾预算。临时状态仅用于本地测试编排。
 
+回收数据目录前，守护进程把 `mongod.log` 复制为
+`<build>/mongodb-ctest-fixtures/ctest-<owner>.mongod.log`，只保留最近一次运行的一份，
+偶发的写关注超时等失败事后仍能查服务端现场；全量重跑带 `--output-on-failure`。
+`player_data_store_test`、`scene_store_test`、`login_verify_service_test` 与 Realm/Scene
+旅程夹具在用例结束时经 `realmmesh_mongodb_fixture --drop-database` 删掉本例的
+`realmmesh_test_*` 库，共享副本集的库与集合数量不随全量运行累积。
+
+`point_player_data_at` 指向共享副本集时把 `socket_timeout_ms` 放到 7 秒、
+`write_concern_timeout_ms` 放到 4.5 秒（生产仍为 2 秒快速失败），层级为写关注等待
+< 套接字超时 < 请求截止：驱动不会先于写关注超时断开，`retry_unavailable` 每次尝试
+的截止（`data_call_deadline()`，12 秒）也晚于二者，服务先回可重试的 3010。旅程用例
+的长训练循环与 Scene 期望成功的 Enter/Move 经 `retry_unavailable` 以同一 seq 重放
+3010；建角只在确实观察到 3010 后才按名字找回已落库的角色。独占 `mongod`（故障注入
+夹具）保持生产超时。
+
 `MongodProcess::shared()` 在 CTest 环境中借用已准备的副本集，在独立进程中仍自启；
 公开默认构造继续拥有独立实例，初始化失败/超时契约因此仍验证真实启动与回收。
 已指定的共享夹具未就绪或状态过期时失败，不静默启动另一个后端。DevServices 传递 CTest

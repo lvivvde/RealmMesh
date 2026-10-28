@@ -659,10 +659,18 @@ class MongoPlayerDataStore::Impl final {
 public:
     Impl(std::string uri, std::string database, MongoPlayerDataOptions options)
         : database_name_(std::move(database)),
-          write_timeout_(options.socket_timeout),
+          write_timeout_(std::chrono::milliseconds{timeout_ms(
+              options.write_concern_timeout, "write_concern_timeout")}),
           credential_hash_cost_(options.credential_hash_cost) {
         if (database_name_.empty()) {
             throw PlayerDataError("player data database must not be empty");
+        }
+        // 套接字超时短于写关注等待时，驱动总先断开，wtimeout 永远观察不到。
+        // 二者相等是生产默认(拆分前 wtimeout 即沿用套接字超时),保留。
+        if (options.socket_timeout < write_timeout_) {
+            throw PlayerDataError(
+                "socket_timeout must not be shorter than "
+                "write_concern_timeout");
         }
         if (sodium_init() < 0) {
             throw PlayerDataError("failed to initialize credential hashing");
