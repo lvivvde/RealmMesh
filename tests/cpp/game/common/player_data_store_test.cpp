@@ -20,6 +20,8 @@ using namespace std::chrono_literals;
 
 class PlayerDataStoreTest : public ::testing::Test {
 protected:
+    void TearDown() override { mongod_.drop_database(database_); }
+
     [[nodiscard]] MongoPlayerDataStore open_store(
         MongoPlayerDataOptions options = {}) const {
         return MongoPlayerDataStore(mongod_.uri(), database_, std::move(options));
@@ -677,6 +679,65 @@ TEST_F(PlayerDataStoreTest, UnreachableDeploymentFailsWithinServerSelectionTimeo
             MongoPlayerDataOptions{.server_selection_timeout = 200ms})),
         PlayerDataError);
     EXPECT_LT(std::chrono::steady_clock::now() - started, 5s);
+}
+
+TEST_F(PlayerDataStoreTest, RejectsNonPositiveWriteConcernTimeout) {
+    // 写关注等待与套接字超时分开配置，各自校验。
+    EXPECT_THROW(
+        static_cast<void>(open_store(
+            MongoPlayerDataOptions{.write_concern_timeout = 0ms})),
+        PlayerDataError);
+}
+
+TEST_F(PlayerDataStoreTest, RejectsSocketTimeoutShorterThanWriteConcernTimeout) {
+    // 驱动先断开时写关注超时观察不到；相等(生产默认)仍接受。
+    EXPECT_THROW(
+        static_cast<void>(open_store(MongoPlayerDataOptions{
+            .socket_timeout = 1'000ms, .write_concern_timeout = 1'500ms})),
+        PlayerDataError);
+    EXPECT_NO_THROW(static_cast<void>(open_store(MongoPlayerDataOptions{
+        .socket_timeout = 1'500ms, .write_concern_timeout = 1'500ms})));
+}
+
+TEST_F(PlayerDataStoreTest, BoundsTransactionCommitByWriteConcernTimeout) {
+    // profiler 不记录 commitTransaction；临时打开 command 日志，直接核对
+    // 驱动下发给服务端的 maxTimeMS，结束后恢复默认级别。
+    static_cast<void>(mongod_.eval("admin", R"js(
+const result = db.runCommand({
+  setParameter: 1, logComponentVerbosity: {command: {verbosity: 2}}
+});
+if (!result.ok) throw new Error(JSON.stringify(result));
+)js"));
+
+    MongoPlayerDataOptions options{
+        .socket_timeout = 1'500ms, .write_concern_timeout = 1'250ms};
+    auto store = open_store(options);
+    store.provision_account(AccountProvisioning{
+        .account_id = 42,
+        .account_name = "player",
+        .credential = "secret",
+        .whitelisted = true,
+    });
+    EXPECT_EQ(
+        store.create_character(42, 1, "Ranger", 1).outcome,
+        CreateCharacterOutcome::Created);
+
+    const auto max_commit_time = mongod_.eval("admin", R"js(
+const commits = db.runCommand({getLog: 'global'}).log
+  .map(line => { try { return JSON.parse(line); } catch (_) { return {}; } })
+  .filter(entry => entry.attr?.command?.commitTransaction === 1);
+const commit = commits.at(-1);
+print(JSON.stringify(commit?.attr?.command?.maxTimeMS ?? 'missing'));
+)js");
+    static_cast<void>(mongod_.eval("admin", R"js(
+const result = db.runCommand({
+  setParameter: 1, logComponentVerbosity: {command: {verbosity: 0}}
+});
+if (!result.ok) throw new Error(JSON.stringify(result));
+)js"));
+    const auto max_commit_time_ms = std::stoll(max_commit_time);
+    EXPECT_EQ(max_commit_time_ms, 1'250);
+    EXPECT_LE(max_commit_time_ms, options.write_concern_timeout.count());
 }
 
 TEST_F(PlayerDataStoreTest, RejectsTimeoutsEmbeddedInTheUri) {

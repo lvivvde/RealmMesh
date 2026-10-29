@@ -34,6 +34,8 @@ enum class ConnectFailure {
     NoCandidate,
 };
 
+/// 只有网络能力类失败允许切换传输；证书、ALPN、鉴权与协议错误必须原样失败，
+/// 防止 fallback 掩盖安全配置或对端身份问题。
 [[nodiscard]] constexpr bool permits_transport_fallback(
     ConnectFailure failure) noexcept {
     return failure == ConnectFailure::Unsupported ||
@@ -60,6 +62,8 @@ struct ConnectorOptions {
     std::chrono::milliseconds quic_negative_cache_ttl{300'000};
 };
 
+/// QUIC 先发、TLS/TCP 延迟参与的 staged race。胜出后只返回一个安全连接；
+/// dialer 必须响应 stop_token，以便及时取消落败和整轮超时的尝试。
 class PreferredTransportConnector final {
 public:
     explicit PreferredTransportConnector(

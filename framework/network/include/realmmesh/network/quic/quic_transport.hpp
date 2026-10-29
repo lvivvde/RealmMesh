@@ -10,6 +10,8 @@ class Logger;
 
 namespace realm::network {
 
+/// MsQuic 回调线程与业务线程之间的消息传输适配器。回调只写入内部有界事件队列，
+/// 业务侧通过 poll_once() 取走事件；队列过载时连接会被主动关闭。
 class QuicTransport final : public IMessageTransport {
 public:
     explicit QuicTransport(

@@ -2,8 +2,9 @@
 
 # 用途：以前台单节点副本集 rs0 启动本地 MongoDB,供 RealmMesh 玩家数据开发使用
 # (ADR-0011:事务需要副本集，单机也以 --replSet 启动)。首次启动时自动完成
-# 副本集初始化。二进制取自 PATH(macOS 即 Homebrew 安装的 mongodb-community),
-# 数据放在仓库内 .runtime/mongodb,不动 Homebrew 服务自己的数据目录。
+# 副本集初始化。二进制按 scripts/lib/mongodb-tools.sh 查找:Linux 为 PATH 或
+# ./scripts/install-mongodb.sh 装到 .tools/ 的固定版本,macOS 为 Homebrew 的
+# mongodb-community。数据放在仓库内 .runtime/mongodb,不动系统/Homebrew 服务的数据目录。
 # 用法：./scripts/run-mongodb-dev.sh(Ctrl-C 停止)
 # 可选：REALMMESH_MONGODB_DATA_DIR=/path/to/data REALMMESH_MONGODB_PORT=27017
 

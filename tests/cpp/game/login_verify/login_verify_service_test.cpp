@@ -231,6 +231,7 @@ protected:
         if (driver_.joinable()) driver_.join();
         service_->stop();
         service_.reset();
+        mongod_.drop_database(database_);
     }
 
     [[nodiscard]] common::IdentityTokenCodec local_codec() const {

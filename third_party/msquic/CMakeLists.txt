@@ -104,13 +104,21 @@ set_target_properties(MsQuic::MsQuic PROPERTIES
 )
 # macOS 的 dylib 自带绝对 install name,运行期无需 rpath;Linux 需要下面的接线。
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
-    # 运行期定位:MsQuic 常装在非系统前缀(.tools/msquic 或自定义 MSQUIC_ROOT),
-    # 把实际找到的库目录放进 rpath 最可靠;CMAKE_LIBRARY_PATH 未设置时跳过。
+    # 运行期定位:MsQuic 及其 libnuma 常装在非系统前缀(.tools/msquic、无 sudo
+    # 环境的 sysroot 或自定义 MSQUIC_ROOT),把实际找到的库目录放进 rpath 最可靠,
+    # 直接依赖不必靠 LD_LIBRARY_PATH(RUNPATH 不传递,libmsquic 自身的依赖仍要);
+    # CMAKE_LIBRARY_PATH 未设置时跳过,它是列表时逐项展开。
     # 空变量直接进生成器表达式会因「不是绝对路径」让 configure 失败(CI 裸
     # preset 时即如此),故先判空。
     get_filename_component(MSQUIC_LIBRARY_DIR "${MSQUIC_LIBRARY}" DIRECTORY)
+    get_filename_component(MSQUIC_NUMA_LIBRARY_DIR "${MSQUIC_NUMA_LIBRARY}" DIRECTORY)
     set(MSQUIC_INTERFACE_LINK_OPTIONS "-Wl,--no-as-needed")
-    foreach(MSQUIC_RPATH_DIR "${MSQUIC_LIBRARY_DIR}" "${CMAKE_LIBRARY_PATH}")
+    set(MSQUIC_RPATH_DIRS "${MSQUIC_LIBRARY_DIR}" "${MSQUIC_NUMA_LIBRARY_DIR}" ${CMAKE_LIBRARY_PATH})
+    list(REMOVE_DUPLICATES MSQUIC_RPATH_DIRS)
+    # 系统默认库目录本就由 ld.so 搜索，放进 rpath 反而可能抢在别的非系统前缀之前。
+    list(REMOVE_ITEM MSQUIC_RPATH_DIRS
+        ${CMAKE_PLATFORM_IMPLICIT_LINK_DIRECTORIES} ${CMAKE_C_IMPLICIT_LINK_DIRECTORIES})
+    foreach(MSQUIC_RPATH_DIR IN LISTS MSQUIC_RPATH_DIRS)
         if(MSQUIC_RPATH_DIR)
             list(APPEND MSQUIC_INTERFACE_LINK_OPTIONS
                 "-Wl,-rpath,${MSQUIC_RPATH_DIR}")

@@ -36,6 +36,8 @@ struct SessionTicketClaims {
     std::chrono::system_clock::time_point expires_at;
 };
 
+/// 固定二进制票据编解码器。HMAC 保证完整性与来源认证但不加密 claims；
+/// validate() 只校验格式、purpose、签名和过期时间，不负责防重放。
 class SessionTicketCodec final {
 public:
     explicit SessionTicketCodec(SessionTicketKey key);
@@ -69,6 +71,8 @@ private:
 
 class TicketReplayGuard final {
 public:
+    /// 单进程、非线程安全的一次性消费表；只应传入已通过 validate() 的 claims。
+    /// 已过期记录会在每次 consume() 时惰性清理。
     [[nodiscard]] bool consume(
         const SessionTicketClaims& claims,
         std::chrono::system_clock::time_point now =
