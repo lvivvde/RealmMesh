@@ -12,9 +12,9 @@ C++20 分布式游戏服务端框架：CMake 构建，Lua 写配置与业务规�
 
 ## 平台
 
-Linux 是生产基线，始终编入 QUIC；macOS 是开发基线，装了 Homebrew `libmsquic` 才编入 QUIC，否则只有 TLS/TCP（ADR-0002、ADR-0012）。在 macOS 上采信 QUIC 路径的结果前，确认 configure 输出含 `realm_network: QUIC transport enabled`。CI 的 `macos` job 不编 QUIC，QUIC 的门槛是 `linux` job。Linux 开发环境见 `docs/operations/linux-arm64-development.md`。
+Linux（Ubuntu 24.04，WSL2 为本地参考）同时是生产与开发基线，始终编入 QUIC，完整验证以 Linux 结果为准。macOS 是可选开发平台，不阻塞主路径（平台差异一律用条件分支表达，不删 macOS 分支），装了 Homebrew `libmsquic` 才编入 QUIC，否则只有 TLS/TCP（ADR-0017，部分取代 ADR-0002、ADR-0012）。在 macOS 上采信 QUIC 路径的结果前，确认 configure 输出含 `realm_network: QUIC transport enabled`。CI 的 `macos` job 不编 QUIC，QUIC 的门槛是 `linux` job。Linux 开发环境见 `docs/operations/linux-arm64-development.md`。
 
-### Linux SSH 开发环境
+### Linux SSH 开发环境（仅在 macOS 宿主上开发时适用）
 
 - 本机 Lima 的 `ubuntu` 实例已配置 Git 环境，项目已完成构建；需要在 Linux 中开发或验证时，通过 `ssh lima-ubuntu` 进入。
 - Linux 仓库位置：`/home/edwin.guest/code/RealmMesh`；连接后执行 `cd /home/edwin.guest/code/RealmMesh`。
@@ -27,8 +27,10 @@ Linux 是生产基线，始终编入 QUIC；macOS 是开发基线，装了 Homeb
 ## 测试与验证
 
 - 添加测试前读 `tests/README.md`（位置、注册、标签、入口）。
+- 无 sudo 的 Linux（如 WSL2）把 CMake/Ninja/OpenSSL/libnuma 放在仓库内 `.tools/`，按 README「构建」一节设置 `PATH`、`OPENSSL_ROOT_DIR`、`CMAKE_LIBRARY_PATH`、`LD_LIBRARY_PATH`；没有 Ninja 时用 `--preset dev-make`。
 - 编辑循环用 `./scripts/test-fast.sh`（只建、只跑 `unit`）。阶段完成，或改了公共头、跨模块、网络、协议、存储行为时，`./scripts/build.sh` 全绿才算验证完成；未验证项在说明里列出。
 - macOS CI 比开发机慢数倍：负载（连接数、迭代、载荷）在 `__APPLE__` 下缩小，Linux 保持全量。macOS CI 的 `Timeout` 也可能是测试崩溃后孤儿子进程占住 ctest 输出管道，先读日志再缩数据。
+- 跑 CRAP（crapper）、重复代码（dryer）或变异测试（mutator）前读 `docs/agents/quality-checks.md`。
 
 ## 收尾
 

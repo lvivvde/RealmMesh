@@ -20,6 +20,8 @@ using namespace std::chrono_literals;
 
 class PlayerDataStoreTest : public ::testing::Test {
 protected:
+    void TearDown() override { mongod_.drop_database(database_); }
+
     [[nodiscard]] MongoPlayerDataStore open_store(
         MongoPlayerDataOptions options = {}) const {
         return MongoPlayerDataStore(mongod_.uri(), database_, std::move(options));
@@ -677,6 +679,24 @@ TEST_F(PlayerDataStoreTest, UnreachableDeploymentFailsWithinServerSelectionTimeo
             MongoPlayerDataOptions{.server_selection_timeout = 200ms})),
         PlayerDataError);
     EXPECT_LT(std::chrono::steady_clock::now() - started, 5s);
+}
+
+TEST_F(PlayerDataStoreTest, RejectsNonPositiveWriteConcernTimeout) {
+    // 写关注等待与套接字超时分开配置，各自校验。
+    EXPECT_THROW(
+        static_cast<void>(open_store(
+            MongoPlayerDataOptions{.write_concern_timeout = 0ms})),
+        PlayerDataError);
+}
+
+TEST_F(PlayerDataStoreTest, RejectsSocketTimeoutShorterThanWriteConcernTimeout) {
+    // 驱动先断开时写关注超时观察不到；相等(生产默认)仍接受。
+    EXPECT_THROW(
+        static_cast<void>(open_store(MongoPlayerDataOptions{
+            .socket_timeout = 1'000ms, .write_concern_timeout = 1'500ms})),
+        PlayerDataError);
+    EXPECT_NO_THROW(static_cast<void>(open_store(MongoPlayerDataOptions{
+        .socket_timeout = 1'500ms, .write_concern_timeout = 1'500ms})));
 }
 
 TEST_F(PlayerDataStoreTest, RejectsTimeoutsEmbeddedInTheUri) {

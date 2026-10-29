@@ -14,6 +14,22 @@ import time
 
 
 def identity(pid):
+    # Linux exposes the process start time as monotonic clock ticks.  Unlike
+    # `ps lstart`, this value does not move when a suspended VM corrects its
+    # wall clock, so a live CTest owner is not mistaken for a reused PID.
+    stat_path = Path(f'/proc/{pid}/stat')
+    try:
+        stat = stat_path.read_text()
+    except (FileNotFoundError, PermissionError, ProcessLookupError):
+        stat = ''
+    if stat:
+        closing_parenthesis = stat.rfind(')')
+        fields = stat[closing_parenthesis + 2:].split()
+        if closing_parenthesis > 0 and len(fields) > 19:
+            if fields[0] == 'Z':
+                return None
+            return 'linux-start-ticks:' + fields[19]
+
     result = subprocess.run(['ps', '-p', str(pid), '-o', 'stat=', '-o', 'lstart='],
                             capture_output=True, text=True)
     value = result.stdout.strip()
@@ -43,6 +59,20 @@ def stop(child, timeout=2):
     except subprocess.TimeoutExpired:
         child.kill()
         child.wait()
+
+
+def retain_server_log(directory):
+    # 数据目录随 owner 回收；只把最近一次运行的 mongod.log 留在 root 下，
+    # 偶发失败（写关注超时等）事后仍有服务端现场可查。
+    log = directory / 'mongod.log'
+    if not log.is_file():
+        return
+    try:
+        for stale in directory.parent.glob('ctest-*.mongod.log'):
+            stale.unlink(missing_ok=True)
+        shutil.copy2(log, Path(str(directory) + '.mongod.log'))
+    except OSError:
+        pass
 
 
 def daemon(args):
@@ -125,6 +155,7 @@ def daemon(args):
         stop(server)
         if registry is not None:
             registry.unlink(missing_ok=True)
+        retain_server_log(directory)
         shutil.rmtree(directory)
         if not Path(str(directory) + ".error").exists():
             Path(str(directory) + ".log").unlink(missing_ok=True)

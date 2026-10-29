@@ -45,6 +45,8 @@ void ByteBuffer::clear() noexcept {
 
 void ByteBuffer::compact_if_needed() {
     constexpr std::size_t compact_threshold = 4096;
+    // 小幅消费只推进游标，避免每帧 erase；读过至少 4 KiB 且占缓冲区一半后
+    // 才搬移剩余数据，在内存滞留和复制成本之间取平衡。
     if (read_offset_ < compact_threshold || read_offset_ < storage_.size() / 2) {
         return;
     }

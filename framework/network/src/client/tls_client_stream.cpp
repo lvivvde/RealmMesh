@@ -192,8 +192,17 @@ TlsClientStream::DialResult TlsClientStream::dial(
     }
 
     auto impl = std::make_unique<Impl>();
+    // 客户端拨号(Chat 对端、TLS/TCP 拨号器)都经此创建套接字。Linux 直接带
+    // SOCK_CLOEXEC,堵住其他线程恰在此刻 fork+exec 时的泄漏窗口;macOS 没有该标志，
+    // 沿用原写法。
+#if defined(__linux__)
+    const int descriptor = ::socket(
+        resolved->ai_family, resolved->ai_socktype | SOCK_CLOEXEC,
+        resolved->ai_protocol);
+#else
     const int descriptor = ::socket(
         resolved->ai_family, resolved->ai_socktype, resolved->ai_protocol);
+#endif
     if (descriptor < 0) {
         result.last_errno = errno;
         result.failure = TlsDialFailure::Socket;
