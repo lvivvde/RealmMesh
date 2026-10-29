@@ -6,6 +6,8 @@
 
 namespace realm::cluster {
 
+/// 将单个实例注册到发现中心的重试状态机。registry 为非拥有引用且必须比本对象
+/// 活得更久；Lease 的后台续期由具体 registry 实现负责。
 class ServicePublisher final {
 public:
     ServicePublisher(
@@ -18,6 +20,7 @@ public:
     ServicePublisher(const ServicePublisher&) = delete;
     ServicePublisher& operator=(const ServicePublisher&) = delete;
 
+    /// 已注册时返回 true；失败后在 retry_interval 内不会再次发起请求。
     [[nodiscard]] bool tick();
     [[nodiscard]] bool registered() const noexcept;
     /// 当前注册标识;未注册时为 invalid_registration_id(额度上报等

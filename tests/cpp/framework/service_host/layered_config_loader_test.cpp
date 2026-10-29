@@ -171,7 +171,7 @@ TEST_F(LayeredConfigTest, ParsesSharedPlayerDataDeployment) {
         "return { player_data = { "
         "uri = \"mongodb://127.0.0.1:27017/?replicaSet=rs0\", "
         "database = \"realmmesh\", server_selection_timeout_ms = 750, "
-        "socket_timeout_ms = 1500, "
+        "socket_timeout_ms = 1500, write_concern_timeout_ms = 1250, "
         "bootstrap_accounts_file = \"common/accounts.lua\", "
         "credential_hash_cost = \"minimum\" } }");
     write(root_ / "services" / "realm.lua", "return {}");
@@ -186,6 +186,9 @@ TEST_F(LayeredConfigTest, ParsesSharedPlayerDataDeployment) {
     EXPECT_EQ(
         config.options.socket_timeout,
         std::chrono::milliseconds{1500});
+    EXPECT_EQ(
+        config.options.write_concern_timeout,
+        std::chrono::milliseconds{1250});
     EXPECT_EQ(
         config.options.bootstrap_accounts_file,
         root_ / "common" / "accounts.lua");

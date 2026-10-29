@@ -358,6 +358,8 @@ public:
             registration = found->second;
         }
 
+        // 先申请新 Lease 并覆盖同一 key，成功后才撤销旧 Lease；这样续租失败
+        // 不会主动删除仍有效的旧注册，成功路径也没有服务发现空窗。
         const auto new_lease = grant_lease(registration.lease_ttl);
         if (!new_lease.has_value()) return false;
         Json response;
@@ -468,6 +470,8 @@ public:
             watches_.emplace(id, std::move(watch_value));
         }
         if (initial.has_value()) {
+            // 初始 Added 在 watch() 调用线程同步派发；后续事件可能来自后台维护
+            // 线程或显式 poll_once() 的调用线程。
             for (const auto& instance : *initial) {
                 handler({ServiceEventKind::Added, instance});
             }
@@ -546,6 +550,8 @@ public:
                 found->second.instances = std::move(next);
                 found->second.initialized = true;
             }
+            // handler 可重入 registry（包括取消 Watch），因此绝不能持
+            // mutex_ 调用。
             for (const auto& event : events) handler(event);
             {
                 const std::scoped_lock lock(mutex_);
@@ -688,6 +694,8 @@ private:
                 if (stop.stop_requested()) break;
                 static_cast<void>(refresh_registration(id));
             }
+            // 同一维护线程串行执行 Lease 刷新与 Watch diff，避免后台请求
+            // 无限并发。
             if (!stop.stop_requested()) poll_once();
 
             std::unique_lock lock(wait_mutex_);

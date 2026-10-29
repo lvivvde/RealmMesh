@@ -19,6 +19,7 @@ namespace realm::game::common::detail {
 
 [[nodiscard]] inline std::optional<::realmmesh::protocol::common::v1::Envelope>
 parse_envelope(std::span<const std::byte> payload) {
+    // Protobuf 的 ParseFromArray 长度是 int；转换前先拒绝无法表示的外部输入。
     if (payload.size() >
         static_cast<std::size_t>(std::numeric_limits<int>::max())) {
         return std::nullopt;

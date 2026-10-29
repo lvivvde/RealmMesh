@@ -138,13 +138,49 @@ void initialize(const std::string& member, int port, int timeout_ms) {
     }
 }
 
+// 用例结束时删掉 fresh_database() 建的库，共享副本集的库与集合数量不随
+// 全量运行累积。只接受测试库前缀，误传生产库名直接拒绝。
+void drop_database(const std::string& member, const std::string& database) {
+    if (!database.starts_with("realmmesh_test_")) {
+        throw std::invalid_argument("only realmmesh_test_ databases may be dropped");
+    }
+    Deadline deadline{10s};
+    Driver driver;
+    const std::string connection = "mongodb://" + member + "/?directConnection=true";
+    std::unique_ptr<mongoc_uri_t, decltype(&mongoc_uri_destroy)> uri{
+        mongoc_uri_new(connection.c_str()), mongoc_uri_destroy};
+    if (!uri) throw std::runtime_error("invalid local MongoDB URI");
+    std::unique_ptr<mongoc_client_t, decltype(&mongoc_client_destroy)> client{
+        mongoc_client_new_from_uri(uri.get()), mongoc_client_destroy};
+    if (!client) throw std::runtime_error("cannot create MongoDB fixture client");
+    Document command;
+    BSON_APPEND_INT32(&command.value, "dropDatabase", 1);
+    Document reply;
+    bson_error_t error{};
+    if (!mongoc_client_command_simple(
+            client.get(), database.c_str(), &command.value, nullptr, &reply.value, &error)) {
+        throw std::runtime_error(std::string{"dropDatabase failed: "} + error.message);
+    }
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
     try {
-        if (argc != 3) throw std::invalid_argument("usage: realmmesh_mongodb_fixture 127.0.0.1:PORT TIMEOUT_MS");
-        const std::string member = argv[1];
         constexpr std::string_view prefix = "127.0.0.1:";
+        if (argc == 4 && std::string_view{argv[1]} == "--drop-database") {
+            const std::string member = argv[2];
+            if (!member.starts_with(prefix)) throw std::invalid_argument("fixture must use IPv4 loopback");
+            static_cast<void>(positive_integer(std::string_view{member}.substr(prefix.size()), 65535));
+            drop_database(member, argv[3]);
+            return 0;
+        }
+        if (argc != 3) {
+            throw std::invalid_argument(
+                "usage: realmmesh_mongodb_fixture 127.0.0.1:PORT TIMEOUT_MS | "
+                "--drop-database 127.0.0.1:PORT DATABASE");
+        }
+        const std::string member = argv[1];
         if (!member.starts_with(prefix)) throw std::invalid_argument("fixture must use IPv4 loopback");
         const int port = positive_integer(std::string_view{member}.substr(prefix.size()), 65535);
         const int timeout_ms = positive_integer(argv[2], 30000);
