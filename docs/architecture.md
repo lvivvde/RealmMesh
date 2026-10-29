@@ -251,7 +251,9 @@ MongoDB 副本集（开发与 CI 为单节点 `rs0`），取代 ADR-0010 的 SQL
 `configs/common/accounts.lua`，多个服务同时启动也只有一个导入成功；之后账号口令（Argon2
 哈希）、封禁/白名单、角色与上次所选角色都只以数据库为准。找不到可写 primary 或单次读写超过
 `player_data` 中的超时上限（选主 `server_selection_timeout_ms`、套接字 `socket_timeout_ms`、
-写关注等待 `write_concern_timeout_ms`，默认均为 2 秒；写关注等待长于套接字超时的配置在构造时拒绝），即按数据源不可用失败。开发拓扑无认证、明文且只监听本机，
+写关注等待 `write_concern_timeout_ms`，默认均为 2 秒；事务的 `maxCommitTimeMS` 与写关注等待
+取同一上限，防止写关注超时后驱动在 `with_transaction` 内长时间重试提交；写关注等待长于套接字
+超时的配置在构造时拒绝），即按数据源不可用失败。开发拓扑无认证、明文且只监听本机，
 跨机器暴露前须交付 TLS 与认证。
 
 手动跨机器开发另提供共享临时库：服务器仅监听回环地址，启用 TLS 与数据库认证，

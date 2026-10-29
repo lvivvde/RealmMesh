@@ -699,6 +699,47 @@ TEST_F(PlayerDataStoreTest, RejectsSocketTimeoutShorterThanWriteConcernTimeout) 
         .socket_timeout = 1'500ms, .write_concern_timeout = 1'500ms})));
 }
 
+TEST_F(PlayerDataStoreTest, BoundsTransactionCommitByWriteConcernTimeout) {
+    // profiler 不记录 commitTransaction；临时打开 command 日志，直接核对
+    // 驱动下发给服务端的 maxTimeMS，结束后恢复默认级别。
+    static_cast<void>(mongod_.eval("admin", R"js(
+const result = db.runCommand({
+  setParameter: 1, logComponentVerbosity: {command: {verbosity: 2}}
+});
+if (!result.ok) throw new Error(JSON.stringify(result));
+)js"));
+
+    MongoPlayerDataOptions options{
+        .socket_timeout = 1'500ms, .write_concern_timeout = 1'250ms};
+    auto store = open_store(options);
+    store.provision_account(AccountProvisioning{
+        .account_id = 42,
+        .account_name = "player",
+        .credential = "secret",
+        .whitelisted = true,
+    });
+    EXPECT_EQ(
+        store.create_character(42, 1, "Ranger", 1).outcome,
+        CreateCharacterOutcome::Created);
+
+    const auto max_commit_time = mongod_.eval("admin", R"js(
+const commits = db.runCommand({getLog: 'global'}).log
+  .map(line => { try { return JSON.parse(line); } catch (_) { return {}; } })
+  .filter(entry => entry.attr?.command?.commitTransaction === 1);
+const commit = commits.at(-1);
+print(JSON.stringify(commit?.attr?.command?.maxTimeMS ?? 'missing'));
+)js");
+    static_cast<void>(mongod_.eval("admin", R"js(
+const result = db.runCommand({
+  setParameter: 1, logComponentVerbosity: {command: {verbosity: 0}}
+});
+if (!result.ok) throw new Error(JSON.stringify(result));
+)js"));
+    const auto max_commit_time_ms = std::stoll(max_commit_time);
+    EXPECT_EQ(max_commit_time_ms, 1'250);
+    EXPECT_LE(max_commit_time_ms, options.write_concern_timeout.count());
+}
+
 TEST_F(PlayerDataStoreTest, RejectsTimeoutsEmbeddedInTheUri) {
     // 超时只能来自 player_data 配置，URI 自带同名参数直接拒绝。
     EXPECT_THROW(

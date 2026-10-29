@@ -1608,6 +1608,11 @@ private:
         mongocxx::options::transaction options;
         options.write_concern(durable_write_concern());
         options.read_concern(majority_read_concern());
+        // commitTransaction 的上界与 wtimeout 取同一值，保持
+        // maxCommitTimeMS <= wtimeout。否则写关注先超时会被驱动标记为
+        // UnknownTransactionCommitResult，并在 with_transaction 内最长重试
+        // 120 秒；MaxTimeMSExpired 会让驱动立即停止该提交重试。
+        options.max_commit_time_ms(write_timeout_);
         return options;
     }
 
