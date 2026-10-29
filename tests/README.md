@@ -184,3 +184,19 @@ S5 的 SceneFaultJourneyTest 使用独占的真实 MongoDB 副本集与生产服
 指标齐备，源码运行前后相同；失败、跳过或缺证据均非零。SceneAcceptanceReportTest 的
 十项合成输入契约验证拒绝边界，不替代业务外部后端证据。阶段交付要求双平台当前源码
 全量与各三次统一验收，所有原始日志、逐例与配置哈希独立保存，失败目录不得覆盖。
+
+## Chat C4 双承载验收
+
+`DualSceneDualChatJourneyTest`注册在已有`scene_journey_test`目标中，沿用其`integration`、
+`RUN_SERIAL`与360秒截止。夹具拉起生产登录入口组、一个Realm、动态Scene A/B、Chat A/B、
+真实etcd及隔离MongoDB；测试CA另生成`chat-dev-02.chat.service`精确身份。Chat A静态承载
+Realm Channel和分片1，Chat B静态承载分片2，不允许发现失败后改投。
+
+三条旅程覆盖显式转场/单Chat故障/同名重启、同分片换承载重建、Scene排空迁移；逐例核对
+Scene Channel隔离、跨Scene Realm Channel顺序与连续资格、旧资格过滤、新Epoch/W、训练/心跳
+共存，以及MongoDB场景序号、Confirmed Location、旧写隔离。夹具结束核对入口、Realm、
+Scene A/B、Chat A/B、etcd与监听回收，共享MongoDB由CTest fixture清理。定向运行：
+
+```sh
+ctest --preset dev -j 1 -R '^(MongoCtestFixturePrepare|DualSceneDualChatJourneyTest\.|MongoCtestFixtureCleanup)'
+```
