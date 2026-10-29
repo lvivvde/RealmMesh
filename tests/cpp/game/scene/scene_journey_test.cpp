@@ -3,6 +3,7 @@
 #include "realmmesh/game/common/realm_protocol.hpp"
 #include <fcntl.h>
 #include <httplib.h>
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <future>
@@ -11,6 +12,7 @@
 #include <vector>
 #include "../realm/journey_fixture.hpp"
 #include "realmmesh/cluster/etcd_service_registry.hpp"
+#include "realmmesh/game/client/chat_session.hpp"
 #include "realmmesh/game/client/scene_session.hpp"
 #include "realmmesh/game/common/scene_store.hpp"
 #include "realmmesh/game/scene/scene_shard.hpp"
@@ -168,6 +170,23 @@ protected:
               "REALMMESH_REALM_PRIVATE_KEY_FILE"})
             ::unsetenv(name);
     }
+    /// 期望成功的 Enter/Move 容忍瞬时 3010,同一 scene_seq 重放(见
+    /// retry_unavailable);期望特定错误码的调用不经此处。
+    static client::RealmReply<common::SceneCommandResult> scene_enter(
+        client::RealmSession& session, std::uint64_t seq) {
+        return retry_unavailable([&](client::TimePoint deadline) {
+            return session.scene()->enter_scene(seq, deadline);
+        });
+    }
+    static client::RealmReply<common::SceneCommandResult> scene_move(
+        client::RealmSession& session,
+        std::uint64_t seq,
+        std::int32_t x,
+        std::int32_t y) {
+        return retry_unavailable([&](client::TimePoint deadline) {
+            return session.scene()->move_in_scene(seq, x, y, deadline);
+        });
+    }
     void verify_closed_ports(std::initializer_list<std::uint16_t> ports) {
         for (const auto port : ports) {
             if (port == 0) continue;
@@ -230,9 +249,9 @@ TEST_F(
     const auto ca = hero_a.value.character_id, cb = hero_b.value.character_id;
     ASSERT_TRUE(a->select_character(ca, soon()).ok());
     ASSERT_TRUE(b->select_character(cb, soon()).ok());
-    const auto joined_a = a->scene()->enter_scene(1, soon());
+    const auto joined_a = scene_enter(*a, 1);
     ASSERT_TRUE(joined_a.ok()) << joined_a.error_code;
-    ASSERT_TRUE(b->scene()->enter_scene(1, soon()).ok());
+    ASSERT_TRUE(scene_enter(*b, 1).ok());
     const auto join = event(*a->scene(), common::SceneEvent::KIND_JOIN, cb);
     EXPECT_GT(join.event_seq(), 0);
     const auto initial_a = a->scene()->get_scene_state(soon());
@@ -246,8 +265,7 @@ TEST_F(
         initial_b.value.snapshot().event_seq());
     std::uint64_t event_seq = initial_a.value.snapshot().event_seq();
     for (std::uint64_t i = 1; i <= 10; ++i) {
-        const auto moved_a = a->scene()->move_in_scene(
-            i + 1, static_cast<int>(i * 10), 0, soon());
+        const auto moved_a = scene_move(*a, i + 1, static_cast<int>(i * 10), 0);
         ASSERT_TRUE(moved_a.ok()) << moved_a.error_code;
         const auto seen_b =
             event(*b->scene(), common::SceneEvent::KIND_MOVE, ca);
@@ -256,8 +274,7 @@ TEST_F(
         EXPECT_EQ(seen_a.SerializeAsString(), seen_b.SerializeAsString());
         EXPECT_EQ(seen_a.event_seq(), ++event_seq);
         EXPECT_EQ(seen_a.member().location().x(), static_cast<int>(i * 10));
-        const auto moved_b = b->scene()->move_in_scene(
-            i + 1, 0, static_cast<int>(i * 10), soon());
+        const auto moved_b = scene_move(*b, i + 1, 0, static_cast<int>(i * 10));
         ASSERT_TRUE(moved_b.ok()) << moved_b.error_code;
         const auto a_sees_b =
             event(*a->scene(), common::SceneEvent::KIND_MOVE, cb);
@@ -315,8 +332,8 @@ TEST_F(
     const auto hero = a->create_character("SceneAbsent", soon());
     ASSERT_TRUE(hero.ok());
     ASSERT_TRUE(a->select_character(hero.value.character_id, soon()).ok());
-    ASSERT_TRUE(a->scene()->enter_scene(1, soon()).ok());
-    ASSERT_TRUE(a->scene()->move_in_scene(2, 10, 0, soon()).ok());
+    ASSERT_TRUE(scene_enter(*a, 1).ok());
+    ASSERT_TRUE(scene_move(*a, 2, 10, 0).ok());
     scene_.reset();
     ASSERT_TRUE(a->heartbeat(soon()));
     ASSERT_TRUE(a->train(1, soon()).ok());
@@ -434,16 +451,43 @@ protected:
         std::string_view credential = journey_credential) {
         auto session = login(account, credential);
         if (!session) return {};
-        const auto hero = session->create_character(
-            account == journey_account ? "TransferAlpha" : "TransferBeta",
-            soon());
-        if (!hero.ok()) {
+        const std::string name =
+            account == journey_account ? "TransferAlpha" : "TransferBeta";
+        bool saw_unavailable = false;
+        const auto hero = retry_unavailable(
+            [&](client::TimePoint deadline) {
+                return session->create_character(name, deadline);
+            },
+            &saw_unavailable);
+        if (hero.ok()) {
+            character = hero.value.character_id;
+        } else if (
+            saw_unavailable && hero.status == RealmCallStatus::Rejected &&
+            hero.error_code == common::edge_error_character_name_taken) {
+            // 先见 3010、重放才重名：只可能是那次被吞掉回包、实际已落库的
+            // 建角。首次即重名仍按失败报告，不掩盖夹具污染或重复建角。
+            const auto roster =
+                retry_unavailable([&](client::TimePoint deadline) {
+                    return session->list_characters(deadline);
+                });
+            const auto found = std::find_if(
+                roster.value.characters.begin(),
+                roster.value.characters.end(),
+                [&](const auto& view) { return view.name == name; });
+            if (!roster.ok() || found == roster.value.characters.end()) {
+                ADD_FAILURE() << hero.error_code;
+                return {};
+            }
+            character = found->character_id;
+        } else {
             ADD_FAILURE() << hero.error_code;
             return {};
         }
-        character = hero.value.character_id;
-        if (!session->select_character(character, soon()).ok()) {
-            ADD_FAILURE();
+        const auto chosen = retry_unavailable([&](client::TimePoint deadline) {
+            return session->select_character(character, deadline);
+        });
+        if (!chosen.ok()) {
+            ADD_FAILURE() << chosen.error_code;
             return {};
         }
         return session;
@@ -499,8 +543,8 @@ TEST_F(
     auto b = selected(cb, "scene-second", "second-secret");
     ASSERT_NE(a, nullptr);
     ASSERT_NE(b, nullptr);
-    ASSERT_TRUE(a->scene()->enter_scene(1, soon()).ok());
-    ASSERT_TRUE(b->scene()->enter_scene(1, soon()).ok());
+    ASSERT_TRUE(scene_enter(*a, 1).ok());
+    ASSERT_TRUE(scene_enter(*b, 1).ok());
     EXPECT_EQ(a->scene()->transfer_scene(2, 99, soon()).error_code, 3102);
     EXPECT_EQ(a->scene()->transfer_scene(2, 1, soon()).error_code, 3102);
     const auto moved = a->scene()->transfer_scene(2, 2, soon());
@@ -525,7 +569,7 @@ TEST_F(
     ASSERT_EQ(source.value.snapshot().members_size(), 1);
     ASSERT_TRUE(b->scene()->transfer_scene(2, 2, soon()).ok());
     static_cast<void>(event(*a->scene(), common::SceneEvent::KIND_JOIN, cb));
-    ASSERT_TRUE(a->scene()->move_in_scene(3, 210, 300, soon()).ok());
+    ASSERT_TRUE(scene_move(*a, 3, 210, 300).ok());
     EXPECT_EQ(
         event(*b->scene(), common::SceneEvent::KIND_MOVE, ca)
             .member()
@@ -565,15 +609,15 @@ TEST_F(
     auto b = selected(cb, "scene-second", "second-secret");
     ASSERT_NE(a, nullptr);
     ASSERT_NE(b, nullptr);
-    ASSERT_TRUE(a->scene()->enter_scene(1, soon()).ok());
-    ASSERT_TRUE(b->scene()->enter_scene(1, soon()).ok());
+    ASSERT_TRUE(scene_enter(*a, 1).ok());
+    ASSERT_TRUE(scene_enter(*b, 1).ok());
     ASSERT_TRUE(b->scene()->transfer_scene(2, 2, soon()).ok());
     common::MongoPlayerDataStore database(player_data().uri(), database_);
     const auto old = database.scene_state({second_account_id, 1, cb});
     ASSERT_TRUE(old);
     ASSERT_TRUE(old->owner);
     scene_b_->crash();
-    ASSERT_TRUE(a->scene()->move_in_scene(2, 10, 0, soon()).ok());
+    ASSERT_TRUE(scene_move(*a, 2, 10, 0).ok());
     ASSERT_TRUE(a->heartbeat(soon()));
     ASSERT_TRUE(a->train(1, soon()).ok());
     const auto missing = b->scene()->get_scene_state(soon());
@@ -585,7 +629,7 @@ TEST_F(
     scene_b_.reset();
     scene_b_.emplace(root_b_.path());
     wait_for_port(port_b_, "scene-b restart");
-    ASSERT_TRUE(b->scene()->enter_scene(3, soon()).ok());
+    ASSERT_TRUE(scene_enter(*b, 3).ok());
     const auto recovered = database.scene_state({second_account_id, 1, cb});
     ASSERT_TRUE(recovered);
     ASSERT_TRUE(recovered->owner);
@@ -593,7 +637,7 @@ TEST_F(
         recovered->owner->scene_incarnation, old->owner->scene_incarnation);
     EXPECT_GT(recovered->binding_epoch, old->binding_epoch);
     EXPECT_EQ(recovered->confirmed_location, old->confirmed_location);
-    ASSERT_TRUE(b->scene()->move_in_scene(4, 210, 300, soon()).ok());
+    ASSERT_TRUE(scene_move(*b, 4, 210, 300).ok());
     stale_write_rejected(*old, 5, {2, 210, 300});
     RecordProperty(
         "database_verification",
@@ -664,7 +708,7 @@ TEST_F(
     std::uint64_t character = 0;
     auto first = selected(character);
     ASSERT_NE(first, nullptr);
-    ASSERT_TRUE(first->scene()->enter_scene(1, soon()).ok());
+    ASSERT_TRUE(scene_enter(*first, 1).ok());
     common::MongoPlayerDataStore database(player_data().uri(), database_);
     // 让 B 的准备成功、激活停住；数据库已经越过唯一切换点。
     scene_b_.reset();
@@ -705,7 +749,7 @@ TEST_F(
     EXPECT_EQ(
         database.scene_state({journey_account_id, 1, character})->binding_epoch,
         old->binding_epoch);
-    ASSERT_TRUE(again->scene()->enter_scene(3, soon()).ok());
+    ASSERT_TRUE(scene_enter(*again, 3).ok());
     const auto recovered =
         database.scene_state({journey_account_id, 1, character});
     ASSERT_TRUE(recovered);
@@ -865,6 +909,540 @@ protected:
     }
     std::size_t next_control_{0};
 };
+
+namespace chat_wire = ::realmmesh::protocol::chat::v1;
+
+/// C4 使用生产入口组、真实 etcd/MongoDB、两个 Scene 与两个 Chat。
+/// Realm Channel 和 shard 1 由 Chat A 承载，shard 2 由 Chat B 承载；
+/// 发现只解析配置指定的精确 instance_id，故障时不改投另一实例。
+class DualSceneDualChatJourneyTest : public SceneDynamicJourneyTest {
+protected:
+    void prepare_services(const std::string& database) override {
+        SceneDynamicJourneyTest::prepare_services(database);
+        const auto tls =
+            std::filesystem::path(REALMMESH_TEST_SERVICE_TLS_DIRECTORY);
+        set_environment(
+            "REALMMESH_CHAT_CERTIFICATE_FILE", (tls / "chat.pem").string());
+        set_environment(
+            "REALMMESH_CHAT_PRIVATE_KEY_FILE", (tls / "chat.key").string());
+        set_environment(
+            "REALMMESH_CHAT2_CERTIFICATE_FILE", (tls / "chat2.pem").string());
+        set_environment(
+            "REALMMESH_CHAT2_PRIVATE_KEY_FILE", (tls / "chat2.key").string());
+
+        const auto ports = test_support::unused_loopback_ports(4);
+        chat_a_port_ = ports[0];
+        chat_b_port_ = ports[1];
+        chat_a_metrics_ = ports[2];
+        chat_b_metrics_ = ports[3];
+        configure_chat(
+            chat_a_root_.path(),
+            "chat-dev-01",
+            "REALMMESH_CHAT_CERTIFICATE_FILE",
+            "REALMMESH_CHAT_PRIVATE_KEY_FILE",
+            chat_a_port_,
+            chat_a_metrics_,
+            "{ 0, 1 }");
+        configure_chat(
+            chat_b_root_.path(),
+            "chat-dev-02",
+            "REALMMESH_CHAT2_CERTIFICATE_FILE",
+            "REALMMESH_CHAT2_PRIVATE_KEY_FILE",
+            chat_b_port_,
+            chat_b_metrics_,
+            "{ 2 }");
+
+        const auto realm_config = realm_root_.path() / "services/realm.lua";
+        rewrite(
+            realm_config,
+            "chat = {\n            enabled = false",
+            "chat = {\n            enabled = true");
+        rewrite(
+            realm_config,
+            "targets = { { instance_id = \"chat-dev-01\",\n"
+            "                server_identity = \"chat-dev-01.chat.service\",\n"
+            "                host = \"127.0.0.1\", port = 7300, channels = {0, 1, 2} } },",
+            "targets = {\n"
+            "                { instance_id = \"chat-dev-01\", server_identity = \"chat-dev-01.chat.service\",\n"
+            "                  host = \"127.0.0.1\", port = 1, channels = {0, 1} },\n"
+            "                { instance_id = \"chat-dev-02\", server_identity = \"chat-dev-02.chat.service\",\n"
+            "                  host = \"127.0.0.1\", port = 1, channels = {2} },\n"
+            "            },");
+
+        chat_a_.emplace(chat_a_root_.path());
+        chat_b_.emplace(chat_b_root_.path());
+        wait_for_port(chat_a_port_, "chat-a");
+        wait_for_port(chat_b_port_, "chat-b");
+    }
+
+    void TearDown() override {
+        chat_a_.reset();
+        chat_b_.reset();
+        verify_closed_ports(
+            {chat_a_port_, chat_b_port_, chat_a_metrics_, chat_b_metrics_});
+        SceneDynamicJourneyTest::TearDown();
+        for (const auto* name :
+             {"REALMMESH_CHAT_CERTIFICATE_FILE",
+              "REALMMESH_CHAT_PRIVATE_KEY_FILE",
+              "REALMMESH_CHAT2_CERTIFICATE_FILE",
+              "REALMMESH_CHAT2_PRIVATE_KEY_FILE"})
+            ::unsetenv(name);
+        RecordProperty(
+            "cleanup_verification",
+            "entry, Realm, Scene A/B, Chat A/B, MongoDB fixture and etcd reaped; listener ports closed");
+    }
+
+    void configure_chat(
+        const std::filesystem::path& root,
+        std::string_view instance,
+        std::string_view certificate_environment,
+        std::string_view private_key_environment,
+        std::uint16_t port,
+        std::uint16_t metrics_port,
+        std::string_view channels) {
+        copy_configs(root, "return { services = { { name = \"chat\" } } }");
+        const auto config = root / "services/chat.lua";
+        if (instance != "chat-dev-01")
+            rewrite(config, "chat-dev-01", std::string(instance));
+        rewrite(
+            config,
+            "REALMMESH_CHAT_CERTIFICATE_FILE",
+            std::string(certificate_environment));
+        rewrite(
+            config,
+            "REALMMESH_CHAT_PRIVATE_KEY_FILE",
+            std::string(private_key_environment));
+        rewrite(
+            config,
+            "channels = { 0, 1, 2 }",
+            "channels = " + std::string(channels));
+        rewrite(
+            config,
+            "listen_port = 7300",
+            "listen_port = " + std::to_string(port));
+        rewrite(
+            config,
+            "metrics_port = 9107",
+            "metrics_port = " + std::to_string(metrics_port));
+        rewrite(
+            root / "common/discovery.lua", "enabled = false", "enabled = true");
+        rewrite(
+            root / "common/discovery.lua",
+            "http://127.0.0.1:2379",
+            etcd_.endpoint());
+    }
+
+    common::ChatState active_chat(
+        client::RealmSession& session,
+        chat_wire::ChannelKind kind,
+        std::optional<std::uint64_t> shard = {}) {
+        const auto deadline = client::Clock::now() + 8s;
+        while (client::Clock::now() < deadline) {
+            const auto reply = session.chat()->get_chat_state(kind, soon());
+            if (reply.ok() && reply.value.phase() == chat_wire::PHASE_ACTIVE &&
+                (!shard || reply.value.epoch().channel().shard_id() == *shard))
+                return reply.value;
+            std::this_thread::sleep_for(10ms);
+        }
+        ADD_FAILURE() << "Chat Channel did not become active";
+        return {};
+    }
+
+    common::ChatState unavailable_chat(
+        client::RealmSession& session, chat_wire::ChannelKind kind) {
+        const auto deadline = client::Clock::now() + 8s;
+        while (client::Clock::now() < deadline) {
+            const auto reply = session.chat()->get_chat_state(kind, soon());
+            if (reply.ok() &&
+                reply.value.phase() == chat_wire::PHASE_UNAVAILABLE)
+                return reply.value;
+            std::this_thread::sleep_for(10ms);
+        }
+        ADD_FAILURE() << "Chat failure did not become visible";
+        return {};
+    }
+
+    static common::SendChat chat_send(
+        const common::ChatState& state,
+        std::uint64_t sequence,
+        std::string text) {
+        common::SendChat request;
+        request.set_kind(state.kind());
+        request.set_membership_generation(state.membership_generation());
+        *request.mutable_expected_epoch() = state.epoch();
+        request.set_client_send_seq(sequence);
+        request.set_text(std::move(text));
+        return request;
+    }
+
+    static client::RealmReply<common::ChatSendResult> send_chat(
+        client::RealmSession& session,
+        const common::ChatState& state,
+        std::uint64_t sequence,
+        std::string text) {
+        return session.chat()->send_chat(
+            chat_send(state, sequence, std::move(text)), soon());
+    }
+
+    std::vector<common::ChatMessage> chat_messages(
+        client::RealmSession& session,
+        chat_wire::ChannelKind kind,
+        std::uint64_t shard,
+        std::size_t count,
+        std::chrono::milliseconds budget = 3s) {
+        std::vector<common::ChatMessage> values;
+        const auto deadline = client::Clock::now() + budget;
+        while (values.size() < count && client::Clock::now() < deadline) {
+            const auto notice = session.chat()->poll_chat(deadline);
+            if (!notice) break;
+            const auto* message = std::get_if<common::ChatMessage>(&*notice);
+            if (message && message->epoch().channel().kind() == kind &&
+                message->epoch().channel().shard_id() == shard)
+                values.push_back(*message);
+        }
+        return values;
+    }
+
+    bool has_chat_message(
+        client::RealmSession& session,
+        chat_wire::ChannelKind kind,
+        std::uint64_t shard,
+        std::chrono::milliseconds budget = 300ms) {
+        return !chat_messages(session, kind, shard, 1, budget).empty();
+    }
+
+    void verify_chat_metrics(std::uint16_t port) {
+        httplib::Client http("127.0.0.1", port);
+        const auto response = http.Get("/metrics");
+        ASSERT_TRUE(response);
+        ASSERT_EQ(response->status, 200);
+        EXPECT_NE(response->body.find("chat_send_total"), std::string::npos);
+    }
+
+    test_support::TemporaryDirectory chat_a_root_{"c4-chat-a-"};
+    test_support::TemporaryDirectory chat_b_root_{"c4-chat-b-"};
+    std::optional<MeshProcess> chat_a_, chat_b_;
+    std::uint16_t chat_a_port_{0}, chat_b_port_{0};
+    std::uint16_t chat_a_metrics_{0}, chat_b_metrics_{0};
+};
+
+TEST_F(
+    DualSceneDualChatJourneyTest,
+    StaticOwnersIsolateTransfersAndOneChatFailureWhileRealmChannelContinues) {
+    wait_shard(1, "scene-dev-01");
+    wait_shard(2, "scene-dev-02");
+    std::uint64_t ca = 0, cb = 0;
+    auto a = selected(ca);
+    auto b = selected(cb, "scene-second", "second-secret");
+    ASSERT_TRUE(a && b);
+    ASSERT_TRUE(scene_enter(*a, 1).ok());
+    ASSERT_TRUE(scene_enter(*b, 1).ok());
+
+    const auto realm_a = active_chat(*a, chat_wire::CHANNEL_KIND_REALM, 0);
+    const auto realm_b = active_chat(*b, chat_wire::CHANNEL_KIND_REALM, 0);
+    auto sent = send_chat(*a, realm_a, 1, "realm-a");
+    ASSERT_TRUE(sent.ok());
+    ASSERT_EQ(sent.value.outcome(), chat_wire::OUTCOME_ACCEPTED);
+    sent = send_chat(*b, realm_b, 1, "realm-b");
+    ASSERT_TRUE(sent.ok());
+    ASSERT_EQ(sent.value.outcome(), chat_wire::OUTCOME_ACCEPTED);
+    const auto realm_seen_a =
+        chat_messages(*a, chat_wire::CHANNEL_KIND_REALM, 0, 2);
+    const auto realm_seen_b =
+        chat_messages(*b, chat_wire::CHANNEL_KIND_REALM, 0, 2);
+    ASSERT_EQ(realm_seen_a.size(), 2);
+    ASSERT_EQ(realm_seen_b.size(), 2);
+    for (std::size_t i = 0; i < 2; ++i) {
+        EXPECT_EQ(realm_seen_a[i].channel_seq(), i + 1);
+        EXPECT_EQ(realm_seen_b[i].channel_seq(), i + 1);
+        EXPECT_EQ(
+            realm_seen_a[i].sender_character_id(),
+            realm_seen_b[i].sender_character_id());
+        EXPECT_EQ(realm_seen_a[i].text(), realm_seen_b[i].text());
+    }
+
+    const auto scene_a = active_chat(*a, chat_wire::CHANNEL_KIND_SCENE, 1);
+    const auto old_scene_b = active_chat(*b, chat_wire::CHANNEL_KIND_SCENE, 1);
+    sent = send_chat(*a, scene_a, 1, "shared-scene");
+    ASSERT_TRUE(sent.ok());
+    ASSERT_EQ(sent.value.outcome(), chat_wire::OUTCOME_ACCEPTED);
+    ASSERT_EQ(chat_messages(*a, chat_wire::CHANNEL_KIND_SCENE, 1, 1).size(), 1);
+    ASSERT_EQ(chat_messages(*b, chat_wire::CHANNEL_KIND_SCENE, 1, 1).size(), 1);
+
+    ASSERT_TRUE(b->scene()->transfer_scene(2, 2, soon()).ok());
+    const auto scene_b = active_chat(*b, chat_wire::CHANNEL_KIND_SCENE, 2);
+    EXPECT_NE(
+        scene_b.membership_generation(), old_scene_b.membership_generation());
+    const auto stale = send_chat(*b, old_scene_b, 1, "stale-source");
+    ASSERT_TRUE(stale.ok());
+    EXPECT_EQ(stale.value.outcome(), chat_wire::OUTCOME_REJECTED);
+    EXPECT_EQ(stale.value.reason(), chat_wire::REASON_STALE_MEMBERSHIP);
+
+    sent = send_chat(*a, scene_a, 2, "only-shard-one");
+    ASSERT_TRUE(sent.ok());
+    ASSERT_EQ(sent.value.outcome(), chat_wire::OUTCOME_ACCEPTED);
+    ASSERT_EQ(chat_messages(*a, chat_wire::CHANNEL_KIND_SCENE, 1, 1).size(), 1);
+    EXPECT_FALSE(has_chat_message(*b, chat_wire::CHANNEL_KIND_SCENE, 1));
+    sent = send_chat(*b, scene_b, 1, "only-shard-two");
+    ASSERT_TRUE(sent.ok());
+    ASSERT_EQ(sent.value.outcome(), chat_wire::OUTCOME_ACCEPTED);
+    ASSERT_EQ(chat_messages(*b, chat_wire::CHANNEL_KIND_SCENE, 2, 1).size(), 1);
+    EXPECT_FALSE(has_chat_message(*a, chat_wire::CHANNEL_KIND_SCENE, 2));
+
+    const auto after_transfer_realm =
+        active_chat(*b, chat_wire::CHANNEL_KIND_REALM, 0);
+    EXPECT_EQ(
+        after_transfer_realm.membership_generation(),
+        realm_b.membership_generation());
+    EXPECT_EQ(
+        after_transfer_realm.epoch().SerializeAsString(),
+        realm_b.epoch().SerializeAsString());
+    sent = send_chat(*a, realm_a, 2, "realm-after-transfer");
+    ASSERT_TRUE(sent.ok());
+    ASSERT_EQ(sent.value.outcome(), chat_wire::OUTCOME_ACCEPTED);
+    const auto continued_a =
+        chat_messages(*a, chat_wire::CHANNEL_KIND_REALM, 0, 1);
+    const auto continued_b =
+        chat_messages(*b, chat_wire::CHANNEL_KIND_REALM, 0, 1);
+    ASSERT_EQ(continued_a.size(), 1);
+    ASSERT_EQ(continued_b.size(), 1);
+    EXPECT_EQ(continued_a.front().channel_seq(), 3);
+    EXPECT_EQ(continued_b.front().channel_seq(), 3);
+
+    common::MongoPlayerDataStore store(player_data().uri(), database_);
+    const auto old = store.scene_state({second_account_id, 1, cb});
+    ASSERT_TRUE(old && old->owner);
+    const auto old_chat_b_incarnation = scene_b.epoch().chat_incarnation();
+    chat_b_->crash();
+    chat_b_.reset();
+    verify_closed_ports({chat_b_port_, chat_b_metrics_});
+    const auto failed = send_chat(*b, scene_b, 2, "chat-b-down");
+    ASSERT_TRUE(failed.ok());
+    EXPECT_NE(failed.value.outcome(), chat_wire::OUTCOME_ACCEPTED);
+    EXPECT_EQ(
+        unavailable_chat(*b, chat_wire::CHANNEL_KIND_SCENE).phase(),
+        chat_wire::PHASE_UNAVAILABLE);
+
+    ASSERT_TRUE(scene_move(*b, 3, 210, 300).ok());
+    ASSERT_TRUE(b->train(1, soon()).ok());
+    ASSERT_TRUE(b->heartbeat(soon()));
+    ASSERT_TRUE(b->scene()->transfer_scene(4, 1, soon()).ok());
+    const auto returned = active_chat(*b, chat_wire::CHANNEL_KIND_SCENE, 1);
+    sent = send_chat(*b, returned, 1, "returned-to-shard-one");
+    ASSERT_TRUE(sent.ok());
+    ASSERT_EQ(sent.value.outcome(), chat_wire::OUTCOME_ACCEPTED);
+    ASSERT_EQ(chat_messages(*a, chat_wire::CHANNEL_KIND_SCENE, 1, 1).size(), 1);
+    ASSERT_EQ(chat_messages(*b, chat_wire::CHANNEL_KIND_SCENE, 1, 1).size(), 1);
+
+    wait_instance_expired("chat", "chat-dev-02");
+    chat_b_.emplace(chat_b_root_.path());
+    wait_for_port(chat_b_port_, "restarted chat-b");
+    ASSERT_TRUE(b->scene()->transfer_scene(5, 2, soon()).ok());
+    const auto restarted = active_chat(*b, chat_wire::CHANNEL_KIND_SCENE, 2);
+    EXPECT_NE(restarted.epoch().chat_incarnation(), old_chat_b_incarnation);
+    EXPECT_GT(
+        restarted.membership_generation(), scene_b.membership_generation());
+    EXPECT_EQ(restarted.join_watermark(), 0);
+    sent = send_chat(*b, restarted, 1, "new-chat-epoch");
+    ASSERT_TRUE(sent.ok());
+    ASSERT_EQ(sent.value.outcome(), chat_wire::OUTCOME_ACCEPTED);
+    const auto restarted_message =
+        chat_messages(*b, chat_wire::CHANNEL_KIND_SCENE, 2, 1);
+    ASSERT_EQ(restarted_message.size(), 1);
+    EXPECT_EQ(restarted_message.front().channel_seq(), 1);
+
+    const auto final_realm = active_chat(*b, chat_wire::CHANNEL_KIND_REALM, 0);
+    EXPECT_EQ(
+        final_realm.membership_generation(), realm_b.membership_generation());
+    EXPECT_EQ(
+        final_realm.epoch().SerializeAsString(),
+        realm_b.epoch().SerializeAsString());
+    sent = send_chat(*b, final_realm, 2, "realm-never-reset");
+    ASSERT_TRUE(sent.ok());
+    ASSERT_EQ(sent.value.outcome(), chat_wire::OUTCOME_ACCEPTED);
+    ASSERT_EQ(chat_messages(*a, chat_wire::CHANNEL_KIND_REALM, 0, 1).size(), 1);
+    ASSERT_EQ(chat_messages(*b, chat_wire::CHANNEL_KIND_REALM, 0, 1).size(), 1);
+
+    const auto durable = store.scene_state({second_account_id, 1, cb});
+    ASSERT_TRUE(durable && durable->owner && durable->last_result);
+    EXPECT_EQ(durable->last_result->command.seq, 5);
+    EXPECT_EQ(durable->owner->scene_instance_id, "scene-dev-02");
+    EXPECT_EQ(
+        durable->confirmed_location,
+        std::optional(common::SceneLocation{2, 200, 300}));
+    stale_write_rejected(*old, 6, {2, 200, 300});
+    verify_chat_metrics(chat_a_metrics_);
+    verify_chat_metrics(chat_b_metrics_);
+    RecordProperty(
+        "database_verification",
+        "transfer seq2/4/5 and move seq3 persisted; old binding write fenced; Chat B failure did not reset Chat A Realm Channel");
+    RecordProperty(
+        "chat_topology_verification",
+        "Chat A owns Realm+shard1, Chat B owns shard2; no failover; same-name restart created a new Epoch/W");
+}
+
+TEST_F(
+    DualSceneDualChatJourneyTest,
+    SameShardRebuildKeepsLogicalChannelAndInstallsNewBindingQualification) {
+    wait_shard(1, "scene-dev-01");
+    wait_shard(2, "scene-dev-02");
+    std::uint64_t ca = 0, cb = 0;
+    auto a = selected(ca);
+    auto b = selected(cb, "scene-second", "second-secret");
+    ASSERT_TRUE(a && b);
+    ASSERT_TRUE(scene_enter(*a, 1).ok());
+    ASSERT_TRUE(scene_move(*a, 2, 50, 0).ok());
+    ASSERT_TRUE(scene_enter(*b, 1).ok());
+    ASSERT_TRUE(b->scene()->transfer_scene(2, 2, soon()).ok());
+    const auto realm_before = active_chat(*a, chat_wire::CHANNEL_KIND_REALM, 0);
+    const auto scene_before = active_chat(*a, chat_wire::CHANNEL_KIND_SCENE, 1);
+    auto sent = send_chat(*a, scene_before, 1, "before-rebuild");
+    ASSERT_TRUE(sent.ok());
+    ASSERT_EQ(sent.value.outcome(), chat_wire::OUTCOME_ACCEPTED);
+    ASSERT_EQ(chat_messages(*a, chat_wire::CHANNEL_KIND_SCENE, 1, 1).size(), 1);
+
+    auto store = database();
+    const auto old = store.scene_state({journey_account_id, 1, ca});
+    ASSERT_TRUE(old && old->owner);
+    scene_->crash();
+    scene_.reset();
+    ASSERT_TRUE(scene_move(*b, 3, 210, 300).ok());
+    const auto unaffected_b = active_chat(*b, chat_wire::CHANNEL_KIND_SCENE, 2);
+    sent = send_chat(*b, unaffected_b, 1, "other-shard-continues");
+    ASSERT_TRUE(sent.ok());
+    ASSERT_EQ(sent.value.outcome(), chat_wire::OUTCOME_ACCEPTED);
+    ASSERT_EQ(chat_messages(*b, chat_wire::CHANNEL_KIND_SCENE, 2, 1).size(), 1);
+    wait_instance_expired("scene", "scene-dev-01");
+    const auto recovered_owner = wait_shard(1, "scene-dev-02");
+    EXPECT_EQ(recovered_owner.version, 2);
+    ASSERT_TRUE(scene_enter(*a, 3).ok());
+    const auto scene_after = active_chat(*a, chat_wire::CHANNEL_KIND_SCENE, 1);
+    EXPECT_EQ(
+        scene_after.epoch().channel().SerializeAsString(),
+        scene_before.epoch().channel().SerializeAsString());
+    EXPECT_EQ(
+        scene_after.epoch().chat_incarnation(),
+        scene_before.epoch().chat_incarnation());
+    EXPECT_GT(
+        scene_after.membership_generation(),
+        scene_before.membership_generation());
+    EXPECT_GE(scene_after.join_watermark(), 1);
+    const auto stale = send_chat(*a, scene_before, 2, "old-binding");
+    ASSERT_TRUE(stale.ok());
+    EXPECT_EQ(stale.value.outcome(), chat_wire::OUTCOME_REJECTED);
+    sent = send_chat(*a, scene_after, 1, "after-rebuild");
+    ASSERT_TRUE(sent.ok());
+    ASSERT_EQ(sent.value.outcome(), chat_wire::OUTCOME_ACCEPTED);
+    const auto after_message =
+        chat_messages(*a, chat_wire::CHANNEL_KIND_SCENE, 1, 1);
+    ASSERT_EQ(after_message.size(), 1);
+    EXPECT_GT(after_message.front().channel_seq(), 1);
+    ASSERT_TRUE(scene_move(*a, 4, 60, 0).ok());
+
+    const auto realm_after = active_chat(*a, chat_wire::CHANNEL_KIND_REALM, 0);
+    EXPECT_EQ(
+        realm_after.membership_generation(),
+        realm_before.membership_generation());
+    EXPECT_EQ(
+        realm_after.epoch().SerializeAsString(),
+        realm_before.epoch().SerializeAsString());
+    const auto durable = store.scene_state({journey_account_id, 1, ca});
+    ASSERT_TRUE(durable && durable->owner && durable->last_result);
+    EXPECT_EQ(durable->last_result->command.seq, 4);
+    EXPECT_EQ(durable->owner->scene_instance_id, "scene-dev-02");
+    EXPECT_EQ(durable->owner->shard_version, 2);
+    EXPECT_EQ(
+        durable->confirmed_location,
+        std::optional(common::SceneLocation{1, 60, 0}));
+    stale_write_rejected(*old, 5, {1, 60, 0});
+    RecordProperty(
+        "database_verification",
+        "shard1 stayed logical id1 after carrier rebuild; binding/owner version advanced; seq4 at(60,0); old write fenced");
+    RecordProperty(
+        "chat_topology_verification",
+        "same Scene Channel/Epoch survived carrier rebuild, new Scene Binding installed a higher membership generation");
+}
+
+TEST_F(
+    DualSceneDualChatJourneyTest,
+    SceneDrainMovesMembershipToTargetChatWithoutResettingRealmChannel) {
+    wait_shard(1, "scene-dev-01");
+    wait_shard(2, "scene-dev-02");
+    std::uint64_t ca = 0, cb = 0;
+    auto a = selected(ca);
+    auto b = selected(cb, "scene-second", "second-secret");
+    ASSERT_TRUE(a && b);
+    ASSERT_TRUE(scene_enter(*a, 1).ok());
+    ASSERT_TRUE(scene_move(*a, 2, 10, 0).ok());
+    ASSERT_TRUE(scene_enter(*b, 1).ok());
+    ASSERT_TRUE(b->scene()->transfer_scene(2, 2, soon()).ok());
+    const auto realm_before = active_chat(*a, chat_wire::CHANNEL_KIND_REALM, 0);
+    const auto realm_b_before =
+        active_chat(*b, chat_wire::CHANNEL_KIND_REALM, 0);
+    const auto source = active_chat(*a, chat_wire::CHANNEL_KIND_SCENE, 1);
+    static_cast<void>(active_chat(*b, chat_wire::CHANNEL_KIND_SCENE, 2));
+    auto store = database();
+    const auto old = store.scene_state({journey_account_id, 1, ca});
+    ASSERT_TRUE(old && old->owner);
+
+    auto draining = control(false, true, "chat-c4-drain");
+    ASSERT_TRUE(scene_move(*b, 3, 210, 300).ok());
+    ASSERT_TRUE(b->heartbeat(soon()));
+    ASSERT_TRUE(b->train(1, soon()).ok());
+    ASSERT_EQ(draining->wait(), 0) << draining->output();
+    EXPECT_EQ(draining->last().value("phase", "missing"), "complete");
+    const auto target = active_chat(*a, chat_wire::CHANNEL_KIND_SCENE, 2);
+    EXPECT_NE(target.membership_generation(), source.membership_generation());
+    EXPECT_EQ(target.epoch().channel().shard_id(), 2);
+    const auto stale = send_chat(*a, source, 1, "drained-source");
+    ASSERT_TRUE(stale.ok());
+    EXPECT_EQ(stale.value.outcome(), chat_wire::OUTCOME_REJECTED);
+    auto sent = send_chat(*a, target, 1, "drained-target");
+    ASSERT_TRUE(sent.ok());
+    ASSERT_EQ(sent.value.outcome(), chat_wire::OUTCOME_ACCEPTED);
+    ASSERT_EQ(chat_messages(*a, chat_wire::CHANNEL_KIND_SCENE, 2, 1).size(), 1);
+    ASSERT_EQ(chat_messages(*b, chat_wire::CHANNEL_KIND_SCENE, 2, 1).size(), 1);
+
+    const auto realm_after = active_chat(*a, chat_wire::CHANNEL_KIND_REALM, 0);
+    const auto realm_b_after =
+        active_chat(*b, chat_wire::CHANNEL_KIND_REALM, 0);
+    EXPECT_EQ(
+        realm_after.membership_generation(),
+        realm_before.membership_generation());
+    EXPECT_EQ(
+        realm_after.epoch().SerializeAsString(),
+        realm_before.epoch().SerializeAsString());
+    EXPECT_EQ(
+        realm_b_after.membership_generation(),
+        realm_b_before.membership_generation());
+    EXPECT_EQ(
+        realm_b_after.epoch().SerializeAsString(),
+        realm_b_before.epoch().SerializeAsString());
+    sent = send_chat(*a, realm_after, 1, "realm-during-drain");
+    ASSERT_TRUE(sent.ok());
+    ASSERT_EQ(sent.value.outcome(), chat_wire::OUTCOME_ACCEPTED);
+    ASSERT_EQ(chat_messages(*a, chat_wire::CHANNEL_KIND_REALM, 0, 1).size(), 1);
+    ASSERT_EQ(chat_messages(*b, chat_wire::CHANNEL_KIND_REALM, 0, 1).size(), 1);
+
+    const auto durable = store.scene_state({journey_account_id, 1, ca});
+    ASSERT_TRUE(durable && durable->owner && durable->last_result);
+    EXPECT_EQ(durable->last_result->command.seq, 3);
+    EXPECT_EQ(durable->owner->scene_instance_id, "scene-dev-02");
+    EXPECT_EQ(
+        durable->confirmed_location,
+        std::optional(common::SceneLocation{2, 200, 300}));
+    const auto released = store.shard_state(1, 1);
+    ASSERT_TRUE(released);
+    EXPECT_FALSE(released->owner);
+    stale_write_rejected(*old, 4, {2, 200, 300});
+    RecordProperty(
+        "database_verification",
+        "drain committed transfer seq3 to shard2, released shard1 only after migration, and fenced the old binding write");
+    RecordProperty(
+        "chat_topology_verification",
+        "drain retired shard1 qualification, installed shard2 qualification on Chat B, and kept Realm Channel on Chat A");
+}
+
 class SceneDynamicJoinJourneyTest : public SceneDynamicJourneyTest {
 protected:
     bool start_second_scene() const override { return false; }
@@ -878,15 +1456,15 @@ TEST_F(
     std::uint64_t character = 0;
     auto player = selected(character);
     ASSERT_TRUE(player);
-    ASSERT_TRUE(player->scene()->enter_scene(1, soon()).ok());
-    ASSERT_TRUE(player->scene()->move_in_scene(2, 30, 0, soon()).ok());
+    ASSERT_TRUE(scene_enter(*player, 1).ok());
+    ASSERT_TRUE(scene_move(*player, 2, 30, 0).ok());
     const auto before = store.scene_state({journey_account_id, 1, character});
     ASSERT_TRUE(before && before->owner);
     start_b();
     const auto second = wait_shard(2, "scene-dev-02");
     EXPECT_EQ(store.shard_state(1, 1), std::optional(first));
     EXPECT_EQ(second.version, 1);
-    ASSERT_TRUE(player->scene()->move_in_scene(3, 40, 0, soon()).ok());
+    ASSERT_TRUE(scene_move(*player, 3, 40, 0).ok());
     const auto old = store.scene_state({journey_account_id, 1, character});
     ASSERT_TRUE(player->scene()->transfer_scene(4, 2, soon()).ok());
     const auto after = store.scene_state({journey_account_id, 1, character});
@@ -912,14 +1490,14 @@ TEST_F(
     auto a = selected(ca);
     auto b = selected(cb, "scene-second", "second-secret");
     ASSERT_TRUE(a && b);
-    ASSERT_TRUE(a->scene()->enter_scene(1, soon()).ok());
-    ASSERT_TRUE(a->scene()->move_in_scene(2, 10, 0, soon()).ok());
-    ASSERT_TRUE(b->scene()->enter_scene(1, soon()).ok());
+    ASSERT_TRUE(scene_enter(*a, 1).ok());
+    ASSERT_TRUE(scene_move(*a, 2, 10, 0).ok());
+    ASSERT_TRUE(scene_enter(*b, 1).ok());
     ASSERT_TRUE(b->scene()->transfer_scene(2, 2, soon()).ok());
     auto store = database();
     const auto old = store.scene_state({journey_account_id, 1, ca});
     auto draining = control(false, true, "drain-success");
-    ASSERT_TRUE(b->scene()->move_in_scene(3, 210, 300, soon()).ok());
+    ASSERT_TRUE(scene_move(*b, 3, 210, 300).ok());
     ASSERT_TRUE(b->heartbeat(soon()));
     ASSERT_TRUE(b->train(1, soon()).ok());
     ASSERT_EQ(draining->wait(), 0) << draining->output();
@@ -939,7 +1517,7 @@ TEST_F(
     EXPECT_EQ(
         state.value.phase(), ::realmmesh::protocol::scene::v1::PHASE_ACTIVE);
     EXPECT_EQ(state.value.snapshot().members_size(), 2);
-    ASSERT_TRUE(a->scene()->move_in_scene(4, 210, 300, soon()).ok());
+    ASSERT_TRUE(scene_move(*a, 4, 210, 300).ok());
     const auto before_repeat = store.scene_state({journey_account_id, 1, ca});
     auto repeated = control(false, true, "drain-success");
     ASSERT_EQ(repeated->wait(5s), 0) << repeated->output();
@@ -989,7 +1567,7 @@ TEST_F(
     std::uint64_t character = 0;
     auto a = selected(character);
     ASSERT_TRUE(a);
-    ASSERT_TRUE(a->scene()->enter_scene(1, soon()).ok());
+    ASSERT_TRUE(scene_enter(*a, 1).ok());
     auto store = database();
     std::vector<std::unique_ptr<client::RealmSession>> occupants;
     for (std::uint64_t i = 0; i < 16; ++i) {
@@ -1018,15 +1596,14 @@ TEST_F(
             ASSERT_TRUE(session->heartbeat(soon()));
             ASSERT_TRUE(
                 session->select_character(9000 + offset + i, soon()).ok());
-            ASSERT_TRUE(session->scene()->enter_scene(1, soon()).ok());
+            ASSERT_TRUE(scene_enter(*session, 1).ok());
             ASSERT_TRUE(session->scene()->transfer_scene(2, 2, soon()).ok());
             occupants.push_back(std::move(session));
         }
     }
     auto draining = control(false, true, "full-target", 1200);
-    ASSERT_TRUE(a->scene()->move_in_scene(2, 10, 0, soon()).ok());
-    ASSERT_TRUE(
-        occupants.front()->scene()->move_in_scene(3, 210, 300, soon()).ok());
+    ASSERT_TRUE(scene_move(*a, 2, 10, 0).ok());
+    ASSERT_TRUE(scene_move(*occupants.front(), 3, 210, 300).ok());
     ASSERT_EQ(draining->wait(8s), 2) << draining->output();
     EXPECT_EQ(draining->last().value("phase", "missing"), "failed");
     EXPECT_EQ(draining->last().value("active_members", 0), 1);
@@ -1044,7 +1621,7 @@ TEST_F(
     auto repeat = control(false, true, "full-target", 60000);
     ASSERT_EQ(repeat->wait(5s), 2) << repeat->output();
     EXPECT_EQ(store.scene_state({journey_account_id, 1, character}), before);
-    ASSERT_TRUE(a->scene()->move_in_scene(3, 20, 0, soon()).ok());
+    ASSERT_TRUE(scene_move(*a, 3, 20, 0).ok());
     ASSERT_TRUE(a->heartbeat(soon()));
     const auto scene_metrics =
         metrics(scene_metrics_ports_.at(scene_root_.path()));
@@ -1070,15 +1647,15 @@ TEST_F(SceneDynamicJourneyTest, FailedCarrierRebuildsSameShardOnOtherInstance) {
     auto a = selected(ca);
     auto b = selected(cb, "scene-second", "second-secret");
     ASSERT_TRUE(a && b);
-    ASSERT_TRUE(a->scene()->enter_scene(1, soon()).ok());
-    ASSERT_TRUE(a->scene()->move_in_scene(2, 50, 0, soon()).ok());
-    ASSERT_TRUE(b->scene()->enter_scene(1, soon()).ok());
+    ASSERT_TRUE(scene_enter(*a, 1).ok());
+    ASSERT_TRUE(scene_move(*a, 2, 50, 0).ok());
+    ASSERT_TRUE(scene_enter(*b, 1).ok());
     ASSERT_TRUE(b->scene()->transfer_scene(2, 2, soon()).ok());
     auto store = database();
     const auto old = store.scene_state({journey_account_id, 1, ca});
     scene_->crash();
     scene_.reset();
-    ASSERT_TRUE(b->scene()->move_in_scene(3, 210, 300, soon()).ok());
+    ASSERT_TRUE(scene_move(*b, 3, 210, 300).ok());
     ASSERT_TRUE(b->heartbeat(soon()));
     ASSERT_TRUE(b->train(1, soon()).ok());
     wait_instance_expired("scene", "scene-dev-01");
@@ -1089,12 +1666,12 @@ TEST_F(SceneDynamicJourneyTest, FailedCarrierRebuildsSameShardOnOtherInstance) {
     EXPECT_EQ(state.value.last_scene_seq(), 2);
     EXPECT_EQ(state.value.confirmed_location().shard_id(), 1);
     EXPECT_EQ(state.value.confirmed_location().x(), 50);
-    const auto entered = a->scene()->enter_scene(3, soon());
+    const auto entered = scene_enter(*a, 3);
     ASSERT_TRUE(entered.ok()) << entered.error_code;
     EXPECT_EQ(entered.value.location().shard_id(), 1);
     EXPECT_EQ(entered.value.location().x(), 50);
-    ASSERT_TRUE(a->scene()->move_in_scene(4, 60, 0, soon()).ok());
-    ASSERT_TRUE(b->scene()->move_in_scene(4, 220, 300, soon()).ok());
+    ASSERT_TRUE(scene_move(*a, 4, 60, 0).ok());
+    ASSERT_TRUE(scene_move(*b, 4, 220, 300).ok());
     const auto first = a->scene()->get_scene_state(soon());
     const auto second = b->scene()->get_scene_state(soon());
     ASSERT_TRUE(first.ok() && second.ok());
@@ -1200,9 +1777,9 @@ TEST_F(
     auto a = selected(ca);
     auto b = selected(cb, "scene-second", "second-secret");
     ASSERT_TRUE(a && b);
-    ASSERT_TRUE(a->scene()->enter_scene(1, soon()).ok());
-    ASSERT_TRUE(a->scene()->move_in_scene(2, 50, 0, soon()).ok());
-    ASSERT_TRUE(b->scene()->enter_scene(1, soon()).ok());
+    ASSERT_TRUE(scene_enter(*a, 1).ok());
+    ASSERT_TRUE(scene_move(*a, 2, 50, 0).ok());
+    ASSERT_TRUE(scene_enter(*b, 1).ok());
     ASSERT_TRUE(b->scene()->transfer_scene(2, 2, soon()).ok());
     auto store = database();
     const auto old = store.scene_state({journey_account_id, 1, ca});
@@ -1219,11 +1796,11 @@ TEST_F(
     ASSERT_TRUE(available.ok());
     EXPECT_EQ(available.value.last_scene_seq(), 2);
     EXPECT_EQ(available.value.confirmed_location().x(), 50);
-    const auto reentered = a->scene()->enter_scene(3, soon());
+    const auto reentered = scene_enter(*a, 3);
     ASSERT_TRUE(reentered.ok()) << reentered.error_code;
-    ASSERT_TRUE(a->scene()->move_in_scene(4, 60, 0, soon()).ok());
-    ASSERT_TRUE(b->scene()->enter_scene(3, soon()).ok());
-    ASSERT_TRUE(b->scene()->move_in_scene(4, 210, 300, soon()).ok());
+    ASSERT_TRUE(scene_move(*a, 4, 60, 0).ok());
+    ASSERT_TRUE(scene_enter(*b, 3).ok());
+    ASSERT_TRUE(scene_move(*b, 4, 210, 300).ok());
     ASSERT_TRUE(a->train(1, soon()).ok());
     ASSERT_TRUE(b->train(1, soon()).ok());
     scene_->crash();
@@ -1233,9 +1810,9 @@ TEST_F(
     ASSERT_TRUE(state.ok());
     EXPECT_EQ(state.value.last_scene_seq(), 4);
     EXPECT_EQ(state.value.confirmed_location().x(), 60);
-    ASSERT_TRUE(a->scene()->enter_scene(5, soon()).ok());
-    ASSERT_TRUE(a->scene()->move_in_scene(6, 70, 0, soon()).ok());
-    ASSERT_TRUE(b->scene()->move_in_scene(5, 220, 300, soon()).ok());
+    ASSERT_TRUE(scene_enter(*a, 5).ok());
+    ASSERT_TRUE(scene_move(*a, 6, 70, 0).ok());
+    ASSERT_TRUE(scene_move(*b, 5, 220, 300).ok());
     stale_write_rejected(*old, 5, {1, 70, 0});
     const auto durable = store.scene_state(old->character);
     ASSERT_TRUE(durable && durable->owner);
@@ -1256,9 +1833,9 @@ TEST_F(
     auto a = selected(ca);
     auto b = selected(cb, "scene-second", "second-secret");
     ASSERT_TRUE(a && b);
-    ASSERT_TRUE(a->scene()->enter_scene(1, soon()).ok());
-    ASSERT_TRUE(a->scene()->move_in_scene(2, 30, 0, soon()).ok());
-    ASSERT_TRUE(b->scene()->enter_scene(1, soon()).ok());
+    ASSERT_TRUE(scene_enter(*a, 1).ok());
+    ASSERT_TRUE(scene_move(*a, 2, 30, 0).ok());
+    ASSERT_TRUE(scene_enter(*b, 1).ok());
     ASSERT_TRUE(b->scene()->transfer_scene(2, 2, soon()).ok());
     auto store = database();
     const auto old_a = store.scene_state({journey_account_id, 1, ca});
@@ -1269,7 +1846,7 @@ TEST_F(
     ASSERT_EQ(draining->wait(8s), 2) << draining->output();
     EXPECT_EQ(draining->last().value("phase", "missing"), "failed");
     ASSERT_TRUE(store.shard_state(1, 1)->draining);
-    ASSERT_TRUE(a->scene()->move_in_scene(3, 40, 0, soon()).ok());
+    ASSERT_TRUE(scene_move(*a, 3, 40, 0).ok());
     ASSERT_TRUE(a->heartbeat(soon()));
     ASSERT_TRUE(b->heartbeat(soon()));
     ASSERT_TRUE(a->train(1, soon()).ok());
@@ -1279,8 +1856,8 @@ TEST_F(
     const auto restored = wait_restarted_shard(2, *old_b->owner);
     EXPECT_EQ(restored.version, 2);
     EXPECT_NE(restored.owner->incarnation, old_b->owner->scene_incarnation);
-    ASSERT_TRUE(b->scene()->enter_scene(3, soon()).ok());
-    ASSERT_TRUE(b->scene()->move_in_scene(4, 220, 300, soon()).ok());
+    ASSERT_TRUE(scene_enter(*b, 3).ok());
+    ASSERT_TRUE(scene_move(*b, 4, 220, 300).ok());
     auto retry = control(false, true, "target-restored", 20000);
     ASSERT_EQ(retry->wait(), 0) << retry->output();
     EXPECT_EQ(retry->last().value("phase", "missing"), "complete");
@@ -1311,8 +1888,8 @@ TEST_F(
     auto a = selected(ca);
     auto slow = selected(cb, "scene-second", "second-secret");
     ASSERT_TRUE(a && slow);
-    ASSERT_TRUE(a->scene()->enter_scene(1, soon()).ok());
-    ASSERT_TRUE(slow->scene()->enter_scene(1, soon()).ok());
+    ASSERT_TRUE(scene_enter(*a, 1).ok());
+    ASSERT_TRUE(scene_enter(*slow, 1).ok());
     auto store = database();
     store.provision_account(
         {.account_id = 7003,
@@ -1326,7 +1903,7 @@ TEST_F(
     ASSERT_TRUE(hero.ok());
     ASSERT_TRUE(
         healthy->select_character(hero.value.character_id, soon()).ok());
-    ASSERT_TRUE(healthy->scene()->enter_scene(1, soon()).ok());
+    ASSERT_TRUE(scene_enter(*healthy, 1).ok());
     ASSERT_TRUE(healthy->scene()->transfer_scene(2, 2, soon()).ok());
     const auto old = store.scene_state({second_account_id, 1, cb});
     ASSERT_TRUE(old && old->owner);
@@ -1334,7 +1911,7 @@ TEST_F(
     auto next_heartbeat = client::Clock::now() + 1s;
     for (std::uint64_t i = 1; i <= 257; ++i) {
         const auto x = static_cast<std::int32_t>(i % 2 == 1 ? 10 : 20);
-        const auto moved = a->scene()->move_in_scene(i + 1, x, 0, soon());
+        const auto moved = scene_move(*a, i + 1, x, 0);
         ASSERT_TRUE(moved.ok()) << "move " << i << ": " << moved.error_code;
         while (a->scene()->poll_scene(client::Clock::now() + 1ms)) {
         }
@@ -1345,12 +1922,11 @@ TEST_F(
         }
         if (i % 64 == 0) {
             const auto step = i / 64;
-            ASSERT_TRUE(healthy->scene()
-                            ->move_in_scene(
-                                step + 2,
-                                200 + static_cast<std::int32_t>(step) * 10,
-                                300,
-                                soon())
+            ASSERT_TRUE(scene_move(
+                            *healthy,
+                            step + 2,
+                            200 + static_cast<std::int32_t>(step) * 10,
+                            300)
                             .ok());
             ASSERT_TRUE(healthy->heartbeat(soon()));
         }
@@ -1373,7 +1949,7 @@ TEST_F(
     ASSERT_TRUE(before.ok());
     EXPECT_EQ(before.value.last_scene_seq(), 1);
     EXPECT_EQ(before.value.confirmed_location().x(), 0);
-    ASSERT_TRUE(again->scene()->enter_scene(2, soon()).ok());
+    ASSERT_TRUE(scene_enter(*again, 2).ok());
     stale_write_rejected(*old, 3, {1, 0, 0});
     const auto snapshot = again->scene()->get_scene_state(soon());
     ASSERT_TRUE(snapshot.ok());
@@ -1396,12 +1972,14 @@ class SceneOutboundJourneyTest : public SceneFaultJourneyTest {
 protected:
     bool constrain_realm_output() const override { return true; }
     bool output_rejected() const {
-        for (const auto& file : std::filesystem::recursive_directory_iterator(realm_root_.path() / "logs")) {
+        for (const auto& file : std::filesystem::recursive_directory_iterator(
+                 realm_root_.path() / "logs")) {
             if (!file.is_regular_file()) continue;
             std::ifstream input(file.path());
             std::string line;
             while (std::getline(input, line)) {
-                if (line.find("outbound_queue_rejected") == std::string::npos) continue;
+                if (line.find("outbound_queue_rejected") == std::string::npos)
+                    continue;
                 const auto event = nlohmann::json::parse(line, nullptr, false);
                 if (event.is_discarded()) continue;
                 // 小回复、已有积压的 4KiB 上限排除单帧超限和业务队列拒绝。
@@ -1414,22 +1992,26 @@ protected:
         return false;
     }
 };
-TEST_F(SceneOutboundJourneyTest, ServerOutputSaturationClosesOnlySlowSessionAndRestoresBinding) {
+TEST_F(
+    SceneOutboundJourneyTest,
+    ServerOutputSaturationClosesOnlySlowSessionAndRestoresBinding) {
     std::uint64_t ca = 0, cb = 0;
     auto initial = selected(ca);
     auto healthy = selected(cb, "scene-second", "second-secret");
     ASSERT_TRUE(initial && healthy);
-    ASSERT_TRUE(initial->scene()->enter_scene(1, soon()).ok());
-    ASSERT_TRUE(initial->scene()->move_in_scene(2, 50, 0, soon()).ok());
-    ASSERT_TRUE(healthy->scene()->enter_scene(1, soon()).ok());
+    ASSERT_TRUE(scene_enter(*initial, 1).ok());
+    ASSERT_TRUE(scene_move(*initial, 2, 50, 0).ok());
+    ASSERT_TRUE(scene_enter(*healthy, 1).ok());
     ASSERT_TRUE(healthy->scene()->transfer_scene(2, 2, soon()).ok());
     initial->close();
     // 只捕获未消费的 EnterRealm 票据；在收紧接收窗口的真实 TLS 上兑换。
     class TicketCapture final : public client::EnterRealmRedeemer {
     public:
         std::string ticket;
-        client::PortStatus redeem(network::client::ISecureByteStream&, std::string_view value,
-                                  client::TimePoint) override {
+        client::PortStatus redeem(
+            network::client::ISecureByteStream&,
+            std::string_view value,
+            client::TimePoint) override {
             ticket.assign(value);
             return client::PortStatus::success();
         }
@@ -1463,12 +2045,14 @@ TEST_F(SceneOutboundJourneyTest, ServerOutputSaturationClosesOnlySlowSessionAndR
     network::LengthFieldCodec codec(4096);
     std::vector<std::byte> batch;
     for (std::uint64_t i = 0; i < 512; ++i) {
-        const auto frame = codec.encode(common::encode(common::HeartbeatRequest{}, 1000000000000ULL + i));
+        const auto frame = codec.encode(
+            common::encode(common::HeartbeatRequest{}, 1000000000000ULL + i));
         batch.insert(batch.end(), frame.begin(), frame.end());
     }
     const auto deadline = client::Clock::now() + 60s;
     std::size_t batches = 0;
-    while (!output_rejected() && client::Clock::now() < deadline && batches++ < 600) {
+    while (!output_rejected() && client::Clock::now() < deadline &&
+           batches++ < 600) {
         if (!slow.write_all(batch, client::Clock::now() + 1s)) break;
         if (batches % 16 == 0) ASSERT_TRUE(healthy->heartbeat(soon()));
         std::this_thread::sleep_for(10ms);
@@ -1479,14 +2063,17 @@ TEST_F(SceneOutboundJourneyTest, ServerOutputSaturationClosesOnlySlowSessionAndR
         std::this_thread::sleep_for(5ms);
     ASSERT_TRUE(output_rejected()) << "server output watermark was not reached";
     ASSERT_TRUE(healthy->heartbeat(soon()));
-    ASSERT_TRUE(healthy->scene()->move_in_scene(3, 210, 300, soon()).ok());
+    ASSERT_TRUE(scene_move(*healthy, 3, 210, 300).ok());
     ASSERT_TRUE(healthy->train(1, soon()).ok());
     // 保持慢端仍打开，等待服务端关闭后撤销旧绑定；排除客户端主动 close。
     bool revoked = false;
     const auto revoke_deadline = client::Clock::now() + 5s;
     while (client::Clock::now() < revoke_deadline) {
         const auto value = store.scene_state(old->character);
-        if (value && !value->owner) { revoked = true; break; }
+        if (value && !value->owner) {
+            revoked = true;
+            break;
+        }
         std::this_thread::sleep_for(10ms);
     }
     ASSERT_TRUE(revoked);
@@ -1497,16 +2084,22 @@ TEST_F(SceneOutboundJourneyTest, ServerOutputSaturationClosesOnlySlowSessionAndR
     ASSERT_TRUE(restored.ok());
     EXPECT_EQ(restored.value.last_scene_seq(), 3);
     EXPECT_EQ(restored.value.confirmed_location().x(), 50);
-    ASSERT_TRUE(again->scene()->enter_scene(4, soon()).ok());
-    ASSERT_TRUE(again->scene()->move_in_scene(5, 60, 0, soon()).ok());
+    ASSERT_TRUE(scene_enter(*again, 4).ok());
+    ASSERT_TRUE(scene_move(*again, 5, 60, 0).ok());
     stale_write_rejected(*old, 6, {1, 60, 0});
     const auto durable = store.scene_state(old->character);
     ASSERT_TRUE(durable && durable->owner);
     EXPECT_EQ(durable->last_result->command.seq, 5);
-    EXPECT_EQ(durable->confirmed_location, std::optional(common::SceneLocation{1, 60, 0}));
+    EXPECT_EQ(
+        durable->confirmed_location,
+        std::optional(common::SceneLocation{1, 60, 0}));
     static_cast<void>(metrics(realm_metrics_port_));
-    RecordProperty("database_verification", "server output full revokes binding while slow socket remains open; re-login restores seq3 at(50,0), enters seq4 and moves seq5 at(60,0); prior binding fenced; other shard move, heartbeat and training succeed");
-    RecordProperty("fault_matrix_verification", "SO_RCVBUF_before_TLS+no_reads+server_4KiB_output_rejection+server_revocation+relogin");
+    RecordProperty(
+        "database_verification",
+        "server output full revokes binding while slow socket remains open; re-login restores seq3 at(50,0), enters seq4 and moves seq5 at(60,0); prior binding fenced; other shard move, heartbeat and training succeed");
+    RecordProperty(
+        "fault_matrix_verification",
+        "SO_RCVBUF_before_TLS+no_reads+server_4KiB_output_rejection+server_revocation+relogin");
 }
 }  // namespace
 }  // namespace realm::game::realm

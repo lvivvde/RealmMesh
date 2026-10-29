@@ -7,9 +7,12 @@ return {
         -- 私有连接串由本机配置注入；未设置时沿用本机隔离开发库。
         uri_environment = "REALMMESH_MONGODB_URI",
         database = "realmmesh",
-        -- 找不到可写 primary、或单次读写超过这两个上限，即按数据源不可用失败。
+        -- 找不到可写 primary、单次读写或写关注等待超过下列上限，即按数据源
+        -- 不可用失败。
         server_selection_timeout_ms = 2000,
         socket_timeout_ms = 2000,
+        -- majority + journal 写关注的等待上限(wtimeout),与套接字超时分开配置。
+        write_concern_timeout_ms = 2000,
         -- 仅空库首次启动时导入开发账号；之后 MongoDB 永远是事实来源。
         bootstrap_accounts_file = "common/accounts.lua",
         -- 新写入口令的 Argon2 成本："interactive"（生产默认）或仅供批量

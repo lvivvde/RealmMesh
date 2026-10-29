@@ -81,7 +81,7 @@ flowchart LR
 | 开发 Supervisor 停止信号与进程回收（#143/#129） | 已修复解析竞态及 wait 再次中断后的提前清理；逆序停止与真实进程回收证据见[诊断记录](docs/research/dev-services-signal-stop.md) |
 | 四层依赖方向（ADR-0014）第 1–5 步：客户端库 `framework/client` 迁入 `game/client`；Gateway 来源地址归一化与凭据入口拆头；边缘连接运行时迁入 `framework/edge`（`EdgeRuntime`、Edge Connection）；通用 `ServiceHost` + `ServiceModule` 注册表，`ServiceType` 改为字符串，四个服务模块迁入各自服务目录，`ServiceFrame` 拆为 `GatewayFrame` 与 `RealmFrame`（#152） | 已完成，`framework/service_host` 不依赖任何 `game/*`，Realm 不依赖 `game/gateway`；`layering_guard_test` 白名单已清空并移除，任何反向依赖都直接失败 |
 | Scene 参考业务：协议与持久边界、双人移动互见、双实例转场、动态加入与排空 | [规格与任务拆分](docs/specs/2026-10-17-scene-reference-loop.md)已完成；S1 协议/编解码与 MongoDB 场景条件写原语（#161）已实现；S2 独立 Scene、双人移动互见与 mTLS 已实现（#162）；S3 双实例转场与归属恢复已实现（#163）；S4 动态加入、共享分片承载 CAS、同分片重建与有身份校验的排空已实现（#164）；S5 组合故障矩阵、真实背压与严格验收已完成并合并（#165、PR #174）；[双平台全量、各三轮验收与归档记录](docs/research/scene-s5-acceptance-2026-10-23.md) |
-| 独立 Chat 在线频道与故障隔离 | [阶段 5 规格提案与 C1–C5 拆分](docs/specs/2026-10-23-chat-reference-loop.md)（[#175](https://github.com/lvivvde/RealmMesh/issues/175)）；C1（#176）已合并；C2（#177）实现独立Chat、mTLS、频道排序/资格/回执及有界分发；C3（#178）接通 Realm 独立有界 IO、选角/场景资格和参考客户端状态/发送/通知；双实例故障验收待 C4–C5 |
+| 独立 Chat 在线频道与故障隔离 | [阶段 5 规格提案与 C1–C5 拆分](docs/specs/2026-10-23-chat-reference-loop.md)（[#175](https://github.com/lvivvde/RealmMesh/issues/175)）；C1（#176）已合并；C2（#177）实现独立Chat、mTLS、频道排序/资格/回执及有界分发；C3（#178）接通 Realm 独立有界 IO、选角/场景资格和参考客户端状态/发送/通知；C4（#179）验证双Scene/双Chat静态承载、转场/重建/排空资格隔离、单Chat故障与同名重启；组合故障总验收待 C5 |
 
 旧 `Login → Realm 选角 → Gateway 入场` 链路已整体退役：`login` 服务身份、7000 端口与
 旧入场消息编号都已删除，线名 `login` 永不复用（见[架构文档](docs/architecture.md)）。
@@ -220,11 +220,12 @@ Watch 该前缀，按 `min(Σ网关 fetch_free/conn_free, Σ业务服 conn_free,
 
 ## 构建
 
-三平台支持等级见 [ADR-0002](docs/adr/0002-cross-platform-support-policy.md) 与
-[ADR-0012](docs/adr/0012-macos-local-quic.md)：Linux 是生产与行为基准（缺失 MsQuic
-即配置失败，CI 的 QUIC 回归在此），macOS 是开发基准（编译、起拓扑、`ctest` 全绿；
-装了 Homebrew `libmsquic` 即在本地编入并测试 QUIC，未装则 `TransportFactory` 按平台
-能力禁用 QUIC，只走 TLS/TCP），Windows 当前只交付后端开关（`iocp` 可配置但显式未实现，不进 CI）。同一构建只编入一个平台后端，
+平台支持等级见 [ADR-0017](docs/adr/0017-linux-development-baseline.md)（部分取代
+[ADR-0002](docs/adr/0002-cross-platform-support-policy.md) 与
+[ADR-0012](docs/adr/0012-macos-local-quic.md)）：Linux（Ubuntu 24.04，WSL2 为本地参考）同时是
+生产与开发基准（缺失 MsQuic 即配置失败；编译、起拓扑、`ctest` 全绿与 CI 的 QUIC 回归都以此为准），
+macOS 是可选开发平台（不阻塞主路径；装了 Homebrew `libmsquic` 即在本地编入并测试 QUIC，未装则
+`TransportFactory` 按平台能力禁用 QUIC，只走 TLS/TCP；平台差异以条件分支保留），Windows 当前只交付后端开关（`iocp` 可配置但显式未实现，不进 CI）。同一构建只编入一个平台后端，
 后端在配置期选定（[ADR-0001](docs/adr/0001-compile-time-platform-backends.md)）。
 
 共同要求：CMake 3.20+、Ninja 1.11+（默认预设 `dev` 的生成器；没有 Ninja 时配置会停下并提示，
@@ -232,7 +233,7 @@ Watch 该前缀，按 `min(Σ网关 fetch_free/conn_free, Σ业务服 conn_free,
 libsodium、nlohmann/json、cpp-httplib、protobuf、spdlog）随源码树一并构建，无需另行
 安装。
 
-Ubuntu 24.04（生产基准，含 QUIC）：
+Ubuntu 24.04（生产与开发基准，含 QUIC）：
 
 ```bash
 sudo apt install libssl-dev libnuma1 ninja-build
@@ -242,7 +243,23 @@ sudo apt install libssl-dev libnuma1 ninja-build
 ./scripts/build.sh
 ```
 
-macOS（开发基准；装 `libmsquic` 即本地启用 QUIC，不装则只走 TLS/TCP）：
+没有 sudo 的 Linux 开发机（如 WSL2）把 CMake、Ninja、OpenSSL 开发包与 `libnuma`
+解到仓库内被 Git 忽略的 `.tools/`，再用环境变量指过去（路径按本机实际布局）：
+
+```bash
+export PATH="$PWD/.tools/cmake/bin:$PWD/.tools/ninja-local/usr/bin:$PATH"
+export OPENSSL_ROOT_DIR="$PWD/.tools/<openssl 前缀>"          # 含 include/openssl 与 lib*/libssl.so
+export CMAKE_LIBRARY_PATH="$PWD/.tools/sysroot/usr/lib/x86_64-linux-gnu"  # libnuma 等
+export LD_LIBRARY_PATH="$OPENSSL_ROOT_DIR/lib/x86_64-linux-gnu:$CMAKE_LIBRARY_PATH"
+./scripts/build.sh --preset dev-make   # 无 Ninja 时用 Make 回退
+```
+
+MsQuic 与 libnuma 的库目录会写进可执行文件 RUNPATH；但 RUNPATH 不传递，`libmsquic` 自身的依赖
+（不同版本可能有 `libxdp`、`libnl-3`）以及 `.tools/` 里 OpenSSL 的运行库仍靠 `LD_LIBRARY_PATH` 找到，
+它们缺失时 `ldd build/<预设目录>/bin/realm_mesh` 会显示 `not found`。macOS 对应的是 `DYLD_LIBRARY_PATH`，
+Homebrew 库自带绝对 install name，通常不需要设置。
+
+macOS（可选开发平台；装 `libmsquic` 即本地启用 QUIC，不装则只走 TLS/TCP）：
 
 ```bash
 brew install openssl@3 ninja libmsquic
@@ -257,7 +274,7 @@ export PATH="$(brew --prefix openssl@3)/bin:$PATH"   # 测试证书生成要用 
 
 - **OpenSSL**：显式 `OPENSSL_ROOT_DIR`（`-D` 或环境变量）优先，无效即失败、不回退；未指定时
   macOS 默认 Homebrew `openssl@3` 专用前缀。不能用共享前缀 `/opt/homebrew/include`：其中还有
-  Homebrew 的 Abseil（`mongodb-community` 会顺带装上），会盖过工程固定版本。配置期会校验：头文件来自专用
+  Homebrew 的 Abseil（`mongodb-community` 会顺带装上），会盖过工程固定版本。Linux 未指定时交给 FindOpenSSL 的系统搜索（`libssl-dev`）。配置期会校验：头文件来自专用
   include 目录，头与库属于同一安装，探针程序能链接（架构一致），头与运行时主次版本一致。
 - **protoc**：默认下载并校验官方 protoc 35.0（无官方包的宿主从源码构建）。要用本机已有的 protoc，唯一入口是
   `-DREALMMESH_PROTOC_EXECUTABLE=<绝对路径>`，版本必须是 35.0，无效即失败、不改走下载。
@@ -291,7 +308,7 @@ Ninja 下库与生产程序的链接进深度 1 的原生池，编译仍用满 `
 发现，见[实施记录](docs/research/build-tool-cache-decisions.md#实施记录123)）；libsodium 照旧是单独的 `make -j1`。旧的 `build/dev`
 （`dev` 曾用 Make 时的目录）不会被删除、搬移或换生成器，确认不再需要后自行删除即可。
 
-原生 C/C++ 编译缓存（#124）：`REALMMESH_CCACHE` 缺省 `AUTO`，PATH 有 ccache 4.x（≥4.8）即启用，缺失时打印关闭；`ON` 缺工具或显式工具路径无效会配置失败。macOS 可 `brew install ccache`，Ubuntu 可 `sudo apt install ccache`，入口不自动安装。`cmake --preset dev -DREALMMESH_CCACHE=OFF` 关闭并移除项目管理的 launcher，之后 `./scripts/build.sh` 保持该缓存选择；`AUTO` 可重新开启。已有自定义 compiler launcher 与开启缓存冲突时明确报错，OFF 保留用户 launcher。
+原生 C/C++ 编译缓存（#124）：`REALMMESH_CCACHE` 缺省 `AUTO`，PATH 有 ccache 4.x（≥4.8）即启用，缺失时打印关闭；`ON` 缺工具或显式工具路径无效会配置失败。Ubuntu 可 `sudo apt install ccache`，macOS 可 `brew install ccache`，入口不自动安装。`cmake --preset dev -DREALMMESH_CCACHE=OFF` 关闭并移除项目管理的 launcher，之后 `./scripts/build.sh` 保持该缓存选择；`AUTO` 可重新开启。已有自定义 compiler launcher 与开启缓存冲突时明确报错，OFF 保留用户 launcher。
 
 专用缓存缺省 `${sourceDir}/.cache/ccache`（在 build 外，git 忽略），上限 5GiB；构建目录清理不会删除它。用户预设可覆盖 `REALMMESH_CCACHE_DIR`（绝对路径）、`REALMMESH_CCACHE_MAX_SIZE` 和 `REALMMESH_CCACHE_EXECUTABLE`。配置隔离个人/系统 ccache 设置并在每次调用固定 content 编译器校验、空 sloppiness、调试目录哈希、系统头检查、压缩及禁止硬链接；不强设路径映射，也不缓存 libsodium 的外部 Make 编译。`CCACHE_DIR=<专用目录> ccache --show-stats --verbose` 查看命中/未命中/大小/淘汰，未命中正常源码编译，编译错误不重试。
 
@@ -327,10 +344,10 @@ MongoDB 服务：`./scripts/configure-shared-mongodb.sh vps` 取一次私有连�
 `./scripts/with-shared-mongodb.sh <命令>` 启动服务，详见[共享库说明](docs/operations/shared-mongodb.md)。
 
 自动化集成测试不连共享库，而是由夹具在本机拉起临时 `mongod`，所以跑全量测试的机器
-需要 MongoDB 二进制：macOS 用 `brew tap mongodb/brew && brew trust mongodb/brew && brew install mongodb-community mongosh`；
-Linux（CI 自动执行）用 `./scripts/install-mongodb.sh` 下载固定版本到 `.tools/`。
+需要 MongoDB 二进制：Linux（CI 自动执行）用 `./scripts/install-mongodb.sh` 下载固定版本到 `.tools/`；
+macOS 用 `brew tap mongodb/brew && brew trust mongodb/brew && brew install mongodb-community mongosh`。
 离线时可用 `./scripts/run-mongodb-dev.sh` 在 `127.0.0.1:27017` 前台启动本机单节点 `rs0`
-（数据在 `.runtime/mongodb`，不碰 Homebrew 服务的配置与数据目录；两者都占 27017，
+（数据在 `.runtime/mongodb`，不碰系统或 Homebrew 的 MongoDB 服务的配置与数据目录；两者都占 27017，
 同时只能运行一个），此时不经包装命令，配置回落到默认本机 URI。
 
 ## 开发证书与密钥
@@ -476,7 +493,7 @@ ctest --preset dev -j 1       # 只跑全量测试
 ctest --preset dev -L '^lua$' # 只筛 Lua 用例（标签筛选是正则，要加锚点）
 ```
 
-快速入口不是完整验证；退出码、编译并行预算（缺省开发 Mac 8 路、Lima 2 路）与筛选规则见
+快速入口不是完整验证；退出码、编译并行预算（缺省按本机 CPU/内存与 cgroup 限额推算，如 8 GiB 机器 2 路、上限 8 路）与筛选规则见
 [tests/README.md](tests/README.md#运行方式)。
 
 单元测试基座是 Google Test 1.17 与 LuaUnit v3.5（均经 FetchContent 固定版本），

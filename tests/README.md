@@ -23,7 +23,7 @@
 |---|---|
 | 日常编辑循环(快速子集) | `./scripts/test-fast.sh`:配置后只构建 Unit 聚合目标 `realmmesh_unit_tests`,4 路运行全部 `unit` 用例 |
 | 聚焦一个 Unit 目标 | `./scripts/test-fast.sh --target lua_runtime_test`(Lua 套件用 `--target realm_lua_cli`);再收窄用例加 `--test-regex REGEX` |
-| TDD 反馈环(保存即重跑快速入口) | `./scripts/test-watch.sh`(单跑一轮加 `--once`;其余参数原样转给 `test-fast.sh`) |
+| TDD 反馈环(保存即重跑快速入口) | `./scripts/test-watch.sh`(单跑一轮加 `--once`;其余参数原样转给 `test-fast.sh`)。Linux 优先 `inotifywait`(`inotify-tools`;无 sudo 时 `apt-get download inotify-tools libinotifytools0` 解到 `.tools/` 并让 `inotifywait` 能找到 `libinotifytools.so.0`),起不来时告警并回退轮询 |
 | 手动快速子集 | `ctest --preset dev -L '^unit$'`(或 `-L '^lua$'` 只筛 Lua 用例、`-L '^target=<构建目标>$'` 只筛一个目标);需先构建 |
 | 一键全量(构建 ALL + 全部测试，串行) | `./scripts/build.sh` |
 | 仅全量测试 | `ctest --preset dev -j 1` |
@@ -33,7 +33,7 @@
 
 入口共同约定(#125,决策与失败行为见 [build-test-entry-decisions.md](../docs/research/build-test-entry-decisions.md#实施记录125)):
 
-- 都接受 `--preset NAME`(默认 `dev`)与 `--jobs N`。编译 jobs 缺省取非空的 `CMAKE_BUILD_PARALLEL_LEVEL`,再缺省取 CPU/内存预算(开发 Mac 8 路、Lima 2 路),每次打印 `build jobs: …`。
+- 都接受 `--preset NAME`(默认 `dev`)与 `--jobs N`。编译 jobs 缺省取非空的 `CMAKE_BUILD_PARALLEL_LEVEL`,再缺省取 CPU/内存预算(Linux 另计 cgroup 限额；如 8 GiB 机器 2 路，上限 8 路),每次打印 `build jobs: …`。
 - 测试并行与编译并行分开。`test-fast.sh` 默认 `--test-jobs 4`,可退回 1;`build.sh` 与 CI 显式 `-j 1`,不继承 `CTEST_PARALLEL_LEVEL`。
 - `test-fast.sh` 不是完整验证。阶段完成，或改了公共头、跨模块、网络、协议、存储行为时，跑 `./scripts/build.sh`。
 - P6 重新冻结后的 R0/最终完整合集为 649/667 项，Unit 为 496/504 项，旧项无删除；扩展合集的计时不代表严格同合集验收。双平台配对、恢复检查与完整回退证据见[阶段报告](../docs/research/build-optimization-results.md#p6双平台最终复测与有界后续决策129)。
@@ -43,9 +43,9 @@
 ## 前置条件
 
 - **etcd 二进制**:跨进程集成用例(`new_chain_flow_test`、`realm_journey_test`、`loadgen_integration_test`、`DevServicesScriptTest.*`)会各自拉起一个**真实单节点 etcd** —— 网关的准入消费存储是线性一致存储,attach 路径真实依赖它(ADR-0009),用假 CAS 替身去证明外部系统契约无法归因缺陷。先跑 `./scripts/install-etcd.sh`(安装到 `.tools/etcd-v3.6.14/`,可用 `REALMMESH_ETCD_BINARY` 覆盖路径);二进制缺失即用例失败并提示安装命令,不静默跳过。用例自带的 etcd 用空闲端口 + 临时数据目录,自起自停,因此**不需要**开发机上长期运行 `./scripts/run-etcd-dev.sh`,也不与它抢 2379。
-- **MongoDB 二进制**:Player Data 用例(`player_data_store_test`、`scene_store_test`、`login_verify_service_test`、`realm_journey_test`、`loadgen_integration_test`、`DevServicesScriptTest.*`)会拉起**真实单节点副本集 `rs0`** —— 准入事实的 majority 读写与事务只有在真副本集上才有意义(ADR-0011),内存替身只用在不涉及存储契约的单元测试(网关拉取口、Realm 角色存储)。macOS 用 Homebrew 安装 `brew tap mongodb/brew && brew trust mongodb/brew && brew install mongodb-community mongosh`;Linux 跑 `./scripts/install-mongodb.sh`(安装到 `.tools/`,CI 自动执行)。用例永远不连远程共享开发库:改写配置时会删掉 `uri_environment`,shell 里设置了 `REALMMESH_MONGODB_URI` 也不受影响。夹具按 `REALMMESH_MONGOD_BINARY` / `REALMMESH_MONGOSH_BINARY` → PATH → `.tools/` 的顺序查找,缺失即失败并提示安装命令。完整 CTest 通过夹具依赖共享一个真实 mongod，GTest 与每条 `DevServicesScriptTest.*` 使用独立库名；独立运行时仍自启实例。它们都用空闲端口 + 临时数据目录，自起自停，因此**不需要**运行 Homebrew 服务或 `./scripts/run-mongodb-dev.sh`,也不与它们抢 27017。
-- **Python 3**:编译缓存配置/原生契约与 CI 兼容键使用标准库脚本；构建入口不自动安装。macOS 的 Xcode 工具链、Linux 开发环境及 CI 都应提供 `python3`。
-- **Ninja 1.11+**:构建图用例(`BuildGraphTest`、`BuildDirScriptTest.*`、`TestFastScriptTest.*`)会在临时目录里用 `dev` 预设配置小工程，验证 Ninja 门槛、原生链接池(含测试可执行文件出池)与 libsodium 安装产物(#123),因此即使主构建用 `--preset dev-make` 回退，全量 ctest 仍需要 PATH 上有真实的 `ninja`。macOS `brew install ninja`,Ubuntu `sudo apt-get install ninja-build`;缺失即用例失败，不跳过。
+- **MongoDB 二进制**:Player Data 用例(`player_data_store_test`、`scene_store_test`、`login_verify_service_test`、`realm_journey_test`、`loadgen_integration_test`、`DevServicesScriptTest.*`)会拉起**真实单节点副本集 `rs0`** —— 准入事实的 majority 读写与事务只有在真副本集上才有意义(ADR-0011),内存替身只用在不涉及存储契约的单元测试(网关拉取口、Realm 角色存储)。Linux 跑 `./scripts/install-mongodb.sh`(安装到 `.tools/`,CI 自动执行);macOS 用 Homebrew 安装 `brew tap mongodb/brew && brew trust mongodb/brew && brew install mongodb-community mongosh`。用例永远不连远程共享开发库:改写配置时会删掉 `uri_environment`,shell 里设置了 `REALMMESH_MONGODB_URI` 也不受影响。夹具按 `REALMMESH_MONGOD_BINARY` / `REALMMESH_MONGOSH_BINARY` → PATH → `.tools/` 的顺序查找,缺失即失败并提示安装命令。完整 CTest 通过夹具依赖共享一个真实 mongod，GTest 与每条 `DevServicesScriptTest.*` 使用独立库名；独立运行时仍自启实例。它们都用空闲端口 + 临时数据目录，自起自停，因此**不需要**运行系统/Homebrew 的 MongoDB 服务或 `./scripts/run-mongodb-dev.sh`,也不与它们抢 27017。
+- **Python 3**:编译缓存配置/原生契约与 CI 兼容键使用标准库脚本；构建入口不自动安装。Linux 开发环境、CI 及 macOS 的 Xcode 工具链都应提供 `python3`。
+- **Ninja 1.11+**:构建图用例(`BuildGraphTest`、`BuildDirScriptTest.*`、`TestFastScriptTest.*`)会在临时目录里用 `dev` 预设配置小工程，验证 Ninja 门槛、原生链接池(含测试可执行文件出池)与 libsodium 安装产物(#123),因此即使主构建用 `--preset dev-make` 回退，全量 ctest 仍需要 PATH 上有真实的 `ninja`。Ubuntu `sudo apt-get install ninja-build`(无 sudo 时解到 `.tools/` 并加入 PATH),macOS `brew install ninja`;缺失即用例失败，不跳过。
 - 快速子集(`test-fast.sh`、`ctest -L '^unit$'`)不拉起任何进程,无此前置条件。
 - `DevServicesScriptTest.StopIsReverseOrdered`、`StopDuringProcessChecks`、
   `StopAfterInterruptedWorkerWait` 与 `StopDuringStartup` 分别验证正常逆序停止、
@@ -89,6 +89,21 @@ GTest 每例及 DevServices 每条用例使用独立数据库；后者的服务�
 每次用真实初始化器重新验证 Primary 后复用。未就绪、失效或不匹配的状态不会被覆盖。
 准备被中断时等待守护进程完成清理；初始化器与后端各自保留 2 秒 TERM/KILL
 预算，守护进程拥有独立的 5 秒收尾预算。临时状态仅用于本地测试编排。
+
+回收数据目录前，守护进程把 `mongod.log` 复制为
+`<build>/mongodb-ctest-fixtures/ctest-<owner>.mongod.log`，只保留最近一次运行的一份，
+偶发的写关注超时等失败事后仍能查服务端现场；全量重跑带 `--output-on-failure`。
+`player_data_store_test`、`scene_store_test`、`login_verify_service_test` 与 Realm/Scene
+旅程夹具在用例结束时经 `realmmesh_mongodb_fixture --drop-database` 删掉本例的
+`realmmesh_test_*` 库，共享副本集的库与集合数量不随全量运行累积。
+
+`point_player_data_at` 指向共享副本集时把 `socket_timeout_ms` 放到 7 秒、
+`write_concern_timeout_ms` 放到 4.5 秒（生产仍为 2 秒快速失败），层级为写关注等待
+< 套接字超时 < 请求截止：驱动不会先于写关注超时断开，`retry_unavailable` 每次尝试
+的截止（`data_call_deadline()`，12 秒）也晚于二者，服务先回可重试的 3010。旅程用例
+的长训练循环与 Scene 期望成功的 Enter/Move 经 `retry_unavailable` 以同一 seq 重放
+3010；建角只在确实观察到 3010 后才按名字找回已落库的角色。独占 `mongod`（故障注入
+夹具）保持生产超时。
 
 `MongodProcess::shared()` 在 CTest 环境中借用已准备的副本集，在独立进程中仍自启；
 公开默认构造继续拥有独立实例，初始化失败/超时契约因此仍验证真实启动与回收。
@@ -169,3 +184,19 @@ S5 的 SceneFaultJourneyTest 使用独占的真实 MongoDB 副本集与生产服
 指标齐备，源码运行前后相同；失败、跳过或缺证据均非零。SceneAcceptanceReportTest 的
 十项合成输入契约验证拒绝边界，不替代业务外部后端证据。阶段交付要求双平台当前源码
 全量与各三次统一验收，所有原始日志、逐例与配置哈希独立保存，失败目录不得覆盖。
+
+## Chat C4 双承载验收
+
+`DualSceneDualChatJourneyTest`注册在已有`scene_journey_test`目标中，沿用其`integration`、
+`RUN_SERIAL`与360秒截止。夹具拉起生产登录入口组、一个Realm、动态Scene A/B、Chat A/B、
+真实etcd及隔离MongoDB；测试CA另生成`chat-dev-02.chat.service`精确身份。Chat A静态承载
+Realm Channel和分片1，Chat B静态承载分片2，不允许发现失败后改投。
+
+三条旅程覆盖显式转场/单Chat故障/同名重启、同分片换承载重建、Scene排空迁移；逐例核对
+Scene Channel隔离、跨Scene Realm Channel顺序与连续资格、旧资格过滤、新Epoch/W、训练/心跳
+共存，以及MongoDB场景序号、Confirmed Location、旧写隔离。夹具结束核对入口、Realm、
+Scene A/B、Chat A/B、etcd与监听回收，共享MongoDB由CTest fixture清理。定向运行：
+
+```sh
+ctest --preset dev -j 1 -R '^(MongoCtestFixturePrepare|DualSceneDualChatJourneyTest\.|MongoCtestFixtureCleanup)'
+```

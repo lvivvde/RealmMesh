@@ -1,8 +1,9 @@
-# Realm 与参考客户端 Chat 接入（C3）
+# Realm 与参考客户端 Chat 接入（C3–C4）
 
-本页对应 [#178](https://github.com/lvivvde/RealmMesh/issues/178)，基于
+本页对应 [#178](https://github.com/lvivvde/RealmMesh/issues/178) 与
+[#179](https://github.com/lvivvde/RealmMesh/issues/179)，基于
 [Chat 规格](../specs/2026-10-23-chat-reference-loop.md)和[独立服务说明](chat-service.md)。
-单 Chat 闭环已接线；双 Scene/双 Chat 的转场、真实慢消费者积压及组合故障总验收由 C4–C5 完成。
+单 Chat 闭环与双 Scene/双 Chat 转场隔离已接线并验证；真实慢消费者积压及组合故障总验收由 C5 完成。
 
 ## 配置
 
@@ -43,11 +44,17 @@ Unknown重试。`ChatJourneyTest` 拉起真实登录服务、Realm、Chat、Scen
 验证双人连续顺序、角色资格拒绝、训练/心跳/移动共存、数据库落点、HTTP指标、SIGKILL及同名重启。
 重启前等待旧etcd注册实际过期。夹具回收后核对服务端口；自动测试不接触共享开发库。
 
+`DualSceneDualChatJourneyTest`沿用`scene_journey_test`的生产入口组、真实动态Scene A/B、etcd和
+隔离MongoDB，再拉起精确身份的Chat A/B。配置把Realm Channel与分片1静态映射到Chat A，分片2
+映射到Chat B；三个旅程分别验证显式转场与单Chat故障/同名重启、同分片换承载重建、排空迁移。
+用例核对双方频道顺序、旧资格过滤、新Epoch/W、Realm Channel连续性，以及MongoDB场景序号、
+Confirmed Location、旧写隔离和全部监听回收。它们是`integration`且串行运行。
+
 定向运行构建相应目标后：
 
 ```sh
-ctest --preset dev -j 1 -R '^(RealmChatTest|ChatSessionTest|ChatJourneyTest)\.'
+ctest --preset dev -j 1 -R '^(RealmChatTest|ChatSessionTest|ChatJourneyTest|DualSceneDualChatJourneyTest)\.'
 ```
 
-阶段完成仍需双平台当前源码 `./scripts/build.sh` 全量；定向测试不代替完整回归。C3不宣称
-C4/C5的双承载隔离、跨分片转场或真实积压饱和已经验收。
+阶段完成仍需双平台当前源码 `./scripts/build.sh` 全量；定向测试不代替完整回归。C4不宣称
+C5的真实积压饱和、组合故障矩阵或阶段总验收已经完成。

@@ -134,6 +134,10 @@ struct MongoPlayerDataOptions final {
     std::chrono::milliseconds server_selection_timeout{2'000};
     /// 单次网络读写的套接字超时，界定一次查询最多占用调用方多久。
     std::chrono::milliseconds socket_timeout{2'000};
+    /// majority + journal 写关注的等待上限（wtimeout，ADR-0011）。与套接字
+    /// 超时分开配置；超时即按数据源不可用失败，已落主节点的写不回滚。
+    /// 不得长于 socket_timeout,否则构造时拒绝。
+    std::chrono::milliseconds write_concern_timeout{2'000};
     /// 非空时，连接后对尚未导入过的库执行一次性 Lua 导入（见
     /// bootstrap_from_lua）。三个服务共用同一配置，谁先到谁完成导入。
     std::optional<std::filesystem::path> bootstrap_accounts_file;

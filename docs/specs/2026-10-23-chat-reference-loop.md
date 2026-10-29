@@ -1,7 +1,7 @@
 # 独立 Chat 与在线频道参考闭环
 
 - 日期：2026-10-23；路线图阶段 5；跟踪父任务 [#175](https://github.com/lvivvde/RealmMesh/issues/175)。
-- 状态：规格PR #181已合并；C1（#176）协议/严格编解码已落地，C2（#177）独立服务/排序者已落地，C3（#178）已接通Realm异步路由与参考客户端单Chat闭环，C4–C5尚未实现；本文不声明运行、跨机器或容量验收通过。
+- 状态：规格PR #181已合并；C1（#176）协议/严格编解码已落地，C2（#177）独立服务/排序者已落地，C3（#178）已接通Realm异步路由与参考客户端单Chat闭环，C4（#179）已验证双Scene/双Chat静态承载与转场隔离；C5尚未实现，本文不声明跨机器或容量总验收通过。
 - 前置：Scene S1–S5 已合并，父任务 #160 完成；验收见 [Scene S5 记录](../research/scene-s5-acceptance-2026-10-23.md)。
 - 术语见 [CONTEXT](../../CONTEXT.md)，受理与排序边界见 [ADR-0016](../adr/0016-chat-online-channel-order-and-receipt.md)。
 
@@ -204,4 +204,4 @@ C5以所选preset的实际binaryDir生成冻结报告，记录源码/工作树�
 | [C5 #180](https://github.com/lvivvde/RealmMesh/issues/180) | 组合故障矩阵与阶段总验收 | 上述全部边界、两平台全量与各三次完整验收、CI、原始归档、文档和双轴复审齐备 | C4 |
 
 父任务[#175](https://github.com/lvivvde/RealmMesh/issues/175)登记了上述五张实施票；C2–C5已建立
-对前一步的原生阻塞关系。C1只交付线契约、结构校验与资源边界，C2已验证JOIN/LEAVE竞态、SEND幂等、真实mTLS与排序；C3验证Realm授权、独立IO、同号重试及单Chat故障下既有业务隔离；双承载与组合故障仍待C4–C5。
+对前一步的原生阻塞关系。C1只交付线契约、结构校验与资源边界，C2已验证JOIN/LEAVE竞态、SEND幂等、真实mTLS与排序；C3验证Realm授权、独立IO、同号重试及单Chat故障下既有业务隔离；C4以真实入口组、etcd和MongoDB验证双承载、跨Scene Realm Channel顺序、转场/重建/排空资格隔离、单Chat故障和同名重启；组合故障与阶段总验收仍待C5。

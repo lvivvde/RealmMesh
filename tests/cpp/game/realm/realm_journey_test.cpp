@@ -117,9 +117,15 @@ TEST_F(RealmJourneyTest, CharacterLifecycleSurvivesReloginAndRealmRestart) {
         ASSERT_TRUE(selected.ok());
         EXPECT_EQ(selected.value.training_seq, 0U);
     }
+    // 长循环容忍瞬时 3010:同一 seq 重放，首次写若已落库则回 replayed,
+    // 经验与等级仍须精确，故这里不断言 replayed;上面 3 次训练保持严格。
     for (std::uint64_t seq = 1; seq <= 90; ++seq) {
-        const auto trained = second->train(seq, soon());
-        ASSERT_TRUE(trained.ok()) << "seq " << seq;
+        const auto trained = retry_unavailable(
+            [&](client::TimePoint deadline) {
+                return second->train(seq, deadline);
+            });
+        ASSERT_TRUE(trained.ok())
+            << "seq " << seq << " error " << trained.error_code;
         EXPECT_EQ(trained.value.exp, seq * 10);
         EXPECT_EQ(trained.value.level, seq * 10 / 100 + 1);
     }

@@ -99,7 +99,7 @@ Scene 按稳定 shard_id 持有至多两个状态机；角色 Route 带承载版
 完成后实例业务停用，管理端点与发现注册保留供核对，再由运维停止进程；不会提前注销伪造完成。
 
 
-## Chat独立服务与频道排序（C1–C3）
+## Chat独立服务与频道排序（C1–C4）
 
 C1（#176、PR #182）已合并。C2（#177）新增`game/chat`，仅由`apps/mesh_host`注册`chat`
 模块。`ChatConfig`是轻量值，Lua解析留在实现文件；`ChatChannels`由Chat帧单线程拥有，
@@ -126,7 +126,7 @@ TLS新增可选`max_receive_batch_bytes`原生预算，默认0保留既有策略
 预算结束后，下一poll会继续消费SSL已缓冲输入，不依赖新的fd可读事件。它是通用传输工作量
 约束，framework仍不认识Chat字段或身份。运行方式见[Chat服务说明](operations/chat-service.md)。
 C2覆盖真实生产进程mTLS、etcd、SIGKILL/同名重启、正常停止与单帧TLS输出预算拒绝；真实慢端
-积压饱和、双Scene/双Chat转场和组合故障矩阵仍待C4–C5，不能据C2宣称整阶段完成。
+积压饱和和组合故障矩阵仍待C5，不能据C2宣称整阶段完成。
 
 ### Realm异步接入与参考客户端（C3）
 
@@ -148,6 +148,21 @@ JOIN完成前保留后续推送；每客户端缓存同时限制256项/256KiB，
 复用既有连接，分别保留Scene及Chat通知，两个缓存均按数量/字节限制；等待心跳、训练或场景
 回包不会吞掉Chat推送。客户端发现缺口发ChatUnavailable，缓存满则关闭会话；原Unknown遇到
 旧资格重试被拒仍保持Unknown，不自动换号/资格重放。运行与测试见[接入说明](operations/realm-chat.md)。
+
+### 双Scene/双Chat转场隔离（C4）
+
+C4在生产服务入口组上配置两个精确Chat承载：Chat A唯一承载Realm Channel与分片1的
+Scene Channel，Chat B唯一承载分片2的Scene Channel。Realm仍为每个承载保留独立Peer与链路，
+etcd只解析目标`instance_id`，任一承载缺失时不把它的频道改投另一实例。跨Scene角色继续共享
+Chat A上的Realm Channel及同一顺序；Scene Channel只随逻辑shard_id变化，不随Scene承载实例变化。
+
+真实多进程旅程复用动态Scene拓扑与隔离MongoDB，覆盖显式转场、同分片换承载重建和排空迁移：
+源Scene Channel在转场开始后停止交付，目标激活后安装绑定新Scene Binding的资格；旧资格发送与
+旧场景条件写均被拒绝，Realm Channel资格和Epoch不重置。停掉Chat B时只有分片2频道失败，移动、
+转场、训练、心跳以及Chat A承载的频道继续；同名Chat B在旧etcd租约消失后重启，产生新Epoch，
+客户端从新W继续。每例核对MongoDB场景序号、Confirmed Location、Scene Shard Ownership及服务、
+数据库夹具、etcd和监听回收。该证据不把转场与Chat声明为跨服务原子提交，也不替代C5的真实慢端
+积压与组合故障总验收。
 
 ## 目标业务拓扑（规划中）
 
@@ -250,7 +265,8 @@ MongoDB 副本集（开发与 CI 为单节点 `rs0`），取代 ADR-0010 的 SQL
 归属一经确认，随后的单文档写没有竞态窗口。任一服务首次连到尚未导入的库时，在事务内一次性导入
 `configs/common/accounts.lua`，多个服务同时启动也只有一个导入成功；之后账号口令（Argon2
 哈希）、封禁/白名单、角色与上次所选角色都只以数据库为准。找不到可写 primary 或单次读写超过
-`player_data` 中的超时上限，即按数据源不可用失败。开发拓扑无认证、明文且只监听本机，
+`player_data` 中的超时上限（选主 `server_selection_timeout_ms`、套接字 `socket_timeout_ms`、
+写关注等待 `write_concern_timeout_ms`，默认均为 2 秒；写关注等待长于套接字超时的配置在构造时拒绝），即按数据源不可用失败。开发拓扑无认证、明文且只监听本机，
 跨机器暴露前须交付 TLS 与认证。
 
 手动跨机器开发另提供共享临时库：服务器仅监听回环地址，启用 TLS 与数据库认证，

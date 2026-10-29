@@ -61,7 +61,11 @@ public:
     [[nodiscard]] bool cancel_watch(WatchId watch_id) override;
     [[nodiscard]] bool watch_ready(WatchId watch_id) const override;
 
+    /// 立即执行一次 Watch 快照对比；关闭 background_maintenance 时由调用方
+    /// 驱动。Lease 此时不会自动续期，仍需显式调用
+    /// refresh_registration()。
     void poll_once();
+    /// discover() 无法区分“无实例”和查询失败；查询失败的诊断保存在这里。
     [[nodiscard]] std::string last_error() const;
 
 private:

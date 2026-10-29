@@ -89,6 +89,10 @@ PlayerDataConfig parse_player_data_config(const sol::table& root) {
     if (const auto timeout = optional_timeout(table, "socket_timeout_ms")) {
         config.options.socket_timeout = *timeout;
     }
+    if (const auto timeout =
+            optional_timeout(table, "write_concern_timeout_ms")) {
+        config.options.write_concern_timeout = *timeout;
+    }
     const auto bootstrap = optional_string(table, "bootstrap_accounts_file");
     if (!bootstrap.empty()) config.options.bootstrap_accounts_file = bootstrap;
     const auto cost = optional_string(table, "credential_hash_cost");
