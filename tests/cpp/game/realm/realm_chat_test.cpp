@@ -75,6 +75,8 @@ protected:
                             last_peer_ = event.session_id;
                             if (req->operation() == wire::OPERATION_JOIN)
                                 ++joins_;
+                            if (req->operation() == wire::OPERATION_LEAVE)
+                                ++leaves_;
                             static_cast<void>(channels.submit(
                                 event.session_id,
                                 *req,
@@ -88,6 +90,9 @@ protected:
                 while (auto reply = channels.take_reply()) {
                     if (reply->message.operation() == wire::OPERATION_JOIN &&
                         drop_join_.exchange(false))
+                        continue;
+                    if (reply->message.operation() == wire::OPERATION_LEAVE &&
+                        drop_leave_.exchange(false))
                         continue;
                     if (reply->message.operation() == wire::OPERATION_SEND &&
                         drop_send_.exchange(false))
@@ -183,9 +188,9 @@ protected:
     Outbox outbox_;
     observability::MetricsRegistry metrics_;
     std::unique_ptr<network::IMessageTransport> server_;
-    std::atomic_bool drop_join_{false}, drop_send_{false},
+    std::atomic_bool drop_join_{false}, drop_leave_{false}, drop_send_{false},
         blackhole_send_{false};
-    std::atomic_size_t joins_{0}, send_replies_{0};
+    std::atomic_size_t joins_{0}, leaves_{0}, send_replies_{0};
     std::atomic_bool close_link_{false}, closed_link_{false};
     network::SessionId last_peer_{
         network::invalid_session_id};  // 仅测试服务线程访问。
@@ -247,6 +252,24 @@ TEST_F(
     }));
     EXPECT_EQ(state(1).last_client_send_seq(), 1);
     EXPECT_EQ(pushes(1), 1);
+}
+TEST_F(
+    RealmChatTest,
+    LostLeaveReplyFencesOldQualificationBeforeReplacementJoins) {
+    chat_->selected({1}, 11);
+    const auto old = state(1);
+    drop_leave_ = true;
+    const auto before = leaves_.load();
+    chat_->closed({1});
+    chat_->selected({2}, 11);
+    ASSERT_TRUE(until([&] { return leaves_.load() > before; }));
+
+    const auto fresh = state(2);
+    EXPECT_GT(fresh.membership_generation(), old.membership_generation());
+    EXPECT_EQ(fresh.epoch().SerializeAsString(), old.epoch().SerializeAsString());
+    ASSERT_EQ(perform(2, send(fresh, 1)).outcome(), wire::OUTCOME_ACCEPTED);
+    EXPECT_TRUE(until([&] { return pushes(2) == 1; }));
+    EXPECT_EQ(pushes(1), 0);
 }
 TEST_F(
     RealmChatTest,

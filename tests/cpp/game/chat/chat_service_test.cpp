@@ -1,10 +1,14 @@
 #include "chat_test_messages.hpp"
+#include "constrained_chat_tls_stream.hpp"
 #include "realmmesh/cluster/etcd_service_registry.hpp"
 #include "realmmesh/network/client/edge_client_connection.hpp"
+#include "realmmesh/network/codec/length_field_codec.hpp"
+#include "realmmesh/test_support/chat_acceptance_artifacts.hpp"
 #include "realmmesh/test_support/etcd_process.hpp"
 #include "realmmesh/test_support/temporary_directory.hpp"
 #include <gtest/gtest.h>
 #include <httplib.h>
+#include <nlohmann/json.hpp>
 #include <fcntl.h>
 #include <sys/wait.h>
 #include <signal.h>
@@ -83,6 +87,10 @@ protected:
     void TearDown() override {
         if (process_) EXPECT_TRUE(process_->stop()); process_.reset();
         EXPECT_FALSE(test_support::loopback_port_open(port_)); EXPECT_FALSE(test_support::loopback_port_open(metrics_));
+        test_support::copy_chat_acceptance_file(
+            root_.path() / "process.log", "chat/process.log");
+        test_support::copy_chat_acceptance_directory(
+            root_.path() / "logs", "chat/structured");
     }
     void start() {
         process_ = std::make_unique<Process>(root_.path());
@@ -116,7 +124,29 @@ protected:
     std::string metrics() {
         httplib::Client client("127.0.0.1", metrics_);
         client.set_connection_timeout(1, 0); client.set_read_timeout(1, 0);
-        const auto r = client.Get("/metrics"); return r ? r->body : "";
+        const auto r = client.Get("/metrics");
+        const auto body = r ? r->body : "";
+        if (r)
+            test_support::write_chat_acceptance_artifact(
+                "metrics-chat.prom", body);
+        return body;
+    }
+    bool production_outbound_rejected() const {
+        for (const auto& file : std::filesystem::recursive_directory_iterator(root_.path())) {
+            if (!file.is_regular_file()) continue;
+            std::ifstream input(file.path()); std::string line;
+            while (std::getline(input, line)) {
+                if (line.find("outbound_queue_rejected") == std::string::npos) continue;
+                const auto event = nlohmann::json::parse(line, nullptr, false);
+                if (event.is_discarded() || !event.contains("attributes")) continue;
+                const auto& fields = event["attributes"];
+                if (fields.value("max_pending_output_bytes", 0U) == common::chat_link_outbound_bytes_max &&
+                    fields.value("has_pending_output", false) &&
+                    fields.value("payload_bytes", 0U) < common::chat_link_outbound_bytes_max)
+                    return true;
+            }
+        }
+        return false;
     }
     test_support::TemporaryDirectory root_{"realmmesh-chat-c2-"};
     std::unique_ptr<Process> process_;
@@ -207,6 +237,48 @@ TEST_F(ChatServiceTest, ActualTlsOutboundRejectionClosesLinkWithoutRollingBackAc
     const auto fresh_link = call(fresh, hello()).link();
     const auto joined = call(fresh, request(fresh_link, wire::OPERATION_JOIN, member(1)));
     EXPECT_EQ(joined.state().join_watermark(), 1); EXPECT_FALSE(joined.state().has_last_receipt());
+}
+TEST_F(ChatServiceTest, ProductionOneMiBSlowTlsBacklogClosesOnlyLinkAndKeepsChannelEpoch) {
+    start();
+    auto slow = std::make_shared<ConstrainedChatTlsStream>(port_, certificate("ca.pem"),
+        certificate("realm.pem"), certificate("realm.key"), "chat-dev-01.chat.service",
+        ChatChannels::Clock::now() + 3s);
+    net::EdgeClientConnection client(slow);
+    const auto link = call(client, hello()).link();
+    std::vector<wire::Membership> members;
+    for (std::uint64_t i = 1; i <= common::chat_characters_max; ++i) {
+        members.push_back(member(i, i, 0));
+        ASSERT_EQ(call(client, request(link, wire::OPERATION_JOIN, members.back())).status(), wire::STATUS_OK);
+    }
+    // 此后不读取。不同资格各发一次避开限流，20ms 间隔让业务分发队列排空，
+    // 压力只积累在真实 TLS 出站缓冲。
+    network::LengthFieldCodec codec(common::chat_envelope_max);
+    std::size_t submitted = 0;
+    for (std::size_t i = 0; i < members.size() && !production_outbound_rejected(); ++i) {
+        const auto frame = codec.encode(common::encode(
+            send(link, members[i], 1, std::string(512, 'x')), 10000 + i));
+        if (!slow->write_all(frame, ChatChannels::Clock::now() + 1s)) break;
+        ++submitted; std::this_thread::sleep_for(20ms);
+    }
+    const auto deadline = ChatChannels::Clock::now() + 5s;
+    while (!production_outbound_rejected() && ChatChannels::Clock::now() < deadline)
+        std::this_thread::sleep_for(10ms);
+    ASSERT_TRUE(production_outbound_rejected())
+        << "production 1MiB TLS output watermark was not reached after " << submitted << " sends";
+
+    const auto fresh_stream = dial(options()); ASSERT_TRUE(fresh_stream);
+    net::EdgeClientConnection fresh(fresh_stream);
+    const auto fresh_link = call(fresh, hello()).link();
+    const auto joined = call(fresh, request(fresh_link, wire::OPERATION_JOIN, member(1, 1, 0)));
+    ASSERT_EQ(joined.status(), wire::STATUS_OK);
+    EXPECT_GT(joined.state().join_watermark(), 0); EXPECT_FALSE(joined.state().has_last_receipt());
+    EXPECT_EQ(joined.state().epoch().chat_incarnation(), link.chat_incarnation());
+    EXPECT_NE(metrics().find("chat_queue_rejected_total"), std::string::npos);
+    RecordProperty("fault_matrix_verification",
+        "SO_RCVBUF_before_mTLS+no_reads+production_1MiB_output_backlog+link_close+fresh_link_same_epoch");
+    RecordProperty("metrics_verification",
+        "actual Chat /metrics retained zero-value rejection counters after TLS output saturation");
+    slow->shutdown();
 }
 TEST_F(ChatServiceTest, RealDiscoveryRegistrationCrashLeaseExpiryAndSameNameRestartGetFreshEpoch) {
     test_support::EtcdProcess etcd; etcd.wait_ready();

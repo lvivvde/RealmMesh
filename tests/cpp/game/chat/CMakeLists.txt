@@ -1,6 +1,6 @@
 realm_add_gtest(chat_channels_test SOURCES chat_channels_test.cpp LIBS realm_game_chat)
 realm_add_gtest(chat_service_test SOURCES chat_service_test.cpp
-    LIBS realm_game_chat realm_cluster httplib::httplib
+    LIBS realm_game_chat realm_cluster httplib::httplib nlohmann_json::nlohmann_json
     INCLUDE_DIRS ${PROJECT_SOURCE_DIR}/tests/cpp/support/include
     DEFINITIONS
         REALMMESH_MESH_EXECUTABLE="$<TARGET_FILE:realm_mesh>"
@@ -11,3 +11,6 @@ realm_add_gtest(chat_service_test SOURCES chat_service_test.cpp
     DEPENDS realm_mesh realmmesh_test_service_identities realmmesh_test_tls_identity
     LABELS integration
     DISCOVER_PROPERTIES RUN_SERIAL TRUE TIMEOUT 30)
+
+# C5 慢端夹具直接建立带客户端证书的受限 mTLS 流，不向产品目标传播 OpenSSL。
+target_link_libraries(chat_service_test PRIVATE OpenSSL::SSL)

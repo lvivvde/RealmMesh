@@ -75,3 +75,12 @@ add_test(NAME SceneAcceptanceReportTest.FailClosed
         "${PROJECT_SOURCE_DIR}")
 set_tests_properties(SceneAcceptanceReportTest.FailClosed PROPERTIES
     LABELS integration TIMEOUT 20)
+
+# Chat C5 报告同样必须在发现清单、故障矩阵、实际指标或回收证据
+# 缺失时失败；合成输入只验证报告器，不替代真实多进程验收。
+add_test(NAME ChatAcceptanceReportTest.FailClosed
+    COMMAND "${Python3_EXECUTABLE}"
+        "${PROJECT_SOURCE_DIR}/tests/scripts/chat_acceptance_report_test.py"
+        "${PROJECT_SOURCE_DIR}")
+set_tests_properties(ChatAcceptanceReportTest.FailClosed PROPERTIES
+    LABELS integration TIMEOUT 20)

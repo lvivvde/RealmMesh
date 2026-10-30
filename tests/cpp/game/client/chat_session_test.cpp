@@ -101,6 +101,10 @@ protected:
                     }
                 }
         });
+        session_ = connect();
+        ASSERT_NE(session_, nullptr);
+    }
+    std::unique_ptr<RealmSession> connect() {
         WireEndpoints endpoints;
         endpoints.verify_peer = false;
         WireLoginTransport transport(endpoints, redeemer_);
@@ -110,8 +114,11 @@ protected:
              .port = port_,
              .priority = 1}};
         auto connected = transport.connect_realm(candidates, Clock::now() + 2s);
-        ASSERT_TRUE(connected.status.ok);
-        session_ = std::move(connected.value);
+        if (!connected.status.ok) {
+            ADD_FAILURE() << connected.status.detail;
+            return nullptr;
+        }
+        return std::move(connected.value);
     }
     void TearDown() override {
         session_.reset();
@@ -208,7 +215,11 @@ TEST_F(
     ASSERT_TRUE(std::holds_alternative<common::ChatMessage>(*value));
     EXPECT_EQ(std::get<common::ChatMessage>(*value).channel_seq(), 2);
 }
-TEST_F(ChatSessionTest, GapIsExplicitAndOverflowClosesSession) {
+TEST_F(
+    ChatSessionTest,
+    GapIsExplicitAndOverflowClosesOnlySlowSessionWhileHealthySessionContinues) {
+    auto healthy = connect();
+    ASSERT_NE(healthy, nullptr);
     ASSERT_TRUE(
         session_->chat()
             ->get_chat_state(wire::CHANNEL_KIND_REALM, Clock::now() + 2s)
@@ -224,6 +235,23 @@ TEST_F(ChatSessionTest, GapIsExplicitAndOverflowClosesSession) {
     burst_ = 257;
     EXPECT_FALSE(session_->heartbeat(Clock::now() + 2s));
     EXPECT_FALSE(session_->heartbeat(Clock::now() + 30ms));
+
+    scene_notice_ = true;
+    ASSERT_TRUE(healthy->heartbeat(Clock::now() + 2s));
+    const auto scene = healthy->scene()->poll_scene(Clock::now() + 1s);
+    ASSERT_TRUE(scene);
+    EXPECT_TRUE(std::holds_alternative<common::SceneUnavailable>(*scene));
+    const auto active = healthy->chat()->get_chat_state(
+        wire::CHANNEL_KIND_REALM, Clock::now() + 2s);
+    ASSERT_TRUE(active.ok());
+    EXPECT_EQ(active.value.phase(), wire::PHASE_ACTIVE);
+    const auto sent =
+        healthy->chat()->send_chat(send(), Clock::now() + 2s);
+    ASSERT_TRUE(sent.ok());
+    EXPECT_EQ(sent.value.outcome(), wire::OUTCOME_ACCEPTED);
+    RecordProperty(
+        "fault_matrix_verification",
+        "reference_client_256_notification_boundary+257th_notification_closes_only_slow_Realm_Session+healthy_heartbeat_scene_and_chat_continue");
 }
 TEST_F(
     ChatSessionTest,

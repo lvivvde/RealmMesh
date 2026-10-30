@@ -1,7 +1,9 @@
 #include <httplib.h>
+#include <algorithm>
 #include "journey_fixture.hpp"
 #include "realmmesh/game/client/chat_session.hpp"
 #include "realmmesh/game/client/scene_session.hpp"
+#include "realmmesh/test_support/chat_acceptance_artifacts.hpp"
 namespace realm::game::realm {
 namespace {
 namespace wire = ::realmmesh::protocol::chat::v1;
@@ -93,6 +95,17 @@ protected:
         EXPECT_FALSE(test_support::loopback_port_open(scene_port_));
         EXPECT_FALSE(test_support::loopback_port_open(ports_.realm));
         RecordProperty("services_and_ports_reaped", "true");
+        RecordProperty(
+            "cleanup_verification",
+            "entry, Realm, Scene, Chat, etcd and MongoDB fixture reaped; listener ports closed");
+        for (const auto& [name, root] :
+             std::vector<std::pair<std::string, std::filesystem::path>>{
+                 {"entry", mesh_root_.path()},
+                 {"realm", realm_root_.path()},
+                 {"scene", scene_root_.path()},
+                 {"chat", chat_root_.path()}})
+            test_support::copy_chat_acceptance_directory(
+                root / "logs", name);
         for (const auto* env :
              {"REALMMESH_SERVICE_CA_FILE",
               "REALMMESH_REALM_CERTIFICATE_FILE",
@@ -129,11 +142,14 @@ protected:
     }
     std::unique_ptr<client::RealmSession> selected(
         std::string_view account = journey_account,
-        std::string_view credential = journey_credential) {
+        std::string_view credential = journey_credential,
+        std::uint64_t* character_id = nullptr) {
         auto session = login(account, credential);
         if (!session) return {};
         const auto character = session->create_character(account, soon());
         EXPECT_TRUE(character.ok());
+        if (character_id != nullptr)
+            *character_id = character.value.character_id;
         const auto selection =
             session->select_character(character.value.character_id, soon());
         EXPECT_TRUE(selection.ok());
@@ -150,6 +166,38 @@ protected:
                 values.push_back(*m);
         }
         return values;
+    }
+    std::string capture_metrics(std::uint16_t port, std::string_view name) {
+        httplib::Client http("127.0.0.1", port);
+        http.set_connection_timeout(1, 0);
+        http.set_read_timeout(1, 0);
+        const auto response = http.Get("/metrics");
+        EXPECT_TRUE(response);
+        if (!response) return {};
+        EXPECT_EQ(response->status, 200);
+        test_support::write_chat_acceptance_artifact(
+            "metrics-" + std::string(name) + ".prom", response->body);
+        return response->body;
+    }
+    void wait_instance_expired(
+        std::string_view service, std::string_view instance) {
+        cluster::EtcdRegistryOptions options;
+        options.endpoint = etcd_.endpoint();
+        options.background_maintenance = false;
+        cluster::EtcdServiceRegistry registry(options);
+        const auto deadline = client::Clock::now() + 10s;
+        while (client::Clock::now() < deadline) {
+            const auto discovered = registry.discover(std::string(service));
+            if (std::none_of(
+                    discovered.begin(),
+                    discovered.end(),
+                    [&](const auto& value) {
+                        return value.instance_id == instance;
+                    }))
+                return;
+            std::this_thread::sleep_for(20ms);
+        }
+        FAIL() << service << '/' << instance << " registration did not expire";
     }
     test_support::TemporaryDirectory chat_root_{"chat-journey-chat-"},
         scene_root_{"chat-journey-scene-"};
@@ -225,23 +273,23 @@ TEST_F(
     ASSERT_TRUE(record->confirmed_location);
     EXPECT_EQ(record->confirmed_location->x, 4);
     RecordProperty("database_scene_location_verified", "true");
-    for (const auto port : {chat_metrics_, realm_metrics_}) {
-        httplib::Client http("127.0.0.1", port);
-        const auto response = http.Get("/metrics");
-        ASSERT_TRUE(response);
-        EXPECT_EQ(response->status, 200);
-        EXPECT_NE(
-            response->body.find(
-                port == chat_metrics_ ? "chat_send_total"
-                                      : "realm_chat_send_total"),
-            std::string::npos);
-    }
+    RecordProperty(
+        "database_verification",
+        "two real accounts selected; Scene move seq2 persisted Confirmed Location at(4,5); Chat Accepted was not stored or claimed durable");
+    const auto chat_metrics = capture_metrics(chat_metrics_, "chat");
+    const auto realm_metrics = capture_metrics(realm_metrics_, "realm");
+    EXPECT_NE(chat_metrics.find("chat_send_total"), std::string::npos);
+    EXPECT_NE(realm_metrics.find("realm_chat_send_total"), std::string::npos);
     RecordProperty("chat_and_realm_http_metrics_verified", "true");
+    RecordProperty(
+        "metrics_verification",
+        "actual Chat and Realm HTTP Prometheus samples archived, including zero-value rejection series");
 }
 TEST_F(
     ChatJourneyTest,
     ChatCrashAndSameNameRestartDoNotBlockOtherRealmOperationsOrReplayOldUnknown) {
-    auto session = selected();
+    std::uint64_t character_id = 0;
+    auto session = selected(journey_account, journey_credential, &character_id);
     ASSERT_TRUE(session);
     const auto before = active(*session, wire::CHANNEL_KIND_REALM);
     ASSERT_TRUE(session->scene()->enter_scene(1, soon()).ok());
@@ -276,6 +324,104 @@ TEST_F(
     ASSERT_EQ(messages(*session, 1).size(), 1);
     ASSERT_TRUE(session->train(2, soon()).ok());
     ASSERT_TRUE(session->heartbeat(soon()));
+    common::MongoPlayerDataStore store(player_data().uri(), database_);
+    const auto durable =
+        store.scene_state({journey_account_id, 1, character_id});
+    ASSERT_TRUE(durable && durable->confirmed_location);
+    EXPECT_EQ(durable->confirmed_location->x, 6);
+    EXPECT_EQ(durable->confirmed_location->y, 7);
+    static_cast<void>(capture_metrics(chat_metrics_, "chat-restarted"));
+    static_cast<void>(capture_metrics(realm_metrics_, "realm-chat-failure"));
+    RecordProperty(
+        "database_verification",
+        "Chat SIGKILL left Scene move seq2 at(6,7) durable; training and heartbeat continued; restart did not create Chat persistence claims");
+    RecordProperty(
+        "fault_matrix_verification",
+        "Chat_SIGKILL+lease_expiry+same_name_restart+new_Epoch_and_W+old_Unknown_not_replayed");
+    RecordProperty(
+        "metrics_verification",
+        "actual Chat and Realm HTTP metrics captured after recovery");
+}
+
+TEST_F(
+    ChatJourneyTest,
+    RealmSigkillAndSameNameRestartInstallFreshLinkWithoutLosingSceneFacts) {
+    auto first = login();
+    ASSERT_TRUE(first);
+    const auto created = first->create_character("RealmCrashChat", soon());
+    ASSERT_TRUE(created.ok());
+    ASSERT_TRUE(
+        first->select_character(created.value.character_id, soon()).ok());
+    const auto before = active(*first, wire::CHANNEL_KIND_REALM);
+    ASSERT_TRUE(first->scene()->enter_scene(1, soon()).ok());
+    ASSERT_TRUE(first->scene()->move_in_scene(2, 8, 9, soon()).ok());
+    const auto accepted =
+        first->chat()->send_chat(send(before, 1, "before realm crash"), soon());
+    ASSERT_TRUE(accepted.ok());
+    ASSERT_EQ(accepted.value.outcome(), wire::OUTCOME_ACCEPTED);
+    ASSERT_EQ(messages(*first, 1).size(), 1);
+    ASSERT_TRUE(first->train(1, soon()).ok());
+    ASSERT_TRUE(first->heartbeat(soon()));
+
+    realm_->crash();
+    realm_.reset();
+    EXPECT_FALSE(test_support::loopback_port_open(ports_.realm));
+    EXPECT_FALSE(first->heartbeat(soon()));
+    first->close();
+    wait_instance_expired("realm", "realm-dev-01");
+    start_realm();
+
+    auto again = login();
+    ASSERT_TRUE(again);
+    ASSERT_TRUE(
+        again->select_character(created.value.character_id, soon()).ok());
+    const auto after = active(*again, wire::CHANNEL_KIND_REALM);
+    EXPECT_EQ(
+        after.epoch().chat_incarnation(), before.epoch().chat_incarnation());
+    EXPECT_GE(after.join_watermark(), 1);
+    EXPECT_EQ(after.last_client_send_seq(), 0);
+    EXPECT_FALSE(after.has_last_receipt());
+
+    const auto stale = again->chat()->send_chat(
+        send(before, 2, "old Realm qualification"), soon());
+    ASSERT_TRUE(stale.ok());
+    EXPECT_NE(stale.value.outcome(), wire::OUTCOME_ACCEPTED);
+    const auto fresh =
+        again->chat()->send_chat(send(after, 1, "after realm restart"), soon());
+    ASSERT_TRUE(fresh.ok());
+    ASSERT_EQ(fresh.value.outcome(), wire::OUTCOME_ACCEPTED);
+    const auto delivered = messages(*again, 1);
+    ASSERT_EQ(delivered.size(), 1);
+    EXPECT_GT(delivered.front().channel_seq(), after.join_watermark());
+
+    ASSERT_TRUE(again->scene()->enter_scene(3, soon()).ok());
+    ASSERT_TRUE(again->scene()->move_in_scene(4, 10, 11, soon()).ok());
+    ASSERT_TRUE(again->train(2, soon()).ok());
+    ASSERT_TRUE(again->heartbeat(soon()));
+    common::MongoPlayerDataStore store(player_data().uri(), database_);
+    const auto durable =
+        store.scene_state({journey_account_id, 1, created.value.character_id});
+    ASSERT_TRUE(durable && durable->confirmed_location && durable->last_result);
+    EXPECT_EQ(durable->last_result->command.seq, 4);
+    EXPECT_EQ(durable->confirmed_location->x, 10);
+    EXPECT_EQ(durable->confirmed_location->y, 11);
+    const auto chat_metrics =
+        capture_metrics(chat_metrics_, "chat-realm-restart");
+    const auto realm_metrics =
+        capture_metrics(realm_metrics_, "realm-restarted");
+    EXPECT_NE(
+        chat_metrics.find("chat_stale_rejected_total"), std::string::npos);
+    EXPECT_NE(
+        realm_metrics.find("realm_chat_reconnect_total"), std::string::npos);
+    RecordProperty(
+        "database_verification",
+        "Realm SIGKILL preserved Scene seq2 at(8,9); same-name restart entered seq3 and moved seq4 to(10,11); training seq2 and heartbeat succeeded");
+    RecordProperty(
+        "fault_matrix_verification",
+        "Realm_SIGKILL+lease_expiry+same_name_restart+fresh_authenticated_Chat_link+old_request_rejected");
+    RecordProperty(
+        "metrics_verification",
+        "actual Chat and restarted Realm HTTP metrics archived with stale/reconnect counters");
 }
 }  // namespace
 }  // namespace realm::game::realm
