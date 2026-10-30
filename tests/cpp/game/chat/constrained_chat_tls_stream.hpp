@@ -9,6 +9,9 @@
 #include <fcntl.h>
 #include <poll.h>
 #include <sys/socket.h>
+#ifdef __linux__
+#include <netinet/tcp.h>
+#endif
 #include <unistd.h>
 #include <algorithm>
 #include <cerrno>
@@ -73,6 +76,17 @@ public:
                 sizeof(receive_bytes)) != 0 ||
             ::fcntl(socket_.fd, F_SETFL, O_NONBLOCK) != 0)
             throw std::runtime_error("constrained Chat socket setup failed");
+#ifdef __linux__
+        // SO_RCVBUF 在 connect 前关闭 Linux 的接收窗口自动调优；再收紧窗口
+        // clamp，避免快 runner 在慢端停止读取后继续通告扩大后的窗口。
+        if (::setsockopt(
+                socket_.fd,
+                IPPROTO_TCP,
+                TCP_WINDOW_CLAMP,
+                &receive_bytes,
+                sizeof(receive_bytes)) != 0)
+            throw std::runtime_error("constrained Chat receive window setup failed");
+#endif
 #ifdef SO_NOSIGPIPE
         const int enabled = 1;
         if (::setsockopt(

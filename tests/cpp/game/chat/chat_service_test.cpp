@@ -13,6 +13,7 @@
 #include <sys/wait.h>
 #include <signal.h>
 #include <unistd.h>
+#include <charconv>
 #include <chrono>
 #include <fstream>
 #include <map>
@@ -148,6 +149,19 @@ protected:
         }
         return false;
     }
+    static std::optional<std::size_t> metric_value(
+        const std::string& body, std::string_view name) {
+        const auto prefix = "\n" + std::string(name) + " ";
+        const auto found = body.find(prefix);
+        if (found == std::string::npos) return std::nullopt;
+        const auto first = body.data() + found + prefix.size();
+        const auto end = body.find('\n', found + prefix.size());
+        const auto last = body.data() + (end == std::string::npos ? body.size() : end);
+        std::size_t value = 0;
+        const auto parsed = std::from_chars(first, last, value);
+        if (parsed.ec != std::errc{} || parsed.ptr != last) return std::nullopt;
+        return value;
+    }
     test_support::TemporaryDirectory root_{"realmmesh-chat-c2-"};
     std::unique_ptr<Process> process_;
     std::uint16_t port_{}, metrics_{};
@@ -250,21 +264,44 @@ TEST_F(ChatServiceTest, ProductionOneMiBSlowTlsBacklogClosesOnlyLinkAndKeepsChan
         members.push_back(member(i, i, 0));
         ASSERT_EQ(call(client, request(link, wire::OPERATION_JOIN, members.back())).status(), wire::STATUS_OK);
     }
-    // 此后不读取。不同资格各发一次避开限流，20ms 间隔让业务分发队列排空，
-    // 压力只积累在真实 TLS 出站缓冲。
+    // 此后不读取。每次发送后轮询生产指标，确认本轮扇出已受理并排出 Chat
+    // 业务队列，再继续灌入；这样只让压力积累在真实 TLS 出站缓冲，而不依赖
+    // runner 调度恰好在固定 sleep 内排空业务队列。
     network::LengthFieldCodec codec(common::chat_envelope_max);
     std::size_t submitted = 0;
-    for (std::size_t i = 0; i < members.size() && !production_outbound_rejected(); ++i) {
+    std::size_t outbound_text_bytes = 0;
+    constexpr auto outbound_text_budget = 20 * common::chat_link_outbound_bytes_max;
+    const auto saturation_deadline = ChatChannels::Clock::now() + 15s;
+    while (outbound_text_bytes < outbound_text_budget &&
+           ChatChannels::Clock::now() < saturation_deadline && !production_outbound_rejected()) {
+        const auto member_index = submitted % members.size();
+        const auto send_sequence = submitted / members.size() + 1;
+        ASSERT_LE(send_sequence, common::chat_send_burst);
         const auto frame = codec.encode(common::encode(
-            send(link, members[i], 1, std::string(512, 'x')), 10000 + i));
+            send(link, members[member_index], send_sequence,
+                std::string(common::chat_text_bytes_max, 'x')), 10000 + submitted));
         if (!slow->write_all(frame, ChatChannels::Clock::now() + 1s)) break;
-        ++submitted; std::this_thread::sleep_for(20ms);
+        ++submitted;
+        outbound_text_bytes += members.size() * common::chat_text_bytes_max;
+
+        std::optional<std::size_t> accepted;
+        const auto progress_deadline = ChatChannels::Clock::now() + 1s;
+        while (ChatChannels::Clock::now() < progress_deadline &&
+               !production_outbound_rejected()) {
+            accepted = metric_value(metrics(), "chat_messages_accepted_total");
+            if (accepted && *accepted >= submitted) break;
+            std::this_thread::sleep_for(5ms);
+        }
+        if (production_outbound_rejected()) break;
+        ASSERT_TRUE(accepted && *accepted >= submitted)
+            << "Chat did not accept send " << submitted << " before the progress deadline";
     }
     const auto deadline = ChatChannels::Clock::now() + 5s;
     while (!production_outbound_rejected() && ChatChannels::Clock::now() < deadline)
         std::this_thread::sleep_for(10ms);
     ASSERT_TRUE(production_outbound_rejected())
-        << "production 1MiB TLS output watermark was not reached after " << submitted << " sends";
+        << "production 1MiB TLS output watermark was not reached after " << submitted
+        << " sends and " << outbound_text_bytes << " outbound text bytes";
 
     const auto fresh_stream = dial(options()); ASSERT_TRUE(fresh_stream);
     net::EdgeClientConnection fresh(fresh_stream);
