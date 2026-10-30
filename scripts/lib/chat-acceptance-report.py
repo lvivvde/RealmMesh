@@ -104,14 +104,15 @@ JOURNEY_GROUPS = {"ChatJourneyTest", "DualSceneDualChatJourneyTest"}
 
 
 def git(root, *args):
-    command = [
-        "git",
-        "--git-dir",
-        str(root / ".realmmesh-git"),
-        "--work-tree",
-        str(root),
-        *args,
-    ]
+    # 本机开发仓库把真实 git 目录放在 .realmmesh-git（根 .git 是空仓库），
+    # CI 与常规克隆只有 .git。两种布局都要能用，不能写死其中一种。
+    command = ["git"]
+    local_git_dir = root / ".realmmesh-git"
+    if local_git_dir.is_dir():
+        command += ["--git-dir", str(local_git_dir), "--work-tree", str(root)]
+    else:
+        command += ["-C", str(root)]
+    command += list(args)
     return subprocess.check_output(command, text=True).strip()
 
 
