@@ -134,6 +134,24 @@ jobs:
         if: inputs.ccache_acceptance != true
         run: ctest --preset "$REALMMESH_CI_PRESET" -j 1
 
+      - name: Chat C1-C5 acceptance
+        if: inputs.ccache_acceptance != true
+        run: ./scripts/run-chat-acceptance.sh --preset "$REALMMESH_CI_PRESET" --jobs "$REALMMESH_CI_BUILD_JOBS"
+
+      - name: Upload Chat C1-C5 acceptance evidence
+        if: always() && inputs.ccache_acceptance != true
+        uses: actions/upload-artifact@v4
+        with:
+          name: chat-c1-c5-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ env.REALMMESH_BUILD_DIR }}/acceptance/chat-reference-loop/*.tar.gz
+            ${{ env.REALMMESH_BUILD_DIR }}/acceptance/chat-reference-loop/*.tar.gz.sha256
+            ${{ env.REALMMESH_BUILD_DIR }}/acceptance/chat-reference-loop/*/report.md
+            .local/acceptance/chat-reference-loop/*.tar.gz
+            .local/acceptance/chat-reference-loop/*.tar.gz.sha256
+            .local/acceptance/chat-reference-loop/*/report.md
+          if-no-files-found: error
+
 
       - name: Compiler cache statistics
         if: always()
@@ -251,6 +269,24 @@ jobs:
       - name: Test
         if: inputs.ccache_acceptance != true
         run: ctest --preset "$REALMMESH_CI_PRESET" -j 1
+
+      - name: Chat C1-C5 acceptance
+        if: inputs.ccache_acceptance != true
+        run: ./scripts/run-chat-acceptance.sh --preset "$REALMMESH_CI_PRESET" --jobs "$REALMMESH_CI_BUILD_JOBS"
+
+      - name: Upload Chat C1-C5 acceptance evidence
+        if: always() && inputs.ccache_acceptance != true
+        uses: actions/upload-artifact@v4
+        with:
+          name: chat-c1-c5-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ env.REALMMESH_BUILD_DIR }}/acceptance/chat-reference-loop/*.tar.gz
+            ${{ env.REALMMESH_BUILD_DIR }}/acceptance/chat-reference-loop/*.tar.gz.sha256
+            ${{ env.REALMMESH_BUILD_DIR }}/acceptance/chat-reference-loop/*/report.md
+            .local/acceptance/chat-reference-loop/*.tar.gz
+            .local/acceptance/chat-reference-loop/*.tar.gz.sha256
+            .local/acceptance/chat-reference-loop/*/report.md
+          if-no-files-found: error
 
       - name: Linux M1-M4 acceptance
         if: inputs.ccache_acceptance != true

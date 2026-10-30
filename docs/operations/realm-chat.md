@@ -50,11 +50,16 @@ Unknown重试。`ChatJourneyTest` 拉起真实登录服务、Realm、Chat、Scen
 用例核对双方频道顺序、旧资格过滤、新Epoch/W、Realm Channel连续性，以及MongoDB场景序号、
 Confirmed Location、旧写隔离和全部监听回收。它们是`integration`且串行运行。
 
+C5统一入口为`./scripts/run-chat-acceptance.sh --preset dev --jobs N`。它在C1–C4相关测试之外
+加入Realm SIGKILL/同名重启和默认1MiB Chat mTLS慢端积压，并把后者与参考客户端第257条通知
+溢出分开报告。每轮冻结源码/配置，归档实际HTTP指标、数据库/回收属性、原始日志、JUnit/GTest、
+tar.gz及SHA256；任何缺证据、跳过、失败或运行中源码变化都会失败。
+
 定向运行构建相应目标后：
 
 ```sh
 ctest --preset dev -j 1 -R '^(RealmChatTest|ChatSessionTest|ChatJourneyTest|DualSceneDualChatJourneyTest)\.'
 ```
 
-阶段完成仍需双平台当前源码 `./scripts/build.sh` 全量；定向测试不代替完整回归。C4不宣称
-C5的真实积压饱和、组合故障矩阵或阶段总验收已经完成。
+阶段完成仍需双平台当前源码 `./scripts/build.sh` 全量及各三轮完整统一验收；定向测试和单次
+本机报告不代替这些门禁。

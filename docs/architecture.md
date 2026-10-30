@@ -99,7 +99,7 @@ Scene 按稳定 shard_id 持有至多两个状态机；角色 Route 带承载版
 完成后实例业务停用，管理端点与发现注册保留供核对，再由运维停止进程；不会提前注销伪造完成。
 
 
-## Chat独立服务与频道排序（C1–C4）
+## Chat独立服务与频道排序（C1–C5）
 
 C1（#176、PR #182）已合并。C2（#177）新增`game/chat`，仅由`apps/mesh_host`注册`chat`
 模块。`ChatConfig`是轻量值，Lua解析留在实现文件；`ChatChannels`由Chat帧单线程拥有，
@@ -125,8 +125,8 @@ TLS拒绝即关闭该链路并回收资格，重连从新W加入。未知wire字
 TLS新增可选`max_receive_batch_bytes`原生预算，默认0保留既有策略，仅Chat设64KiB；
 预算结束后，下一poll会继续消费SSL已缓冲输入，不依赖新的fd可读事件。它是通用传输工作量
 约束，framework仍不认识Chat字段或身份。运行方式见[Chat服务说明](operations/chat-service.md)。
-C2覆盖真实生产进程mTLS、etcd、SIGKILL/同名重启、正常停止与单帧TLS输出预算拒绝；真实慢端
-积压饱和和组合故障矩阵仍待C5，不能据C2宣称整阶段完成。
+C2覆盖真实生产进程mTLS、etcd、SIGKILL/同名重启、正常停止与单帧TLS输出预算拒绝；C5另以
+生产1MiB上限和握手前收紧接收窗口的真实慢端验证积压饱和，二者不混作同一证据。
 
 ### Realm异步接入与参考客户端（C3）
 
@@ -164,6 +164,23 @@ Chat A上的Realm Channel及同一顺序；Scene Channel只随逻辑shard_id变�
 数据库夹具、etcd和监听回收。该证据不把转场与Chat声明为跨服务原子提交，也不替代C5的真实慢端
 积压与组合故障总验收。
 
+### 组合故障矩阵与阶段验收（C5）
+
+C5聚合C1–C4的协议、状态机、mTLS、Realm接线、参考客户端及双承载旅程，新增Realm SIGKILL
+同名重启旅程和生产1MiB Chat TLS慢端积压。Realm重启等待旧etcd租约消失后才同名启动；Chat
+保持未重启频道的Epoch/水位，但旧链路资格和最后回执被清理，新Realm从新活动链路显式JOIN。
+Chat重启则产生新Epoch，旧Epoch/Unknown不被改写为确定失败或自动重放。客户端256条/256KiB
+通知缓存溢出与Chat服务端出站满额分别测试：前者关闭该参考客户端Realm Session，后者依据
+结构化`outbound_queue_rejected`日志确认真实TLS已有积压后关闭Realm–Chat链路；不能互相替代。
+
+`scripts/run-chat-acceptance.sh`使用所选preset的实际binaryDir和公共构建预算，冻结整个工作区及
+配置SHA256，对照CTest发现清单、必需分组和故障矩阵；归档JUnit/GTest、数据库/回收属性、
+包含零值拒绝计数的实际HTTP指标及原始服务日志。缺项、跳过、失败或运行中源码变化均非零，
+每轮目录连同tar.gz和SHA256保留，macOS/Linux CI再以
+`chat-c1-c5-<OS>-<run>-<attempt>` artifact持久上传且缺文件即失败；configure失败在已有登记时
+仍写actual binaryDir，否则落到`.local/acceptance/chat-reference-loop/`。该入口证明本机TLS/TCP多进程边界；双平台当前源码全量、
+各三轮完整Chat和Linux QUIC/M1–M4仍由阶段门禁及CI记录，不因一次本机报告自动宣称完成。
+
 ## 目标业务拓扑（规划中）
 
 以下是 [README 必做路线图](../README.md#必做路线图) 的目标边界，不是当前运行拓扑。
@@ -190,8 +207,9 @@ Chat 故障不阻断场景业务。聊天记录与离线补投不在已承诺范
 阶段5的[Chat规格](specs/2026-10-23-chat-reference-loop.md)按C1–C5推进；C1（#176）已在
 `proto/realmmesh/chat/v1/chat.proto`定义客户端1701–1706与内部1801–1803，
 `game/common/chat_protocol`负责严格编解码，`chat_limits.hpp`只暴露轻量资源常量与计数/字节
-预留检查。内部与客户端编号白名单独立，C2已注册独立服务并实现认证和排序者，C3 已接通 Realm/客户端的单 Chat 闭环；C1结构校验不代替
-C2认证和幂等状态机，也不代替C3的当前会话/选角/场景权限核对。
+预留检查。内部与客户端编号白名单独立，C2已注册独立服务并实现认证和排序者，C3已接通
+Realm/客户端单Chat闭环，C4完成双承载隔离，C5提供组合故障与冻结报告入口；较后阶段的证据
+不改变C1线格式，也不把Chat Accepted升级为持久送达。
 规格由Realm派生成员资格，每频道静态指定一个Chat排序者；Chat轮次内的在线受理不等于持久
 送达，重启/缺口显式重新加入，转场不等待Chat。依据见[ADR-0016](adr/0016-chat-online-channel-order-and-receipt.md)。
 
@@ -395,7 +413,7 @@ DevServices 用例使用独立数据库；各测试回收自己的服务，守�
 | `login_verify` | `game/login_verify` 的 `make_login_verify_module` | 已接线,HTTPS 服务边(端口见服务配置) |
 | `queue` | `game/queue` 的 `make_queue_module` | 已接线,HTTPS 服务边,排队调度(端口见服务配置) |
 | `scene` | `game/scene` 的 `make_scene_module` | 已接线,独立 mTLS 内部服务,静态或动态分片 |
-| `chat` | `game/chat` 的 `make_chat_module` | 独立mTLS服务/频道排序者；C3 Realm 异步接线 |
+| `chat` | `game/chat` 的 `make_chat_module` | 独立mTLS服务/频道排序者；Realm异步接线、双承载与C5故障矩阵已实现 |
 
 旧 Login 链路(身份 `login`、端口 7000,以及登录票据与网关重入消息)已整体退役,
 线名 `login` 永不复用。
