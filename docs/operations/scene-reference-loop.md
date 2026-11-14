@@ -15,7 +15,7 @@ Realm 按 ADR-0015 条件写入 MongoDB 后才确认和广播。单步曼哈顿�
 接入证书。验收不会连接共享开发库，也不读取其 URI 环境变量。
 
 报告位于 `<所选构建目录>/acceptance/scene-reference-loop/<运行编号>/`，包含版本、工作树
-差异摘要、配置 SHA256、平台、逐例结果、原始 CTest/JUnit 和三组服务日志。双人用例
+差异摘要、配置 SHA256、平台、逐例结果、原始 CTest/JUnit 和各参与进程的服务日志。双人用例
 核对双方各十次移动后的快照、连续事件和数据库最终 seq=11、落点 (100,0)/(0,100)。
 重复指令不增加事件/写入，非法移动不消费序号，离场可见；Scene 缺失时心跳和训练仍成功。
 该入口仅验证本机多进程 TLS/TCP，不代表 Scene QUIC、跨机或玩法容量。
@@ -82,7 +82,8 @@ Grafana 的 `scene.json` 和两条 Scene 告警与实际指标名一起验证；
 ## 双实例转场与重启恢复（S3）
 
 第二个 Scene 配置使用相同服务名 scene、独立 instance_id（示例 scene-dev-02）、监听端口
-7201 与服务证书 DNS SAN scene-dev-02.scene.service，将 scene.shard_id 设为 2。两个进程各
+7201 与服务证书 DNS SAN scene-dev-02.scene.service，将 scene.shard_id 设为 2。
+同机运行时还需为第二个实例设置不同的 `logging.metrics_port`（例如 9107），避免与默认 9106 冲突。两个进程各
 使用自己的配置树；默认四服务拓扑仍可独立运行。Realm 的 realm.scene.targets 显式增加：
 
 ```lua
