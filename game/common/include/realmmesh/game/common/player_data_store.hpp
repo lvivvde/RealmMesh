@@ -144,6 +144,9 @@ struct MongoPlayerDataOptions final {
     /// server_selection_timeout/socket_timeout 约束，不能被此预算中途取消。
     /// 不确定提交按数据源不可用/SceneWriteUncertain 返回，不能视为回滚。
     std::chrono::milliseconds transaction_timeout{5'000};
+    /// 连接池耗尽时等待可用客户端的上限；超时按数据源不可用失败。
+    /// 独立于取得连接后才开始的 transaction_timeout，不创建后台任务。
+    std::chrono::milliseconds pool_wait_timeout{2'000};
     /// 非空时，连接后对尚未导入过的库执行一次性 Lua 导入（见
     /// bootstrap_from_lua）。三个服务共用同一配置，谁先到谁完成导入。
     std::optional<std::filesystem::path> bootstrap_accounts_file;

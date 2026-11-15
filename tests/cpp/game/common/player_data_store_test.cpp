@@ -707,6 +707,61 @@ TEST_F(PlayerDataStoreTest, RejectsSocketTimeoutShorterThanWriteConcernTimeout) 
         .socket_timeout = 1'500ms, .write_concern_timeout = 1'500ms})));
 }
 
+TEST_F(PlayerDataStoreTest, RejectsNonPositivePoolWaitAndUriOverrides) {
+    EXPECT_THROW(
+        static_cast<void>(open_store(
+            MongoPlayerDataOptions{.pool_wait_timeout = 0ms})),
+        PlayerDataError);
+    EXPECT_THROW(
+        static_cast<void>(open_store(
+            MongoPlayerDataOptions{.pool_wait_timeout = -1ms})),
+        PlayerDataError);
+    for (const auto* option : {"waitQueueTimeoutMS=0", "waitQueueTimeoutMS=10",
+                               "WAITQUEUETIMEOUTMS=10"}) {
+        EXPECT_THROW(
+            static_cast<void>(MongoPlayerDataStore(
+                mongod_.uri() + "&" + option, database_)),
+            PlayerDataError);
+    }
+}
+
+TEST(PlayerDataPoolTest, ExhaustedPoolFailsWithinBudgetAndRecovers) {
+    test_support::MongodProcess mongod(
+        test_support::MongodProcess::TestCommands::Enabled);
+    MongoPlayerDataStore store(
+        mongod.uri() + "&maxPoolSize=1",
+        test_support::MongodProcess::fresh_database(),
+        {.socket_timeout = 5s, .pool_wait_timeout = 150ms});
+    store.provision_account({.account_id = 42, .account_name = "player",
+                             .credential = "secret", .whitelisted = true});
+    static_cast<void>(mongod.eval("admin", R"js(
+const r = db.runCommand({configureFailPoint: 'failCommand', mode: {times: 1}, data: {
+  failCommands: ['find'], blockConnection: true, blockTimeMS: 3000
+}});
+if (!r.ok) throw new Error(JSON.stringify(r));
+)js"));
+    auto holder = std::async(std::launch::async, [&] { return store.login_facts(42); });
+    // 等真实请求进入故障点，确保它持有唯一客户端；不用固定睡眠猜测时序。
+    static_cast<void>(mongod.eval("admin", R"js(
+const r = db.runCommand({waitForFailPoint: 'failCommand', timesEntered: 1, maxTimeMS: 3000});
+if (!r.ok) throw new Error(JSON.stringify(r));
+)js"));
+    auto waiting = std::async(std::launch::async, [&] {
+        try {
+            static_cast<void>(store.login_facts(42));
+            return false;
+        } catch (const PlayerDataError&) {
+            return true;
+        }
+    });
+    const auto ready = waiting.wait_for(1s);
+    // 被占用的连接会在故障点的有限阻塞结束后归还；旧实现失败也能收尾。
+    EXPECT_TRUE(holder.get().has_value());
+    EXPECT_EQ(ready, std::future_status::ready);
+    EXPECT_TRUE(waiting.get());
+    EXPECT_TRUE(store.login_facts(42).has_value());
+}
+
 TEST(PlayerDataTransactionTest, BoundsPersistentCommitFailure) {
     // 全局故障注入只作用于本例独占的副本集，绝不污染共享 CTest 后端。
     test_support::MongodProcess mongod(

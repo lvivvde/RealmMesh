@@ -53,3 +53,35 @@ Linux 与 macOS 的受测补丁（`git diff --binary`）SHA-256 一致：
 - `macos-full-final.log`：`f9cc77ecac951cc6b0f9d3e9ebd62ea30ab34b393b8b597da9fa4fdc70ecefee`。
 
 - `linux-full-final.log`：`bdc113e5243c0e5b730fe3d8fdcc77d1869703e8208fdae475c32bee367883f4`。
+
+## 2026-11-16：连接池等待上限
+
+继续收窄 #186 的资源等待边界：新增 `pool_wait_timeout_ms`（默认 2000），映射到驱动原生
+`waitQueueTimeoutMS`。池耗尽时不再无限等待；超时抛出既有 `PlayerDataError`，不留下后台任务。
+同名 URI 参数（包括大小写变体与 0）被拒绝，配置值必须为正的 32 位毫秒数。
+
+真实副本集回归把池设为一个客户端，用有限的 `failCommand` 阻塞读取并经 `waitForFailPoint`
+确认占用，再发出第二个读取。修复前在 1 秒内未就绪，连接释放后第二个读取继续成功，两个断言失败；
+修复后第二个读取按 150 毫秒池预算报错，持有者归还连接后下一次读取成功。
+定向配置、拒绝覆盖与耗尽恢复测试 5/5 通过（含 CTest 副本集准备/回收）。
+
+此上限与事务预算独立，仍不构成在途同步操作的硬取消；完整 RPC 截止验收继续保留。
+
+| 入口 | 平台 | 结果 | CTest 用时 |
+| --- | --- | --- | --- |
+| `./scripts/test-fast.sh --jobs 6` | macOS ARM64 | 567/567 通过 | 3.38 秒 |
+| `./scripts/build.sh --jobs 6` | macOS ARM64 | 835/835 通过，退出码 0 | 768.26 秒 |
+| `./scripts/build.sh --jobs 3` | Linux ARM64 / Lima ubuntu | 836/836 通过，退出码 0 | 668.31 秒 |
+
+两平台 configure 均确认启用 QUIC。逐文件核对相对 `08887f2` 的 12 个改动文件，
+受测内容一致（本节最终验证结果在测试后补入）。两项只读复审未发现新增问题。
+日志保存在本地 `build/validation-186/`，SHA-256 如下：
+
+
+- `pool-red.log`：`41328d4f0c6a845bed931f3db8f29c3313ec45012d19445ca32378de7c123b82`。
+
+- `pool-green.log`：`6785282c503129ad66f57badfe1a11afc79e335847d0e1ba992e8e4ba2b72098`。
+
+- `pool-macos-full.log`：`f1f72a25a6f109e8d9d7cb3248686db78258e2013c72c84561186ae5f5cafa17`。
+
+- `pool-linux-full.log`：`997fc5b5f14d5a25250fc53b746963e62fe30a5e6e855e95b5726c25fc556d1d`。

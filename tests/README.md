@@ -194,5 +194,9 @@ S5 的 SceneFaultJourneyTest 使用独占的真实 MongoDB 副本集与生产服
 `RealmTransactionFailureTest` 走真实登录链与 Realm RPC，验证提交确认失败返回 `3010`、
 同一会话可查询已提交角色并继续选角。故障点不作用于共享 CTest 副本集，也不修改全局日志级别。
 
-定向入口：`ctest --preset dev -R 'PlayerDataTransactionTest|PlayerDataRetryFailureTest|RealmTransactionFailureTest' --output-on-failure`。
+`PlayerDataPoolTest` 将池限制为一个客户端，通过 `waitForFailPoint` 确认真实读取已占用它，
+验证第二个读取在池等待上限内失败、连接归还后正常恢复。仅独占副本集启用有限时长故障点，
+旧实现失败也会收尾，不使用固定睡眠猜测客户端已占用连接。
+
+定向入口：`ctest --preset dev -R 'PlayerDataPoolTest|PlayerDataTransactionTest|PlayerDataRetryFailureTest|RealmTransactionFailureTest' --output-on-failure`。
 事务预算在操作之间检查；同步驱动调用和 abort 清理不能被预算中途取消，详见架构文档。

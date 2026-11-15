@@ -173,12 +173,16 @@ void ensure_driver_instance() {
     const auto server_selection = timeout_ms(
         options.server_selection_timeout, "server_selection_timeout");
     const auto socket = timeout_ms(options.socket_timeout, "socket_timeout");
+    const auto pool_wait = timeout_ms(
+        options.pool_wait_timeout, "pool_wait_timeout");
     const mongocxx::uri parsed{uri};
     if (parsed.server_selection_timeout_ms().has_value() ||
-        parsed.socket_timeout_ms().has_value()) {
+        parsed.socket_timeout_ms().has_value() ||
+        parsed.wait_queue_timeout_ms().has_value()) {
         throw PlayerDataError(
             "player data uri must not set serverSelectionTimeoutMS or "
-            "socketTimeoutMS; configure player_data timeouts instead");
+            "socketTimeoutMS or waitQueueTimeoutMS; "
+            "configure player_data timeouts instead");
     }
     const auto scheme = uri.find("://");
     const auto hosts = scheme == std::string::npos ? 0 : scheme + 3;
@@ -189,7 +193,8 @@ void ensure_driver_instance() {
         uri += '&';
     }
     uri += "serverSelectionTimeoutMS=" + std::to_string(server_selection) +
-           "&socketTimeoutMS=" + std::to_string(socket);
+           "&socketTimeoutMS=" + std::to_string(socket) +
+           "&waitQueueTimeoutMS=" + std::to_string(pool_wait);
     return mongocxx::uri{uri};
 }
 
