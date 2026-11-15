@@ -23,9 +23,13 @@ namespace {
 
 [[nodiscard]] bool endpoint_is_reachable(
     const network::TransportEndpoint& endpoint) noexcept {
-    // 探测用套接字在同一次调用内关闭,无需 close-on-exec;
-    // SOCK_CLOEXEC 在 macOS 上不存在。
+    // 探测用套接字在同一次调用内关闭。Linux 直接带 SOCK_CLOEXEC,堵住其他
+    // 线程恰在此刻 fork+exec 时的泄漏窗口;macOS 没有该标志，窗口很短，不另处理。
+#if defined(__linux__)
+    const int descriptor = ::socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
+#else
     const int descriptor = ::socket(AF_INET, SOCK_STREAM, 0);
+#endif
     if (descriptor < 0) return false;
     sockaddr_in address{};
     address.sin_family = AF_INET;

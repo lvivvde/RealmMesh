@@ -61,6 +61,8 @@ struct TransportEvent {
     TransportIngressSource source;
 };
 
+/// 面向完整业务消息的安全传输抽象。具体实现负责加解长度帧；SessionOpened 仅在
+/// 安全握手完成后发布。除非实现另有保证，状态方法应由同一个 I/O owner 调用。
 class IMessageTransport {
 public:
     virtual ~IMessageTransport() = default;
@@ -70,6 +72,7 @@ public:
     [[nodiscard]] virtual TransportEndpoint local_endpoint() const = 0;
     [[nodiscard]] virtual std::size_t session_count() const noexcept = 0;
 
+    /// 驱动或消费传输事件；返回的 MessageReceived.payload 已移除传输层帧头。
     [[nodiscard]] virtual std::vector<TransportEvent> poll_once(
         std::chrono::milliseconds timeout) = 0;
     [[nodiscard]] virtual bool send(

@@ -50,7 +50,7 @@ libmsquic、四个 `realm_mesh --service` 进程和单节点临时 etcd 位于�
 | M3 | 10000 次耐久取号 + 2000 个 progress 客户端；成功率 ≥99.9% | 百万取号；源站 ≤5000 QPS；缓存命中 ≥99% | 1 |
 | M4 | SIGKILL Gateway 后 budget key 移除与重建 ≤10 秒；SIGKILL Queue 后冷恢复 ≤30 秒且真实 etcd `released_number` 不回退；Grant 不重复消费；etcd 故障 readiness 收敛 ≤10 秒 | 同门槛在 staged 拓扑执行 | 1 |
 
-M3 的 CI 缩减输入只在 Linux 以上表规模执行；macOS（开发基线与 CI 的 `macos`
+M3 的 CI 缩减输入只在 Linux 以上表规模执行；macOS（可选开发平台，ADR-0017；以及 CI 的 `macos`
 job）把同一用例缩到 5000 次取号 + 1000 个 progress 客户端，成功率门槛仍是
 ≥99.9%（#104）。macOS 档只防回归，不替代 Linux 门槛。
 

@@ -1,9 +1,13 @@
 # 三平台支持等级:Linux 生产基准、macOS 开发基准、Windows 仅保留开关
 
 ---
-status: accepted
+status: partially superseded by ADR-0017
 ---
 
+> **Partially superseded by ADR-0017:** 「macOS 为开发基准」不再有效——Linux(Ubuntu 24.04)
+> 同时是生产与开发基准,macOS 降为可选开发平台,不阻塞主路径;平台差异仍以条件分支保留。
+> 仍然有效:Linux 为生产与 QUIC 行为基准、Windows 只交付后端开关、CI 分工。
+>
 > **Amended by ADR-0012:** macOS 装了 Homebrew `libmsquic` 时在本地编入并测试
 > QUIC,未装时仍只走 TLS/TCP;Linux 仍是生产与行为基准,CI 分工不变。
 

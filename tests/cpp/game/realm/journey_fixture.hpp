@@ -2,6 +2,7 @@
 #include "realmmesh/cluster/etcd_service_registry.hpp"
 #include "realmmesh/game/client/login_chain.hpp"
 #include "realmmesh/game/client/wire_login_transport.hpp"
+#include "realmmesh/game/common/edge_protocol.hpp"
 #include "realmmesh/game/common/player_data_store.hpp"
 #include "realmmesh/test_support/etcd_process.hpp"
 #include "realmmesh/test_support/mongod_process.hpp"
@@ -313,11 +314,53 @@ void wait_for_port(std::uint16_t port, std::string_view description) {
 
 [[nodiscard]] client::TimePoint soon() { return client::Clock::now() + 5s; }
 
+/// retry_unavailable 单次尝试的截止。共享副本集上服务端最慢的回包是
+/// 一次写关注超时(4.5 秒)后 with_transaction 自动重试提交，或一次读
+/// 卡满套接字超时(7 秒);截止须晚于两者，服务端的 3010 或成功回包才
+/// 先于客户端的 Disconnected 到达。层级见 point_player_data_at。
+[[nodiscard]] client::TimePoint data_call_deadline() {
+    return client::Clock::now() + 12s;
+}
+
+/// 3010 表示玩家数据暂不可用、可重试：全量 CTest 下共享 mongod 偶发的
+/// 写关注等待超时不是业务失败。在一个 soon() 窗口内以同一请求重放,
+/// 每次尝试各自拿 data_call_deadline() 作截止。call(deadline) 必须按 seq
+/// 幂等：首次写若已落库，重放命中同一 seq,服务回 replayed 结果而不是再
+/// 推进一次。saw_unavailable 非空时记下是否至少观察到一次 3010。
+template <typename Call>
+[[nodiscard]] auto retry_unavailable(
+    Call&& call, bool* saw_unavailable = nullptr) {
+    const auto unavailable = [](const auto& reply) {
+        return reply.status == RealmCallStatus::Rejected &&
+               reply.error_code == common::edge_error_realm_data_unavailable;
+    };
+    const auto window = soon();
+    auto reply = call(data_call_deadline());
+    if (saw_unavailable != nullptr) *saw_unavailable = false;
+    while (unavailable(reply) && client::Clock::now() < window) {
+        if (saw_unavailable != nullptr) *saw_unavailable = true;
+        std::this_thread::sleep_for(50ms);
+        reply = call(data_call_deadline());
+    }
+    if (saw_unavailable != nullptr && unavailable(reply))
+        *saw_unavailable = true;
+    return reply;
+}
+
 class RealmJourneyTest : public ::testing::Test {
 protected:
     RealmJourneyTest()
         : mesh_root_("realm-journey-mesh-"),
           realm_root_("realm-journey-realm-") {}
+
+    /// 派生夹具的服务进程此时都已回收，再删本例的库；独占 mongod 随
+    /// 夹具一起销毁，不必清理。shared_mongod_ 只在 SetUp 时确认共享后
+    /// 才记下：共享副本集是静态对象，派生夹具成员(如 fault_mongo_)
+    /// 先于这里析构也不会悬空。
+    ~RealmJourneyTest() override {
+        if (shared_mongod_ != nullptr)
+            shared_mongod_->drop_database(journey_database_);
+    }
 
     void SetUp() override {
         etcd_.wait_ready();
@@ -325,6 +368,8 @@ protected:
         const auto ports = test_support::unused_loopback_ports(4);
         ports_ = Ports{ports.at(0), ports.at(1), ports.at(2), ports.at(3)};
         const auto database = test_support::MongodProcess::fresh_database();
+        if (player_data().is_shared()) shared_mongod_ = &player_data();
+        journey_database_ = database;
         copy_configs(
             mesh_root_.path(),
             "return { services = { { name = \"login_verify\" }, "
@@ -441,6 +486,8 @@ protected:
     std::optional<MeshProcess> mesh_;
     client::WireEnterRealmRedeemer redeemer_;
     std::optional<client::WireLoginTransport> transport_;
+    const test_support::MongodProcess* shared_mongod_{nullptr};
+    std::string journey_database_;
 };
 
 }  // namespace

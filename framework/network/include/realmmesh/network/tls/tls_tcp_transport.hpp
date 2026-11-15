@@ -19,6 +19,9 @@ class Logger;
 
 namespace realm::network {
 
+/// Event Loop 驱动(Linux epoll / macOS kqueue)的 TLS/TCP 服务端传输。
+/// connections_ 及两个索引只由 poll/send/close 所在的 I/O owner 线程访问；
+/// 凭据热更新只影响之后建立的新连接。
 class TlsTcpTransport final : public IMessageTransport {
 public:
     explicit TlsTcpTransport(

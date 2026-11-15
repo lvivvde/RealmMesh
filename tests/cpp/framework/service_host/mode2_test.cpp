@@ -8,6 +8,10 @@
 
 #include <gtest/gtest.h>
 
+#include <arpa/inet.h>
+#include <sys/socket.h>
+#include <unistd.h>
+
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -127,6 +131,39 @@ void use_test_ports(
     const network::TcpListener listener("127.0.0.1", 0);
     return listener.local_port();
 }
+
+class RefusedTcpPort final {
+public:
+    RefusedTcpPort() : descriptor_(::socket(AF_INET, SOCK_STREAM, 0)) {
+        if (descriptor_ < 0) throw std::runtime_error("socket failed");
+        sockaddr_in address{};
+        address.sin_family = AF_INET;
+        address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+        address.sin_port = 0;
+        if (::bind(descriptor_, reinterpret_cast<const sockaddr*>(&address),
+                   sizeof(address)) != 0) {
+            ::close(descriptor_);
+            throw std::runtime_error("bind failed");
+        }
+        socklen_t size = sizeof(address);
+        if (::getsockname(descriptor_, reinterpret_cast<sockaddr*>(&address),
+                          &size) != 0) {
+            ::close(descriptor_);
+            throw std::runtime_error("getsockname failed");
+        }
+        port_ = ntohs(address.sin_port);
+    }
+
+    ~RefusedTcpPort() { ::close(descriptor_); }
+    RefusedTcpPort(const RefusedTcpPort&) = delete;
+    RefusedTcpPort& operator=(const RefusedTcpPort&) = delete;
+
+    [[nodiscard]] std::uint16_t port() const noexcept { return port_; }
+
+private:
+    int descriptor_;
+    std::uint16_t port_{0};
+};
 
 /// 拷贝真实 configs 到临时目录后确保服务发现关闭(与 E2E 同模式):
 /// 本环境无 etcd,而发现开启时 ServiceHost 的 ready 语义要求注册成功,
@@ -265,7 +302,8 @@ TEST(Mode2Test, GatewayDoesNotStartWithoutRealm) {
     const std::filesystem::path source = REALMMESH_SOURCE_DIR "/configs";
     const test_support::TemporaryDirectory scratch("mode2-test-");
     ASSERT_TRUE(copy_configs_with_discovery_disabled(source, scratch.path()));
-    use_test_ports(scratch.path(), unused_tcp_port());
+    const RefusedTcpPort refused_realm;
+    use_test_ports(scratch.path(), refused_realm.port());
 
     MeshHost mesh(
         scratch.path(),

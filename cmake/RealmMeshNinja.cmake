@@ -49,8 +49,8 @@ function(realmmesh_check_ninja generator program out_error)
     endif()
 
     string(CONCAT _hint
-        "Install Ninja >= ${REALMMESH_NINJA_MINIMUM_VERSION} (macOS: `brew install ninja`; "
-        "Ubuntu: `sudo apt-get install ninja-build`) and configure again, or use the "
+        "Install Ninja >= ${REALMMESH_NINJA_MINIMUM_VERSION} (Ubuntu: `sudo apt-get install ninja-build`; "
+        "macOS: `brew install ninja`) and configure again, or use the "
         "Make fallback explicitly: `cmake --preset dev-make`, or `--preset dev-make` "
         "on the scripts/ entries.")
 

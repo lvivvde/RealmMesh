@@ -10,6 +10,8 @@
 
 namespace realm::cluster {
 
+/// 维护某类服务的 Watch 快照，并选择权重最高实例中的首个匹配协议端点。
+/// registry 为非拥有引用；其 Watch 回调可能来自后台线程。
 class ServiceResolver final {
 public:
     ServiceResolver(

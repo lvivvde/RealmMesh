@@ -25,6 +25,8 @@ struct ReloadReport {
     std::vector<ReloadFailure> failures;
 };
 
+/// 线程仿射的 Lua 模块容器：所有方法只能由构造线程调用。每个模块在独立
+/// environment 中执行；重新编译失败时保留上一份可用 exports。
 class LuaRuntime final {
 public:
     LuaRuntime();

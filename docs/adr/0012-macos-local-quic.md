@@ -1,8 +1,12 @@
 # macOS 本地启用 QUIC
 
 ---
-status: accepted
+status: partially superseded by ADR-0017
 ---
+
+> **Partially superseded by ADR-0017:** 文中以 macOS 为开发基准的前提不再成立,Linux(Ubuntu 24.04)
+> 同时是生产与开发基准。macOS 本地 QUIC 的自动检测、版本对齐、SecTrust 校验差异与 `GTEST_SKIP`
+> 约定继续有效,作为可选开发平台的说明保留;CI 分工不变。
 
 ADR-0002 以"MsQuic 的依赖接线为 Linux 专属且其 macOS 支持非一等公民"为由,让 macOS 只走 TLS/TCP。这一前提已部分失效:Homebrew 收录 `libmsquic`(2.6.x,依赖 `openssl@3`);`quic_transport.cpp` 只依赖 `msquic.h` 与 POSIX 头,没有 Linux 专属 API;传输选择完全由 `platform_transport_capabilities()` 驱动。真正的 Linux 绑定只在 MsQuic 的 CMake 发现逻辑与安装脚本。因此 macOS 改为**自动检测**:装了 Homebrew `libmsquic`(或设置 `MSQUIC_ROOT`)就编入 QUIC 并注册 QUIC 测试,找不到则照常只走 TLS/TCP 并在 CMake 输出里提示 `brew install libmsquic`。Linux 仍是生产与行为基准,缺失 MsQuic 仍令配置失败;CI 分工不变,`linux` job 是 QUIC 回归的权威,`macos` job 不装 `libmsquic`、继续只走 TLS/TCP。详见 #97。
 

@@ -144,6 +144,8 @@ public:
             return false;
         }
         state->pending_output_bytes += context->bytes.size();
+        // MsQuic 在 SEND_COMPLETE 前只保留 ClientContext 和 QUIC_BUFFER 视图；
+        // 将 context 所有权交给回调，确保帧内存和 pending 计数活到发送完成。
         const auto status = api_->StreamSend(
             state->stream,
             &context->buffer,
@@ -186,6 +188,8 @@ public:
         HQUIC previous = nullptr;
         {
             std::lock_guard lock(configuration_mutex_);
+            // ConnectionSetConfiguration 与交换共用锁：已接入连接保持原配置，
+            // 交换完成后到达的新连接统一使用 replacement。
             previous = std::exchange(configuration_, replacement);
         }
         api_->ConfigurationClose(previous);
@@ -336,6 +340,8 @@ private:
             listener_ = nullptr;
         }
         if (registration_ != nullptr) {
+            // RegistrationShutdown 先让连接回调收敛，再关闭 configuration 和
+            // registration；connections_ 最后清空其 callback context 所有者。
             api_->RegistrationShutdown(
                 registration_, QUIC_CONNECTION_SHUTDOWN_FLAG_SILENT, 0);
         }
@@ -448,6 +454,8 @@ private:
         ConnectionState* state,
         HQUIC connection,
         QUIC_CONNECTION_EVENT* event) {
+        // callback context 是裸指针；本地 shared_ptr guard 保证整个回调期间
+        // ConnectionState 不会因 connections_ 擦除而析构。
         const auto state_guard = find_connection(state->session_id);
         if (!state_guard) {
             return QUIC_STATUS_INVALID_STATE;
@@ -493,6 +501,8 @@ private:
             const bool unidirectional =
                 (event->PEER_STREAM_STARTED.Flags &
                  QUIC_STREAM_OPEN_FLAG_UNIDIRECTIONAL) != 0;
+            // 协议只允许一个客户端发起的长期双向流；额外或单向流按协议过载
+            // 处理并关闭整条连接，避免旁路业务 framing。
             bool reject = unidirectional;
             {
                 std::lock_guard lock(state->mutex);
@@ -571,6 +581,8 @@ private:
 
     QUIC_STATUS on_stream_event(
         ConnectionState* state, HQUIC stream, QUIC_STREAM_EVENT* event) {
+        // 与 connection callback 相同，先将裸 callback context 提升为
+        // 共享所有权。
         const auto state_guard = find_connection(state->session_id);
         if (!state_guard) {
             return QUIC_STATUS_INVALID_STATE;

@@ -134,6 +134,19 @@ struct MongoPlayerDataOptions final {
     std::chrono::milliseconds server_selection_timeout{2'000};
     /// 单次网络读写的套接字超时，界定一次查询最多占用调用方多久。
     std::chrono::milliseconds socket_timeout{2'000};
+    /// majority + journal 写关注的等待上限（wtimeout，ADR-0011），同时作为
+    /// 事务 maxCommitTimeMS（单次服务端提交上限）。与套接字
+    /// 超时分开配置；超时即按数据源不可用失败，已落主节点的写不回滚。
+    /// 不得长于 socket_timeout,否则构造时拒绝。
+    std::chrono::milliseconds write_concern_timeout{2'000};
+    /// 事务执行/重试预算；使用 steady_clock，在数据库操作之间检查。
+    /// 到期不再发起操作或重试；已发出的同步驱动调用及 abort 清理仍受
+    /// server_selection_timeout/socket_timeout 约束，不能被此预算中途取消。
+    /// 不确定提交按数据源不可用/SceneWriteUncertain 返回，不能视为回滚。
+    std::chrono::milliseconds transaction_timeout{5'000};
+    /// 连接池耗尽时等待可用客户端的上限；超时按数据源不可用失败。
+    /// 独立于取得连接后才开始的 transaction_timeout，不创建后台任务。
+    std::chrono::milliseconds pool_wait_timeout{2'000};
     /// 非空时，连接后对尚未导入过的库执行一次性 Lua 导入（见
     /// bootstrap_from_lua）。三个服务共用同一配置，谁先到谁完成导入。
     std::optional<std::filesystem::path> bootstrap_accounts_file;

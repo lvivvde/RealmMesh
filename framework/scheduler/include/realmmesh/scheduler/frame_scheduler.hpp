@@ -42,6 +42,8 @@ public:
                      std::invoke_result_t<Callback&, FrameContext>,
                      bool>
     std::uint64_t run(Callback&& callback) {
+        // deadline 按固定步长推进而非基于“当前时间”重置；单帧超时后不会丢帧，
+        // sleep_until 对过期 deadline 立即返回，从而逐帧追赶既定时间线。
         auto next_deadline = clock_.now();
         std::uint64_t frame_index = 0;
 

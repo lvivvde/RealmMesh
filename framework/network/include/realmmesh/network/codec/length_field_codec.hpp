@@ -19,6 +19,8 @@ struct DecodeResult {
     std::vector<std::byte> payload;
 };
 
+/// 4 字节大端 payload 长度帧。NeedMoreData 与 FrameTooLarge 都不会消费输入，
+/// 后者应由上层视为不可恢复的协议错误并关闭连接。
 class LengthFieldCodec final {
 public:
     static constexpr std::size_t header_size = 4;

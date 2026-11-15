@@ -25,6 +25,10 @@ constexpr std::size_t tag_size = crypto_auth_hmacsha256_BYTES;
 constexpr std::size_t ticket_size_v1 = signed_size_v1 + tag_size;
 constexpr std::size_t ticket_size_v2 = signed_size_v2 + tag_size;
 
+// Wire layout（整数均为大端）：version | purpose | ticket_id |
+// [v2 correlation_id] | account_id | realm_id | character_id | expiry_ms |
+// HMAC-SHA256。v1 仅为兼容无 correlation_id 的旧票据。
+
 void write_unsigned(std::span<std::byte> output, std::uint64_t value) {
     for (std::size_t index = 0; index < output.size(); ++index) {
         const auto shift =
@@ -81,6 +85,7 @@ std::vector<std::byte> issue_ticket(
         std::span<std::byte>(ticket.data() + offset, 8),
         static_cast<std::uint64_t>(expiry));
 
+    // claims 以明文携带；HMAC 覆盖 tag 之前的全部字节，提供认证而非保密性。
     crypto_auth_hmacsha256(
         reinterpret_cast<unsigned char*>(ticket.data() + signed_size),
         reinterpret_cast<const unsigned char*>(ticket.data()),

@@ -55,6 +55,7 @@ SceneWrite move_write(std::uint64_t seq = 2, std::int32_t x = 10) {
 
 class SceneStoreTest : public ::testing::Test {
 protected:
+    void TearDown() override { mongod.drop_database(database); }
     MongoPlayerDataStore open() const {
         MongoPlayerDataOptions options;
         options.credential_hash_cost = CredentialHashCost::Minimum;

@@ -58,6 +58,8 @@ ConnectAttempt PreferredTransportConnector::connect(
 
     const auto round_deadline =
         std::chrono::steady_clock::now() + options_.round_timeout;
+    // worker 可能在 connect() 返回路径上仍短暂运行；共享状态独立于栈帧，配合
+    // jthread 析构 join，保证取消期间结果写回仍有有效存储。
     auto state = std::make_shared<RaceState>();
     std::vector<std::jthread> workers;
     auto start = [&](const EndpointCandidate& endpoint) {
@@ -120,6 +122,8 @@ ConnectAttempt PreferredTransportConnector::connect(
             }
             if (result.protocol == TransportProtocol::Quic &&
                 !tls_started && tls_tcp != nullptr) {
+                // start() 可能立即完成并尝试获取同一把锁，故创建 worker 前
+                // 先解锁。
                 lock.unlock();
                 start(*tls_tcp);
                 tls_started = true;

@@ -69,6 +69,8 @@ inline constexpr int edge_error_realm_data_unavailable = 3010;
     };
 }
 
+/// 下列探测与 decode 会同时校验 Envelope 可解析、协议版本及已知 message_id；
+/// 具体 decode 还要求 message_id 与目标消息类型精确匹配。
 [[nodiscard]] std::optional<EdgeMessageId> edge_message_id(
     std::span<const std::byte> payload);
 [[nodiscard]] std::optional<std::uint64_t> edge_request_id(

@@ -131,6 +131,8 @@ bool TlsTcpTransport::reload_credentials() {
     try {
         auto replacement =
             std::make_unique<TlsServerContext>(config_.tls.value());
+        // 先完整构造再交换，加载失败不会破坏现有 context；已建立的 SSL 对象持有
+        // 旧 SSL_CTX 的引用，因此只让新握手使用新凭据。
         tls_context_.swap(replacement);
         return true;
     } catch (...) {
@@ -241,6 +243,8 @@ void TlsTcpTransport::service_connection(
                 });
             }
             if (received.batch.status == ReceiveStatus::PeerClosed) {
+                // TLS close_notify 可能和最后一批业务帧同时到达；先把已解出的帧
+                // 交给上层，并等待待发送数据排空后再销毁连接。
                 entry.close_after_flush = true;
                 entry.close_reason = "peer_closed";
             }

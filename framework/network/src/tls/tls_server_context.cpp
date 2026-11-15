@@ -117,6 +117,8 @@ TlsServerContext::TlsServerContext(
             context_.get(), verify_client, &allowed_client_identities_);
     }
 
+    // OpenSSL 的服务端选择回调要求协议列表使用“1 字节长度 + 内容”的 wire 格式；
+    // alpn_wire_ 作为成员必须与 SSL_CTX 一同存活，因为回调参数保存了它的地址。
     alpn_wire_.reserve(identity.alpn.size() + 1U);
     alpn_wire_.push_back(static_cast<char>(identity.alpn.size()));
     alpn_wire_.append(identity.alpn);
