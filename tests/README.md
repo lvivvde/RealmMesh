@@ -184,3 +184,15 @@ S5 的 SceneFaultJourneyTest 使用独占的真实 MongoDB 副本集与生产服
 指标齐备，源码运行前后相同；失败、跳过或缺证据均非零。SceneAcceptanceReportTest 的
 十项合成输入契约验证拒绝边界，不替代业务外部后端证据。阶段交付要求双平台当前源码
 全量与各三次统一验收，所有原始日志、逐例与配置哈希独立保存，失败目录不得覆盖。
+
+## 玩家数据事务故障（#186）
+
+`PlayerDataTransactionTest` 与 `PlayerDataRetryFailureTest` 使用独占且启用测试命令的真实副本集，
+覆盖持续提交写关注失败、提交断网、事务体持续冲突，以及瞬态冲突后预算内成功。
+故障持续时必须在测试上界内抛 `PlayerDataError`；先解除故障再断言，保证旧实现失败时也可回收。
+确认丢失后核对已提交角色并按原名字重试，防止误把未知结果当作回滚。
+`RealmTransactionFailureTest` 走真实登录链与 Realm RPC，验证提交确认失败返回 `3010`、
+同一会话可查询已提交角色并继续选角。故障点不作用于共享 CTest 副本集，也不修改全局日志级别。
+
+定向入口：`ctest --preset dev -R 'PlayerDataTransactionTest|PlayerDataRetryFailureTest|RealmTransactionFailureTest' --output-on-failure`。
+事务预算在操作之间检查；同步驱动调用和 abort 清理不能被预算中途取消，详见架构文档。

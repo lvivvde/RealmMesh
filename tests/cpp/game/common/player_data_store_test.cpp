@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <chrono>
 #include <fstream>
+#include <future>
 #include <optional>
 #include <string>
 #include <thread>
@@ -689,6 +690,13 @@ TEST_F(PlayerDataStoreTest, RejectsNonPositiveWriteConcernTimeout) {
         PlayerDataError);
 }
 
+TEST_F(PlayerDataStoreTest, RejectsNonPositiveTransactionTimeout) {
+    EXPECT_THROW(
+        static_cast<void>(open_store(
+            MongoPlayerDataOptions{.transaction_timeout = 0ms})),
+        PlayerDataError);
+}
+
 TEST_F(PlayerDataStoreTest, RejectsSocketTimeoutShorterThanWriteConcernTimeout) {
     // 驱动先断开时写关注超时观察不到；相等(生产默认)仍接受。
     EXPECT_THROW(
@@ -699,45 +707,125 @@ TEST_F(PlayerDataStoreTest, RejectsSocketTimeoutShorterThanWriteConcernTimeout) 
         .socket_timeout = 1'500ms, .write_concern_timeout = 1'500ms})));
 }
 
-TEST_F(PlayerDataStoreTest, BoundsTransactionCommitByWriteConcernTimeout) {
-    // profiler 不记录 commitTransaction；临时打开 command 日志，直接核对
-    // 驱动下发给服务端的 maxTimeMS，结束后恢复默认级别。
-    static_cast<void>(mongod_.eval("admin", R"js(
-const result = db.runCommand({
-  setParameter: 1, logComponentVerbosity: {command: {verbosity: 2}}
-});
-if (!result.ok) throw new Error(JSON.stringify(result));
+TEST(PlayerDataTransactionTest, BoundsPersistentCommitFailure) {
+    // 全局故障注入只作用于本例独占的副本集，绝不污染共享 CTest 后端。
+    test_support::MongodProcess mongod(
+        test_support::MongodProcess::TestCommands::Enabled);
+    MongoPlayerDataStore store(
+        mongod.uri(), test_support::MongodProcess::fresh_database(),
+        {.server_selection_timeout = 200ms,
+         .socket_timeout = 200ms, .write_concern_timeout = 150ms,
+         .transaction_timeout = 250ms});
+    store.provision_account({.account_id = 42, .account_name = "player",
+                             .credential = "secret", .whitelisted = true});
+    static_cast<void>(mongod.eval("admin", R"js(
+const r = db.runCommand({configureFailPoint: 'failCommand', mode: 'alwaysOn', data: {
+  failCommands: ['commitTransaction'], writeConcernError: {
+    code: 64, codeName: 'WriteConcernFailed', errmsg: 'injected commit acknowledgement failure'
+  }
+}});
+if (!r.ok) throw new Error(JSON.stringify(r));
 )js"));
-
-    MongoPlayerDataOptions options{
-        .socket_timeout = 1'500ms, .write_concern_timeout = 1'250ms};
-    auto store = open_store(options);
-    store.provision_account(AccountProvisioning{
-        .account_id = 42,
-        .account_name = "player",
-        .credential = "secret",
-        .whitelisted = true,
+    auto result = std::async(std::launch::async, [&] {
+        try {
+            static_cast<void>(store.create_character(42, 1, "Ranger", 1));
+            return false;
+        } catch (const PlayerDataError&) {
+            return true;
+        }
     });
-    EXPECT_EQ(
-        store.create_character(42, 1, "Ranger", 1).outcome,
-        CreateCharacterOutcome::Created);
-
-    const auto max_commit_time = mongod_.eval("admin", R"js(
-const commits = db.runCommand({getLog: 'global'}).log
-  .map(line => { try { return JSON.parse(line); } catch (_) { return {}; } })
-  .filter(entry => entry.attr?.command?.commitTransaction === 1);
-const commit = commits.at(-1);
-print(JSON.stringify(commit?.attr?.command?.maxTimeMS ?? 'missing'));
-)js");
-    static_cast<void>(mongod_.eval("admin", R"js(
-const result = db.runCommand({
-  setParameter: 1, logComponentVerbosity: {command: {verbosity: 0}}
-});
-if (!result.ok) throw new Error(JSON.stringify(result));
+    const auto ready = result.wait_for(3s);
+    // 先解除故障再断言，旧实现也能有界退出，失败测试不等待驱动的 120 秒。
+    static_cast<void>(mongod.eval("admin", R"js(
+const r = db.runCommand({configureFailPoint: 'failCommand', mode: 'off'});
+if (!r.ok) throw new Error(JSON.stringify(r));
 )js"));
-    const auto max_commit_time_ms = std::stoll(max_commit_time);
-    EXPECT_EQ(max_commit_time_ms, 1'250);
-    EXPECT_LE(max_commit_time_ms, options.write_concern_timeout.count());
+    EXPECT_EQ(ready, std::future_status::ready);
+    EXPECT_TRUE(result.get());
+    // 注入的是确认丢失，写可能已提交；重试不得创建第二个角色。
+    const auto retry = store.create_character(42, 1, "Ranger", 1);
+    EXPECT_NE(retry.outcome, CreateCharacterOutcome::Created);
+    EXPECT_EQ(store.list_characters(42, 1).characters.size(), 1U);
+}
+
+class PlayerDataRetryFailureTest : public ::testing::TestWithParam<bool> {};
+
+TEST_P(PlayerDataRetryFailureTest, BoundsNetworkOrCallbackRetries) {
+    test_support::MongodProcess mongod(
+        test_support::MongodProcess::TestCommands::Enabled);
+    MongoPlayerDataStore store(
+        mongod.uri(), test_support::MongodProcess::fresh_database(),
+        {.server_selection_timeout = 200ms, .socket_timeout = 200ms,
+         .write_concern_timeout = 150ms, .transaction_timeout = 250ms});
+    store.provision_account({.account_id = 42, .account_name = "player",
+                             .credential = "secret", .whitelisted = true});
+    if (GetParam()) {
+        // 提交前断网会留下服务端事务；缩短本例独占副本集的过期清理，
+        // 验证清理后恢复，不把客户端预算到期误当成服务端已回滚。
+        static_cast<void>(mongod.eval("admin", R"js(
+const r = db.runCommand({setParameter: 1, transactionLifetimeLimitSeconds: 1});
+if (!r.ok) throw new Error(JSON.stringify(r));
+)js"));
+    }
+    const auto fault = GetParam()
+        ? R"js({failCommands: ['commitTransaction'], closeConnection: true})js"
+        : R"js({failCommands: ['findAndModify'], errorCode: 112,
+                  errorLabels: ['TransientTransactionError']})js";
+    static_cast<void>(mongod.eval("admin",
+        std::string("const r = db.runCommand({configureFailPoint: 'failCommand', ") +
+        "mode: 'alwaysOn', data: " + fault +
+        "}); if (!r.ok) throw new Error(JSON.stringify(r));"));
+    auto result = std::async(std::launch::async, [&] {
+        try {
+            static_cast<void>(store.create_character(42, 1, "Ranger", 1));
+            return false;
+        } catch (const PlayerDataError&) {
+            return true;
+        }
+    });
+    const auto ready = result.wait_for(3s);
+    static_cast<void>(mongod.eval("admin", R"js(
+const r = db.runCommand({configureFailPoint: 'failCommand', mode: 'off'});
+if (!r.ok) throw new Error(JSON.stringify(r));
+)js"));
+    EXPECT_EQ(ready, std::future_status::ready);
+    EXPECT_TRUE(result.get());
+    // 故障解除后等待驱动监视器重新发现 primary，以同一名字重试。
+    std::optional<CreateCharacterResult> recovered;
+    std::string recovery_error;
+    const auto deadline = std::chrono::steady_clock::now() + 3s;
+    while (!recovered && std::chrono::steady_clock::now() < deadline) {
+        try {
+            recovered = store.create_character(42, 1, "Ranger", 1);
+        } catch (const PlayerDataError& error) {
+            recovery_error = error.what();
+            std::this_thread::sleep_for(5ms);
+        }
+    }
+    ASSERT_TRUE(recovered) << recovery_error;
+    EXPECT_EQ(recovered->outcome, CreateCharacterOutcome::Created);
+    EXPECT_EQ(store.list_characters(42, 1).characters.size(), 1U);
+}
+INSTANTIATE_TEST_SUITE_P(
+    PersistentFailure, PlayerDataRetryFailureTest, ::testing::Bool());
+
+TEST(PlayerDataTransactionTest, RetriesTransientBodyFailureWithinBudget) {
+    test_support::MongodProcess mongod(
+        test_support::MongodProcess::TestCommands::Enabled);
+    MongoPlayerDataStore store(
+        mongod.uri(), test_support::MongodProcess::fresh_database());
+    store.provision_account({.account_id = 42, .account_name = "player",
+                             .credential = "secret", .whitelisted = true});
+    static_cast<void>(mongod.eval("admin", R"js(
+const r = db.runCommand({configureFailPoint: 'failCommand', mode: {times: 1}, data: {
+  failCommands: ['findAndModify'], errorCode: 112,
+  errorLabels: ['TransientTransactionError']
+}});
+if (!r.ok) throw new Error(JSON.stringify(r));
+)js"));
+    EXPECT_EQ(store.create_character(42, 1, "Ranger", 1).outcome,
+              CreateCharacterOutcome::Created);
+    EXPECT_EQ(store.list_characters(42, 1).characters.size(), 1U);
 }
 
 TEST_F(PlayerDataStoreTest, RejectsTimeoutsEmbeddedInTheUri) {

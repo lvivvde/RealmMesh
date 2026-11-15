@@ -252,8 +252,16 @@ MongoDB 副本集（开发与 CI 为单节点 `rs0`），取代 ADR-0010 的 SQL
 哈希）、封禁/白名单、角色与上次所选角色都只以数据库为准。找不到可写 primary 或单次读写超过
 `player_data` 中的超时上限（选主 `server_selection_timeout_ms`、套接字 `socket_timeout_ms`、
 写关注等待 `write_concern_timeout_ms`，默认均为 2 秒；事务的 `maxCommitTimeMS` 与写关注等待
-取同一上限，防止写关注超时后驱动在 `with_transaction` 内长时间重试提交；写关注等待长于套接字
-超时的配置在构造时拒绝），即按数据源不可用失败。开发拓扑无认证、明文且只监听本机，
+取同一上限；写关注等待长于套接字超时的配置在构造时拒绝），即按数据源不可用失败。
+事务通过项目内的有界循环执行，不使用驱动固定 120 秒的 `with_transaction`：
+`transaction_timeout_ms`（默认 5000）为事务体与提交重试共享的单调时钟预算，在数据库操作之间检查，
+到期不再开始操作或重试。`TransientTransactionError` 可在预算内重跑事务体，
+`UnknownTransactionCommitResult` 只重试同一事务的提交；保留驱动提交时的 majority、unpin 与一次内部网络重试。
+这是操作间截止，不能中断已经发出的同步调用；实际返回还需等待该调用和必要的 abort 清理，
+它们受选主、套接字及驱动单次调用边界约束，不应把 5000 毫秒解释为整个 RPC 的硬截止。
+预算从开始事务计时，不涵盖取得连接、schema 初始化或 Lua 账号哈希准备。
+失败不证明回滚：Realm 沿用 `3010`，Scene 写沿用 `SceneWriteUncertain`；
+建角按原名字找回、训练按原序号重放、Scene 按原命令与版本回读确认。开发拓扑无认证、明文且只监听本机，
 跨机器暴露前须交付 TLS 与认证。
 
 手动跨机器开发另提供共享临时库：服务器仅监听回环地址，启用 TLS 与数据库认证，

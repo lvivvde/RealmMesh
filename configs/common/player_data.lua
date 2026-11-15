@@ -13,6 +13,8 @@ return {
         socket_timeout_ms = 2000,
         -- majority + journal 写关注的等待上限(wtimeout),与套接字超时分开配置。
         write_concern_timeout_ms = 2000,
+        -- 事务操作之间检查的执行/重试预算；在途同步调用仍由上述超时收尾。
+        transaction_timeout_ms = 5000,
         -- 仅空库首次启动时导入开发账号；之后 MongoDB 永远是事实来源。
         bootstrap_accounts_file = "common/accounts.lua",
         -- 新写入口令的 Argon2 成本："interactive"（生产默认）或仅供批量
