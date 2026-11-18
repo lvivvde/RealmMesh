@@ -214,6 +214,7 @@ struct LoginChainConfig final {
     std::chrono::seconds enter_realm_ttl{60};
     /// 压测策略只替换轮询节奏，不改变状态、凭据或回退语义。
     std::chrono::milliseconds pressure_poll_interval{10};
+    void (*on_queue_position)(std::uint64_t){nullptr};
 };
 
 enum class LoginTarget { Verify, Tickets, Poll, Gateway, GatewaySoak, Full };

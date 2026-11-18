@@ -214,6 +214,29 @@ protected:
     std::uint16_t realm_metrics_port_{0};
 };
 
+#ifdef REALMMESH_DEMO_NODE
+TEST_F(SceneJourneyTest, BrowserSocketsObserveEachOthersConfirmedMoves) {
+    const auto script = std::filesystem::path(REALMMESH_TEST_SOURCE_DIR) /
+                        "tests/scripts/browser-demo-journey.mjs";
+    const auto verify = std::to_string(ports_.login_verify);
+    const auto queue = std::to_string(ports_.queue);
+    const auto gateway = std::to_string(ports_.gateway);
+    const auto web = std::to_string(test_support::unused_loopback_ports(1).front());
+    const auto child = ::fork();
+    ASSERT_GE(child, 0);
+    if (child == 0) {
+        ::execl(REALMMESH_DEMO_NODE, REALMMESH_DEMO_NODE, script.c_str(),
+                REALMMESH_DEMO_BINARY, verify.c_str(), queue.c_str(),
+                gateway.c_str(), web.c_str(), static_cast<char*>(nullptr));
+        ::_exit(127);
+    }
+    int status = 0;
+    ASSERT_EQ(::waitpid(child, &status, 0), child);
+    ASSERT_TRUE(WIFEXITED(status));
+    EXPECT_EQ(WEXITSTATUS(status), 0);
+}
+#endif
+
 TEST_F(
     SceneJourneyTest, TwoRealLoginsObserveTwentyConfirmedMovesReplayAndLeave) {
     auto a = login();

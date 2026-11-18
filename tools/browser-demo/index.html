@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="zh-CN">
+  <meta charset="utf-8" /><meta
+    name="viewport"
+    content="width=device-width,initial-scale=1"
+  />
+  <title>RealmMesh · 边境营地</title>
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+    body {
+      margin: 0;
+      background: #172c32;
+      color: #f1ecd9;
+      font: 16px system-ui;
+    }
+    main {
+      max-width: 900px;
+      margin: auto;
+      padding: 5vh 5vw;
+    }
+    small {
+      letter-spacing: 0.2em;
+      color: #9bd2bb;
+    }
+    h1 {
+      font-size: clamp(28px, 6vw, 54px);
+      margin: 0.3em 0;
+    }
+    input,
+    button {
+      font: inherit;
+      padding: 0.7em;
+      border-radius: 8px;
+      border: 1px solid #718a85;
+      margin: 4px;
+    }
+    button {
+      background: #eace8c;
+      cursor: pointer;
+    }
+    canvas {
+      width: 100%;
+      background: #91b8aa;
+      border-radius: 12px;
+    }
+    #stick {
+      touch-action: none;
+      user-select: none;
+      border-radius: 50%;
+      width: 100px;
+      height: 100px;
+      display: grid;
+      place-items: center;
+      background: #395657;
+      margin: 12px auto;
+      color: white;
+    }
+    #knob {
+      background: #ecd79f;
+      border-radius: 50%;
+      width: 34px;
+      height: 34px;
+      pointer-events: none;
+    }
+    p {
+      min-height: 1.5em;
+    }
+  </style>
+  <main>
+    <small>REALMMESH / FIELD DEMO</small>
+    <h1>边境营地</h1>
+    <p id="status" role="status">正在连接…</p>
+    <form id="login">
+      <input
+        name="account"
+        required
+        placeholder="演示账号"
+        autocomplete="username"
+      /><input
+        name="password"
+        required
+        type="password"
+        placeholder="口令"
+        autocomplete="current-password"
+      /><button>登录营地</button>
+    </form>
+    <section id="roles" hidden>
+      <div id="list"></div>
+      <form id="create">
+        <input name="name" required placeholder="新角色名称" /><button>
+          创建角色
+        </button>
+      </form>
+    </section>
+    <section id="world" hidden>
+      <canvas width="800" height="420"></canvas>
+      <div id="stick" aria-label="四向摇杆"><span id="knob"></span></div>
+    </section>
+  </main>
+  <script type="module">
+    const el = (id) => document.getElementById(id),
+      status = el("status"),
+      ws = new WebSocket("ws://" + location.host + "/play");
+    let busy = false,
+      playing = false,
+      dir = "",
+      pointer = null;
+    function send(op, args = {}) {
+      if (busy || ws.readyState !== 1) return false;
+      busy = true;
+      ws.send(JSON.stringify({ op, ...args }));
+      return true;
+    }
+    ws.onopen = () => (status.textContent = "使用预置账号进入营地");
+    ws.onclose = () => {
+      playing = false;
+      status.textContent = "连接已关闭，刷新页面重新登录";
+    };
+    el("login").onsubmit = (e) => {
+      e.preventDefault();
+      if (send("login", Object.fromEntries(new FormData(e.target))))
+        status.textContent = "正在验证账号并等待排队放行…";
+    };
+    el("create").onsubmit = (e) => {
+      e.preventDefault();
+      send("create", Object.fromEntries(new FormData(e.target)));
+    };
+    ws.onmessage = (e) => {
+      const msg = JSON.parse(e.data);
+      if ("position" in msg) {
+        status.textContent = "排队位置：" + msg.position;
+        return;
+      }
+      busy = false;
+      if (msg.error) {
+        status.textContent = msg.error;
+        return;
+      }
+      if (msg.characters) {
+        el("login").hidden = true;
+        el("roles").hidden = false;
+        status.textContent = "选择角色进入场景";
+        el("list").replaceChildren(
+          ...msg.characters.map((role) => {
+            const b = document.createElement("button");
+            b.textContent = role.name;
+            b.onclick = () => send("select", { id: role.id });
+            return b;
+          }),
+        );
+      }
+      if (msg.members) {
+        playing = true;
+        el("roles").hidden = true;
+        el("world").hidden = false;
+        status.textContent =
+          "场景内 " + msg.members.length + " 人 · 拖动摇杆移动";
+        draw(msg);
+      }
+    };
+    import { draw } from "./world.js";
+    const pad = el("stick"),
+      knob = el("knob");
+    function reset() {
+      pointer = null;
+      dir = "";
+      knob.style.transform = "";
+    }
+    function drag(e) {
+      if (e.pointerId !== pointer) return;
+      const box = pad.getBoundingClientRect(),
+        x = e.clientX - box.left - box.width / 2,
+        y = e.clientY - box.top - box.height / 2;
+      dir =
+        Math.hypot(x, y) < 9
+          ? ""
+          : Math.abs(x) > Math.abs(y)
+            ? x > 0
+              ? "right"
+              : "left"
+            : y > 0
+              ? "down"
+              : "up";
+      const scale = Math.min(1, 30 / (Math.hypot(x, y) || 1));
+      knob.style.transform =
+        "translate(" + x * scale + "px," + y * scale + "px)";
+    }
+    pad.onpointerdown = (e) => {
+      if (pointer !== null) return;
+      pointer = e.pointerId;
+      pad.setPointerCapture(pointer);
+      drag(e);
+    };
+    pad.onpointermove = drag;
+    for (const type of ["pointerup", "pointercancel", "lostpointercapture"])
+      pad.addEventListener(type, (e) => {
+        if (e.pointerId === pointer) reset();
+      });
+    window.addEventListener("blur", reset);
+    document.addEventListener("visibilitychange", reset);
+    setInterval(() => {
+      if (playing && !document.hidden)
+        send(dir ? "move" : "state", dir ? { dir } : {});
+    }, 220);
+  </script>
+</html>

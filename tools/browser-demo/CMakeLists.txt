@@ -1,0 +1,2 @@
+add_executable(realm_browser_client client.cpp)
+target_link_libraries(realm_browser_client PRIVATE RealmMesh::GameClient nlohmann_json::nlohmann_json)

@@ -42,6 +42,8 @@
 
 ## 前置条件
 
+浏览器演示的双人协议验收复用 SceneJourneyTest 的隔离 MongoDB、etcd、服务证书和动态端口。先在 `tools/browser-demo` 运行 `npm ci`，重新配置并构建 `scene_journey_test`，再运行 `ctest --preset dev -R BrowserSockets --output-on-failure`。用例通过两个真实 WebSocket 完成登录、创建角色、进入同一场景与双向移动。设置 `REALMMESH_DEMO_PLAYWRIGHT` 为本机已安装的 playwright-core 包目录、`REALMMESH_DEMO_CHROME` 为 Chromium 可执行文件路径时，还会启动两个浏览器页面，用真实鼠标拖动摇杆，验证松手后两端停在同一位置。
+
 - **etcd 二进制**:跨进程集成用例(`new_chain_flow_test`、`realm_journey_test`、`loadgen_integration_test`、`DevServicesScriptTest.*`)会各自拉起一个**真实单节点 etcd** —— 网关的准入消费存储是线性一致存储,attach 路径真实依赖它(ADR-0009),用假 CAS 替身去证明外部系统契约无法归因缺陷。先跑 `./scripts/install-etcd.sh`(安装到 `.tools/etcd-v3.6.14/`,可用 `REALMMESH_ETCD_BINARY` 覆盖路径);二进制缺失即用例失败并提示安装命令,不静默跳过。用例自带的 etcd 用空闲端口 + 临时数据目录,自起自停,因此**不需要**开发机上长期运行 `./scripts/run-etcd-dev.sh`,也不与它抢 2379。
 - **MongoDB 二进制**:Player Data 用例(`player_data_store_test`、`scene_store_test`、`login_verify_service_test`、`realm_journey_test`、`loadgen_integration_test`、`DevServicesScriptTest.*`)会拉起**真实单节点副本集 `rs0`** —— 准入事实的 majority 读写与事务只有在真副本集上才有意义(ADR-0011),内存替身只用在不涉及存储契约的单元测试(网关拉取口、Realm 角色存储)。macOS 用 Homebrew 安装 `brew tap mongodb/brew && brew trust mongodb/brew && brew install mongodb-community mongosh`;Linux 跑 `./scripts/install-mongodb.sh`(安装到 `.tools/`,CI 自动执行)。用例永远不连远程共享开发库:改写配置时会删掉 `uri_environment`,shell 里设置了 `REALMMESH_MONGODB_URI` 也不受影响。夹具按 `REALMMESH_MONGOD_BINARY` / `REALMMESH_MONGOSH_BINARY` → PATH → `.tools/` 的顺序查找,缺失即失败并提示安装命令。完整 CTest 通过夹具依赖共享一个真实 mongod，GTest 与每条 `DevServicesScriptTest.*` 使用独立库名；独立运行时仍自启实例。它们都用空闲端口 + 临时数据目录，自起自停，因此**不需要**运行 Homebrew 服务或 `./scripts/run-mongodb-dev.sh`,也不与它们抢 27017。
 - **Python 3**:编译缓存配置/原生契约与 CI 兼容键使用标准库脚本；构建入口不自动安装。macOS 的 Xcode 工具链、Linux 开发环境及 CI 都应提供 `python3`。
