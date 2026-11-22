@@ -100,7 +100,9 @@ def run(preset):
                 raise RuntimeError("REALMMESH_DEMO_PORT 必须在 1..65535 之间。")
             for port in [12379, 12380, 17443, 17444, 7100, 7200, 8000, web_port, *range(9102, 9107)]:
                 with socket.socket() as probe:
+                    probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
                     probe.bind(("127.0.0.1", port))
+                    probe.listen()
             peer = "http://127.0.0.1:12380"
             endpoint = "http://127.0.0.1:12379"
             registry = start([etcd, "--data-dir", directory/"etcd", "--listen-client-urls", endpoint,
@@ -111,8 +113,8 @@ def run(preset):
             services = start([ROOT/"scripts/with-shared-mongodb.sh", mesh, "--config", config], env=env)
             for port in [17443, 17444, 7100, 7200, 8000]:
                 wait(services, lambda: socket.create_connection(("127.0.0.1", port), timeout=.2), f"服务端口 {port}")
-            start(["node", DEMO/"server.mjs", client, "17443", "17444", "8000"],
-                  env=dict(os.environ, REALMMESH_DEMO_SELF_SIGNED="1"))
+            start([ROOT/"scripts/with-shared-mongodb.sh", "node", DEMO/"server.mjs", client, "17443", "17444", "8000"],
+                  env=dict(os.environ, REALMMESH_DEMO_SELF_SIGNED="1", REALMMESH_DEMO_REGISTER_DB="realmmesh"))
             while all(process.poll() is None for process in processes):
                 time.sleep(.2)
             raise RuntimeError("演示子进程提前退出，请查看终端日志。")

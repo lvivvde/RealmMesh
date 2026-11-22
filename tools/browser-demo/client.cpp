@@ -1,7 +1,9 @@
 #include <iostream>
 #include <nlohmann/json.hpp>
+#include <random>
 #include "realmmesh/game/client/scene_session.hpp"
 #include "realmmesh/game/client/wire_login_transport.hpp"
+#include "realmmesh/game/common/player_data_store.hpp"
 
 namespace client = realm::game::client;
 using Json = nlohmann::json;
@@ -42,6 +44,32 @@ int main(int argc, char** argv) {
             auto op = req.at("op").get<std::string>();
             auto deadline = client::Clock::now() + 5s;
             Json out;
+            if (op == "register" && !session) {
+                const auto name = req.at("account").get<std::string>();
+                const auto password = req.at("password").get<std::string>();
+                if (name.size() < 3 || name.size() > 24 ||
+                    name.find_first_not_of(
+                        "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_") !=
+                        std::string::npos ||
+                    password.size() < 8 || password.size() > 72)
+                    throw std::runtime_error(
+                        "账号限 3–24 位字母、数字或下划线；口令限 8–72 字节");
+                const auto* uri = std::getenv("REALMMESH_MONGODB_URI");
+                const auto* db = std::getenv("REALMMESH_DEMO_REGISTER_DB");
+                if (!uri || !db) throw std::runtime_error("此演示未启用注册");
+                try {
+                    realm::game::common::MongoPlayerDataStore store(uri, db);
+                    std::random_device random;
+                    auto id = std::uniform_int_distribution<std::uint64_t>(
+                        1, INT64_MAX)(random);
+                    store.insert_account({id, name, password, false, true});
+                } catch (const std::exception&) {
+                    throw std::runtime_error(
+                        "注册未完成：账号已存在或存储暂不可用");
+                }
+                std::cout << Json{{"registered", true}}.dump() << std::endl;
+                continue;
+            }
             if (op == "login" && !session) {
                 client::LoginChain chain(transport, config);
                 auto result = chain.run(

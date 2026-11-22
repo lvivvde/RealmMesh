@@ -222,9 +222,12 @@ TEST_F(SceneJourneyTest, BrowserSocketsObserveEachOthersConfirmedMoves) {
     const auto queue = std::to_string(ports_.queue);
     const auto gateway = std::to_string(ports_.gateway);
     const auto web = std::to_string(test_support::unused_loopback_ports(1).front());
+    const auto database_uri = test_support::MongodProcess::shared().uri();
     const auto child = ::fork();
     ASSERT_GE(child, 0);
     if (child == 0) {
+        ::setenv("REALMMESH_MONGODB_URI", database_uri.c_str(), 1);
+        ::setenv("REALMMESH_DEMO_REGISTER_DB", database_.c_str(), 1);
         ::execl(REALMMESH_DEMO_NODE, REALMMESH_DEMO_NODE, script.c_str(),
                 REALMMESH_DEMO_BINARY, verify.c_str(), queue.c_str(),
                 gateway.c_str(), web.c_str(), static_cast<char*>(nullptr));

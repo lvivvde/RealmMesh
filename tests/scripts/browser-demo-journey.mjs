@@ -47,7 +47,10 @@ async function observe(send, id, x, y) {
 try {
   await Promise.race([once(bridge.stdout, 'data', {signal}), once(bridge, 'exit', {signal}).then(()=>{throw Error('bridge exited')})]);
   const a = await connect(), b = await connect();
-  const alpha = await join(a, 'journey', 'journey-secret', 'SceneAlpha');
+  const registration={account:'camp_guest',password:'camp-password'};
+  assert.equal((await a('register',registration)).registered,true);
+  await assert.rejects(()=>a('register',{...registration,password:'different-password'}),/注册未完成/);
+  const alpha = await join(a, registration.account, registration.password, 'SceneAlpha');
   const beta = await join(b, 'scene-second', 'second-secret', 'SceneBeta');
   await observe(a,beta,0,0);
   await observe(b,alpha,0,0);
@@ -72,6 +75,19 @@ async function runBrowserJourney() {
            '--disable-renderer-backgrounding','--disable-backgrounding-occluded-windows']
   });
   try {
+    const registrationPage = await browser.newPage();
+    await registrationPage.goto('http://'+host+'/');
+    await registrationPage.getByRole('button',{name:'注册账号'}).click();
+    const form = registrationPage.locator('#register');
+    await form.locator('[name=account]').fill('camp_ui_guest');
+    await form.locator('[name=password]').fill('ui-demo-password');
+    await form.locator('[name=confirm]').fill('ui-demo-password');
+    await form.getByRole('button',{name:'创建账号'}).click();
+    await registrationPage.getByText('注册成功，请输入口令登录。').waitFor();
+    await registrationPage.getByPlaceholder('口令',{exact:true}).fill('ui-demo-password');
+    await registrationPage.getByRole('button',{name:'登录营地'}).click();
+    await registrationPage.getByRole('heading',{name:'选择出行角色'}).waitFor();
+    await registrationPage.close();
     const joinPage = async (account, password, name) => {
       const page = await browser.newPage({viewport:{width:1000,height:900}});
       const errors = [];
@@ -85,13 +101,17 @@ async function runBrowserJourney() {
       });
       await page.goto('http://'+host+'/');
       await page.getByPlaceholder('演示账号').fill(account);
-      await page.getByPlaceholder('口令').fill(password);
+      await page.getByPlaceholder('口令',{exact:true}).fill(password);
       await page.getByRole('button', {name:'登录营地'}).click();
       await page.getByRole('button', {name}).click();
       await page.locator('#world').waitFor({state:'visible'});
       return {page, state:()=>latest, errors};
     };
-    const a = await joinPage('journey', 'journey-secret', 'SceneAlpha');
+    const a = await joinPage('camp_guest', 'camp-password', 'SceneAlpha');
+    await a.page.getByRole('button',{name:'物品栏'}).click();
+    assert.equal(await a.page.locator('#slots span').count(),18);
+    await a.page.getByRole('button',{name:'地图'}).click();
+    await a.page.locator('#dots circle').first().waitFor({state:'visible'});
     const b = await joinPage('scene-second', 'second-secret', 'SceneBeta');
     async function waitUntil(predicate) {
       for(let i=0;i<100;i++) { if(predicate()) return; await delay(70); }

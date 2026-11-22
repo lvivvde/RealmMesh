@@ -215,6 +215,7 @@ public:
 
     /// Provisioning 写路径；服务热路径只使用上面的只读边界。
     void provision_account(const AccountProvisioning& account);
+    void insert_account(const AccountProvisioning& account);
     void set_account_access(
         std::uint64_t account_id, bool banned, bool whitelisted);
     void provision_character(const CharacterRecord& character);
