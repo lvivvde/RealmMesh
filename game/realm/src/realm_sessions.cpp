@@ -1,9 +1,11 @@
 #include "realmmesh/game/realm/realm_sessions.hpp"
 
 #include "realmmesh/edge/edge_runtime.hpp"
+#include "realmmesh/game/common/chat_protocol.hpp"
 #include "realmmesh/game/common/edge_protocol.hpp"
 #include "realmmesh/game/common/scene_protocol.hpp"
 #include "realmmesh/game/realm/character_name.hpp"
+#include "realmmesh/game/realm/realm_chat.hpp"
 #include "realmmesh/game/realm/realm_scenes.hpp"
 #include "realmmesh/game/realm/training_rule.hpp"
 #include "realmmesh/observability/logger.hpp"
@@ -41,8 +43,10 @@ RealmSessions::RealmSessions(
     RealmOutbox& outbox,
     const RealmConfig& config,
     observability::Logger* logger,
-    RealmScenes* scenes)
+    RealmScenes* scenes,
+    RealmChat* chat)
     : scenes_(scenes),
+      chat_(chat),
       store_(store),
       rule_(rule),
       outbox_(outbox),
@@ -59,6 +63,7 @@ void RealmSessions::enter(
         const auto displaced = online->second;
         outbox_.send(displaced, common::encode(common::RealmSessionDisplaced{}));
         outbox_.close(displaced);
+        if (chat_) chat_->closed(displaced);
         if (scenes_ != nullptr) scenes_->closed(displaced);
         sessions_.erase(displaced);
     }
@@ -73,6 +78,7 @@ void RealmSessions::closed(edge::EdgeConnectionId session) {
         online != online_.end() && online->second == session) {
         online_.erase(online);
     }
+    if (chat_) chat_->closed(session);
     if (scenes_ != nullptr) scenes_->closed(session);
     sessions_.erase(found);
 }
@@ -90,6 +96,30 @@ std::optional<RealmSessionPhase> RealmSessions::phase(
 
 bool RealmSessions::handle(
     edge::EdgeConnectionId id, std::span<const std::byte> payload) {
+    if (common::chat_message_id(payload)) {
+        const auto found = sessions_.find(id);
+        if (found == sessions_.end()) return false;
+        const auto type = static_cast<int>(*common::chat_message_id(payload));
+        if (type != 1701 && type != 1703) return false;
+        if (found->second.phase != RealmSessionPhase::InGame) {
+            send_error(
+                id,
+                common::chat_request_id(payload).value_or(0),
+                common::chat_error_character_not_selected,
+                "character not selected");
+            return true;
+        }
+        if (!common::decode_get_chat_state(payload) &&
+            !common::decode_send_chat(payload)) {
+            send_error(
+                id,
+                common::chat_request_id(payload).value_or(0),
+                common::chat_error_invalid_request,
+                "invalid chat request");
+            return true;
+        }
+        return chat_ && chat_->handle(id, payload);
+    }
     if (scenes_ != nullptr && common::scene_message_id(payload)) {
         const auto found = sessions_.find(id);
         if (found == sessions_.end()) return false;
@@ -174,6 +204,7 @@ bool RealmSessions::handle(
 
 void RealmSessions::complete(std::size_t max_completions) {
     if (scenes_ != nullptr) scenes_->complete(max_completions);
+    if (chat_) chat_->complete(max_completions);
     for (auto& completion : pool_.drain(max_completions)) {
         const auto pending = pending_.find(completion.id);
         if (pending == pending_.end()) continue;
@@ -470,6 +501,7 @@ void RealmSessions::finish(
                             session.account_id,
                             realm_id,
                             chosen->character_id});
+                if (chat_) chat_->selected(id, chosen->character_id);
                 outbox_.send(id, common::encode(reply, request.request_id));
             },
             [&](const TrainRequest& train) {

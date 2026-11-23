@@ -16,6 +16,7 @@ return {
         -- 可选 Scene 玩法:提供独立服务 CA/身份后启用;缺少 Scene 不影响训练。
         scene = {
             enabled = false,
+            dynamic = false,
             host = "127.0.0.1", port = 7200,
             instance_id = "scene-dev-01", server_identity = "scene-dev-01.scene.service",
             ca_file_environment = "REALMMESH_SERVICE_CA_FILE",
@@ -24,6 +25,16 @@ return {
             -- 显式启用第二分片；服务端决定转场落点。
             targets = {}, -- { { shard_id = 2, host = "127.0.0.1", port = 7201,
             -- instance_id = "scene-dev-02", server_identity = "scene-dev-02.scene.service", entry_x = 0, entry_y = 0 } }
+        },
+        -- Chat 独立 IO；默认拓扑不依赖 Chat。
+        chat = {
+            enabled = false,
+            ca_file_environment = "REALMMESH_SERVICE_CA_FILE",
+            certificate_file_environment = "REALMMESH_REALM_CERTIFICATE_FILE",
+            private_key_file_environment = "REALMMESH_REALM_PRIVATE_KEY_FILE",
+            targets = { { instance_id = "chat-dev-01",
+                server_identity = "chat-dev-01.chat.service",
+                host = "127.0.0.1", port = 7300, channels = {0, 1, 2} } },
         },
         data_workers = 4,
         data_capacity = 256,

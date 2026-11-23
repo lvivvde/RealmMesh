@@ -87,6 +87,7 @@ SceneRequest request(internal::Operation op) {
     SceneRequest r;
     identities(r);
     r.set_operation(op);
+    if (op == internal::OPERATION_STATUS) return r;
     if (op == internal::OPERATION_SET_DRAINING) {
         r.set_draining(true);
         return r;
@@ -107,6 +108,12 @@ SceneReply reply(internal::Operation op) {
     identities(r);
     r.set_operation(op);
     r.set_status(internal::STATUS_OK);
+    if (op == internal::OPERATION_STATUS) {
+        r.set_dynamic(true);
+        r.set_business_ready(true);
+        r.set_drain_phase(internal::DRAIN_PHASE_IDLE);
+        return r;
+    }
     if (op == internal::OPERATION_SET_DRAINING) {
         r.set_draining(true);
         r.set_active_members(2);
@@ -263,7 +270,7 @@ TEST(SceneProtocolTest, SnapshotRejectsDuplicatesWrongShardAndOverCapacity) {
 TEST(
     SceneProtocolTest,
     InternalOperationsHaveExplicitSuccessAndFailureContracts) {
-    for (int operation = 1; operation <= 7; ++operation) {
+    for (int operation = 1; operation <= 8; ++operation) {
         const auto op = static_cast<internal::Operation>(operation);
         roundtrip(request(op), decode_scene_request, 1601, 17);
         roundtrip(reply(op), decode_scene_reply, 1602, 17);
@@ -312,6 +319,33 @@ TEST(
     identities(push);
     *push.mutable_event() = event();
     EXPECT_FALSE(decode_scene_push(raw(push, 1603, 1)));
+}
+
+TEST(
+    SceneProtocolTest,
+    DynamicStatusRejectsFalseCompletionAndDuplicateShardStreams) {
+    auto status = reply(internal::OPERATION_STATUS);
+    auto* shard = status.add_shards();
+    shard->set_realm_id(1);
+    shard->set_shard_id(1);
+    shard->set_version(2);
+    shard->set_active_members(1);
+    status.set_active_members(1);
+    roundtrip(status, decode_scene_reply, 1602, 17);
+    status.set_draining(true);
+    status.set_drain_phase(internal::DRAIN_PHASE_COMPLETE);
+    status.set_business_ready(false);
+    EXPECT_FALSE(decode_scene_reply(raw(status, 1602)));
+    status.set_drain_phase(internal::DRAIN_PHASE_RUNNING);
+    *status.add_shards() = *shard;
+    status.set_active_members(2);
+    EXPECT_FALSE(decode_scene_reply(raw(status, 1602)));
+    auto probe = request(internal::OPERATION_STATUS);
+    probe.set_shard_id(1);
+    EXPECT_FALSE(decode_scene_request(raw(probe, 1601)));
+    auto route_request = request(internal::OPERATION_PREPARE);
+    route_request.mutable_route()->set_shard_version(scene_counter_max + 1);
+    EXPECT_FALSE(decode_scene_request(raw(route_request, 1601)));
 }
 
 TEST(

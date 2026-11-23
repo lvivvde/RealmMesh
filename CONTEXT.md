@@ -25,7 +25,7 @@ _Avoid_: driver、provider
 ### Cluster
 
 **Service Instance**:
-一个服务进程在 etcd 里的一次注册:身份(服务名即 `realm::cluster::ServiceType` 字符串,当前线名 gateway/realm/login_verify/queue/scene)、instance_id 与端点列表,随租约存活。
+一个服务进程在 etcd 里的一次注册:身份(服务名即 `realm::cluster::ServiceType` 字符串,当前线名 gateway/realm/login_verify/queue/scene/chat)、instance_id 与端点列表,随租约存活。
 _Avoid_: node(node_id 指承载它的机器)、endpoint(端点只是实例的字段)
 
 **Service Module**:
@@ -148,7 +148,7 @@ _Avoid_: action(泛指,须指明是训练)、tick、XP grind
 
 ### Scene
 
-以下术语描述阶段 4 的场景业务；静态双实例的进入、移动、转场与归属恢复已实现；动态分配与排空仍在规划中。
+以下术语描述场景业务的职责、归属与已确认落点。
 
 **Scene**（场景服务）:
 管理场景分片及其中角色的空间状态、判定场景指令并产生可见事件的独立业务服务；客户端经 Realm 与它交互。
@@ -162,6 +162,14 @@ _Avoid_: Scene Instance（承载分片的 Service Instance）、地图服务、�
 角色当前唯一有效的场景分片及承载实例归属；每次重新绑定或转场产生新版本，旧版本不再有权推进角色场景状态。
 _Avoid_: Selected Character（上次所选角色）、路由缓存（只是归属的观察结果）、Realm Session
 
+**Scene Shard Ownership**（分片承载归属）:
+一个 Scene Shard 当前由哪个 Scene 实例承载的唯一有效归属；更换承载者产生新版本，分片标识保持不变。它与角色的 Scene Binding 分别限定承载者和角色的权限。
+_Avoid_: Scene Binding（角色归属）、发现候选（不授予承载权限）、分片转场（转场改变角色所在分片）
+
+**Scene Draining**（场景排空）:
+Scene 实例停止接纳新角色、继续处理存量角色并逐个转场迁出的过程；无目标容量或迁出失败时仍保持排空，不能把发现注销视为完成。
+_Avoid_: 停服（进程停止不代表迁出完成）、故障重建（分片标识不变的承载恢复）
+
 **Confirmed Location**（已确认落点）:
 角色在场景分片内最后一次已持久确认的位置；断线或实例故障后以此恢复，未确认的移动不能覆盖它。
 _Avoid_: 出生点（仅用于首次进入）、客户端预测位置、实时位置（可能尚未确认）
@@ -169,6 +177,28 @@ _Avoid_: 出生点（仅用于首次进入）、客户端预测位置、实时�
 **Scene Transfer**（场景转场）:
 角色从一个场景分片进入另一个分片、将唯一有效归属切换到目标分片的动作；目标可以由另一个 Scene 实例承载。
 _Avoid_: Handoff（网关下发直连凭据）、迁服（角色仍属于原 Realm）、连接迁移
+
+### Chat
+
+**Chat**（聊天服务）:
+受理、排序和分发在线频道消息的独立业务服务；角色通过所属 Realm 与它交互。
+_Avoid_: Gateway 聊天、消息存储服务、消息总线
+
+**Chat Channel**（聊天频道）:
+在线角色共享消息顺序的逻辑范围；Scene Channel 面向同一逻辑场景分片，Realm Channel 面向同一 Realm 内的已选角色。
+_Avoid_: channel（裸称，容易与传输混淆）、Scene Shard（空间状态的归属）、全服广播（未说明 Realm 范围）
+
+**Chat Membership**（聊天成员资格）:
+一个角色在单个 Chat Channel 中的当前在线收发资格，归属于该角色的 Realm Session；Scene Channel 还受当前已激活 Scene Binding 约束，Realm Channel 不随转场更换。
+_Avoid_: Scene Binding（场景状态归属）、好友关系、订阅凭据（不代表可转交的授权）
+
+**Chat Channel Epoch**（聊天频道轮次）:
+一个 Chat Channel 的连续排序生命周期；丢失该轮次的排序状态后，新轮次与旧轮次不构成连续消息流。
+_Avoid_: Scene incarnation、全局消息序号、历史版本
+
+**Chat Receipt**（聊天回执）:
+说明消息已被频道受理并取得顺序的回执；它与接收者独立推进的通知水位不同，不表示其他角色已收到或阅读，也不表示可离线恢复。
+_Avoid_: 已送达、已读、持久提交
 
 ### Messaging
 

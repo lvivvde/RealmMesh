@@ -154,11 +154,21 @@ constexpr std::string_view kNonMetrics[] = {
         "scene_shard_members",
         "scene_prepared_members",
         "scene_draining",
-        // 帧耗时(ServiceHost,每个服务的 /metrics 都有)
         "frame_work_duration_seconds",
         "service_tick_duration_seconds",
         "frame_overrun_total",
         "frame_budget_seconds",
+        "scene_owned_shards",
+        "scene_ready_instances",
+        "scene_drain_remaining_members",
+        "scene_drain_pending_transfers",
+        "scene_drain_failed",
+        "scene_drain_attempts_total",
+        "scene_drain_transfers_total",
+        "scene_drain_retries_total",
+        "scene_drain_failures_total",
+        "scene_shard_assignments_total",
+        "scene_shard_reconcile_errors_total",
         // 既有暴露(LoggerMetricsServer / ServiceHost)
         "realmmesh_service_ready",
         "realmmesh_log_events_accepted_total",
@@ -247,8 +257,8 @@ TEST(ObservabilityArtifactsTest, AlertRulesReferenceExposedMetrics) {
          it != std::sregex_iterator{}; ++it) {
         alerts.insert((*it)[1].str());
     }
-    ASSERT_EQ(alerts.size(), 8U)
-        << "expected 6 v1 + 2 Scene alerts, got " << alerts.size();
+    ASSERT_EQ(alerts.size(), 10U)
+        << "expected 6 v1 + 4 Scene alerts, got " << alerts.size();
     assert_refs_known(extract_exprs(rules), "rules/realmmesh.yaml");
 }
 

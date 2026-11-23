@@ -62,7 +62,8 @@ public:
 
     [[nodiscard]] int native_handle() const noexcept;
     [[nodiscard]] TlsIoState accept_handshake();
-    [[nodiscard]] TlsReceiveBatch receive_frames();
+    [[nodiscard]] TlsReceiveBatch receive_frames(std::size_t max_read_bytes = 0);
+    [[nodiscard]] bool has_pending_input() const noexcept;
     [[nodiscard]] TlsStreamBatch receive_stream();
     [[nodiscard]] bool queue_frame(std::span<const std::byte> payload);
     /// 流模式入队:不做帧封装,受同一输出高水位约束。
@@ -86,6 +87,8 @@ private:
     std::size_t max_pending_output_bytes_;
     ByteBuffer input_;
     ByteBuffer output_;
+    // WANT_READ/WANT_WRITE 后按同一长度重试，不并入后来排队的字节。
+    std::size_t retry_write_bytes_{0};
 };
 
 }  // namespace realm::network

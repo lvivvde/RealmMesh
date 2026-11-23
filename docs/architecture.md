@@ -43,15 +43,15 @@ Queue 在返回 `202` 前，用一笔 etcd 事务同时提交 `identity_jti → 
 候选端点含主机名、数字端口、
 协议与优先级,不依赖客户端隐式约定。排队号牌只用于位次查询与找回,网关不接受它。
 
-## 目标业务拓扑（规划中）
+## Scene 逐步业务拓扑（S1–S5）
 
 阶段 4 的逐步交付契约见 [Scene 参考业务规格](specs/2026-10-17-scene-reference-loop.md)。
 首个闭环为一个独立 Scene 进程承载一个分片、两个角色移动互相可见；随后才实现双实例
-转场、动态加入与排空、完整故障验收。S2（#162）已实现单分片进入与移动互见；S3（#163）已实现静态双实例转场与归属恢复，动态分片和完整故障矩阵仍待 S4–S5。
+转场、动态加入与排空、完整故障验收。S2（#162）已实现单分片进入与移动互见；S3（#163）已实现静态双实例转场与归属恢复，S4（#164）已实现动态加入、承载 CAS、同分片重建与排空，S5（#165、PR #174）已完成并合并，冻结源码的[最终验收记录](research/scene-s5-acceptance-2026-10-23.md)保留双平台全量与各三次完整Scene证据。
 S1（#161）已在 `proto` 定义客户端与内部 Scene 线契约、在 `game/common` 提供严格编解码，
 并让既有 `MongoPlayerDataStore` 实现窄 `RealmSceneStore`：独立 `character_scenes` 记录以
 角色为键，majority/journal 条件写同时提交归属、落点与最后幂等结果。驱动继续私有，复用
-原连接池与自动化隔离副本集；测试命令只在独占的确认失败注入副本集中启用。入口注册表现有五个真实服务，新增 `game/scene` 的 `SceneModule`，持有单分片 `SceneShard`，
+原连接池与自动化隔离副本集；测试命令只在独占的确认失败注入副本集中启用。入口注册表现有五个真实服务，新增 `game/scene` 的 `SceneModule`，静态模式持有单分片 `SceneShard`，
 通过独立 mTLS EdgeRuntime 接收内部消息，配置分片 1 或 2。Realm 的 RealmScenes 编排线程
 通过私有协程等待 future，每个实例持有独立的有界 TLS IO 执行器；场景数据使用惰性启动的
 四线程有界池，复用既有 BoundedWorkPool，与训练池隔离。线程只完成 future，状态迁移均在
@@ -66,7 +66,7 @@ Realm Session 关闭先使场景绑定失效，再按旧版本异步撤销；
 `SceneSession` 复用现有 Login Chain，心跳/训练等待期间有界缓存 Scene 推送。
 
 Realm 对 `scene` 声明可选发现依赖，不设置启动等待；发现只选端点，服务 CA 与精确 DNS SAN
-允许列表完成身份校验。初次仅以 `SNAPSHOT + scene_incarnation=discover` 探测已认证服务的
+允许列表完成身份校验。静态模式初次仅以 `SNAPSHOT + scene_incarnation=discover` 探测已认证服务的
 运行 incarnation，之后每个请求严格校验；此探测不能执行角色变更。默认四服务登录拓扑仍可
 独立运行，Scene 通过显式配置启用；完整 Scene 验收使用独立 Realm、两个 Scene 和入口组进程。Resolver 按明确 instance_id 返回
 端点，不用全局权重替代角色绑定目标；发现仍不能授予归属。服务端目标允许列表配置目标落点，
@@ -74,6 +74,82 @@ Realm 对 `scene` 声明可选发现依赖，不设置启动等待；发现只�
 重试，不阻塞 B 的移动。目标提交后的恢复不回滚 A，Realm/Scene 重启后读取最后序号及落点，
 用下一 EnterScene 序号取得新版本；旧版本持久写与旧实例事件均被拒绝。
 SIGKILL 后同名进程需等旧注册租约失效再注册；不抢占仍有效的注册。
+
+动态模式将逻辑分片与实例 IO 槽分开：Realm 仍只维护至多两个独立 Peer，分片 1/2 可以由
+同一个实例承载。发现完整快照、mTLS 精确身份与 `STATUS` 业务就绪共同决定候选；已活跃
+承载不自动重平衡。`ServiceResolver::endpoints()` 仅拷贝完整已交付缓存，初始化失败或
+差分发布中返回未知，避免把临时空列表当成故障；帧线程不执行网络查询。端点变化使 Peer
+关闭旧连接并重新认证本次 incarnation。只在旧注册消失或已认证新 incarnation 后恢复承载。
+
+`MongoPlayerDataStore` 的窄 `SceneShardStore` 管理 `scene_shards` 与 `scene_instances`。
+Scene 在宿主注册成功的 `started()` 边界发布业务 incarnation；之后数据库访问由独立的
+四线程、64 容量工作池执行，每条 mTLS 连接至多排队八条请求，校验结果回到 Scene 帧。
+Scene 按稳定 shard_id 持有至多两个状态机；角色 Route 带承载版本，分片事件 incarnation
+由进程 incarnation 与承载版本组成。相同物理实例的两个分片不混用快照或事件水位。
+
+分配事务先匹配未排空实例的 incarnation 并写接纳栅栏，再 CAS 分片记录。实例排空事务同时
+关闭该实例接纳并标记其全部分片；与分配写冲突，不能在排空完成后落入新分片。承载版本只在
+更换或释放时递增。动态角色提交在同一事务中匹配并写分片栅栏与角色条件更新；只有快照读
+不足以防止承载变化与旧写之间的写偏斜。公共头仍不含驱动，服务之间不相互链接。
+
+排空控制复用专用 mTLS 允许的 Realm 服务身份，`realm_mesh_scene_control` 提供状态、尝试
+标识与截止。Realm 逐角色以 S3 转场消耗下一场景序号，保留客户端原先已派发的写结算顺序；
+提交后目标恢复和源条件移除都计入未完工作。目标无容量时保持源分片服务并报告未完成，截止
+后标记失败，重复尝试不重置截止。确认成员/准备清空、无在途写及未完迁出后才释放分片。
+完成后实例业务停用，管理端点与发现注册保留供核对，再由运维停止进程；不会提前注销伪造完成。
+
+
+## Chat独立服务与频道排序（C1–C3）
+
+C1（#176、PR #182）已合并。C2（#177）新增`game/chat`，仅由`apps/mesh_host`注册`chat`
+模块。`ChatConfig`是轻量值，Lua解析留在实现文件；`ChatChannels`由Chat帧单线程拥有，
+负责三个配置频道的Epoch/水位、活动链路、资格、最后回执、令牌桶及计数/字节预算。
+没有MongoDB依赖，也不依赖其他服务或`game/client`。默认四服务登录拓扑保持独立。
+
+`ChatModule`直接拥有独立的非阻塞TLS/TCP Transport，每tick以零等待轮询；没有通往Realm
+或Scene帧的同步调用。监听最多16条连接（含握手），固定专用ALPN和服务CA，只允许配置指定的
+单个Realm精确DNS SAN；HELLO还必须匹配realm_id、Realm实例名和本Chat实例名，之后每次
+操作核对精确链路代次。HELLO替换旧链路时先释放旧资格和队列；迟到关闭不会删除新链路。
+宿主沿用通用ServicePublisher注册发现，发现不是授权；未发HELLO的已握手连接1秒内关闭。
+
+请求入队和未取走回复共同占64个名额，每链路最多8个排队，每资格一个SEND在途；每轮最多
+执行64请求，并最多消费64个待分发事件（含已失效资格的丢弃）。排队总截止1秒，过期不执行。
+公平扫描会跳过本轮已服务的发送资格。活动JOIN重试回原W/最后回执，LEAVE先到也推进链路
+highest_seen_generation；旧JOIN不复活资格，旧LEAVE不删新资格。空频道保留水位。
+
+Accepted前预留全部接收者的序列化推送、回执和原文缓存；预算不足不推进任何序号。提交后
+下游发送失败不能撤销回执或复用水位。待分发至多1024事件/4MiB，TLS每链路出站至多1MiB；
+TLS拒绝即关闭该链路并回收资格，重连从新W加入。未知wire字段可解析，但不留在资格缓存或
+放大到扇出。每资格5条/秒、突发10；Realm跨频道角色合计限流、未收结果预算和客户端队列由C3实现。
+
+TLS新增可选`max_receive_batch_bytes`原生预算，默认0保留既有策略，仅Chat设64KiB；
+预算结束后，下一poll会继续消费SSL已缓冲输入，不依赖新的fd可读事件。它是通用传输工作量
+约束，framework仍不认识Chat字段或身份。运行方式见[Chat服务说明](operations/chat-service.md)。
+C2覆盖真实生产进程mTLS、etcd、SIGKILL/同名重启、正常停止与单帧TLS输出预算拒绝；真实慢端
+积压饱和、双Scene/双Chat转场和组合故障矩阵仍待C4–C5，不能据C2宣称整阶段完成。
+
+### Realm异步接入与参考客户端（C3）
+
+`RealmChat`由Realm帧维护最多64个角色（待撤销/未收完成也占名额）、每角色两个资格。
+`RealmSessions`在选角、关闭和顶替时通知它；客户端只选择频道种类，资格中的角色、会话绑定、
+Realm incarnation与Scene Binding由服务端派生。`RealmScenes::chat_binding`以原子共享快照发布
+已确认且已激活的归属；接纳转场后立即暂停源Scene Channel，Chat清理不参与场景持久流程。
+旧资格撤销/在途完成结算前不安装第三个资格，顶替的新会话有界等待旧资格退出。
+
+每个配置承载有独立`chat_detail::Peer` IO线程、8项排队及64项总在途预算，完成未被帧取走
+不归还预算。帧不执行连接、发现或读写等待；开启发现时只在连接IO中查精确Chat实例，仍校验
+CA、精确SAN及HELLO，缺失不选其他承载。总截止1秒含排队/发现/认证，业务操作在剩余窗口内
+至多同号/原参数重试一次；失败链路使旧资格失效，旧SEND不能在重连链路派发。加入最多自动
+尝试3次，之后显式GetChatState才重启有限尝试。角色令牌桶跨两频道/承载合计5条/秒、突发10；顶替/重登继承同角色预算，离线桶保留至完整回填后才回收，最多64个。
+
+JOIN完成前保留后续推送；每客户端缓存同时限制256项/256KiB，按完整资格、Epoch与原W过滤。
+帧交付推进通知水位，SEND回执不推进；缺口/溢出明确暂停并重新加入。EdgeRuntime与TLS仍沿用
+各自出站预算，TLS满额关闭该Realm Session。客户端`RealmSession::chat()`提供窄`ChatSession`，
+复用既有连接，分别保留Scene及Chat通知，两个缓存均按数量/字节限制；等待心跳、训练或场景
+回包不会吞掉Chat推送。客户端发现缺口发ChatUnavailable，缓存满则关闭会话；原Unknown遇到
+旧资格重试被拒仍保持Unknown，不自动换号/资格重放。运行与测试见[接入说明](operations/realm-chat.md)。
+
+## 目标业务拓扑（规划中）
 
 以下是 [README 必做路线图](../README.md#必做路线图) 的目标边界，不是当前运行拓扑。
 客户端完成现有登录链后保持与 Realm 的长连接；Realm 负责会话、角色入口和业务消息路由，
@@ -90,12 +166,19 @@ flowchart LR
     Realm --> CharacterData[(角色与落点持久数据)]
 ```
 
-`scene` 是已接入的服务身份（当前每实例静态承载分片 1 或 2）；后续动态分配时每实例可承载若干场景分片；
+`scene` 是已接入的服务身份，支持分片1/2动态承载、同分片重建与排空；
 场景或地图本身不是新的服务身份。Realm 需要为角色确定唯一场景归属，在跨实例转场、
 Scene 实例动态加入与排空时保持路由一致。两个玩家在同一场景移动时应互相看到状态；
 Scene 故障不能拖垮其他场景，受影响玩家可以重新入场并恢复已确认的角色落点。
 Chat 作为独立身份提供场景内及跨场景频道，保证在线同频道消息顺序与失败反馈；
 Chat 故障不阻断场景业务。聊天记录与离线补投不在已承诺范围内。
+阶段5的[Chat规格](specs/2026-10-23-chat-reference-loop.md)按C1–C5推进；C1（#176）已在
+`proto/realmmesh/chat/v1/chat.proto`定义客户端1701–1706与内部1801–1803，
+`game/common/chat_protocol`负责严格编解码，`chat_limits.hpp`只暴露轻量资源常量与计数/字节
+预留检查。内部与客户端编号白名单独立，C2已注册独立服务并实现认证和排序者，C3 已接通 Realm/客户端的单 Chat 闭环；C1结构校验不代替
+C2认证和幂等状态机，也不代替C3的当前会话/选角/场景权限核对。
+规格由Realm派生成员资格，每频道静态指定一个Chat排序者；Chat轮次内的在线受理不等于持久
+送达，重启/缺口显式重新加入，转场不等待Chat。依据见[ADR-0016](adr/0016-chat-online-channel-order-and-receipt.md)。
 
 Scene 首版的设计由 Scene 判定移动、Realm 条件持久写入 MongoDB 后确认及广播；
 角色场景归属、已确认落点与场景指令幂等结果同文档原子推进。转场与重绑更新归属版本，
@@ -104,7 +187,7 @@ Scene 首版的设计由 Scene 判定移动、Realm 条件持久写入 MongoDB �
 [ADR-0015](adr/0015-scene-confirmed-location-and-binding.md)。Realm 与 Scene 的内部链路
 使用独立 TLS/TCP 监听、双向服务身份校验及 `realmmesh-scene/1`；客户端继续只连 Realm。
 
-六种目标服务身份（现有五种与计划新增的 `chat`）都应能独立进程部署和扩容，
+六种已注册服务身份（含 `chat`）都应能独立进程部署和扩容，
 开发环境可同机合并运行。账号、角色和落点的持久数据由对应业务边界持有并复用存储接口，
 不预设通用 `storage` 服务。Scene/Chat 参考业务的必做验收限定在本机多进程；既有
 Linux 跨机器 M1–M4 验收只针对登录链接入，不作为新业务链的跨机器验证。
@@ -288,7 +371,7 @@ DevServices 用例使用独立数据库；各测试回收自己的服务，守�
 `realm::cluster::ServiceType` 是开放字符串(ADR-0014 第 4 步),框架只用
 `is_valid_service_type` 校验字符集 `[a-z0-9_]`,不枚举具体服务;服务名即服务类型线名。
 已实现身份的权威列表是进程入口 `apps/mesh_host` 的 `game_service_modules()` 注册表,
-当前 4 个:
+当前6个:
 
 | 服务名(线名) | 模块 | 状态 |
 |---|---|---|
@@ -296,6 +379,8 @@ DevServices 用例使用独立数据库；各测试回收自己的服务，守�
 | `realm` | `game/realm` 的 `make_realm_module` | 已接线,端口 7100 |
 | `login_verify` | `game/login_verify` 的 `make_login_verify_module` | 已接线,HTTPS 服务边(端口见服务配置) |
 | `queue` | `game/queue` 的 `make_queue_module` | 已接线,HTTPS 服务边,排队调度(端口见服务配置) |
+| `scene` | `game/scene` 的 `make_scene_module` | 已接线,独立 mTLS 内部服务,静态或动态分片 |
+| `chat` | `game/chat` 的 `make_chat_module` | 独立mTLS服务/频道排序者；C3 Realm 异步接线 |
 
 旧 Login 链路(身份 `login`、端口 7000,以及登录票据与网关重入消息)已整体退役,
 线名 `login` 永不复用。
@@ -305,7 +390,7 @@ DevServices 用例使用独立数据库；各测试回收自己的服务，守�
 职责由单一 Gateway Login Pipeline 承载,`GatewayFrame` 只解析 Realm 端点、驱动管线并
 上报额度;Realm 的入场兑换在 `RealmFrame`,兑换后的业务消息转交 `RealmSessions`。
 `login_verify` 与 `queue` 是第二种服务形态:独立业务库,走 HTTPS 请求循环,
-不经 EdgeRuntime 管线。五个服务的 `ServiceModule` 都在各自服务目录内,
+不经 EdgeRuntime 管线。Chat直接拥有独立非阻塞TLS Transport。六个服务的 `ServiceModule` 都在各自服务目录内,
 `framework/service_host` 不链接任何 `game/*`。
 
 不预先登记未实现的服务身份:新服务进入实现时才在 `game_service_modules()` 注册模块
@@ -315,3 +400,14 @@ ADR-0014 第 4 步改为字符串)。`realm_mesh --service` 只接受已注册�
 Framework 侧同样按需新建。`base`、`memory`、`rpc`、`serialization`、`storage` 这几个名字
 曾被空目录预留,但代码与文档都没有定义它们的职责;需要时从第一个真实用例开始设计,
 不预设分层。
+
+
+S5 的 SceneFaultJourneyTest 在生产入口组、Realm、Scene A/B 上组合 MongoDB 进程暂停、
+承载进程 SIGKILL、目标故障后的排空截止/同名重启/新尝试，以及慢通知消费者溢出后重新入场。
+Mongo 故障注入只使用独占副本集；S2–S4 的真实后端与 mTLS 替身边界用例全部保留。夹具等待
+业务新 incarnation/承载版本，不以端口打开或实例名相同冒充重建完成。服务子进程优雅退出有
+截止，必要时 KILL 并 waitpid 回收；每例核对其监听端口关闭，独占 MongoDB 另行回收核对。
+服务端慢端另以真实 TLS 接收窗口压满出站缓冲，核对拒绝日志、服务端绑定撤销与恢复；
+TLS 写重试保持原长度，缓冲重分配仅改变地址，不改变待重试字节。核心拒绝计数即使为零也
+显式发布。统一报告要求进入/移动/转场的结果与延迟样本及核心/排空指标；缺项、
+跳过、失败或源码中途变化均返回非零。三次验收独立保存，不覆盖失败证据。

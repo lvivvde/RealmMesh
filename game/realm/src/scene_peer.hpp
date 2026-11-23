@@ -30,6 +30,7 @@ public:
     std::string incarnation() const;
     void endpoint(std::optional<network::TransportEndpoint> value);
     std::uint64_t generation() const { return generation_.load(); }
+    bool available() const { return available_.load(); }
     const RealmConfig::SceneTarget target;
 
 private:
@@ -54,6 +55,9 @@ private:
     std::string incarnation_;
     std::atomic_uint64_t generation_{0};
     std::atomic_size_t in_flight_{0};
+    std::atomic_bool available_{false};
+    std::atomic_uint64_t endpoint_revision_{0};
+    std::uint64_t applied_endpoint_revision_{0};  // 仅 IO 线程。
     std::shared_ptr<network::client::TlsClientStream> stream_;
     network::LengthFieldCodec codec_{common::scene_envelope_max};
     network::ByteBuffer input_;

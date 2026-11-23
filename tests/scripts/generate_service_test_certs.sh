@@ -8,7 +8,7 @@ umask 077
 "$openssl_bin" req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes \
     -keyout "$out/ca.key" -out "$out/ca.pem" -days 3650 -subj /CN=RealmMesh-Test-Service-CA \
     -addext basicConstraints=critical,CA:TRUE >/dev/null 2>&1
-for role in realm scene scene2 other; do
+for role in realm scene scene2 chat other; do
     identity="$role-dev-01.$role.service"
     if [[ "$role" == scene2 ]]; then identity="scene-dev-02.scene.service"; fi
     "$openssl_bin" req -new -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes \

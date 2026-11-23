@@ -310,6 +310,8 @@ struct BootstrapAccount final {
 
 namespace {
 constexpr std::string_view scenes_collection = "character_scenes";
+constexpr std::string_view shards_collection = "scene_shards";
+constexpr std::string_view scene_instances_collection = "scene_instances";
 
 bool valid_scene_text(std::string_view value) {
     return !value.empty() && value.size() <= 128 &&
@@ -322,7 +324,8 @@ bool valid_scene_owner(const SceneOwner& owner) {
     return valid_scene_text(owner.realm_incarnation) &&
            owner.session_binding != 0 &&
            valid_scene_text(owner.scene_instance_id) &&
-           valid_scene_text(owner.scene_incarnation);
+           valid_scene_text(owner.scene_incarnation) &&
+           owner.shard_version <= scene_counter_max;
 }
 
 bool valid_scene_location(const SceneLocation& location) {
@@ -360,12 +363,18 @@ bsoncxx::document::value scene_filter(const SceneCharacterKey& key) {
 }
 
 bsoncxx::document::value scene_owner_document(const SceneOwner& owner) {
-    return make_document(
+    bsoncxx::builder::basic::document fields;
+    fields.append(
         kvp("realm_incarnation", owner.realm_incarnation),
         kvp("session_binding",
             database_id(owner.session_binding, "session_binding")),
         kvp("scene_instance_id", owner.scene_instance_id),
         kvp("scene_incarnation", owner.scene_incarnation));
+    if (owner.shard_version != 0)
+        fields.append(
+            kvp("shard_version",
+                database_counter(owner.shard_version, "shard_version")));
+    return fields.extract();
 }
 
 bsoncxx::document::value scene_location_document(
@@ -442,6 +451,8 @@ SceneOwner scene_owner_from(bsoncxx::document::view view) {
         domain_id(view["session_binding"]),
         domain_string(view["scene_instance_id"]),
         domain_string(view["scene_incarnation"])};
+    if (view["shard_version"])
+        owner.shard_version = domain_counter(view["shard_version"]);
     if (!valid_scene_owner(owner)) throw PlayerDataError("invalid scene owner");
     return owner;
 }
@@ -564,6 +575,83 @@ SceneWriteOutcome check_scene_transition(
         throw PlayerDataError("scene binding epoch exhausted");
     }
     return SceneWriteOutcome::Committed;
+}
+}  // namespace
+
+namespace {
+bsoncxx::document::value instance_fields(const SceneInstanceState& record) {
+    return make_document(
+        kvp("incarnation", record.incarnation),
+        kvp("draining", record.draining));
+}
+bsoncxx::document::value shard_identity(
+    std::uint32_t realm, std::uint64_t shard) {
+    if (realm == 0) throw PlayerDataError("invalid shard realm");
+    return make_document(
+        kvp("realm_id", std::int64_t{realm}),
+        kvp("shard_id", database_id(shard, "shard_id")));
+}
+bsoncxx::document::value shard_fields(const SceneShardRecord& record) {
+    bsoncxx::builder::basic::document fields;
+    fields.append(
+        kvp("version", database_counter(record.version, "shard_version")),
+        kvp("draining", record.draining));
+    if (record.owner)
+        fields.append(
+            kvp("owner",
+                make_document(
+                    kvp("instance_id", record.owner->instance_id),
+                    kvp("incarnation", record.owner->incarnation))));
+    else
+        fields.append(kvp("owner", bsoncxx::types::b_null{}));
+    return fields.extract();
+}
+SceneShardRecord shard_from(
+    std::uint32_t realm, std::uint64_t shard, bsoncxx::document::view view) {
+    SceneShardRecord record{
+        realm,
+        shard,
+        domain_counter(view["version"]),
+        std::nullopt,
+        domain_flag(view["draining"])};
+    if (record.version == 0) throw PlayerDataError("invalid shard version");
+    if (view["owner"] && view["owner"].type() != bsoncxx::type::k_null) {
+        const auto owner = scene_document(view["owner"]);
+        record.owner = SceneShardOwner{
+            domain_string(owner["instance_id"]),
+            domain_string(owner["incarnation"])};
+        if (!valid_scene_text(record.owner->instance_id) ||
+            !valid_scene_text(record.owner->incarnation))
+            throw PlayerDataError("invalid shard owner");
+    }
+    if (!record.owner && record.draining)
+        throw PlayerDataError("released shard cannot be draining");
+    return record;
+}
+void validate_shard_cas(
+    const std::optional<SceneShardRecord>& expected,
+    const SceneShardRecord& desired) {
+    static_cast<void>(shard_identity(desired.realm_id, desired.shard_id));
+    if (desired.version == 0 || desired.version > scene_counter_max ||
+        (!desired.owner && desired.draining) ||
+        (desired.owner && (!valid_scene_text(desired.owner->instance_id) ||
+                           !valid_scene_text(desired.owner->incarnation))))
+        throw PlayerDataError("invalid shard CAS");
+    if (!expected) {
+        if (desired.version != 1 || !desired.owner || desired.draining)
+            throw PlayerDataError("invalid first shard owner");
+        return;
+    }
+    if (expected->realm_id != desired.realm_id ||
+        expected->shard_id != desired.shard_id || expected->version == 0)
+        throw PlayerDataError("shard CAS key mismatch");
+    const bool changed = expected->owner != desired.owner;
+    if ((changed && expected->version == scene_counter_max) ||
+        desired.version != expected->version + (changed ? 1U : 0U) ||
+        (!changed && expected->draining && !desired.draining) ||
+        (changed && desired.draining) ||
+        (changed && !desired.owner && !expected->draining))
+        throw PlayerDataError("invalid shard ownership transition");
 }
 }  // namespace
 
@@ -927,6 +1015,199 @@ public:
             });
     }
 
+    [[nodiscard]] std::optional<SceneInstanceState> scene_instance_state(
+        const std::string& id) const {
+        if (!valid_scene_text(id))
+            throw PlayerDataError("invalid Scene instance");
+        return translate_driver_errors(
+            [&]() -> std::optional<SceneInstanceState> {
+                auto client = pool_->acquire();
+                const auto stored =
+                    collection(*client, scene_instances_collection)
+                        .find_one(make_document(kvp("_id", id)));
+                if (!stored) return std::nullopt;
+                const auto view = stored->view();
+                SceneInstanceState value{
+                    id,
+                    domain_string(view["incarnation"]),
+                    domain_flag(view["draining"])};
+                if (!valid_scene_text(value.incarnation))
+                    throw PlayerDataError("invalid Scene incarnation");
+                return value;
+            });
+    }
+    [[nodiscard]] bool compare_exchange_scene_instance(
+        const std::optional<SceneInstanceState>& expected,
+        const SceneInstanceState& desired) {
+        if (!valid_scene_text(desired.instance_id) ||
+            !valid_scene_text(desired.incarnation) ||
+            (!expected && desired.draining) ||
+            (expected && (expected->instance_id != desired.instance_id ||
+                          (expected->incarnation == desired.incarnation &&
+                           expected->draining && !desired.draining))))
+            throw PlayerDataError("invalid Scene instance CAS");
+        bool matched = false;
+        try {
+            auto client = pool_->acquire();
+            auto session = client->start_session();
+            session.with_transaction(
+                [&](mongocxx::client_session* tx) {
+                    matched = false;
+                    auto instances =
+                        collection(*client, scene_instances_collection);
+                    bsoncxx::builder::basic::document filter;
+                    filter.append(kvp("_id", desired.instance_id));
+                    if (!expected) {
+                        filter.append(
+                            bsoncxx::builder::basic::concatenate(
+                                instance_fields(desired).view()));
+                        static_cast<void>(
+                            instances.insert_one(*tx, filter.view()));
+                        matched = true;
+                    } else {
+                        filter.append(
+                            bsoncxx::builder::basic::concatenate(
+                                instance_fields(*expected).view()));
+                        const auto result = instances.update_one(
+                            *tx,
+                            filter.view(),
+                            make_document(
+                                kvp("$set", instance_fields(desired))));
+                        matched = result && result->matched_count() == 1;
+                    }
+                    if (matched && desired.draining)
+                        static_cast<void>(
+                            collection(*client, shards_collection)
+                                .update_many(
+                                    *tx,
+                                    make_document(
+                                        kvp("owner.instance_id",
+                                            desired.instance_id),
+                                        kvp("owner.incarnation",
+                                            desired.incarnation)),
+                                    make_document(
+                                        kvp("$set",
+                                            make_document(
+                                                kvp("draining", true))))));
+                },
+                transaction_options());
+            return matched;
+        } catch (const mongocxx::operation_exception& error) {
+            if (!expected && error.code().value() == duplicate_key_code)
+                return false;
+            throw SceneWriteUncertain(
+                std::string("Scene instance CAS outcome unknown: ") +
+                error.what());
+        } catch (const mongocxx::exception& error) {
+            throw SceneWriteUncertain(
+                std::string("Scene instance CAS outcome unknown: ") +
+                error.what());
+        }
+    }
+    [[nodiscard]] std::optional<SceneShardRecord> shard_state(
+        std::uint32_t realm, std::uint64_t shard) const {
+        const auto identity = shard_identity(realm, shard);
+        return translate_driver_errors(
+            [&]() -> std::optional<SceneShardRecord> {
+                auto client = pool_->acquire();
+                const auto stored =
+                    collection(*client, shards_collection)
+                        .find_one(make_document(kvp("_id", identity)));
+                if (!stored) return std::nullopt;
+                return shard_from(realm, shard, stored->view());
+            });
+    }
+    [[nodiscard]] bool compare_exchange_shard(
+        const std::optional<SceneShardRecord>& expected,
+        const SceneShardRecord& desired) {
+        validate_shard_cas(expected, desired);
+        const auto identity =
+            shard_identity(desired.realm_id, desired.shard_id);
+        try {
+            auto client = pool_->acquire();
+            auto session = client->start_session();
+            bool matched = false;
+            session.with_transaction(
+                [&](mongocxx::client_session* tx) {
+                    matched = false;
+                    if (desired.owner &&
+                        (!expected || expected->owner != desired.owner)) {
+                        const auto ready =
+                            collection(*client, scene_instances_collection)
+                                .update_one(
+                                    *tx,
+                                    make_document(
+                                        kvp("_id", desired.owner->instance_id),
+                                        kvp("incarnation",
+                                            desired.owner->incarnation),
+                                        kvp("draining", false)),
+                                    make_document(
+                                        kvp("$inc",
+                                            make_document(
+                                                kvp("assignment_guard",
+                                                    std::int64_t{1})))));
+                        if (!ready || ready->matched_count() != 1) return;
+                    }
+                    auto shards = collection(*client, shards_collection);
+                    if (!expected) {
+                        bsoncxx::builder::basic::document value;
+                        value.append(
+                            kvp("_id", identity),
+                            bsoncxx::builder::basic::concatenate(
+                                shard_fields(desired).view()));
+                        static_cast<void>(shards.insert_one(*tx, value.view()));
+                        matched = true;
+                        return;
+                    }
+                    bsoncxx::builder::basic::document filter;
+                    filter.append(
+                        kvp("_id", identity),
+                        bsoncxx::builder::basic::concatenate(
+                            shard_fields(*expected).view()));
+                    const auto result = shards.update_one(
+                        *tx,
+                        filter.view(),
+                        make_document(kvp("$set", shard_fields(desired))));
+                    matched = result && result->matched_count() == 1;
+                },
+                transaction_options());
+            return matched;
+        } catch (const mongocxx::operation_exception& error) {
+            if (!expected && error.code().value() == duplicate_key_code)
+                return false;
+            throw SceneWriteUncertain(
+                std::string("shard CAS outcome unknown: ") + error.what());
+        } catch (const mongocxx::exception& error) {
+            throw SceneWriteUncertain(
+                std::string("shard CAS outcome unknown: ") + error.what());
+        }
+    }
+    bool guard_shard(
+        mongocxx::client& client,
+        mongocxx::client_session& transaction,
+        std::uint32_t realm,
+        std::uint64_t shard,
+        const SceneOwner& owner,
+        bool admitting) {
+        bsoncxx::builder::basic::document filter;
+        filter.append(
+            kvp("_id", shard_identity(realm, shard)),
+            kvp("version",
+                database_counter(owner.shard_version, "shard_version")),
+            kvp("owner.instance_id", owner.scene_instance_id),
+            kvp("owner.incarnation", owner.scene_incarnation));
+        if (admitting) filter.append(kvp("draining", false));
+        // 写栅栏与承载 CAS 建立写冲突；仅事务快照读不能阻止写偏斜。
+        const auto matched =
+            collection(client, shards_collection)
+                .update_one(
+                    transaction,
+                    filter.view(),
+                    make_document(kvp(
+                        "$inc",
+                        make_document(kvp("commit_guard", std::int64_t{1})))));
+        return matched && matched->matched_count() == 1;
+    }
     [[nodiscard]] SceneWriteResult commit_scene(const SceneWrite& write) {
         if (!valid_scene_owner(write.owner) ||
             (write.expected_owner &&
@@ -965,9 +1246,48 @@ public:
             auto client = pool_->acquire();
             mongocxx::options::find_one_and_update after;
             after.return_document(mongocxx::options::return_document::k_after);
-            const auto stored =
-                collection(*client, scenes_collection)
-                    .find_one_and_update(filter.view(), update.view(), after);
+            decltype(collection(*client, scenes_collection)
+                         .find_one(filter.view())) stored;
+            bool stale_shard = false;
+            if (write.owner.shard_version != 0) {
+                auto transaction = client->start_session();
+                transaction.with_transaction(
+                    [&](mongocxx::client_session* session) {
+                        stored.reset();
+                        stale_shard = !guard_shard(
+                            *client,
+                            *session,
+                            write.character.realm_id,
+                            write.location.shard_id,
+                            write.owner,
+                            write.command.type != SceneCommandType::Move);
+                        if (!stale_shard &&
+                            write.command.type == SceneCommandType::Transfer &&
+                            write.expected_owner &&
+                            write.expected_owner->shard_version != 0)
+                            stale_shard = !guard_shard(
+                                *client,
+                                *session,
+                                write.character.realm_id,
+                                current->confirmed_location->shard_id,
+                                *write.expected_owner,
+                                false);
+                        if (stale_shard) return;
+                        stored = collection(*client, scenes_collection)
+                                     .find_one_and_update(
+                                         *session,
+                                         filter.view(),
+                                         update.view(),
+                                         after);
+                    },
+                    transaction_options());
+            } else {
+                stored = collection(*client, scenes_collection)
+                             .find_one_and_update(
+                                 filter.view(), update.view(), after);
+            }
+            if (stale_shard)
+                return {SceneWriteOutcome::StaleBinding, std::move(current)};
             if (stored)
                 return {
                     SceneWriteOutcome::Committed,
@@ -1442,6 +1762,24 @@ std::optional<SceneStateRecord> MongoPlayerDataStore::scene_state(
 }
 SceneWriteResult MongoPlayerDataStore::commit_scene(const SceneWrite& write) {
     return impl_->commit_scene(write);
+}
+std::optional<SceneShardRecord> MongoPlayerDataStore::shard_state(
+    std::uint32_t realm_id, std::uint64_t shard_id) const {
+    return impl_->shard_state(realm_id, shard_id);
+}
+std::optional<SceneInstanceState> MongoPlayerDataStore::scene_instance_state(
+    const std::string& instance_id) const {
+    return impl_->scene_instance_state(instance_id);
+}
+bool MongoPlayerDataStore::compare_exchange_scene_instance(
+    const std::optional<SceneInstanceState>& expected,
+    const SceneInstanceState& desired) {
+    return impl_->compare_exchange_scene_instance(expected, desired);
+}
+bool MongoPlayerDataStore::compare_exchange_shard(
+    const std::optional<SceneShardRecord>& expected,
+    const SceneShardRecord& desired) {
+    return impl_->compare_exchange_shard(expected, desired);
 }
 bool MongoPlayerDataStore::revoke_scene(
     const SceneCharacterKey& character,

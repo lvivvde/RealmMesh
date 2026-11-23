@@ -89,6 +89,38 @@ TEST(SceneShardTest, PreparedAndProposedPositionsAreInvisibleUntilConfirmed) {
     EXPECT_EQ(shard.handle(1, move).status(), internal::STATUS_OK);
     EXPECT_TRUE(shard.drain_events().empty());
 }
+
+TEST(SceneShardTest, OwnershipVersionFencesRoutesAndSeparatesEventStreams) {
+    SceneShard current("scene", "boot", 1, 2);
+    auto prepare = request(internal::OPERATION_PREPARE);
+    prepare.mutable_route()->set_shard_version(1);
+    EXPECT_NE(current.handle(1, prepare).status(), internal::STATUS_OK);
+    prepare.mutable_route()->set_shard_version(2);
+    ASSERT_EQ(current.handle(1, prepare).status(), internal::STATUS_OK);
+    auto activate_request = request(internal::OPERATION_ACTIVATE);
+    activate_request.mutable_route()->set_shard_version(2);
+    const auto activated = current.handle(1, activate_request);
+    ASSERT_EQ(activated.status(), internal::STATUS_OK);
+    EXPECT_EQ(activated.scene_incarnation(), "boot");
+    EXPECT_EQ(activated.snapshot().shard_incarnation(), "boot:2");
+    current.begin_draining();
+    auto move = request(internal::OPERATION_PROPOSE_MOVE, 10, 1, 2, 10);
+    move.mutable_route()->set_shard_version(2);
+    EXPECT_EQ(current.handle(1, move).status(), internal::STATUS_OK);
+    auto newcomer = request(internal::OPERATION_PREPARE, 20);
+    newcomer.mutable_route()->set_shard_version(2);
+    EXPECT_EQ(current.handle(1, newcomer).status(), internal::STATUS_DRAINING);
+    SceneShard replacement("scene", "boot", 1, 3);
+    auto probe = request(internal::OPERATION_SNAPSHOT);
+    probe.set_shard_version(2);
+    EXPECT_NE(replacement.handle(1, probe).status(), internal::STATUS_OK);
+    probe.set_shard_version(3);
+    const auto snapshot = replacement.handle(1, probe);
+    ASSERT_EQ(snapshot.status(), internal::STATUS_OK);
+    EXPECT_NE(
+        snapshot.snapshot().shard_incarnation(),
+        activated.snapshot().shard_incarnation());
+}
 TEST(
     SceneShardTest,
     RetriesDoNotPublishTwiceAndOldCleanupCannotRemoveNewBinding) {
