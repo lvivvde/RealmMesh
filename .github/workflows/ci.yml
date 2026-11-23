@@ -111,6 +111,9 @@ jobs:
           mkdir -p "$CCACHE_DIR"
           ccache --zero-stats
 
+      - name: Install browser demo dependencies
+        run: npm ci --prefix tools/browser-demo
+
       - name: Configure
         if: inputs.ccache_acceptance != true
         run: |
@@ -228,6 +231,9 @@ jobs:
           echo "cache check+restore: outcome=${{ steps.ccache-restore.outcome }}, hit=${{ steps.ccache-restore.outputs.cache-hit }}, seconds=$(( $(date +%s) - ${{ steps.ccache-restore-time.outputs.start }} ))"
           mkdir -p "$CCACHE_DIR"
           ccache --zero-stats
+
+      - name: Install browser demo dependencies
+        run: npm ci --prefix tools/browser-demo
 
       - name: Configure
         if: inputs.ccache_acceptance != true
