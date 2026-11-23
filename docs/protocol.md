@@ -21,6 +21,8 @@ QUIC 在一个客户端发起的长期可靠双向流上承载该字节流；不
 | `request_id` | 请求/响应关联 ID，通知可为 `0` |
 | `payload` | 具体 Protobuf 消息 |
 
+本机双人演示通过回环 WebSocket 把网页操作送到兼容进程。兼容进程使用 HTTPS 登录和排队，再通过 TLS/TCP 向 Gateway 与 Realm 收发上述业务帧。每个窗口独立建立会话。[演示规格](specs/2026-11-18-browser-mmo-demo.md)
+
 ## 端点候选
 
 `ServiceEndpoint` 包含：

@@ -93,7 +93,12 @@ async function runBrowserJourney() {
       const errors = [];
       page.on('pageerror', err => errors.push(err.message));
       let latest;
+      const steps=[];
       page.on('websocket', socket => {
+        socket.on('framesent', frame=>{
+          const action=JSON.parse(frame.payload.toString());
+          if(action.op==='move')steps.push(action);
+        });
         socket.on('framereceived', frame => {
           const value = JSON.parse(frame.payload.toString());
           if (value.members) latest = value;
@@ -105,7 +110,7 @@ async function runBrowserJourney() {
       await page.getByRole('button', {name:'登录营地'}).click();
       await page.getByRole('button', {name}).click();
       await page.locator('#world').waitFor({state:'visible'});
-      return {page, state:()=>latest, errors};
+      return {page, state:()=>latest, errors, steps};
     };
     const a = await joinPage('camp_guest', 'camp-password', 'SceneAlpha');
     await a.page.getByRole('button',{name:'物品栏'}).click();
@@ -136,5 +141,30 @@ async function runBrowserJourney() {
       assert.equal(locate(observer),stopped);
       assert.deepEqual(actor.errors,[]);
     }
+    await a.page.keyboard.press('Escape');
+    await a.page.keyboard.press('F9');
+    assert.equal(await a.page.locator('#bag').isVisible(),true);
+    await a.page.keyboard.press('Escape');
+    const field=await a.page.locator('#world canvas').boundingBox();
+    const own=()=>a.state().members.find(m=>m.id===a.state().self);
+    const start={...own()};
+    await a.page.mouse.click(field.x+field.width*.76,field.y+field.height*.68,{button:'right'});
+    await waitUntil(()=>own().x>start.x && own().y>start.y);
+    assert.ok(a.steps.some(step=>step.dx===2 && step.dy>0));
+    await waitUntil(()=>b.state().members.some(m=>m.id===start.id && m.x>start.x && m.y>start.y));
+    await a.page.mouse.click(field.x+field.width*.54,field.y+field.height*.52);
+    await waitUntil(()=>a.steps.some(step=>step.dx<0 && Math.abs(step.dx)===1));
+    await delay(900);
+    const landed={...own()};
+    await delay(500);
+    assert.deepEqual(own(),landed);
+    const mouse=a.page.mouse;
+    await mouse.move(field.x+field.width*.88,field.y+field.height*.7);
+    await mouse.down();await waitUntil(()=>own().x>landed.x);
+    await mouse.move(field.x+field.width*.12,field.y+field.height*.7);
+    const turning=own().x;
+    await waitUntil(()=>own().x<turning);
+    await mouse.up();await delay(350);
+    const stopped={...own()};await delay(500);assert.deepEqual(own(),stopped);
   } finally { await browser.close(); }
 }

@@ -214,6 +214,7 @@ _Avoid_: token、credential、cookie
 
 **Login Chain**:
 客户端从凭据到入场的七态驱动器:`verifying → queued → admitted → gateway_connecting → handoff_received → realm_connecting → in_game`;失败按规则回退(verify 失败回 idle 但健全服繁忙 1005 退避后重验、号牌过期自动重取、网关失败在放行宽限内重入、1007 账号不具备准入资格即终止回 idle、1008 玩家数据暂不可用按服务端建议退避后从 verifying 重来、Realm 直连失败在 EnterRealm 票据窗口内重试),不自作主张重排队。
+本机网页演示为每个发起登录的窗口独立驱动 Login Chain，排队时将查得的位置回报给该窗口。
 _Avoid_: 登录流程(流程指纸上步骤,链路是能跑出状态的实体)、session(那是服务端概念)
 
 **Login Stage**:

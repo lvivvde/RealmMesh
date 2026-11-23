@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-"""启动仅监听本机的双人演示；Ctrl-C 后回收本次启动的子进程。"""
 import argparse
 import json
 import os
@@ -26,7 +25,7 @@ def configure(directory):
         "common/discovery.lua": [("enabled = false", "enabled = true"), (":2379", ":12379")],
         "services/login_verify.lua": [("listen_port = 0,", "listen_port = 17443,")],
         "services/queue.lua": [("listen_port = 0,", "listen_port = 17444,"), (":2379", ":12379")],
-        "services/realm.lua": [("enabled = false", "enabled = true"), ('"0.0.0.0"', '"127.0.0.1"')],
+        "services/realm.lua": [("scene = {\n            enabled = false", "scene = {\n            enabled = true"), ('"0.0.0.0"', '"127.0.0.1"')],
         "services/gateway.lua": [('protocol = "quic",\n            enabled = true', 'protocol = "quic",\n            enabled = false'), ('"0.0.0.0"', '"127.0.0.1"')],
     }
     for name, substitutions in changes.items():
@@ -130,7 +129,9 @@ def run(preset):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(
+        description="启动仅监听本机的双人演示；Ctrl-C 后回收本次启动的子进程。"
+    )
     parser.add_argument("--preset", default="dev")
     os.umask(0o077)
     signal.signal(signal.SIGTERM, signal.default_int_handler)

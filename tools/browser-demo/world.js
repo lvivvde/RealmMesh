@@ -32,14 +32,54 @@ function frame(now) {
   }
   renderer.render(scene, camera);
 }
-export function preview(dir) {
+export function groundCell(canvas, e) {
+  const rect = canvas.getBoundingClientRect();
+  const ray = new T.Raycaster();
+  camera.updateMatrixWorld();
+  ray.setFromCamera(
+    new T.Vector2(
+      ((e.clientX - rect.left) / rect.width) * 2 - 1,
+      1 - ((e.clientY - rect.top) / rect.height) * 2,
+    ),
+    camera,
+  );
+  const hit = ray.ray.intersectPlane(
+    new T.Plane(new T.Vector3(0, 1, 0), 0),
+    new T.Vector3(),
+  );
+  return (
+    hit && {
+      x: T.MathUtils.clamp(Math.round(hit.x), 0, 10000),
+      y: T.MathUtils.clamp(Math.round(hit.z), 0, 10000),
+    }
+  );
+}
+let marker;
+export function mark(cell) {
+  if (!scene) return;
+  if (!marker) {
+    marker = new T.Mesh(
+      new T.RingGeometry(0.27, 0.36, 20),
+      new T.MeshBasicMaterial({ color: 0xfad687, side: T.DoubleSide }),
+    );
+    marker.rotation.x = -Math.PI / 2;
+    scene.add(marker);
+  }
+  marker.visible = Boolean(cell);
+  if (cell) marker.position.set(cell.x, 0.04, cell.y);
+}
+export function preview(
+  dir,
+  dx = Number(dir === "right") - Number(dir === "left"),
+  dy = Number(dir === "down") - Number(dir === "up"),
+) {
   const actor = actors.get(localId);
   if (!actor) return;
   const pos = actor.userData.confirmed;
   actor.userData.target.set(
-    Math.max(0, pos.x + Number(dir === "right") - Number(dir === "left")),
+    Math.max(0, pos.x + dx),
     0,
-    Math.max(0, pos.z + Number(dir === "down") - Number(dir === "up")),
+    Math.max(0, pos.z + dy),
   );
 }
 export function rollback() {

@@ -490,6 +490,7 @@
         return;
       }
       if (msg.error) {
+        cancelGround();
         rollback();
         status.textContent = msg.error;
         return;
@@ -515,18 +516,108 @@
         el("roles").hidden = true;
         el("world").hidden = false;
         status.textContent =
-          "场景内 " + msg.members.length + " 人 · 拖动摇杆移动";
+          "场景内 " +
+          msg.members.length +
+          " 人 · 左键走，右键跑，按住可转向；触屏用摇杆";
+        me = msg.members.find((member) => member.id === msg.self);
         draw(msg);
         updateHud(msg);
         pump();
       }
     };
-    import { draw, preview, rollback, pines } from "./world.js";
+    import {
+      draw,
+      preview,
+      rollback,
+      pines,
+      groundCell,
+      mark,
+    } from "./world.js";
+    const field = document.querySelector("#world canvas");
+    let target = null,
+      me = null,
+      stride = 1,
+      mouse = null,
+      heldAt = 0,
+      dragged = false,
+      pressX = 0,
+      pressY = 0;
+    function cancelGround() {
+      target = null;
+      mouse = null;
+      mark(null);
+    }
+    function aim(e) {
+      target = groundCell(field, e);
+      mark(target);
+    }
+    field.oncontextmenu = (e) => e.preventDefault();
+    field.onpointerdown = (e) => {
+      if (!playing || e.pointerType === "touch" || ![0, 2].includes(e.button))
+        return;
+      e.preventDefault();
+      reset();
+      mouse = e.pointerId;
+      heldAt = performance.now();
+      dragged = false;
+      pressX = e.clientX;
+      pressY = e.clientY;
+      stride = e.button === 2 ? 2 : 1;
+      field.setPointerCapture(mouse);
+      aim(e);
+      nextStep = 0;
+      pump();
+    };
+    field.onpointermove = (e) => {
+      if (
+        mouse === e.pointerId &&
+        (dragged || Math.hypot(e.clientX - pressX, e.clientY - pressY) > 4)
+      ) {
+        dragged = true;
+        aim(e);
+        pump();
+      }
+    };
+    field.onpointerup = (e) => {
+      if (mouse === e.pointerId) {
+        mouse = null;
+        if (dragged || performance.now() - heldAt > 250) cancelGround();
+      }
+    };
+    field.onpointercancel = cancelGround;
+    field.onlostpointercapture = () => {
+      if (mouse !== null) cancelGround();
+    };
+    window.addEventListener("keydown", (e) => {
+      if (!playing || e.repeat || e.ctrlKey || e.metaKey || e.altKey) return;
+      const key = e.key.toLowerCase();
+      if (key === "escape") {
+        reset();
+        for (const n of ["map", "bag"])
+          if (!el(n).hidden) el(n + "Btn").click();
+      } else if (key === "b" || key === "f9" || key === "m") {
+        e.preventDefault();
+        el((key === "b" || key === "f9" ? "bag" : "map") + "Btn").click();
+      }
+    });
     let nextStep = 0,
       nextState = 0;
     function pump() {
       if (!playing || document.hidden || busy) return;
       const now = performance.now();
+      if (target && me && !dir) {
+        const clamp = (n) => Math.max(-stride, Math.min(stride, n));
+        const dx = clamp(target.x - me.x),
+          dy = clamp(target.y - me.y);
+        if (!dx && !dy) {
+          target = null;
+          mark(null);
+        } else if (now >= nextStep && send("move", { dx, dy })) {
+          preview("", dx, dy);
+          nextStep = now + 150;
+        }
+        if (target) return;
+      }
       if (dir && now >= nextStep && send("move", { dir })) {
         preview(dir);
         nextStep = now + 150;
@@ -536,6 +627,7 @@
     const pad = el("stick"),
       knob = el("knob");
     function reset() {
+      cancelGround();
       pointer = null;
       dir = "";
       knob.style.transform = "";

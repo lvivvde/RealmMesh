@@ -116,15 +116,23 @@ int main(int argc, char** argv) {
                     next_refresh = client::Clock::now() + 5s;
                 }
                 if (op == "move") {
-                    auto dir = req.at("dir").get<std::string>();
+                    auto dir = req.value("dir", std::string{});
                     auto pos = state.confirmed_location();
-                    if (dir != "left" && dir != "right" && dir != "up" &&
-                        dir != "down")
-                        throw std::runtime_error("无效方向");
+                    int dx = (dir == "right") - (dir == "left"),
+                        dy = (dir == "down") - (dir == "up");
+                    if (dir.empty() && req.at("dx").is_number_integer() &&
+                        req.at("dy").is_number_integer()) {
+                        if (req.at("dx") < -2 || req.at("dx") > 2 ||
+                            req.at("dy") < -2 || req.at("dy") > 2)
+                            throw std::runtime_error("无效步幅");
+                        dx = req.at("dx");
+                        dy = req.at("dy");
+                    }
+                    if (!dx && !dy) throw std::runtime_error("无效方向");
                     auto reply = scene->move_in_scene(
                         state.last_scene_seq() + 1,
-                        pos.x() + (dir == "right") - (dir == "left"),
-                        pos.y() + (dir == "down") - (dir == "up"),
+                        pos.x() + dx,
+                        pos.y() + dy,
                         deadline);
                     if (!reply.ok()) next_refresh = client::Clock::now();
                     auto moved = checked(std::move(reply));
@@ -169,11 +177,11 @@ int main(int argc, char** argv) {
                     throw std::runtime_error("场景快照不可用");
                 out["self"] = self;
                 out["members"] = Json::array();
-                for (const auto& member : state.snapshot().members())
-                    out["members"].push_back(
-                        {{"id", std::to_string(member.character_id())},
-                         {"x", member.location().x()},
-                         {"y", member.location().y()}});
+                for (const auto& member : state.snapshot().members()) {
+                    const auto id = std::to_string(member.character_id());
+                    const auto& position = id == self ? state.confirmed_location() : member.location();
+                    out["members"].push_back({{"id", id}, {"x", position.x()}, {"y", position.y()}});
+                }
             }
             std::cout << out.dump() << std::endl;
         } catch (const std::exception& error) {

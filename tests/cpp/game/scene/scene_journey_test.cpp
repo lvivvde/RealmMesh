@@ -222,7 +222,7 @@ TEST_F(SceneJourneyTest, BrowserSocketsObserveEachOthersConfirmedMoves) {
     const auto queue = std::to_string(ports_.queue);
     const auto gateway = std::to_string(ports_.gateway);
     const auto web = std::to_string(test_support::unused_loopback_ports(1).front());
-    const auto database_uri = test_support::MongodProcess::shared().uri();
+    const auto database_uri = player_data().uri();
     const auto child = ::fork();
     ASSERT_GE(child, 0);
     if (child == 0) {

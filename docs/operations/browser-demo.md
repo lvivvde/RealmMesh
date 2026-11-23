@@ -9,9 +9,9 @@
 
 ```bash
 ./scripts/install-etcd.sh
+npm ci --prefix tools/browser-demo
 cmake --preset dev
 cmake --build --preset dev --target realm_mesh realm_browser_client
-npm ci --prefix tools/browser-demo
 ./scripts/run-browser-demo.py --preset dev
 ```
 
@@ -27,6 +27,8 @@ npm ci --prefix tools/browser-demo
 每个窗口选择角色或创建一个新角色，确认两个窗口都显示两人。先在甲窗口向右拖动摇杆，
 观察乙窗口中的甲；再在乙窗口向下拖动并松手，观察甲窗口中的乙停在相应位置。
 首次出生点在坐标下界，向左或向上可能被 Scene 拒绝，先向右或向下移动。
+
+桌面可直接点地面：左键走、右键跑，金环显示目标。单击后走到目标格；按住拖动可转向，松开停止继续迈步。Esc 可取消目的地并关闭面板；B 或 F9 开背包，M 开地图。触屏仍用摇杆。
 
 网页只连接本机兼容进程。演示使用临时自签接入证书；Scene 内部连接仍校验独立 CA
 和服务身份。不要把本机试玩端口反向代理至公网。客户端接口与验收范围见
