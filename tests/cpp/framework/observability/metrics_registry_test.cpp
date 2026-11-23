@@ -82,8 +82,16 @@ TEST(MetricsRegistryTest, CustomBucketsRenderInRegisteredOrder) {
         "frame_work_duration_seconds_sum 0.5025\n"
         "frame_work_duration_seconds_count 3\n";
     EXPECT_EQ(registry.render(), expected);
-    // 渲染确定:重复抓取逐字节相同。
     EXPECT_EQ(registry.render(), expected);
+}
+
+TEST(MetricsRegistryTest, SmallBucketRendersInFixedNotation) {
+    MetricsRegistry registry;
+    registry.histogram_buckets("small", {1e-100});
+    registry.histogram_observe("small", 0);
+    const auto bound = "0." + std::string(99, '0') + "1";
+    EXPECT_TRUE(contains_line(
+        registry.render(), "small_bucket{le=\"" + bound + "\"} 1"));
 }
 
 TEST(MetricsRegistryTest, CustomBucketsApplyToEveryLabelSeriesOfTheName) {
@@ -97,7 +105,6 @@ TEST(MetricsRegistryTest, CustomBucketsApplyToEveryLabelSeriesOfTheName) {
         contains_line(text, "tick_seconds_bucket{stage=\"a\",le=\"0.001\"} 1"));
     EXPECT_EQ(text.find("tick_seconds_bucket{stage=\"a\",le=\"0.005\"}"),
               std::string::npos);
-    // 未注册的名字仍用默认桶。
     EXPECT_TRUE(contains_line(text, "other_seconds_bucket{le=\"0.005\"} 1"));
 }
 
@@ -112,8 +119,11 @@ TEST(MetricsRegistryTest, CustomBucketsRejectInvalidOrLateRegistration) {
         std::invalid_argument);
 
     registry.histogram_buckets("b", {0.1, 0.2});
-    registry.histogram_buckets("b", {0.1, 0.2});  // 相同布局重复注册无害。
+    registry.histogram_buckets("b", {0.1, 0.2});
     EXPECT_THROW(registry.histogram_buckets("b", {0.1}), std::logic_error);
+
+    registry.histogram_observe("b", 0.1);
+    EXPECT_THROW(registry.histogram_buckets("b", {0.1, 0.2}), std::logic_error);
 
     registry.histogram_observe("c", 1.0, {{"k", "v"}});
     EXPECT_THROW(registry.histogram_buckets("c", {0.1}), std::logic_error);
@@ -127,7 +137,6 @@ TEST(ScopedTimerTest, ObservesElapsedSecondsOnDestruction) {
         const ScopedTimer timer(registry, "work_seconds");
         std::this_thread::sleep_for(2ms);
         EXPECT_GE(timer.elapsed(), 2ms);
-        // 析构前不记账。
         EXPECT_EQ(registry.render(), "");
     }
 

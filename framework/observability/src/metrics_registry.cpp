@@ -7,6 +7,7 @@
 #include <mutex>
 #include <shared_mutex>
 #include <stdexcept>
+#include <system_error>
 #include <vector>
 
 namespace realm::observability {
@@ -77,12 +78,11 @@ const std::vector<double> default_histogram_buckets = {
     return std::string(buffer, result.ptr);
 }
 
-/// 桶上界的 le 文本:最短往返的定点格式(0.0001 不渲染成 1e-04),
-/// 亚毫秒桶在抓取端与面板里保持可读。
 [[nodiscard]] std::string format_bound(double value) {
-    char buffer[64];
+    char buffer[512];
     const auto result = std::to_chars(
         buffer, buffer + sizeof(buffer), value, std::chars_format::fixed);
+    if (result.ec != std::errc{}) throw std::system_error(std::make_error_code(result.ec));
     return std::string(buffer, result.ptr);
 }
 
@@ -103,7 +103,6 @@ void append_sample(
     output += '\n';
 }
 
-/// 系列在首次观测时拷入所属指标名的桶上界,之后布局不再变化。
 struct Histogram final {
     std::vector<double> upper_bounds;
     std::vector<std::uint64_t> buckets;
@@ -120,7 +119,6 @@ public:
     std::map<std::pair<std::string, std::string>, double> counters;
     std::map<std::pair<std::string, std::string>, double> gauges;
     std::map<std::pair<std::string, std::string>, Histogram> histograms;
-    /// 指标名 → 自定义桶上界;未登记的名字用默认桶。
     std::map<std::string, std::vector<double>, std::less<>> bucket_layouts;
     mutable std::shared_mutex mutex;
 };
@@ -170,19 +168,18 @@ void MetricsRegistry::histogram_buckets(
         }
     }
     std::unique_lock lock(impl_->mutex);
-    if (const auto existing = impl_->bucket_layouts.find(name);
-        existing != impl_->bucket_layouts.end()) {
-        if (existing->second == bounds) return;
-        throw std::logic_error(
-            "histogram buckets already registered: " + std::string(name));
-    }
-    // 名字是 (名, 标签) 键的前缀:lower_bound 落到该名首个系列。
     const auto observed = impl_->histograms.lower_bound({std::string(name), {}});
     if (observed != impl_->histograms.end() &&
         observed->first.first == name) {
         throw std::logic_error(
             "histogram already observed before bucket registration: " +
             std::string(name));
+    }
+    if (const auto existing = impl_->bucket_layouts.find(name);
+        existing != impl_->bucket_layouts.end()) {
+        if (existing->second == bounds) return;
+        throw std::logic_error(
+            "histogram buckets already registered: " + std::string(name));
     }
     impl_->bucket_layouts.emplace(std::string(name), std::move(bounds));
 }
@@ -193,14 +190,16 @@ void MetricsRegistry::histogram_observe(
     std::initializer_list<MetricLabel> labels) {
     const auto key = series_key(name, labels);
     std::unique_lock lock(impl_->mutex);
-    auto& histogram = impl_->histograms[key];
-    if (histogram.upper_bounds.empty()) {
+    auto series = impl_->histograms.lower_bound(key);
+    if (series == impl_->histograms.end() || series->first != key) {
         const auto layout = impl_->bucket_layouts.find(name);
-        histogram.upper_bounds = layout != impl_->bucket_layouts.end()
-                                     ? layout->second
-                                     : default_histogram_buckets;
-        histogram.buckets.assign(histogram.upper_bounds.size(), 0);
+        const auto& bounds = layout == impl_->bucket_layouts.end()
+                                 ? default_histogram_buckets
+                                 : layout->second;
+        series = impl_->histograms.emplace_hint(
+            series, key, Histogram{bounds, std::vector<std::uint64_t>(bounds.size())});
     }
+    auto& histogram = series->second;
     for (std::size_t i = 0; i < histogram.upper_bounds.size(); ++i) {
         if (value <= histogram.upper_bounds[i]) {
             ++histogram.buckets[i];

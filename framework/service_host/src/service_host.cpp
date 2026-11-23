@@ -44,8 +44,6 @@ constexpr std::string_view service_version = "0.1.0";
     return escaped;
 }
 
-/// 帧耗时指标(帧周期默认 50ms):帧内工作多在亚毫秒到数毫秒,默认桶
-/// (起于 5ms)分辨不出,改用 0.1ms~250ms 的桶。
 constexpr std::string_view frame_work_metric = "frame_work_duration_seconds";
 constexpr std::string_view service_tick_metric =
     "service_tick_duration_seconds";
@@ -69,7 +67,6 @@ ServiceHost::ServiceHost(
     : service_name_(service_name) {
     register_frame_buckets(metrics_registry_, frame_work_metric);
     register_frame_buckets(metrics_registry_, service_tick_metric);
-    // 超帧计数从 0 起发布,面板与 increase() 无需等首次超帧。
     metrics_registry_.counter_add(frame_overrun_metric, 0.0);
     // 纯配置校验先行:未注册服务名在装载配置或触碰 etcd 前即失败。
     const ServiceModuleRegistration* registration = modules.find(service_name);

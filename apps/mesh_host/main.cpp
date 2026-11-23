@@ -97,7 +97,6 @@ int main(int argc, char* argv[]) {
 
     realm::scheduler::SteadyFrameClock clock;
     realm::scheduler::FrameScheduler scheduler(20, clock);
-    // 帧耗时与超帧转交各服务的 /metrics(scheduler 只测量,不依赖指标库)。
     scheduler.set_frame_observer(
         [&mesh](const realm::scheduler::FrameTiming& frame) {
             mesh.record_frame(frame.work, frame.budget);

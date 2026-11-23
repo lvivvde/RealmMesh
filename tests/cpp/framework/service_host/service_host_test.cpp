@@ -182,7 +182,6 @@ TEST_F(ServiceHostTest, PublishesFrameTimingAndOverrunMetrics) {
     const ScopedTlsEnvironment tls_environment;
     ServiceHost host(root_, "host_test", modules_);
 
-    // 超帧计数从 0 起发布。
     EXPECT_NE(
         host.prometheus_metrics().find("\nframe_overrun_total 0\n"),
         std::string::npos);

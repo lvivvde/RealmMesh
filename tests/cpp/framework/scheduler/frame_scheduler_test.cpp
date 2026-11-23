@@ -19,7 +19,6 @@ public:
         now_ = deadline;
     }
 
-    /// 模拟帧回调本身的耗时。
     void advance(std::chrono::nanoseconds duration) { now_ += duration; }
 
     [[nodiscard]] const std::vector<TimePoint>& deadlines() const noexcept {
@@ -75,7 +74,6 @@ TEST(FrameSchedulerTest, ReportsWorkDurationAndOverrunPerFrame) {
         return frame.index < 3;
     }));
 
-    // 末帧(回调返回 false)同样上报。
     ASSERT_EQ(timings.size(), 3U);
     EXPECT_EQ(timings[0].index, 1U);
     EXPECT_EQ(timings[0].work, 3ms);
