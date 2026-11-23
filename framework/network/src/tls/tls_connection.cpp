@@ -28,6 +28,8 @@ TlsConnection::TlsConnection(
         throw std::runtime_error("SSL_set_fd failed");
     }
     SSL_set_accept_state(ssl_.get());
+    // ByteBuffer 追加可能重分配；重试仍保持原消息字节及长度。
+    SSL_set_mode(ssl_.get(), SSL_MODE_ACCEPT_MOVING_WRITE_BUFFER);
 }
 
 void TlsConnection::Deleter::operator()(SSL* ssl) const noexcept {
@@ -50,15 +52,27 @@ TlsIoState TlsConnection::accept_handshake() {
     return selected_alpn_size == 0U ? TlsIoState::Failed : TlsIoState::Ready;
 }
 
-TlsReceiveBatch TlsConnection::receive_frames() {
+bool TlsConnection::has_pending_input() const noexcept {
+    return SSL_has_pending(ssl_.get()) == 1;
+}
+
+TlsReceiveBatch TlsConnection::receive_frames(std::size_t max_read_bytes) {
     TlsReceiveBatch result;
+    std::size_t total_read = 0;
     std::array<std::byte, 8192> receive_buffer{};
     while (true) {
+        if (max_read_bytes != 0 && total_read >= max_read_bytes) {
+            result.state = TlsIoState::WantRead;
+            return result;
+        }
+        const auto remaining = max_read_bytes == 0 ? receive_buffer.size() :
+            std::min(receive_buffer.size(), max_read_bytes - total_read);
         std::size_t received = 0;
         ERR_clear_error();
         const int status = SSL_read_ex(
-            ssl_.get(), receive_buffer.data(), receive_buffer.size(), &received);
+            ssl_.get(), receive_buffer.data(), remaining, &received);
         if (status == 1) {
+            total_read += received;
             input_.append(std::span<const std::byte>{receive_buffer.data(), received});
             if (!decode_available(result.batch)) {
                 result.state = TlsIoState::Failed;
@@ -124,11 +138,13 @@ bool TlsConnection::queue_bytes(std::span<const std::byte> payload) {
 TlsIoState TlsConnection::flush_output() {
     while (!output_.empty()) {
         const auto pending = output_.readable_data();
+        if (retry_write_bytes_ == 0) retry_write_bytes_ = pending.size();
         std::size_t written = 0;
         ERR_clear_error();
         const int result = SSL_write_ex(
-            ssl_.get(), pending.data(), pending.size(), &written);
+            ssl_.get(), pending.data(), retry_write_bytes_, &written);
         if (result == 1) {
+            retry_write_bytes_ = 0;
             output_.consume(written);
             continue;
         }

@@ -18,6 +18,13 @@ namespace {
 const SceneCharacterKey key{42, 1, 7001};
 const SceneOwner owner{"realm-start-1", 11, "scene-a", "scene-start-1"};
 
+void ready_instance(
+    MongoPlayerDataStore& store, const SceneShardOwner& instance) {
+    const auto expected = store.scene_instance_state(instance.instance_id);
+    ASSERT_TRUE(store.compare_exchange_scene_instance(
+        expected, {instance.instance_id, instance.incarnation, false}));
+}
+
 void provision(MongoPlayerDataStore& store) {
     store.provision_account(
         {.account_id = key.account_id,
@@ -56,6 +63,196 @@ protected:
     test_support::MongodProcess& mongod{test_support::MongodProcess::shared()};
     std::string database{test_support::MongodProcess::fresh_database()};
 };
+
+class SceneShardStoreTest : public SceneStoreTest {};
+
+TEST_F(SceneShardStoreTest, ConcurrentAllocationHasOneDurableOwner) {
+    auto first = open();
+    auto second = open();
+    std::barrier start(2);
+    std::array<bool, 2> won{};
+    std::array<std::exception_ptr, 2> errors{};
+    const std::array<SceneShardRecord, 2> desired{
+        {{1, 1, 1, SceneShardOwner{"scene-a", "boot-a"}, false},
+         {1, 1, 1, SceneShardOwner{"scene-b", "boot-b"}, false}}};
+    ready_instance(first, *desired[0].owner);
+    ready_instance(first, *desired[1].owner);
+    auto claim = [&](std::size_t i, MongoPlayerDataStore& store) {
+        start.arrive_and_wait();
+        try {
+            won[i] = store.compare_exchange_shard(std::nullopt, desired[i]);
+        } catch (...) {
+            errors[i] = std::current_exception();
+        }
+    };
+    std::jthread a([&] {
+        claim(0, first);
+    });
+    std::jthread b([&] {
+        claim(1, second);
+    });
+    a.join();
+    b.join();
+    ASSERT_FALSE(errors[0]);
+    ASSERT_FALSE(errors[1]);
+    EXPECT_NE(won[0], won[1]);
+    EXPECT_EQ(first.shard_state(1, 1), std::optional(desired[won[0] ? 0 : 1]));
+    EXPECT_EQ(
+        mongod.eval(database, "print(db.scene_shards.countDocuments())"), "1");
+    EXPECT_FALSE(first.compare_exchange_shard(std::nullopt, desired[0]));
+}
+
+TEST_F(
+    SceneShardStoreTest, DrainingFencesNewAdmissionButKeepsExistingMovement) {
+    auto store = open();
+    provision(store);
+    SceneShardRecord shard{
+        1,
+        1,
+        1,
+        SceneShardOwner{owner.scene_instance_id, owner.scene_incarnation},
+        false};
+    ready_instance(store, *shard.owner);
+    ASSERT_TRUE(store.compare_exchange_shard(std::nullopt, shard));
+    auto enter = enter_write();
+    enter.owner.shard_version = 1;
+    ASSERT_EQ(store.commit_scene(enter).outcome, SceneWriteOutcome::Committed);
+    auto draining = shard;
+    draining.draining = true;
+    ASSERT_TRUE(store.compare_exchange_shard(shard, draining));
+    EXPECT_EQ(store.shard_state(1, 1)->version, 1);
+    auto move = move_write();
+    move.owner.shard_version = 1;
+    move.expected_owner = move.owner;
+    EXPECT_EQ(store.commit_scene(move).outcome, SceneWriteOutcome::Committed);
+    const auto before = store.scene_state(key);
+    auto reenter = enter;
+    reenter.expected_epoch = 1;
+    reenter.expected_owner = enter.owner;
+    reenter.command.seq = 3;
+    reenter.location = *before->confirmed_location;
+    EXPECT_EQ(
+        store.commit_scene(reenter).outcome, SceneWriteOutcome::StaleBinding);
+    EXPECT_EQ(store.scene_state(key), before);
+    EXPECT_THROW(
+        static_cast<void>(store.compare_exchange_shard(draining, shard)),
+        PlayerDataError);
+}
+
+TEST_F(SceneShardStoreTest, NewCarrierFencesOldWriteAndPreservesLogicalShard) {
+    auto store = open();
+    provision(store);
+    const SceneShardRecord first{
+        1,
+        1,
+        1,
+        SceneShardOwner{owner.scene_instance_id, owner.scene_incarnation},
+        false};
+    ready_instance(store, *first.owner);
+    ready_instance(store, {"scene-b", "boot-b"});
+    ASSERT_TRUE(store.compare_exchange_shard(std::nullopt, first));
+    auto enter = enter_write();
+    enter.owner.shard_version = 1;
+    ASSERT_EQ(store.commit_scene(enter).outcome, SceneWriteOutcome::Committed);
+    auto next = first;
+    next.version = 2;
+    next.owner = SceneShardOwner{"scene-b", "boot-b"};
+    ASSERT_TRUE(store.compare_exchange_shard(first, next));
+    auto old = move_write();
+    old.owner = enter.owner;
+    old.expected_owner = enter.owner;
+    EXPECT_EQ(store.commit_scene(old).outcome, SceneWriteOutcome::StaleBinding);
+    EXPECT_EQ(store.scene_state(key)->last_result->command.seq, 1);
+    auto recovery = enter;
+    recovery.expected_epoch = 1;
+    recovery.expected_owner = enter.owner;
+    recovery.owner.scene_instance_id = "scene-b";
+    recovery.owner.scene_incarnation = "boot-b";
+    recovery.owner.shard_version = 2;
+    recovery.command.seq = 2;
+    const auto restored = store.commit_scene(recovery);
+    ASSERT_EQ(restored.outcome, SceneWriteOutcome::Committed);
+    EXPECT_EQ(
+        restored.state->confirmed_location,
+        std::optional(SceneLocation{1, 0, 0}));
+    EXPECT_EQ(restored.state->binding_epoch, 2);
+    EXPECT_EQ(restored.state->owner->shard_version, 2);
+    EXPECT_FALSE(store.compare_exchange_shard(first, next));
+}
+
+TEST_F(SceneShardStoreTest, ReleaseCannotReuseVersionOrSkipDraining) {
+    auto store = open();
+    SceneShardRecord first{
+        1, 1, 1, SceneShardOwner{"scene-a", "boot-a"}, false};
+    ready_instance(store, *first.owner);
+    ASSERT_TRUE(store.compare_exchange_shard(std::nullopt, first));
+    SceneShardRecord released{1, 1, 2, std::nullopt, false};
+    EXPECT_THROW(
+        static_cast<void>(store.compare_exchange_shard(first, released)),
+        PlayerDataError);
+    auto draining = first;
+    draining.draining = true;
+    ASSERT_TRUE(store.compare_exchange_shard(first, draining));
+    ASSERT_TRUE(store.compare_exchange_shard(draining, released));
+    EXPECT_FALSE(store.compare_exchange_shard(std::nullopt, first));
+    auto next = first;
+    next.version = 3;
+    ASSERT_TRUE(store.compare_exchange_shard(released, next));
+    EXPECT_EQ(store.shard_state(1, 1)->version, 3);
+    auto skipped = next;
+    skipped.version = 5;
+    skipped.owner = SceneShardOwner{"scene-b", "boot-b"};
+    EXPECT_THROW(
+        static_cast<void>(store.compare_exchange_shard(next, skipped)),
+        PlayerDataError);
+}
+
+TEST_F(SceneShardStoreTest, InstanceDrainAndAllocationAreAtomicallyFenced) {
+    auto first = open();
+    auto second = open();
+    const SceneInstanceState ready{"scene-a", "boot-a", false};
+    ASSERT_TRUE(first.compare_exchange_scene_instance(std::nullopt, ready));
+    auto draining = ready;
+    draining.draining = true;
+    const SceneShardRecord desired{
+        1, 1, 1, SceneShardOwner{"scene-a", "boot-a"}, false};
+    std::barrier start(2);
+    bool claimed = false, drained = false;
+    std::array<std::exception_ptr, 2> errors{};
+    std::jthread a([&] {
+        start.arrive_and_wait();
+        try {
+            claimed = first.compare_exchange_shard(std::nullopt, desired);
+        } catch (...) {
+            errors[0] = std::current_exception();
+        }
+    });
+    std::jthread b([&] {
+        start.arrive_and_wait();
+        try {
+            drained = second.compare_exchange_scene_instance(ready, draining);
+        } catch (...) {
+            errors[1] = std::current_exception();
+        }
+    });
+    a.join();
+    b.join();
+    ASSERT_FALSE(errors[0]);
+    ASSERT_FALSE(errors[1]);
+    ASSERT_TRUE(drained);
+    EXPECT_EQ(first.scene_instance_state("scene-a"), std::optional(draining));
+    const auto shard = first.shard_state(1, 1);
+    EXPECT_EQ(shard.has_value(), claimed);
+    if (shard) EXPECT_TRUE(shard->draining);
+    auto late = desired;
+    late.shard_id = 2;
+    EXPECT_FALSE(first.compare_exchange_shard(std::nullopt, late));
+    EXPECT_FALSE(first.shard_state(1, 2));
+    EXPECT_THROW(
+        static_cast<void>(
+            first.compare_exchange_scene_instance(draining, ready)),
+        PlayerDataError);
+}
 
 TEST_F(SceneStoreTest, ConcurrentLazyInitializationPreservesOneRecord) {
     auto first = open();

@@ -19,6 +19,7 @@ enum Operation {
     OPERATION_SNAPSHOT = 5;
     OPERATION_REMOVE = 6;
     OPERATION_SET_DRAINING = 7;
+    OPERATION_STATUS = 8;
 }
 enum Status {
     STATUS_UNSPECIFIED = 0;
@@ -36,6 +37,21 @@ message Route {
     uint64 binding_epoch = 3;
     uint64 session_binding = 4;
     uint64 shard_id = 5;
+    uint64 shard_version = 6;
+}
+enum DrainPhase {
+    DRAIN_PHASE_UNSPECIFIED = 0;
+    DRAIN_PHASE_IDLE = 1;
+    DRAIN_PHASE_RUNNING = 2;
+    DRAIN_PHASE_COMPLETE = 3;
+    DRAIN_PHASE_FAILED = 4;
+}
+message ShardStatus {
+    uint32 realm_id = 1;
+    uint64 shard_id = 2;
+    uint64 version = 3;
+    uint32 active_members = 4;
+    uint32 prepared_members = 5;
 }
 message SceneRequest {
     string realm_incarnation = 1;
@@ -51,6 +67,11 @@ message SceneRequest {
     // SNAPSHOT 无 Route，只指定分片。SET_DRAINING 针对整个实例。
     uint64 shard_id = 9;
     bool draining = 10;
+    // 动态 SNAPSHOT 的承载版本；角色消息使用 Route.shard_version。
+    uint64 shard_version = 11;
+    // 排空尝试幂等标识；同标识不延长截止。
+    string drain_id = 12;
+    uint32 drain_timeout_ms = 13;
 }
 message SceneReply {
     string realm_incarnation = 1;
@@ -65,6 +86,12 @@ message SceneReply {
     realmmesh.protocol.scene.v1.Snapshot snapshot = 9;
     bool draining = 10;
     uint32 active_members = 11;
+    uint32 prepared_members = 12;
+    bool dynamic = 13;
+    bool business_ready = 14;
+    DrainPhase drain_phase = 15;
+    string drain_id = 16;
+    repeated ShardStatus shards = 17;
 }
 message ScenePush {
     string realm_incarnation = 1;

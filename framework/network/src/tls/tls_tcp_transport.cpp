@@ -4,6 +4,7 @@
 
 #include <stdexcept>
 #include <utility>
+#include <unordered_set>
 
 namespace realm::network {
 
@@ -41,6 +42,7 @@ std::vector<TransportEvent> TlsTcpTransport::poll_once(
     std::vector<PendingClose> connections_to_close;
     const auto listener_handle =
         to_event_loop_handle(listener_.native_handle());
+    std::unordered_set<EventLoopHandle> serviced;
     for (const auto& ready : ready_events) {
         if (ready.handle == listener_handle) {
             if (ready.readable) {
@@ -50,11 +52,19 @@ std::vector<TransportEvent> TlsTcpTransport::poll_once(
         }
         const auto iterator = connections_.find(ready.handle);
         if (iterator != connections_.end()) {
+            if (config_.max_receive_batch_bytes != 0) serviced.insert(ready.handle);
             service_connection(
                 iterator->second, ready, events, connections_to_close);
         }
     }
 
+    // 上轮预算用尽后，SSL可能已有缓冲而fd不再可读；下一轮仍须继续消费。
+    if (config_.max_receive_batch_bytes != 0) {
+        for (auto& [handle, entry] : connections_) {
+            if (!serviced.contains(handle) && entry.handshake_complete && entry.connection.has_pending_input())
+                service_connection(entry, ReadyEvent{handle, true, false, false, false}, events, connections_to_close);
+        }
+    }
     const auto now = std::chrono::steady_clock::now();
     for (const auto& [handle, entry] : connections_) {
         if (!entry.handshake_complete &&
@@ -86,6 +96,15 @@ bool TlsTcpTransport::send(
     }
     auto& entry = iterator->second;
     if (!entry.connection.queue_frame(payload)) {
+        if (logger_ != nullptr) {
+            static_cast<void>(logger_->warn(
+                "outbound_queue_rejected", "tls output high watermark exceeded",
+                {observability::field("transport_name", config_.name),
+                 observability::field("session_id", session_id),
+                 observability::field("payload_bytes", payload.size()),
+                 observability::field("max_pending_output_bytes", config_.max_pending_output_bytes),
+                 observability::field("has_pending_output", entry.connection.has_pending_output())}));
+        }
         return false;
     }
     entry.io_need = entry.connection.flush_output();
@@ -201,7 +220,7 @@ void TlsTcpTransport::service_connection(
     }
 
     if (!close_now && entry.handshake_complete && ready.readable) {
-        auto received = entry.connection.receive_frames();
+        auto received = entry.connection.receive_frames(config_.max_receive_batch_bytes);
         entry.io_need = received.state;
         if (received.batch.status == ReceiveStatus::FrameTooLarge) {
             close_now = true;

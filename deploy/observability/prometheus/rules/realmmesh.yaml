@@ -113,3 +113,20 @@ groups:
         annotations:
           summary: Scene 请求持续遇到有界队列满额
           description: 检查场景指令延迟与 Scene 可用性,心跳与训练使用独立处理路径。
+
+      - alert: SceneDrainFailed
+        expr: scene_drain_failed > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: Scene 排空已到截止仍未完成
+          description: 检查目标容量、待确认转场与剩余承载分片；相同排空标识不会重置截止，修复后用新的尝试标识重试。
+
+      - alert: SceneShardReconciliationFailing
+        expr: increase(scene_shard_reconcile_errors_total[5m]) > 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: Scene 分片承载协调持续遇到错误
+          description: 检查 MongoDB 多数派与发现状态；承载 CAS 结果不确定时必须回读，不手工删除记录或重置版本。

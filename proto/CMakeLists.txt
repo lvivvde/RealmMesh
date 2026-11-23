@@ -1,6 +1,7 @@
 set(realm_protocol_generated_dir "${CMAKE_CURRENT_BINARY_DIR}/generated")
 set(realm_protocol_sources
     realmmesh/common/v1/envelope.proto
+    realmmesh/chat/v1/chat.proto
     realmmesh/edge/v1/edge.proto
     realmmesh/realm/v1/realm.proto
     realmmesh/scene/v1/scene.proto
@@ -8,6 +9,7 @@ set(realm_protocol_sources
 )
 set(realm_protocol_generated_sources
     "${realm_protocol_generated_dir}/realmmesh/common/v1/envelope.pb.cc"
+    "${realm_protocol_generated_dir}/realmmesh/chat/v1/chat.pb.cc"
     "${realm_protocol_generated_dir}/realmmesh/edge/v1/edge.pb.cc"
     "${realm_protocol_generated_dir}/realmmesh/realm/v1/realm.pb.cc"
     "${realm_protocol_generated_dir}/realmmesh/scene/v1/scene.pb.cc"
@@ -15,6 +17,7 @@ set(realm_protocol_generated_sources
 )
 set(realm_protocol_generated_headers
     "${realm_protocol_generated_dir}/realmmesh/common/v1/envelope.pb.h"
+    "${realm_protocol_generated_dir}/realmmesh/chat/v1/chat.pb.h"
     "${realm_protocol_generated_dir}/realmmesh/edge/v1/edge.pb.h"
     "${realm_protocol_generated_dir}/realmmesh/realm/v1/realm.pb.h"
     "${realm_protocol_generated_dir}/realmmesh/scene/v1/scene.pb.h"

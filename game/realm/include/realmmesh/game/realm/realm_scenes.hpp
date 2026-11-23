@@ -25,7 +25,8 @@ public:
         common::RealmSceneStore& store,
         RealmOutbox& outbox,
         const RealmConfig& config,
-        observability::MetricsRegistry& metrics);
+        observability::MetricsRegistry& metrics,
+        common::SceneShardStore* shards = nullptr);
     ~RealmScenes();
     RealmScenes(const RealmScenes&) = delete;
     RealmScenes& operator=(const RealmScenes&) = delete;
@@ -38,6 +39,13 @@ public:
     void endpoint(
         const std::optional<network::TransportEndpoint>& value,
         std::string_view instance_id = {});
+    void discovery_ready(bool ready);
+    struct ChatBinding {
+        std::uint64_t shard_id, binding_epoch;
+    };
+    /// 仅已确认、已激活且没有待处理转场的归属；无网络/存储等待。
+    [[nodiscard]] std::optional<ChatBinding> chat_binding(
+        edge::EdgeConnectionId) const;
 
 private:
     // RealmSessions 的现有消费者不需要带入 TLS、线程队列和内部协议布局。

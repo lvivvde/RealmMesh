@@ -15,6 +15,7 @@
 #include <unistd.h>
 
 #include <array>
+#include <cerrno>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
@@ -196,7 +197,19 @@ public:
         }
         static_cast<void>(::kill(pid_, SIGTERM));
         int status = 0;
-        static_cast<void>(::waitpid(pid_, &status, 0));
+        const auto deadline =
+            std::chrono::steady_clock::now() + std::chrono::seconds{2};
+        for (;;) {
+            const auto reaped = ::waitpid(pid_, &status, WNOHANG);
+            if (reaped == pid_ || (reaped < 0 && errno == ECHILD)) break;
+            if (std::chrono::steady_clock::now() >= deadline) {
+                static_cast<void>(::kill(pid_, SIGKILL));
+                while (::waitpid(pid_, &status, 0) < 0 && errno == EINTR) {
+                }
+                break;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds{5});
+        }
         pid_ = -1;
         std::error_code error;
         std::filesystem::remove_all(data_dir_, error);
