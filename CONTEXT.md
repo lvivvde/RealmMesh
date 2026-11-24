@@ -200,6 +200,10 @@ _Avoid_: Scene incarnation、全局消息序号、历史版本
 说明消息已被频道受理并取得顺序的回执；它与接收者独立推进的通知水位不同，不表示其他角色已收到或阅读，也不表示可离线恢复。
 _Avoid_: 已送达、已读、持久提交
 
+**Chat Notification Watermark**（聊天通知水位）:
+接收者在单个 Chat Membership 与 Chat Channel Epoch 中已经连续交付的频道序号；缺口或通知缓存溢出会终止这段连续性，它不是发送回执或历史游标。
+_Avoid_: Chat Receipt（发送受理边界）、已送达水位、历史游标
+
 ### Messaging
 
 **Envelope**:

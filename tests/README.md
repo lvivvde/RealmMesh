@@ -200,3 +200,40 @@ S5 的 SceneFaultJourneyTest 使用独占的真实 MongoDB 副本集与生产服
 
 定向入口：`ctest --preset dev -R 'PlayerDataPoolTest|PlayerDataTransactionTest|PlayerDataRetryFailureTest|RealmTransactionFailureTest' --output-on-failure`。
 事务预算在操作之间检查；同步驱动调用和 abort 清理不能被预算中途取消，详见架构文档。
+
+## Chat C4 双承载验收
+
+`DualSceneDualChatJourneyTest`注册在已有`scene_journey_test`目标中，沿用其`integration`、
+`RUN_SERIAL`与360秒截止。夹具拉起生产登录入口组、一个Realm、动态Scene A/B、Chat A/B、
+真实etcd及隔离MongoDB；测试CA另生成`chat-dev-02.chat.service`精确身份。Chat A静态承载
+Realm Channel和分片1，Chat B静态承载分片2，不允许发现失败后改投。
+
+三条旅程覆盖显式转场/单Chat故障/同名重启、同分片换承载重建、Scene排空迁移；逐例核对
+Scene Channel隔离、跨Scene Realm Channel顺序与连续资格、旧资格过滤、新Epoch/W、训练/心跳
+共存，以及MongoDB场景序号、Confirmed Location、旧写隔离。夹具结束核对入口、Realm、
+Scene A/B、Chat A/B、etcd与监听回收，共享MongoDB由CTest fixture清理。定向运行：
+
+```sh
+ctest --preset dev -j 1 -R '^(MongoCtestFixturePrepare|DualSceneDualChatJourneyTest\.|MongoCtestFixtureCleanup)'
+```
+
+## Chat C5 组合故障与阶段总验收
+
+`./scripts/run-chat-acceptance.sh --preset NAME --jobs N`沿用preset实际`binaryDir`和公共构建预算，
+构建并串行执行C1–C4全部Chat相关目标及C5新增矩阵。必需分组包括`ChatProtocolTest`、
+`ChatChannelsTest`、`ChatServiceTest`、`RealmChatTest`、`ChatSessionTest`、`ChatJourneyTest`与
+`DualSceneDualChatJourneyTest`；它们分别守住线格式、排序/资格、生产mTLS、Realm异步接线、
+参考客户端、真实入口组和双承载Scene回归。
+
+C5新增两条不能互相替代的饱和证据：`ChatServiceTest`在默认1MiB出站上限下让真实mTLS慢端
+停止读取，并从结构化日志确认已有积压后的`outbound_queue_rejected`；`ChatSessionTest`在真实
+TLS参考客户端边界注入第257条通知，确认256条/256KiB缓存溢出只关闭该Realm Session。另有
+Realm SIGKILL/同名重启旅程核对新活动链路、旧资格清理及既有Scene/训练事实。
+
+每次运行写入`<binaryDir>/acceptance/chat-reference-loop/<UTC>-<pid>/`，冻结工作区和配置SHA256，
+保存发现清单、JUnit、GTest属性、实际HTTP指标（含零值拒绝系列）、原始服务日志和报告，并在
+目录旁生成tar.gz与`.sha256`。缺组、缺矩阵用例、缺数据库/回收/指标/日志、跳过、失败或运行中
+源码变化均非零；失败目录与归档不覆盖。macOS/Linux CI将报告、归档及校验文件上传为
+`chat-c1-c5-<OS>-<run>-<attempt>` artifact，且缺文件即失败；configure失败会写入已登记binaryDir，
+没有登记时写`.local/acceptance/chat-reference-loop/`，失败证据同样上传。阶段门禁要求两平台各
+保留三次独立完整运行，不能用报告器合成测试或单次本机通过替代。
