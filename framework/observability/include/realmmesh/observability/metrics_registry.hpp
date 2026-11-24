@@ -15,9 +15,6 @@ using MetricLabel = std::pair<std::string_view, std::string_view>;
 /// 极小 Prometheus 指标注册表(#47):线程安全的 counter/gauge/histogram
 /// 记账与文本格式渲染。只做计数与渲染,不做推送、不建连接——上报通道
 /// 仍是既有 MetricsServer。指标名不加服务前缀:/metrics 端点按服务隔离。
-/// counter 两态:counter_add 事件累计;counter_set 轮询发布累计源
-/// (下调按 Prometheus 语义视为 reset)。histogram 固定默认桶
-/// (0.005~10,+Inf)。渲染按指标名排序、家族内按标签序列排序,输出确定。
 class MetricsRegistry final {
 public:
     MetricsRegistry();
@@ -41,7 +38,8 @@ public:
         std::string_view name,
         double value,
         std::initializer_list<MetricLabel> labels = {});
-    /// histogram 累计一次观测。
+    void histogram_buckets(
+        std::string_view name, std::initializer_list<double> upper_bounds);
     void histogram_observe(
         std::string_view name,
         double value,

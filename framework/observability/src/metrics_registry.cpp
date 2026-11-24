@@ -2,9 +2,12 @@
 
 #include <algorithm>
 #include <charconv>
+#include <cmath>
 #include <map>
 #include <mutex>
 #include <shared_mutex>
+#include <stdexcept>
+#include <system_error>
 #include <vector>
 
 namespace realm::observability {
@@ -12,7 +15,7 @@ namespace {
 
 /// Prometheus 默认直方图桶(秒):覆盖 1ms~10s,延迟桩(~100ms)与
 /// 真 DB 拉取都落在档内。
-constexpr double histogram_buckets[] = {
+const std::vector<double> default_histogram_buckets = {
     0.005, 0.01, 0.025, 0.05,  0.075, 0.1,  0.25, 0.5,
     0.75,  1.0,  2.5,   5.0,   7.5,   10.0};
 
@@ -75,6 +78,14 @@ constexpr double histogram_buckets[] = {
     return std::string(buffer, result.ptr);
 }
 
+[[nodiscard]] std::string format_bound(double value) {
+    char buffer[512];
+    const auto result = std::to_chars(
+        buffer, buffer + sizeof(buffer), value, std::chars_format::fixed);
+    if (result.ec != std::errc{}) throw std::system_error(std::make_error_code(result.ec));
+    return std::string(buffer, result.ptr);
+}
+
 /// 样本行:<name>{<labels>} <value>;无标签省略花括号。
 void append_sample(
     std::string& output,
@@ -93,7 +104,8 @@ void append_sample(
 }
 
 struct Histogram final {
-    std::uint64_t buckets[sizeof(histogram_buckets) / sizeof(double)]{};
+    std::vector<double> upper_bounds;
+    std::vector<std::uint64_t> buckets;
     double sum{0.0};
     std::uint64_t count{0};
 };
@@ -107,6 +119,7 @@ public:
     std::map<std::pair<std::string, std::string>, double> counters;
     std::map<std::pair<std::string, std::string>, double> gauges;
     std::map<std::pair<std::string, std::string>, Histogram> histograms;
+    std::map<std::string, std::vector<double>, std::less<>> bucket_layouts;
     mutable std::shared_mutex mutex;
 };
 
@@ -141,15 +154,54 @@ void MetricsRegistry::gauge_set(
     impl_->gauges[key] = value;
 }
 
+void MetricsRegistry::histogram_buckets(
+    std::string_view name, std::initializer_list<double> upper_bounds) {
+    std::vector<double> bounds(upper_bounds);
+    if (bounds.empty()) {
+        throw std::invalid_argument("histogram buckets must not be empty");
+    }
+    for (std::size_t i = 0; i < bounds.size(); ++i) {
+        if (!std::isfinite(bounds[i]) ||
+            (i > 0 && !(bounds[i - 1] < bounds[i]))) {
+            throw std::invalid_argument(
+                "histogram buckets must be finite and strictly increasing");
+        }
+    }
+    std::unique_lock lock(impl_->mutex);
+    const auto observed = impl_->histograms.lower_bound({std::string(name), {}});
+    if (observed != impl_->histograms.end() &&
+        observed->first.first == name) {
+        throw std::logic_error(
+            "histogram already observed before bucket registration: " +
+            std::string(name));
+    }
+    if (const auto existing = impl_->bucket_layouts.find(name);
+        existing != impl_->bucket_layouts.end()) {
+        if (existing->second == bounds) return;
+        throw std::logic_error(
+            "histogram buckets already registered: " + std::string(name));
+    }
+    impl_->bucket_layouts.emplace(std::string(name), std::move(bounds));
+}
+
 void MetricsRegistry::histogram_observe(
     std::string_view name,
     double value,
     std::initializer_list<MetricLabel> labels) {
     const auto key = series_key(name, labels);
     std::unique_lock lock(impl_->mutex);
-    auto& histogram = impl_->histograms[key];
-    for (std::size_t i = 0; i < std::size(histogram_buckets); ++i) {
-        if (value <= histogram_buckets[i]) {
+    auto series = impl_->histograms.lower_bound(key);
+    if (series == impl_->histograms.end() || series->first != key) {
+        const auto layout = impl_->bucket_layouts.find(name);
+        const auto& bounds = layout == impl_->bucket_layouts.end()
+                                 ? default_histogram_buckets
+                                 : layout->second;
+        series = impl_->histograms.emplace_hint(
+            series, key, Histogram{bounds, std::vector<std::uint64_t>(bounds.size())});
+    }
+    auto& histogram = series->second;
+    for (std::size_t i = 0; i < histogram.upper_bounds.size(); ++i) {
+        if (value <= histogram.upper_bounds[i]) {
             ++histogram.buckets[i];
         }
     }
@@ -195,14 +247,13 @@ std::string MetricsRegistry::render() const {
         Family family{key.first, "histogram", {}};
         const auto& name = key.first;
         const auto& labels = key.second;
-        for (std::size_t i = 0; i < std::size(histogram_buckets); ++i) {
+        for (std::size_t i = 0; i < histogram.upper_bounds.size(); ++i) {
+            const auto bound = format_bound(histogram.upper_bounds[i]);
             append_sample(
                 family.samples,
                 name + "_bucket",
-                labels.empty()
-                    ? "le=\"" + format_value(histogram_buckets[i]) + "\""
-                    : labels + ",le=\"" +
-                          format_value(histogram_buckets[i]) + "\"",
+                labels.empty() ? "le=\"" + bound + "\""
+                               : labels + ",le=\"" + bound + "\"",
                 format_value(static_cast<double>(histogram.buckets[i])));
         }
         append_sample(

@@ -64,3 +64,9 @@ Scene S2 新增 `scene.json` 仪表盘和两条告警（待回读写入、持续
 Realm 的 9102 暴露指令结果/延迟、绑定、排队拒绝、旧版本拒绝和快照重同步；
 独立 Scene 的 9106 暴露可见/准备成员与排空状态。指标标签只使用有限操作和结果，
 不包含账号或角色。启用 Scene 后将其指标端点纳入采集；本机开发目标已列出 9106。
+
+帧耗时：每个服务的 `/metrics` 都发布 `frame_work_duration_seconds`（主循环每帧工作耗时，
+0.1ms~250ms 桶）、`service_tick_duration_seconds`（本服务模块 tick 份额）、
+`frame_overrun_total`（超过帧周期的帧数）与 `frame_budget_seconds`。指标不带服务标签，
+`realm.json` 与 `scene.json` 的帧耗时 P50/P99 与超帧面板用
+`and on (instance) realmmesh_service_ready{service_name="…"}` 选出对应服务。

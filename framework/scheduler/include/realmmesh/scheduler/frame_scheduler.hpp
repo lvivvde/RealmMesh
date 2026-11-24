@@ -29,12 +29,24 @@ struct FrameContext {
     std::chrono::nanoseconds delta;
 };
 
+struct FrameTiming {
+    std::uint64_t index;
+    std::chrono::nanoseconds work;
+    std::chrono::nanoseconds budget;
+
+    [[nodiscard]] bool overrun() const noexcept { return work > budget; }
+};
+
+using FrameObserver = std::function<void(const FrameTiming&)>;
+
 class FrameScheduler {
 public:
     FrameScheduler(std::uint32_t tick_rate, IFrameClock& clock);
 
     [[nodiscard]] std::uint32_t tick_rate() const noexcept;
     [[nodiscard]] std::chrono::nanoseconds frame_duration() const noexcept;
+
+    void set_frame_observer(FrameObserver observer);
 
     template <typename Callback>
         requires std::invocable<Callback&, FrameContext> &&
@@ -50,7 +62,17 @@ public:
         while (true) {
             ++frame_index;
             const FrameContext context{frame_index, frame_duration_};
-            if (!static_cast<bool>(std::invoke(callback, context))) {
+            const auto work_start = clock_.now();
+            const bool keep_running =
+                static_cast<bool>(std::invoke(callback, context));
+            if (observer_) {
+                observer_(FrameTiming{
+                    frame_index,
+                    std::chrono::duration_cast<std::chrono::nanoseconds>(
+                        clock_.now() - work_start),
+                    frame_duration_});
+            }
+            if (!keep_running) {
                 return frame_index;
             }
 
@@ -63,6 +85,7 @@ private:
     std::uint32_t tick_rate_;
     std::chrono::nanoseconds frame_duration_;
     IFrameClock& clock_;
+    FrameObserver observer_;
 };
 
 }  // namespace realm::scheduler
