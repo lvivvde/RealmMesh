@@ -13,8 +13,6 @@ enum class ServiceState : std::uint8_t {
     Stopped,
 };
 
-/// 以 CAS 串行化生命周期迁移；只允许
-/// Created→Initializing→Ready/Stopping→Stopped，Stopped 为终态。
 class ServiceLifecycle final {
 public:
     ServiceLifecycle() = default;

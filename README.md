@@ -250,12 +250,11 @@ Watch 该前缀，按 `min(Σ网关 fetch_free/conn_free, Σ业务服 conn_free,
 
 ## 构建
 
-平台支持等级见 [ADR-0017](docs/adr/0017-linux-development-baseline.md)（部分取代
-[ADR-0002](docs/adr/0002-cross-platform-support-policy.md) 与
-[ADR-0012](docs/adr/0012-macos-local-quic.md)）：Linux（Ubuntu 24.04，WSL2 为本地参考）同时是
-生产与开发基准（缺失 MsQuic 即配置失败；编译、起拓扑、`ctest` 全绿与 CI 的 QUIC 回归都以此为准），
-macOS 是可选开发平台（不阻塞主路径；装了 Homebrew `libmsquic` 即在本地编入并测试 QUIC，未装则
-`TransportFactory` 按平台能力禁用 QUIC，只走 TLS/TCP；平台差异以条件分支保留），Windows 当前只交付后端开关（`iocp` 可配置但显式未实现，不进 CI）。同一构建只编入一个平台后端，
+三平台支持等级见 [ADR-0002](docs/adr/0002-cross-platform-support-policy.md) 与
+[ADR-0012](docs/adr/0012-macos-local-quic.md)：Linux 是生产与行为基准（缺失 MsQuic
+即配置失败，CI 的 QUIC 回归在此），macOS 是开发基准（编译、起拓扑、`ctest` 全绿；
+装了 Homebrew `libmsquic` 即在本地编入并测试 QUIC，未装则 `TransportFactory` 按平台
+能力禁用 QUIC，只走 TLS/TCP），Windows 当前只交付后端开关（`iocp` 可配置但显式未实现，不进 CI）。同一构建只编入一个平台后端，
 后端在配置期选定（[ADR-0001](docs/adr/0001-compile-time-platform-backends.md)）。
 
 共同要求：CMake 3.20+、Ninja 1.11+（默认预设 `dev` 的生成器；没有 Ninja 时配置会停下并提示，
@@ -263,7 +262,7 @@ macOS 是可选开发平台（不阻塞主路径；装了 Homebrew `libmsquic` �
 libsodium、nlohmann/json、cpp-httplib、protobuf、spdlog）随源码树一并构建，无需另行
 安装。
 
-Ubuntu 24.04（生产与开发基准，含 QUIC）：
+Ubuntu 24.04（生产基准，含 QUIC）：
 
 ```bash
 sudo apt install libssl-dev libnuma1 ninja-build
@@ -289,7 +288,7 @@ MsQuic 与 libnuma 的库目录会写进可执行文件 RUNPATH；但 RUNPATH �
 它们缺失时 `ldd build/<预设目录>/bin/realm_mesh` 会显示 `not found`。macOS 对应的是 `DYLD_LIBRARY_PATH`，
 Homebrew 库自带绝对 install name，通常不需要设置。
 
-macOS（可选开发平台；装 `libmsquic` 即本地启用 QUIC，不装则只走 TLS/TCP）：
+macOS（开发基准；装 `libmsquic` 即本地启用 QUIC，不装则只走 TLS/TCP）：
 
 ```bash
 brew install openssl@3 ninja libmsquic
