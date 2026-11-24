@@ -362,6 +362,12 @@ MsQuic 自有调度不会直接调用业务逻辑。回调只完成长度帧组�
 
 ## 分层
 
+`tools/browser-demo` 是面向开发者的浏览器演示入口。网页从本机 Node.js 进程加载，
+用同源 WebSocket 传递玩家操作与显示状态。每个窗口对应一个 C++ 子进程，独占一份
+Login Chain 与后续 Realm Session，使用 `game/client` 完成登录、选角和 Scene 操作。
+窗口断开时回收子进程。该接口属于演示工具，Gateway、Realm、Scene 沿用既有协议。
+启用本机注册时，兼容进程通过 Player Data Store 的仅插入接口开通开发账号，重名不覆盖凭据。浏览器不取得数据库连接信息；注册后的登录仍经过 Login Verifier。
+
 依赖方向与 framework 的严格判据见 [ADR-0014](adr/0014-four-layer-dependency-direction.md)，新功能的归属查 [code-layout](agents/code-layout.md)。四处倒挂已按 ADR 五步全部移除，`layering_guard_test` 不再带白名单：任何反向依赖都直接失败。
 
 - `framework/network`：QUIC、TLS/TCP、长度帧、客户端竞速策略、自研 HTTPS 服务边。

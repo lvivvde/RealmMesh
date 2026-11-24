@@ -1,0 +1,674 @@
+<!doctype html>
+<html lang="zh-CN">
+  <meta charset="utf-8" /><meta
+    name="viewport"
+    content="width=device-width,initial-scale=1"
+  />
+  <title>RealmMesh · 边境营地</title>
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+    body {
+      margin: 0;
+      background: #172c32;
+      color: #f1ecd9;
+      font: 16px system-ui;
+    }
+    main {
+      max-width: 900px;
+      margin: auto;
+      padding: 5vh 5vw;
+    }
+    small {
+      letter-spacing: 0.2em;
+      color: #9bd2bb;
+    }
+    h1 {
+      font-size: clamp(28px, 6vw, 54px);
+      margin: 0.3em 0;
+    }
+    input,
+    button {
+      font: inherit;
+      padding: 0.7em;
+      border-radius: 8px;
+      border: 1px solid #718a85;
+      margin: 4px;
+    }
+    button {
+      background: #eace8c;
+      cursor: pointer;
+    }
+    canvas {
+      width: 100%;
+      background: #91b8aa;
+      border-radius: 12px;
+    }
+    #stick {
+      touch-action: none;
+      user-select: none;
+      border-radius: 50%;
+      width: 100px;
+      height: 100px;
+      display: grid;
+      place-items: center;
+      background: #395657;
+      margin: 12px auto;
+      color: white;
+    }
+    #knob {
+      background: #ecd79f;
+      border-radius: 50%;
+      width: 34px;
+      height: 34px;
+      pointer-events: none;
+    }
+    p {
+      min-height: 1.5em;
+    }
+  </style>
+  <style>
+    :root {
+      color-scheme: dark;
+      --gold: #ddb879;
+      --line: #67533b;
+      --paper: #efe2c7;
+    }
+    body {
+      background:
+        radial-gradient(ellipse at 75% 10%, #383327, transparent 55%), #131818;
+      color: var(--paper);
+    }
+    main {
+      max-width: 1060px;
+      padding: 4vh 4vw;
+    }
+    h1,
+    h2,
+    h3 {
+      font-family: "Songti SC", serif;
+      letter-spacing: 0.13em;
+    }
+    h1 {
+      color: #f5dca7;
+      font-size: clamp(32px, 6vw, 64px);
+      margin: 0.2em 0;
+    }
+    small {
+      color: var(--gold);
+    }
+    button,
+    input {
+      border: 1px solid var(--line);
+      border-radius: 3px;
+    }
+    button {
+      color: #f3dfb8;
+      background: linear-gradient(#51422e, #30291f);
+      cursor: pointer;
+    }
+    button:hover,
+    button:focus-visible {
+      border-color: #f5cc85;
+    }
+    input {
+      background: #191c1c;
+      color: var(--paper);
+      min-width: 0;
+    }
+    #auth,
+    #roles,
+    #world {
+      border: 1px solid var(--line);
+      box-shadow: 0 12px 40px #0005;
+      background: #232723;
+    }
+    #auth:not([hidden]) {
+      display: grid;
+      grid-template-columns: 1.2fr 1fr;
+    }
+    .vista {
+      position: relative;
+      overflow: hidden;
+      min-height: 320px;
+      background: linear-gradient(#373f43, #b1a088 63%, #645947);
+    }
+    .vista svg {
+      position: absolute;
+      bottom: 0;
+      width: 100%;
+      height: 100%;
+    }
+    .vista strong {
+      position: absolute;
+      left: 8%;
+      top: 12%;
+      font:
+        28px "Songti SC",
+        serif;
+      color: #fff2d7;
+    }
+    .forms,
+    #roles {
+      padding: clamp(14px, 3vw, 34px);
+    }
+    .tabs {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 18px;
+    }
+    .tabs button[aria-pressed="true"] {
+      border-bottom: 2px solid #eac47f;
+      color: #ffdea0;
+    }
+    .forms form:not([hidden]) {
+      display: grid;
+      gap: 9px;
+    }
+    .forms input,
+    .forms button {
+      margin: 0;
+    }
+    .primary {
+      background: linear-gradient(#9f633d, #79462e);
+      font-weight: bold;
+    }
+    .hint {
+      color: #c4b9a5;
+      font-size: 14px;
+    }
+    #world {
+      position: relative;
+      padding: 8px;
+    }
+    canvas {
+      display: block;
+      border-radius: 0;
+    }
+    .bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      flex-wrap: wrap;
+      padding: 5px;
+    }
+    .bar b {
+      color: var(--gold);
+    }
+    .bar button {
+      padding: 0.4em 0.8em;
+    }
+    #map,
+    #bag {
+      margin: 8px;
+      padding: 16px;
+      border: 1px solid var(--line);
+      background: #202420;
+    }
+    @media (min-width: 700px) {
+      #map,
+      #bag {
+        position: absolute;
+        top: 48px;
+        right: 8px;
+        width: 280px;
+        box-shadow: 0 8px 30px #0007;
+      }
+    }
+    #map svg {
+      display: block;
+      width: min(100%, 360px);
+      margin: auto;
+      border: 1px solid var(--line);
+      background: #293a34;
+    }
+    #slots {
+      display: grid;
+      grid-template-columns: repeat(6, minmax(20px, 45px));
+      gap: 4px;
+    }
+    #slots span {
+      aspect-ratio: 1;
+      border: 1px solid #66563e;
+      background: linear-gradient(140deg, #302f28, #1b1e1c);
+    }
+    #stick {
+      border: 2px solid var(--line);
+      background: radial-gradient(#554938, #24241f);
+      margin: 8px auto;
+    }
+    @media (max-width: 650px) {
+      #auth:not([hidden]) {
+        grid-template-columns: 1fr;
+      }
+      .vista {
+        min-height: 100px;
+      }
+      .vista strong {
+        top: 25%;
+      }
+      main {
+        padding: 12px;
+      }
+    }
+  </style>
+  <main>
+    <small>REALMMESH　/　边境行记</small>
+    <h1>边境营地</h1>
+    <p id="status" role="status">正在连接…</p>
+    <section id="auth">
+      <div class="vista" aria-hidden="true">
+        <svg viewBox="0 0 500 320" preserveAspectRatio="xMidYMax slice">
+          <circle cx="360" cy="80" r="33" fill="#edc58d" />
+          <path
+            fill="#706e61"
+            d="M0 220 100 135 155 168 250 85 326 160 404 125 500 176V320H0Z"
+          />
+          <path
+            fill="#454e48"
+            d="M0 240 82 186 151 216 229 154 317 226 427 173 500 208V320H0Z"
+          />
+          <path
+            fill="#252f2d"
+            d="M0 280 108 218 176 254 250 219 327 249 412 205 500 245V320H0Z"
+          />
+          <path
+            fill="#202826"
+            d="M330 224v-46h-8l23-17 23 17h-8v46zm4-50h22l-11-8z"
+          /></svg
+        ><strong>山海之间，营火未熄。</strong>
+      </div>
+      <div class="forms">
+        <div class="tabs">
+          <button id="loginTab" aria-pressed="true">账号登录</button
+          ><button id="regTab" aria-pressed="false">注册账号</button>
+        </div>
+        <form id="login">
+          <input
+            name="account"
+            required
+            placeholder="演示账号"
+            autocomplete="username"
+          /><input
+            name="password"
+            required
+            type="password"
+            placeholder="口令"
+            autocomplete="current-password"
+          /><button class="primary">登录营地</button>
+        </form>
+        <form id="register" hidden>
+          <input
+            name="account"
+            required
+            pattern="[A-Za-z0-9_]{3,24}"
+            placeholder="新账号（3–24 位字母、数字或下划线）"
+            autocomplete="username"
+          /><input
+            name="password"
+            required
+            minlength="8"
+            type="password"
+            placeholder="设置口令（至少 8 位）"
+            autocomplete="new-password"
+          /><input
+            name="confirm"
+            required
+            type="password"
+            placeholder="再次输入口令"
+            autocomplete="new-password"
+          /><button class="primary">创建账号</button>
+        </form>
+      </div>
+    </section>
+    <section id="roles" hidden>
+      <small>营地名册</small>
+      <h2>选择出行角色</h2>
+      <div id="list"></div>
+      <form id="create">
+        <input name="name" required placeholder="新角色名称" /><button>
+          创建角色
+        </button>
+      </form>
+    </section>
+    <section id="world" hidden>
+      <div class="bar">
+        <b id="hero">旅人</b><span id="coords"></span>
+        <div>
+          <button id="bagBtn" aria-expanded="false">物品栏</button
+          ><button id="mapBtn" aria-expanded="false">地图</button>
+        </div>
+      </div>
+      <canvas width="800" height="420"></canvas>
+      <div id="stick" aria-label="四向摇杆"><span id="knob"></span></div>
+      <section id="bag" hidden>
+        <small>行囊</small>
+        <h3>随身物品</h3>
+        <div id="slots"></div>
+        <p class="hint">空背包 · 物品系统尚未接入</p>
+      </section>
+      <section id="map" hidden>
+        <small>营地舆图</small>
+        <h3>附近玩家</h3>
+        <svg
+          id="radar"
+          viewBox="-10 -6 20 12"
+          aria-label="以自己为中心的附近角色地图"
+        >
+          <defs>
+            <pattern
+              id="grid"
+              width="1"
+              height="1"
+              patternUnits="userSpaceOnUse"
+            >
+              <path
+                d="M1 0H0V1"
+                fill="none"
+                stroke="#587064"
+                stroke-width=".04"
+              />
+            </pattern>
+          </defs>
+          <rect x="-10" y="-6" width="20" height="12" fill="url(#grid)" />
+          <g id="dots"></g>
+        </svg>
+        <p class="hint">金色是自己，蓝色是同行者；每格一个场景坐标。</p>
+      </section>
+    </section>
+  </main>
+  <script type="module">
+    const el = (id) => document.getElementById(id),
+      status = el("status"),
+      ws = new WebSocket("ws://" + location.host + "/play");
+    let busy = false,
+      playing = false,
+      dir = "",
+      pointer = null;
+    function send(op, args = {}) {
+      if (busy || ws.readyState !== 1) return false;
+      busy = true;
+      ws.send(JSON.stringify({ op, ...args }));
+      return true;
+    }
+    function tab(register) {
+      el("register").hidden = !register;
+      el("login").hidden = register;
+      el("regTab").setAttribute("aria-pressed", register);
+      el("loginTab").setAttribute("aria-pressed", !register);
+    }
+    el("loginTab").onclick = () => tab(false);
+    el("regTab").onclick = () => tab(true);
+    el("register").onsubmit = (e) => {
+      e.preventDefault();
+      const { account, password, confirm } = Object.fromEntries(
+        new FormData(e.target),
+      );
+      if (password !== confirm) {
+        status.textContent = "两次输入的口令不一致";
+        return;
+      }
+      if (send("register", { account, password }))
+        status.textContent = "正在创建账号…";
+    };
+    for (const name of ["bag", "map"])
+      el(name + "Btn").onclick = () => {
+        const other = name === "bag" ? "map" : "bag";
+        el(other).hidden = true;
+        el(other + "Btn").setAttribute("aria-expanded", false);
+        el(name).hidden = !el(name).hidden;
+        el(name + "Btn").setAttribute("aria-expanded", !el(name).hidden);
+      };
+    for (let i = 0; i < 18; i++)
+      el("slots").append(document.createElement("span"));
+    function updateHud(msg) {
+      const me = msg.members.find((m) => m.id === msg.self);
+      if (!me) return;
+      el("coords").textContent = "营地　" + me.x + " / " + me.y;
+      const trees = pines.map(([x, y]) => {
+        const tree = document.createElementNS(
+          "http://www.w3.org/2000/svg",
+          "path",
+        );
+        tree.setAttribute("d", "M0 -.32 .26 .2h-.52Z");
+        tree.setAttribute("fill", "#80a77d");
+        tree.setAttribute(
+          "transform",
+          "translate(" + (x - me.x) + " " + (y - me.y) + ")",
+        );
+        return tree;
+      });
+      el("dots").replaceChildren(
+        ...trees,
+        ...msg.members.map((m) => {
+          const dot = document.createElementNS(
+            "http://www.w3.org/2000/svg",
+            "circle",
+          );
+          for (const [k, v] of Object.entries({
+            cx: m.x - me.x,
+            cy: m.y - me.y,
+            r: 0.24,
+            fill: m.id === msg.self ? "#fac76e" : "#8cbfff",
+          }))
+            dot.setAttribute(k, v);
+          return dot;
+        }),
+      );
+    }
+    ws.onopen = () =>
+      (status.textContent = "登录账号，或注册后创建你的第一个角色。");
+    ws.onclose = () => {
+      playing = false;
+      status.textContent = "连接已关闭，刷新页面重新登录";
+    };
+    el("login").onsubmit = (e) => {
+      e.preventDefault();
+      if (send("login", Object.fromEntries(new FormData(e.target))))
+        status.textContent = "正在验证账号并等待排队放行…";
+    };
+    el("create").onsubmit = (e) => {
+      e.preventDefault();
+      send("create", Object.fromEntries(new FormData(e.target)));
+    };
+    ws.onmessage = (e) => {
+      const msg = JSON.parse(e.data);
+      if ("position" in msg) {
+        status.textContent = "排队位置：" + msg.position;
+        return;
+      }
+      busy = false;
+      if (msg.registered) {
+        el("login").elements.account.value =
+          el("register").elements.account.value;
+        el("register").reset();
+        tab(false);
+        el("login").elements.password.focus();
+        status.textContent = "注册成功，请输入口令登录。";
+        return;
+      }
+      if (msg.error) {
+        cancelGround();
+        rollback();
+        status.textContent = msg.error;
+        return;
+      }
+      if (msg.characters) {
+        el("auth").hidden = true;
+        el("roles").hidden = false;
+        status.textContent = "选择角色进入场景";
+        el("list").replaceChildren(
+          ...msg.characters.map((role) => {
+            const b = document.createElement("button");
+            b.textContent = role.name;
+            b.onclick = () => {
+              if (send("select", { id: role.id }))
+                el("hero").textContent = role.name;
+            };
+            return b;
+          }),
+        );
+      }
+      if (msg.members) {
+        playing = true;
+        el("roles").hidden = true;
+        el("world").hidden = false;
+        status.textContent =
+          "场景内 " +
+          msg.members.length +
+          " 人 · 左键走，右键跑，按住可转向；触屏用摇杆";
+        me = msg.members.find((member) => member.id === msg.self);
+        draw(msg);
+        updateHud(msg);
+        pump();
+      }
+    };
+    import {
+      draw,
+      preview,
+      rollback,
+      pines,
+      groundCell,
+      mark,
+    } from "./world.js";
+    const field = document.querySelector("#world canvas");
+    let target = null,
+      me = null,
+      stride = 1,
+      mouse = null,
+      heldAt = 0,
+      dragged = false,
+      pressX = 0,
+      pressY = 0;
+    function cancelGround() {
+      target = null;
+      mouse = null;
+      mark(null);
+    }
+    function aim(e) {
+      target = groundCell(field, e);
+      mark(target);
+    }
+    field.oncontextmenu = (e) => e.preventDefault();
+    field.onpointerdown = (e) => {
+      if (!playing || e.pointerType === "touch" || ![0, 2].includes(e.button))
+        return;
+      e.preventDefault();
+      reset();
+      mouse = e.pointerId;
+      heldAt = performance.now();
+      dragged = false;
+      pressX = e.clientX;
+      pressY = e.clientY;
+      stride = e.button === 2 ? 2 : 1;
+      field.setPointerCapture(mouse);
+      aim(e);
+      nextStep = 0;
+      pump();
+    };
+    field.onpointermove = (e) => {
+      if (
+        mouse === e.pointerId &&
+        (dragged || Math.hypot(e.clientX - pressX, e.clientY - pressY) > 4)
+      ) {
+        dragged = true;
+        aim(e);
+        pump();
+      }
+    };
+    field.onpointerup = (e) => {
+      if (mouse === e.pointerId) {
+        mouse = null;
+        if (dragged || performance.now() - heldAt > 250) cancelGround();
+      }
+    };
+    field.onpointercancel = cancelGround;
+    field.onlostpointercapture = () => {
+      if (mouse !== null) cancelGround();
+    };
+    window.addEventListener("keydown", (e) => {
+      if (!playing || e.repeat || e.ctrlKey || e.metaKey || e.altKey) return;
+      const key = e.key.toLowerCase();
+      if (key === "escape") {
+        reset();
+        for (const n of ["map", "bag"])
+          if (!el(n).hidden) el(n + "Btn").click();
+      } else if (key === "b" || key === "f9" || key === "m") {
+        e.preventDefault();
+        el((key === "b" || key === "f9" ? "bag" : "map") + "Btn").click();
+      }
+    });
+    let nextStep = 0,
+      nextState = 0;
+    function pump() {
+      if (!playing || document.hidden || busy) return;
+      const now = performance.now();
+      if (target && me && !dir) {
+        const clamp = (n) => Math.max(-stride, Math.min(stride, n));
+        const dx = clamp(target.x - me.x),
+          dy = clamp(target.y - me.y);
+        if (!dx && !dy) {
+          target = null;
+          mark(null);
+        } else if (now >= nextStep && send("move", { dx, dy })) {
+          preview("", dx, dy);
+          nextStep = now + 150;
+        }
+        if (target) return;
+      }
+      if (dir && now >= nextStep && send("move", { dir })) {
+        preview(dir);
+        nextStep = now + 150;
+      } else if (!dir && now >= nextState && send("state"))
+        nextState = now + 220;
+    }
+    const pad = el("stick"),
+      knob = el("knob");
+    function reset() {
+      cancelGround();
+      pointer = null;
+      dir = "";
+      knob.style.transform = "";
+    }
+    function drag(e) {
+      if (e.pointerId !== pointer) return;
+      const box = pad.getBoundingClientRect(),
+        x = e.clientX - box.left - box.width / 2,
+        y = e.clientY - box.top - box.height / 2;
+      const previous = dir;
+      dir =
+        Math.hypot(x, y) < 9
+          ? ""
+          : Math.abs(x) > Math.abs(y)
+            ? x > 0
+              ? "right"
+              : "left"
+            : y > 0
+              ? "down"
+              : "up";
+      if (dir !== previous) {
+        nextStep = 0;
+        pump();
+      }
+      const scale = Math.min(1, 30 / (Math.hypot(x, y) || 1));
+      knob.style.transform =
+        "translate(" + x * scale + "px," + y * scale + "px)";
+    }
+    pad.onpointerdown = (e) => {
+      if (pointer !== null) return;
+      pointer = e.pointerId;
+      pad.setPointerCapture(pointer);
+      drag(e);
+    };
+    pad.onpointermove = drag;
+    for (const type of ["pointerup", "pointercancel", "lostpointercapture"])
+      pad.addEventListener(type, (e) => {
+        if (e.pointerId === pointer) reset();
+      });
+    window.addEventListener("blur", reset);
+    document.addEventListener("visibilitychange", reset);
+    setInterval(pump, 16);
+  </script>
+</html>

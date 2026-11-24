@@ -1375,7 +1375,7 @@ public:
         }
     }
 
-    void provision_account(const AccountProvisioning& account) {
+    void provision_account(const AccountProvisioning& account, bool insert_only = false) {
         if (account.account_name.empty()) {
             throw PlayerDataError("account name must not be empty");
         }
@@ -1388,6 +1388,13 @@ public:
             upsert.upsert(true);
             // 只覆盖认证与准入字段；已选角色不受重新开通影响。
             try {
+                if (insert_only) {
+                    static_cast<void>(collection(*client, accounts_collection).insert_one(
+                        make_document(kvp("_id", id), kvp("account_name", text(account.account_name)),
+                                      kvp("credential_hash", text(hash)), kvp("banned", account.banned),
+                                      kvp("whitelisted", account.whitelisted))));
+                    return;
+                }
                 static_cast<void>(
                     collection(*client, accounts_collection)
                         .update_one(
@@ -1899,6 +1906,10 @@ bool MongoPlayerDataStore::revoke_scene(
 void MongoPlayerDataStore::provision_account(
     const AccountProvisioning& account) {
     impl_->provision_account(account);
+}
+
+void MongoPlayerDataStore::insert_account(const AccountProvisioning& account) {
+    impl_->provision_account(account, true);
 }
 
 void MongoPlayerDataStore::set_account_access(

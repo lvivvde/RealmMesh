@@ -16,3 +16,11 @@ realm_add_gtest(scene_journey_test SOURCES scene_journey_test.cpp
 
 # 仅故障客户端直接使用 OpenSSL，不向产品或其他测试传播使用需求。
 target_link_libraries(scene_journey_test PRIVATE OpenSSL::SSL)
+
+if(EXISTS "${PROJECT_SOURCE_DIR}/tools/browser-demo/node_modules/ws/package.json")
+    find_program(REALMMESH_DEMO_NODE node REQUIRED)
+    target_compile_definitions(scene_journey_test PRIVATE
+        REALMMESH_DEMO_NODE="${REALMMESH_DEMO_NODE}"
+        REALMMESH_DEMO_BINARY="$<TARGET_FILE:realm_browser_client>")
+    add_dependencies(scene_journey_test realm_browser_client)
+endif()
