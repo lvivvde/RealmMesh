@@ -51,7 +51,7 @@ Queue 在返回 `202` 前，用一笔 etcd 事务同时提交 `identity_jti → 
 S1（#161）已在 `proto` 定义客户端与内部 Scene 线契约、在 `game/common` 提供严格编解码，
 并让既有 `MongoPlayerDataStore` 实现窄 `RealmSceneStore`：独立 `character_scenes` 记录以
 角色为键，majority/journal 条件写同时提交归属、落点与最后幂等结果。驱动继续私有，复用
-原连接池与自动化隔离副本集；测试命令只在独占的确认失败注入副本集中启用。入口注册表现有五个真实服务，新增 `game/scene` 的 `SceneModule`，静态模式持有单分片 `SceneShard`，
+原连接池与自动化隔离副本集；测试命令只在独占的确认失败注入副本集中启用。S2 新增 `game/scene` 的 `SceneModule`，静态模式持有单分片 `SceneShard`，
 通过独立 mTLS EdgeRuntime 接收内部消息，配置分片 1 或 2。Realm 的 RealmScenes 编排线程
 通过私有协程等待 future，每个实例持有独立的有界 TLS IO 执行器；场景数据使用惰性启动的
 四线程有界池，复用既有 BoundedWorkPool，与训练池隔离。线程只完成 future，状态迁移均在
@@ -216,7 +216,7 @@ Edge Connection 的唯一 primary transport 与阶段(pending/established);网�
 失败处理并断开。
 兑换只校验票据,不读玩家数据:兑换成功即回 `EnterRealmAccepted`,会话交给
 `game::realm::RealmSessions`(#93)。Realm Session 单向经历选角 → 游戏中两个阶段:
-选角阶段只受理角色列表、创建与选择,选定后进入游戏中,只受理训练;阶段不符回
+选角阶段只受理角色列表、创建与选择,选定后进入游戏中,可训练，并在启用相应服务后执行场景或聊天指令；角色业务阶段不符回
 `3003`,会话保留。在线表按账号唯一,同账号新会话入场时,旧会话收到
 `RealmSessionDisplaced`(1409)后关闭,其在途写仍会落库、回包丢弃。
 角色数据访问(`RealmCharacterStore`)在有界工作者上执行,不阻塞 Realm 帧,同一会话的
@@ -265,8 +265,7 @@ MongoDB 副本集（开发与 CI 为单节点 `rs0`），取代 ADR-0010 的 SQL
 避免重复配置关闭等待上限。连接归还后后续请求可继续使用，不创建后台排队任务。
 池等待与事务预算是顺序发生的独立阶段，不能把任一参数当成整个请求的硬截止。
 失败不证明回滚：Realm 沿用 `3010`，Scene 写沿用 `SceneWriteUncertain`；
-建角按原名字找回、训练按原序号重放、Scene 按原命令与版本回读确认。开发拓扑无认证、明文且只监听本机，
-跨机器暴露前须交付 TLS 与认证。
+建角按原名字找回、训练按原序号重放、Scene 按原命令与版本回读确认。隔离测试副本集仅监听本机，手动开发使用下述启用 TLS 与认证的共享库。
 
 手动跨机器开发另提供共享临时库：服务器仅监听回环地址，启用 TLS 与数据库认证，
 开发机经 SSH 隧道连接单节点 `rs0`。`player_data.uri_environment` 在 C++ 解析边界
@@ -320,7 +319,8 @@ MsQuic 自有调度不会直接调用业务逻辑。回调只完成长度帧组�
 
 ## 安全与资源限制
 
-- TLS 1.3 only，ALPN 固定 `realmmesh-edge/1`，服务端认证，无 mTLS。
+- 客户端边缘链路仅接受 TLS 1.3，ALPN 为 `realmmesh-edge/1`，采用服务端认证。
+- Realm → Scene 内部链路采用独立服务 CA、双向 TLS 身份校验与 ALPN `realmmesh-scene/1`；HTTPS 服务边使用 `http/1.1`。
 - QUIC：一个客户端双向流、零单向流、无 Datagram、无 0-RTT、无恢复、允许迁移。
 - `Envelope` 最大 64KiB；每连接有待发送字节高水位。
 - 握手 3 秒、空闲 30 秒、keepalive 关闭。
@@ -340,6 +340,7 @@ MsQuic 自有调度不会直接调用业务逻辑。回调只完成长度帧组�
   Lua 训练规则，以及 Realm 服务模块（`realm_module.hpp`：`load_realm_config`、`make_realm_module`）与业务帧
   `RealmFrame`（EnterRealm 票据兑换、心跳、把已入场会话的消息转交 `RealmSessions`、上报 `conn_free`）。
   `RealmConfig` 自带根表的 `max_events_per_frame` 与 `player_data`，不依赖 `game/gateway`。
+- `game/scene`：独立 Scene 服务模块、单分片 `SceneShard` 与内部协议处理；判定场景指令，持有已激活成员的可见状态，由 Realm 持久确认后推进。
 - `game/common`：Envelope 编解码、业务票据，以及账号/角色权威数据边界与 MongoDB 实现。
 - `framework/cluster`：多协议端点注册与发现。
 - `game/client`：客户端登录链路（七态状态机、分档轮询、两段竞速）与其 HTTPS/网关/业务服生产传输绑定，目标 `RealmMesh::GameClient`，命名空间 `realm::game::client`。它是共享领域层的客户端库，服务层不依赖它，只有装配层与测试链接。外部通过经验证的 `LoginRun` 选择 Verify、Tickets、Poll、Gateway、GatewaySoak 或 Full 停止点；Gateway/Realm 连接由 move-only RAII Session 独占，只有 Full 成功会把已入场 Realm Session 转移给调用方。
@@ -349,7 +350,7 @@ MsQuic 自有调度不会直接调用业务逻辑。回调只完成长度帧组�
 - 配置头分两种（[#126](https://github.com/lvivvde/RealmMesh/issues/126)）：各模块的普通配置头（`player_data_config.hpp`、`gateway_config.hpp`、`login_verify_config.hpp`、`queue_config.hpp`、`realm_config.hpp`）只声明配置值，不经 include 传递 sol2；已合并 Lua 根表的解析入口是同目录的 `*_config_lua.hpp`（`parse_*_config`，只含 `<sol/forward.hpp>`），只由解析实现、服务模块的装载入口（`load_gateway_config`、`load_realm_config`、`load_login_verify_config`、`load_queue_config`）与解析测试显式包含，包含方自行链接 `RealmMesh::Scripting`。Lua 运行时与合并根表由 `LayeredConfig` 私有持有，公共头 `layered_config.hpp` 不带 sol2，越出模块装载入口的只有配置值。`training_rule.hpp` 只前置声明 `LuaRuntime`，Lua 调用与析构都在 `training_rule.cpp`，`realm_game_realm` 对 `realm_scripting` 为 PRIVATE（#127）。`config_headers_test` 在编译期守住这条边界。
 - 边缘运行时的头分层（[#128](https://github.com/lvivvde/RealmMesh/issues/128)）：`edge_event.hpp` 声明 `EdgeEvent`/`EdgeEventKind`，`edge_runtime_options.hpp` 声明运行时参数 `EdgeRuntimeOptions`，`gateway_config.hpp` 声明网关启动配置 `GatewayConfig`，它们都不带 runtime 的私有队列、线程与锁布局；`edge_runtime.hpp` 只留 `EdgeRuntime` 本身（及 `QueueResult`、`EdgeRuntimeStats`），由真正构造或驱动 runtime 的代码包含。`gateway_primary_transport.hpp` 只包含事件头并前置声明 `edge::EdgeRuntime`，完整定义留在 `gateway_primary_transport.cpp`；登录管线与准入经它同样不带 runtime。`layered_config.hpp`、`service_module.hpp`、`edge_service_module.hpp` 与 `service_host.hpp` 同样只前置声明 `edge::EdgeRuntime`，只消费配置值的服务与测试不随 runtime 布局重编。未做 runtime PIMPL，未新增虚接口；`EdgeRuntime::stop()`（IO 线程 request_stop 后 join）与 ServiceHost 的销毁顺序不变。`gateway_headers_test` 与 `config_headers_test` 在编译期断言这些头拿不到完整的 `EdgeRuntime`。
 - 网关入口拆成两半（ADR-0014 第 2、3 步，[#152](https://github.com/lvivvde/RealmMesh/issues/152)）：与游戏无关的来源地址归一化在 `framework/edge` 的 `edge_source_address.hpp`（`EdgeSourceConfig`/`EdgeSourceNormalizer`）；`game/gateway` 的 `gateway_credential_ingress.hpp` 是登录管线解码 `EdgeAttach` 前的凭据入口（`GatewayCredentialIngress`：信封与 JWS 结构上限、来源令牌桶、验签额度），依赖 `game/common` 的边缘协议。`EdgeRuntime` 只按传输配置、运行时参数与来源地址配置构造，不认识 `GatewayConfig`；`EdgeServiceModule` 从 `LayeredConfig::edge()` 取出这三项交给它，Gateway 登录额度 `conn_capacity` 也取自接入面启用传输的 `max_sessions` 之和。
-- `apps/mesh_host`：`realm_mesh` 单一入口，以 `--service` 区分服务与信号处理；拓扑经 `load_topology` 取得，入口本身不链接 Lua。`realm_mesh_modules`（`service_modules.hpp` 的 `game_service_modules()`）是唯一知道全部服务的地方：把 gateway（依赖 realm，模式 2 等待其可连）、realm、login_verify 与 queue（三者无依赖服务）的模块工厂注册进 `ServiceModuleRegistry`，交给 `MeshHost`。
+- `apps/mesh_host`：`realm_mesh` 单一入口，以 `--service` 区分服务与信号处理；拓扑经 `load_topology` 取得，入口本身不链接 Lua。`realm_mesh_modules`（`service_modules.hpp` 的 `game_service_modules()`）是唯一知道全部服务的地方：把 gateway（依赖 realm，模式 2 等待其可连）、realm（可选依赖 scene，不等待其就绪）、scene、chat、login_verify 与 queue（后四者无启动依赖）的模块工厂注册进 `ServiceModuleRegistry`，交给 `MeshHost`。
 
 ## 开发服务组的监督与停止（#143）
 
@@ -385,7 +386,7 @@ DevServices 用例使用独立数据库；各测试回收自己的服务，守�
 `realm::cluster::ServiceType` 是开放字符串(ADR-0014 第 4 步),框架只用
 `is_valid_service_type` 校验字符集 `[a-z0-9_]`,不枚举具体服务;服务名即服务类型线名。
 已实现身份的权威列表是进程入口 `apps/mesh_host` 的 `game_service_modules()` 注册表,
-当前6个:
+当前 6 个。默认配置启动四个登录服务，Scene 与 Chat 按需启用。
 
 | 服务名(线名) | 模块 | 状态 |
 |---|---|---|
