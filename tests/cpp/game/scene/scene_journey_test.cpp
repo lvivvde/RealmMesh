@@ -1,6 +1,3 @@
-#include "constrained_tls_stream.hpp"
-#include "realmmesh/game/common/edge_protocol.hpp"
-#include "realmmesh/game/common/realm_protocol.hpp"
 #include <fcntl.h>
 #include <httplib.h>
 #include <algorithm>
@@ -11,12 +8,16 @@
 #include <map>
 #include <vector>
 #include "../realm/journey_fixture.hpp"
+#include "constrained_tls_stream.hpp"
 #include "realmmesh/cluster/etcd_service_registry.hpp"
 #include "realmmesh/game/client/chat_session.hpp"
 #include "realmmesh/game/client/scene_session.hpp"
+#include "realmmesh/game/common/edge_protocol.hpp"
+#include "realmmesh/game/common/realm_protocol.hpp"
 #include "realmmesh/game/common/scene_store.hpp"
 #include "realmmesh/game/scene/scene_shard.hpp"
 #include "realmmesh/network/transport/transport_factory.hpp"
+#include "realmmesh/test_support/chat_acceptance_artifacts.hpp"
 
 namespace realm::game::realm {
 namespace {
@@ -117,8 +118,10 @@ protected:
                 "metrics_port = " + std::to_string(realm_metrics_port_));
         }
         if (constrain_realm_output())
-            rewrite(realm_root_.path() / "services/realm.lua",
-                    "max_pending_output_bytes = 1048576", "max_pending_output_bytes = 4096");
+            rewrite(
+                realm_root_.path() / "services/realm.lua",
+                "max_pending_output_bytes = 1048576",
+                "max_pending_output_bytes = 4096");
         scene_.emplace(scene_root_.path());
         wait_for_port(scene_port_, "scene");
     }
@@ -473,7 +476,9 @@ protected:
             const auto found = std::find_if(
                 roster.value.characters.begin(),
                 roster.value.characters.end(),
-                [&](const auto& view) { return view.name == name; });
+                [&](const auto& view) {
+                    return view.name == name;
+                });
             if (!roster.ok() || found == roster.value.characters.end()) {
                 ADD_FAILURE() << hero.error_code;
                 return {};
@@ -981,6 +986,12 @@ protected:
         verify_closed_ports(
             {chat_a_port_, chat_b_port_, chat_a_metrics_, chat_b_metrics_});
         SceneDynamicJourneyTest::TearDown();
+        for (const auto& [name, root] :
+             std::vector<std::pair<std::string, std::filesystem::path>>{
+                 {"chat-a", chat_a_root_.path()},
+                 {"chat-b", chat_b_root_.path()}})
+            test_support::copy_chat_acceptance_directory(
+                root / "logs", name);
         for (const auto* name :
              {"REALMMESH_CHAT_CERTIFICATE_FILE",
               "REALMMESH_CHAT_PRIVATE_KEY_FILE",
@@ -1117,6 +1128,9 @@ protected:
         ASSERT_TRUE(response);
         ASSERT_EQ(response->status, 200);
         EXPECT_NE(response->body.find("chat_send_total"), std::string::npos);
+        test_support::write_chat_acceptance_artifact(
+            "metrics-chat-" + std::to_string(port) + ".prom",
+            response->body);
     }
 
     test_support::TemporaryDirectory chat_a_root_{"c4-chat-a-"};
