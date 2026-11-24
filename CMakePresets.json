@@ -28,6 +28,34 @@
       "inherits": "realmmesh-base",
       "generator": "Unix Makefiles",
       "binaryDir": "${sourceDir}/build/dev-make"
+    },
+    {
+      "name": "coverage",
+      "displayName": "Clang source coverage (tools/quality/crap.sh)",
+      "inherits": "realmmesh-base",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/coverage",
+      "cacheVariables": {
+        "CMAKE_C_FLAGS": "-fprofile-instr-generate -fcoverage-mapping",
+        "CMAKE_CXX_FLAGS": "-fprofile-instr-generate -fcoverage-mapping",
+        "CMAKE_EXE_LINKER_FLAGS": "-fprofile-instr-generate",
+        "CMAKE_SHARED_LINKER_FLAGS": "-fprofile-instr-generate"
+      }
+    },
+    {
+      "name": "mutation",
+      "displayName": "Mull mutation testing, Linux + clang-21 (tools/quality/mutate.sh)",
+      "inherits": "realmmesh-base",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/mutation",
+      "cacheVariables": {
+        "CMAKE_C_COMPILER": "clang-21",
+        "CMAKE_CXX_COMPILER": "clang++-21",
+        "CMAKE_CXX_FLAGS": "-fpass-plugin=/usr/lib/mull-ir-frontend-21 -g -grecord-command-line -fprofile-instr-generate -fcoverage-mapping",
+        "CMAKE_EXE_LINKER_FLAGS": "-fprofile-instr-generate",
+        "CMAKE_SHARED_LINKER_FLAGS": "-fprofile-instr-generate",
+        "REALMMESH_CCACHE": "OFF"
+      }
     }
   ],
   "buildPresets": [

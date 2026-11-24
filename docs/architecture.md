@@ -51,7 +51,7 @@ Queue 在返回 `202` 前，用一笔 etcd 事务同时提交 `identity_jti → 
 S1（#161）已在 `proto` 定义客户端与内部 Scene 线契约、在 `game/common` 提供严格编解码，
 并让既有 `MongoPlayerDataStore` 实现窄 `RealmSceneStore`：独立 `character_scenes` 记录以
 角色为键，majority/journal 条件写同时提交归属、落点与最后幂等结果。驱动继续私有，复用
-原连接池与自动化隔离副本集；测试命令只在独占的确认失败注入副本集中启用。入口注册表现有五个真实服务，新增 `game/scene` 的 `SceneModule`，静态模式持有单分片 `SceneShard`，
+原连接池与自动化隔离副本集；测试命令只在独占的确认失败注入副本集中启用。S2 新增 `game/scene` 的 `SceneModule`，静态模式持有单分片 `SceneShard`，
 通过独立 mTLS EdgeRuntime 接收内部消息，配置分片 1 或 2。Realm 的 RealmScenes 编排线程
 通过私有协程等待 future，每个实例持有独立的有界 TLS IO 执行器；场景数据使用惰性启动的
 四线程有界池，复用既有 BoundedWorkPool，与训练池隔离。线程只完成 future，状态迁移均在
@@ -99,7 +99,7 @@ Scene 按稳定 shard_id 持有至多两个状态机；角色 Route 带承载版
 完成后实例业务停用，管理端点与发现注册保留供核对，再由运维停止进程；不会提前注销伪造完成。
 
 
-## Chat独立服务与频道排序（C1–C3）
+## Chat独立服务与频道排序（C1–C5）
 
 C1（#176、PR #182）已合并。C2（#177）新增`game/chat`，仅由`apps/mesh_host`注册`chat`
 模块。`ChatConfig`是轻量值，Lua解析留在实现文件；`ChatChannels`由Chat帧单线程拥有，
@@ -125,8 +125,8 @@ TLS拒绝即关闭该链路并回收资格，重连从新W加入。未知wire字
 TLS新增可选`max_receive_batch_bytes`原生预算，默认0保留既有策略，仅Chat设64KiB；
 预算结束后，下一poll会继续消费SSL已缓冲输入，不依赖新的fd可读事件。它是通用传输工作量
 约束，framework仍不认识Chat字段或身份。运行方式见[Chat服务说明](operations/chat-service.md)。
-C2覆盖真实生产进程mTLS、etcd、SIGKILL/同名重启、正常停止与单帧TLS输出预算拒绝；真实慢端
-积压饱和、双Scene/双Chat转场和组合故障矩阵仍待C4–C5，不能据C2宣称整阶段完成。
+C2覆盖真实生产进程mTLS、etcd、SIGKILL/同名重启、正常停止与单帧TLS输出预算拒绝；C5另以
+生产1MiB上限和握手前收紧接收窗口的真实慢端验证积压饱和，二者不混作同一证据。
 
 ### Realm异步接入与参考客户端（C3）
 
@@ -148,6 +148,38 @@ JOIN完成前保留后续推送；每客户端缓存同时限制256项/256KiB，
 复用既有连接，分别保留Scene及Chat通知，两个缓存均按数量/字节限制；等待心跳、训练或场景
 回包不会吞掉Chat推送。客户端发现缺口发ChatUnavailable，缓存满则关闭会话；原Unknown遇到
 旧资格重试被拒仍保持Unknown，不自动换号/资格重放。运行与测试见[接入说明](operations/realm-chat.md)。
+
+### 双Scene/双Chat转场隔离（C4）
+
+C4在生产服务入口组上配置两个精确Chat承载：Chat A唯一承载Realm Channel与分片1的
+Scene Channel，Chat B唯一承载分片2的Scene Channel。Realm仍为每个承载保留独立Peer与链路，
+etcd只解析目标`instance_id`，任一承载缺失时不把它的频道改投另一实例。跨Scene角色继续共享
+Chat A上的Realm Channel及同一顺序；Scene Channel只随逻辑shard_id变化，不随Scene承载实例变化。
+
+真实多进程旅程复用动态Scene拓扑与隔离MongoDB，覆盖显式转场、同分片换承载重建和排空迁移：
+源Scene Channel在转场开始后停止交付，目标激活后安装绑定新Scene Binding的资格；旧资格发送与
+旧场景条件写均被拒绝，Realm Channel资格和Epoch不重置。停掉Chat B时只有分片2频道失败，移动、
+转场、训练、心跳以及Chat A承载的频道继续；同名Chat B在旧etcd租约消失后重启，产生新Epoch，
+客户端从新W继续。每例核对MongoDB场景序号、Confirmed Location、Scene Shard Ownership及服务、
+数据库夹具、etcd和监听回收。该证据不把转场与Chat声明为跨服务原子提交，也不替代C5的真实慢端
+积压与组合故障总验收。
+
+### 组合故障矩阵与阶段验收（C5）
+
+C5聚合C1–C4的协议、状态机、mTLS、Realm接线、参考客户端及双承载旅程，新增Realm SIGKILL
+同名重启旅程和生产1MiB Chat TLS慢端积压。Realm重启等待旧etcd租约消失后才同名启动；Chat
+保持未重启频道的Epoch/水位，但旧链路资格和最后回执被清理，新Realm从新活动链路显式JOIN。
+Chat重启则产生新Epoch，旧Epoch/Unknown不被改写为确定失败或自动重放。客户端256条/256KiB
+通知缓存溢出与Chat服务端出站满额分别测试：前者关闭该参考客户端Realm Session，后者依据
+结构化`outbound_queue_rejected`日志确认真实TLS已有积压后关闭Realm–Chat链路；不能互相替代。
+
+`scripts/run-chat-acceptance.sh`使用所选preset的实际binaryDir和公共构建预算，冻结整个工作区及
+配置SHA256，对照CTest发现清单、必需分组和故障矩阵；归档JUnit/GTest、数据库/回收属性、
+包含零值拒绝计数的实际HTTP指标及原始服务日志。缺项、跳过、失败或运行中源码变化均非零，
+每轮目录连同tar.gz和SHA256保留，macOS/Linux CI再以
+`chat-c1-c5-<OS>-<run>-<attempt>` artifact持久上传且缺文件即失败；configure失败在已有登记时
+仍写actual binaryDir，否则落到`.local/acceptance/chat-reference-loop/`。该入口证明本机TLS/TCP多进程边界；双平台当前源码全量、
+各三轮完整Chat和Linux QUIC/M1–M4仍由阶段门禁及CI记录，不因一次本机报告自动宣称完成。
 
 ## 目标业务拓扑（规划中）
 
@@ -175,8 +207,9 @@ Chat 故障不阻断场景业务。聊天记录与离线补投不在已承诺范
 阶段5的[Chat规格](specs/2026-10-23-chat-reference-loop.md)按C1–C5推进；C1（#176）已在
 `proto/realmmesh/chat/v1/chat.proto`定义客户端1701–1706与内部1801–1803，
 `game/common/chat_protocol`负责严格编解码，`chat_limits.hpp`只暴露轻量资源常量与计数/字节
-预留检查。内部与客户端编号白名单独立，C2已注册独立服务并实现认证和排序者，C3 已接通 Realm/客户端的单 Chat 闭环；C1结构校验不代替
-C2认证和幂等状态机，也不代替C3的当前会话/选角/场景权限核对。
+预留检查。内部与客户端编号白名单独立，C2已注册独立服务并实现认证和排序者，C3已接通
+Realm/客户端单Chat闭环，C4完成双承载隔离，C5提供组合故障与冻结报告入口；较后阶段的证据
+不改变C1线格式，也不把Chat Accepted升级为持久送达。
 规格由Realm派生成员资格，每频道静态指定一个Chat排序者；Chat轮次内的在线受理不等于持久
 送达，重启/缺口显式重新加入，转场不等待Chat。依据见[ADR-0016](adr/0016-chat-online-channel-order-and-receipt.md)。
 
@@ -216,7 +249,7 @@ Edge Connection 的唯一 primary transport 与阶段(pending/established);网�
 失败处理并断开。
 兑换只校验票据,不读玩家数据:兑换成功即回 `EnterRealmAccepted`,会话交给
 `game::realm::RealmSessions`(#93)。Realm Session 单向经历选角 → 游戏中两个阶段:
-选角阶段只受理角色列表、创建与选择,选定后进入游戏中,只受理训练;阶段不符回
+选角阶段只受理角色列表、创建与选择,选定后进入游戏中,可训练，并在启用相应服务后执行场景或聊天指令；角色业务阶段不符回
 `3003`,会话保留。在线表按账号唯一,同账号新会话入场时,旧会话收到
 `RealmSessionDisplaced`(1409)后关闭,其在途写仍会落库、回包丢弃。
 角色数据访问(`RealmCharacterStore`)在有界工作者上执行,不阻塞 Realm 帧,同一会话的
@@ -250,8 +283,22 @@ MongoDB 副本集（开发与 CI 为单节点 `rs0`），取代 ADR-0010 的 SQL
 归属一经确认，随后的单文档写没有竞态窗口。任一服务首次连到尚未导入的库时，在事务内一次性导入
 `configs/common/accounts.lua`，多个服务同时启动也只有一个导入成功；之后账号口令（Argon2
 哈希）、封禁/白名单、角色与上次所选角色都只以数据库为准。找不到可写 primary 或单次读写超过
-`player_data` 中的超时上限，即按数据源不可用失败。开发拓扑无认证、明文且只监听本机，
-跨机器暴露前须交付 TLS 与认证。
+`player_data` 中的超时上限（选主 `server_selection_timeout_ms`、套接字 `socket_timeout_ms`、
+写关注等待 `write_concern_timeout_ms`，默认均为 2 秒；事务的 `maxCommitTimeMS` 与写关注等待
+取同一上限；写关注等待长于套接字超时的配置在构造时拒绝），即按数据源不可用失败。
+事务通过项目内的有界循环执行，不使用驱动固定 120 秒的 `with_transaction`：
+`transaction_timeout_ms`（默认 5000）为事务体与提交重试共享的单调时钟预算，在数据库操作之间检查，
+到期不再开始操作或重试。`TransientTransactionError` 可在预算内重跑事务体，
+`UnknownTransactionCommitResult` 只重试同一事务的提交；保留驱动提交时的 majority、unpin 与一次内部网络重试。
+这是操作间截止，不能中断已经发出的同步调用；实际返回还需等待该调用和必要的 abort 清理，
+它们受选主、套接字及驱动单次调用边界约束，不应把 5000 毫秒解释为整个 RPC 的硬截止。
+预算从开始事务计时，不涵盖取得连接、schema 初始化或 Lua 账号哈希准备。
+连接池等待另由 `pool_wait_timeout_ms`（默认 2000）映射到驱动原生 `waitQueueTimeoutMS`，
+耗尽即退出等待并按数据源不可用失败；所有存储入口共用此上限。URI 自带该参数会被拒绝，
+避免重复配置关闭等待上限。连接归还后后续请求可继续使用，不创建后台排队任务。
+池等待与事务预算是顺序发生的独立阶段，不能把任一参数当成整个请求的硬截止。
+失败不证明回滚：Realm 沿用 `3010`，Scene 写沿用 `SceneWriteUncertain`；
+建角按原名字找回、训练按原序号重放、Scene 按原命令与版本回读确认。隔离测试副本集仅监听本机，手动开发使用下述启用 TLS 与认证的共享库。
 
 手动跨机器开发另提供共享临时库：服务器仅监听回环地址，启用 TLS 与数据库认证，
 开发机经 SSH 隧道连接单节点 `rs0`。`player_data.uri_environment` 在 C++ 解析边界
@@ -305,7 +352,8 @@ MsQuic 自有调度不会直接调用业务逻辑。回调只完成长度帧组�
 
 ## 安全与资源限制
 
-- TLS 1.3 only，ALPN 固定 `realmmesh-edge/1`，服务端认证，无 mTLS。
+- 客户端边缘链路仅接受 TLS 1.3，ALPN 为 `realmmesh-edge/1`，采用服务端认证。
+- Realm → Scene 内部链路采用独立服务 CA、双向 TLS 身份校验与 ALPN `realmmesh-scene/1`；HTTPS 服务边使用 `http/1.1`。
 - QUIC：一个客户端双向流、零单向流、无 Datagram、无 0-RTT、无恢复、允许迁移。
 - `Envelope` 最大 64KiB；每连接有待发送字节高水位。
 - 握手 3 秒、空闲 30 秒、keepalive 关闭。
@@ -313,6 +361,12 @@ MsQuic 自有调度不会直接调用业务逻辑。回调只完成长度帧组�
 - libsodium 仅用于业务会话票据，不参与传输加密。
 
 ## 分层
+
+`tools/browser-demo` 是面向开发者的浏览器演示入口。网页从本机 Node.js 进程加载，
+用同源 WebSocket 传递玩家操作与显示状态。每个窗口对应一个 C++ 子进程，独占一份
+Login Chain 与后续 Realm Session，使用 `game/client` 完成登录、选角和 Scene 操作。
+窗口断开时回收子进程。该接口属于演示工具，Gateway、Realm、Scene 沿用既有协议。
+启用本机注册时，兼容进程通过 Player Data Store 的仅插入接口开通开发账号，重名不覆盖凭据。浏览器不取得数据库连接信息；注册后的登录仍经过 Login Verifier。
 
 依赖方向与 framework 的严格判据见 [ADR-0014](adr/0014-four-layer-dependency-direction.md)，新功能的归属查 [code-layout](agents/code-layout.md)。四处倒挂已按 ADR 五步全部移除，`layering_guard_test` 不再带白名单：任何反向依赖都直接失败。
 
@@ -325,8 +379,10 @@ MsQuic 自有调度不会直接调用业务逻辑。回调只完成长度帧组�
   Lua 训练规则，以及 Realm 服务模块（`realm_module.hpp`：`load_realm_config`、`make_realm_module`）与业务帧
   `RealmFrame`（EnterRealm 票据兑换、心跳、把已入场会话的消息转交 `RealmSessions`、上报 `conn_free`）。
   `RealmConfig` 自带根表的 `max_events_per_frame` 与 `player_data`，不依赖 `game/gateway`。
+- `game/scene`：独立 Scene 服务模块、单分片 `SceneShard` 与内部协议处理；判定场景指令，持有已激活成员的可见状态，由 Realm 持久确认后推进。
 - `game/common`：Envelope 编解码、业务票据，以及账号/角色权威数据边界与 MongoDB 实现。
 - `framework/cluster`：多协议端点注册与发现。
+- `framework/observability` 与 `framework/scheduler`：结构化日志管道与领域指标注册表 `MetricsRegistry`（counter/gauge/histogram 的 Prometheus 文本渲染，输出按名与标签确定排序）。histogram 缺省用 0.005~10s 默认桶，`histogram_buckets(name, {…})` 在该名首次观测前按指标名注册自定义桶；`ScopedTimer` 在析构时把作用域耗时（秒）记入 histogram，只用于业务关键边界。`FrameScheduler` 按固定 tick 率驱动主循环，测量每帧回调的实际工作耗时（不含帧间睡眠），经 `set_frame_observer` 交给装配方，自身不依赖指标库（ADR-0014）。`realm_mesh` 把它转给 `MeshHost::record_frame`，每个 `ServiceHost` 在自己的 `/metrics` 发布 `frame_work_duration_seconds`（0.1ms~250ms 桶）、`frame_overrun_total`（工作耗时超过帧周期的帧数，从 0 起发布）与 `frame_budget_seconds`，并用 `ScopedTimer` 记本服务模块 tick 的 `service_tick_duration_seconds`。模式 1 多服务共用一个主循环时，各服务的帧耗时与超帧相同，服务 tick 耗时区分各自份额。Realm 与 Scene 仪表盘按 `realmmesh_service_ready{service_name}` 关联 instance 展示帧耗时 P50/P99 与超帧。
 - `game/client`：客户端登录链路（七态状态机、分档轮询、两段竞速）与其 HTTPS/网关/业务服生产传输绑定，目标 `RealmMesh::GameClient`，命名空间 `realm::game::client`。它是共享领域层的客户端库，服务层不依赖它，只有装配层与测试链接。外部通过经验证的 `LoginRun` 选择 Verify、Tickets、Poll、Gateway、GatewaySoak 或 Full 停止点；Gateway/Realm 连接由 move-only RAII Session 独占，只有 Full 成功会把已入场 Realm Session 转移给调用方。
 - `tools/loadgen`：负载调度、报告与 Login Chain 的配置/指标适配层。所有目标都转换为同一个 `LoginRun` 并执行 `game::client::LoginChain`；`gateway_soak` 负责保持 Gateway Session 水位，`full` 继续兑换 Realm Session，报告单列 Realm 拨号与入场的成功、失败和延迟。macOS 本机验收再通过同一 Full 路径发送生产 1105/1106 心跳并显式关闭会话。Linux CI 由 `scripts/run-linux-login-acceptance.sh` 汇总真实 QUIC、TLS/TCP 降级、四进程恢复与 M1–M4 缩减负载证据并上传报告；报告明确区分 CI 回归基线与专用机器上的 10 万/百万容量目标。CLI 的旧拼法 `all` 只在解析边界映射为 `GatewaySoak`，代码库中没有第二套登录状态机或新旧路径开关。
 - `tools/build-bench`：构建优化的测量工具（编译/链接 launcher 与场景驱动脚本），只在测量时使用，不进 CMake 构建；结果见 [build-optimization-results](research/build-optimization-results.md)。
@@ -334,7 +390,7 @@ MsQuic 自有调度不会直接调用业务逻辑。回调只完成长度帧组�
 - 配置头分两种（[#126](https://github.com/lvivvde/RealmMesh/issues/126)）：各模块的普通配置头（`player_data_config.hpp`、`gateway_config.hpp`、`login_verify_config.hpp`、`queue_config.hpp`、`realm_config.hpp`）只声明配置值，不经 include 传递 sol2；已合并 Lua 根表的解析入口是同目录的 `*_config_lua.hpp`（`parse_*_config`，只含 `<sol/forward.hpp>`），只由解析实现、服务模块的装载入口（`load_gateway_config`、`load_realm_config`、`load_login_verify_config`、`load_queue_config`）与解析测试显式包含，包含方自行链接 `RealmMesh::Scripting`。Lua 运行时与合并根表由 `LayeredConfig` 私有持有，公共头 `layered_config.hpp` 不带 sol2，越出模块装载入口的只有配置值。`training_rule.hpp` 只前置声明 `LuaRuntime`，Lua 调用与析构都在 `training_rule.cpp`，`realm_game_realm` 对 `realm_scripting` 为 PRIVATE（#127）。`config_headers_test` 在编译期守住这条边界。
 - 边缘运行时的头分层（[#128](https://github.com/lvivvde/RealmMesh/issues/128)）：`edge_event.hpp` 声明 `EdgeEvent`/`EdgeEventKind`，`edge_runtime_options.hpp` 声明运行时参数 `EdgeRuntimeOptions`，`gateway_config.hpp` 声明网关启动配置 `GatewayConfig`，它们都不带 runtime 的私有队列、线程与锁布局；`edge_runtime.hpp` 只留 `EdgeRuntime` 本身（及 `QueueResult`、`EdgeRuntimeStats`），由真正构造或驱动 runtime 的代码包含。`gateway_primary_transport.hpp` 只包含事件头并前置声明 `edge::EdgeRuntime`，完整定义留在 `gateway_primary_transport.cpp`；登录管线与准入经它同样不带 runtime。`layered_config.hpp`、`service_module.hpp`、`edge_service_module.hpp` 与 `service_host.hpp` 同样只前置声明 `edge::EdgeRuntime`，只消费配置值的服务与测试不随 runtime 布局重编。未做 runtime PIMPL，未新增虚接口；`EdgeRuntime::stop()`（IO 线程 request_stop 后 join）与 ServiceHost 的销毁顺序不变。`gateway_headers_test` 与 `config_headers_test` 在编译期断言这些头拿不到完整的 `EdgeRuntime`。
 - 网关入口拆成两半（ADR-0014 第 2、3 步，[#152](https://github.com/lvivvde/RealmMesh/issues/152)）：与游戏无关的来源地址归一化在 `framework/edge` 的 `edge_source_address.hpp`（`EdgeSourceConfig`/`EdgeSourceNormalizer`）；`game/gateway` 的 `gateway_credential_ingress.hpp` 是登录管线解码 `EdgeAttach` 前的凭据入口（`GatewayCredentialIngress`：信封与 JWS 结构上限、来源令牌桶、验签额度），依赖 `game/common` 的边缘协议。`EdgeRuntime` 只按传输配置、运行时参数与来源地址配置构造，不认识 `GatewayConfig`；`EdgeServiceModule` 从 `LayeredConfig::edge()` 取出这三项交给它，Gateway 登录额度 `conn_capacity` 也取自接入面启用传输的 `max_sessions` 之和。
-- `apps/mesh_host`：`realm_mesh` 单一入口，以 `--service` 区分服务与信号处理；拓扑经 `load_topology` 取得，入口本身不链接 Lua。`realm_mesh_modules`（`service_modules.hpp` 的 `game_service_modules()`）是唯一知道全部服务的地方：把 gateway（依赖 realm，模式 2 等待其可连）、realm、login_verify 与 queue（三者无依赖服务）的模块工厂注册进 `ServiceModuleRegistry`，交给 `MeshHost`。
+- `apps/mesh_host`：`realm_mesh` 单一入口，以 `--service` 区分服务与信号处理；拓扑经 `load_topology` 取得，入口本身不链接 Lua。`realm_mesh_modules`（`service_modules.hpp` 的 `game_service_modules()`）是唯一知道全部服务的地方：把 gateway（依赖 realm，模式 2 等待其可连）、realm（可选依赖 scene，不等待其就绪）、scene、chat、login_verify 与 queue（后四者无启动依赖）的模块工厂注册进 `ServiceModuleRegistry`，交给 `MeshHost`。
 
 ## 开发服务组的监督与停止（#143）
 
@@ -370,7 +426,7 @@ DevServices 用例使用独立数据库；各测试回收自己的服务，守�
 `realm::cluster::ServiceType` 是开放字符串(ADR-0014 第 4 步),框架只用
 `is_valid_service_type` 校验字符集 `[a-z0-9_]`,不枚举具体服务;服务名即服务类型线名。
 已实现身份的权威列表是进程入口 `apps/mesh_host` 的 `game_service_modules()` 注册表,
-当前6个:
+当前 6 个。默认配置启动四个登录服务，Scene 与 Chat 按需启用。
 
 | 服务名(线名) | 模块 | 状态 |
 |---|---|---|
@@ -379,7 +435,7 @@ DevServices 用例使用独立数据库；各测试回收自己的服务，守�
 | `login_verify` | `game/login_verify` 的 `make_login_verify_module` | 已接线,HTTPS 服务边(端口见服务配置) |
 | `queue` | `game/queue` 的 `make_queue_module` | 已接线,HTTPS 服务边,排队调度(端口见服务配置) |
 | `scene` | `game/scene` 的 `make_scene_module` | 已接线,独立 mTLS 内部服务,静态或动态分片 |
-| `chat` | `game/chat` 的 `make_chat_module` | 独立mTLS服务/频道排序者；C3 Realm 异步接线 |
+| `chat` | `game/chat` 的 `make_chat_module` | 独立mTLS服务/频道排序者；Realm异步接线、双承载与C5故障矩阵已实现 |
 
 旧 Login 链路(身份 `login`、端口 7000,以及登录票据与网关重入消息)已整体退役,
 线名 `login` 永不复用。

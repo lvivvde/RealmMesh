@@ -36,6 +36,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <unordered_set>
 #include <utility>
 #include <vector>
@@ -172,12 +173,16 @@ void ensure_driver_instance() {
     const auto server_selection = timeout_ms(
         options.server_selection_timeout, "server_selection_timeout");
     const auto socket = timeout_ms(options.socket_timeout, "socket_timeout");
+    const auto pool_wait = timeout_ms(
+        options.pool_wait_timeout, "pool_wait_timeout");
     const mongocxx::uri parsed{uri};
     if (parsed.server_selection_timeout_ms().has_value() ||
-        parsed.socket_timeout_ms().has_value()) {
+        parsed.socket_timeout_ms().has_value() ||
+        parsed.wait_queue_timeout_ms().has_value()) {
         throw PlayerDataError(
             "player data uri must not set serverSelectionTimeoutMS or "
-            "socketTimeoutMS; configure player_data timeouts instead");
+            "socketTimeoutMS or waitQueueTimeoutMS; "
+            "configure player_data timeouts instead");
     }
     const auto scheme = uri.find("://");
     const auto hosts = scheme == std::string::npos ? 0 : scheme + 3;
@@ -188,7 +193,8 @@ void ensure_driver_instance() {
         uri += '&';
     }
     uri += "serverSelectionTimeoutMS=" + std::to_string(server_selection) +
-           "&socketTimeoutMS=" + std::to_string(socket);
+           "&socketTimeoutMS=" + std::to_string(socket) +
+           "&waitQueueTimeoutMS=" + std::to_string(pool_wait);
     return mongocxx::uri{uri};
 }
 
@@ -659,10 +665,20 @@ class MongoPlayerDataStore::Impl final {
 public:
     Impl(std::string uri, std::string database, MongoPlayerDataOptions options)
         : database_name_(std::move(database)),
-          write_timeout_(options.socket_timeout),
+          write_timeout_(std::chrono::milliseconds{timeout_ms(
+              options.write_concern_timeout, "write_concern_timeout")}),
+          transaction_timeout_(std::chrono::milliseconds{timeout_ms(
+              options.transaction_timeout, "transaction_timeout")}),
           credential_hash_cost_(options.credential_hash_cost) {
         if (database_name_.empty()) {
             throw PlayerDataError("player data database must not be empty");
+        }
+        // 套接字超时短于写关注等待时，驱动总先断开，wtimeout 永远观察不到。
+        // 二者相等是生产默认(拆分前 wtimeout 即沿用套接字超时),保留。
+        if (options.socket_timeout < write_timeout_) {
+            throw PlayerDataError(
+                "socket_timeout must not be shorter than "
+                "write_concern_timeout");
         }
         if (sodium_init() < 0) {
             throw PlayerDataError("failed to initialize credential hashing");
@@ -791,8 +807,10 @@ public:
                     std::optional<CreateCharacterResult> result;
                     bool missing_account = false;
                     try {
-                        session.with_transaction(
-                            [&](mongocxx::client_session* transaction) {
+                        run_transaction(
+                            session,
+                            [&](mongocxx::client_session* transaction,
+                                const auto& checkpoint) {
                                 result.reset();
                                 missing_account = false;
                                 // 先写账号文档:同账号的并发创建在此写冲突,
@@ -819,6 +837,7 @@ public:
                                 }
                                 const auto roster_seq =
                                     stored->view()["roster_seq"].get_int64();
+                                checkpoint();
                                 const auto count =
                                     collection(*client, characters_collection)
                                         .count_documents(
@@ -832,6 +851,7 @@ public:
                                             CreateCharacterOutcome::LimitReached};
                                     return;
                                 }
+                                checkpoint();
                                 static_cast<void>(
                                     collection(*client, characters_collection)
                                         .insert_one(
@@ -1050,8 +1070,9 @@ public:
         try {
             auto client = pool_->acquire();
             auto session = client->start_session();
-            session.with_transaction(
-                [&](mongocxx::client_session* tx) {
+            run_transaction(
+                session,
+                [&](mongocxx::client_session* tx, const auto& checkpoint) {
                     matched = false;
                     auto instances =
                         collection(*client, scene_instances_collection);
@@ -1075,6 +1096,7 @@ public:
                                 kvp("$set", instance_fields(desired))));
                         matched = result && result->matched_count() == 1;
                     }
+                    checkpoint();
                     if (matched && desired.draining)
                         static_cast<void>(
                             collection(*client, shards_collection)
@@ -1099,6 +1121,10 @@ public:
                 std::string("Scene instance CAS outcome unknown: ") +
                 error.what());
         } catch (const mongocxx::exception& error) {
+            throw SceneWriteUncertain(
+                std::string("Scene instance CAS outcome unknown: ") +
+                error.what());
+        } catch (const PlayerDataError& error) {
             throw SceneWriteUncertain(
                 std::string("Scene instance CAS outcome unknown: ") +
                 error.what());
@@ -1127,8 +1153,9 @@ public:
             auto client = pool_->acquire();
             auto session = client->start_session();
             bool matched = false;
-            session.with_transaction(
-                [&](mongocxx::client_session* tx) {
+            run_transaction(
+                session,
+                [&](mongocxx::client_session* tx, const auto& checkpoint) {
                     matched = false;
                     if (desired.owner &&
                         (!expected || expected->owner != desired.owner)) {
@@ -1148,6 +1175,7 @@ public:
                                                     std::int64_t{1})))));
                         if (!ready || ready->matched_count() != 1) return;
                     }
+                    checkpoint();
                     auto shards = collection(*client, shards_collection);
                     if (!expected) {
                         bsoncxx::builder::basic::document value;
@@ -1178,6 +1206,9 @@ public:
             throw SceneWriteUncertain(
                 std::string("shard CAS outcome unknown: ") + error.what());
         } catch (const mongocxx::exception& error) {
+            throw SceneWriteUncertain(
+                std::string("shard CAS outcome unknown: ") + error.what());
+        } catch (const PlayerDataError& error) {
             throw SceneWriteUncertain(
                 std::string("shard CAS outcome unknown: ") + error.what());
         }
@@ -1251,8 +1282,10 @@ public:
             bool stale_shard = false;
             if (write.owner.shard_version != 0) {
                 auto transaction = client->start_session();
-                transaction.with_transaction(
-                    [&](mongocxx::client_session* session) {
+                run_transaction(
+                    transaction,
+                    [&](mongocxx::client_session* session,
+                        const auto& checkpoint) {
                         stored.reset();
                         stale_shard = !guard_shard(
                             *client,
@@ -1264,7 +1297,8 @@ public:
                         if (!stale_shard &&
                             write.command.type == SceneCommandType::Transfer &&
                             write.expected_owner &&
-                            write.expected_owner->shard_version != 0)
+                            write.expected_owner->shard_version != 0) {
+                            checkpoint();
                             stale_shard = !guard_shard(
                                 *client,
                                 *session,
@@ -1272,7 +1306,9 @@ public:
                                 current->confirmed_location->shard_id,
                                 *write.expected_owner,
                                 false);
+                        }
                         if (stale_shard) return;
+                        checkpoint();
                         stored = collection(*client, scenes_collection)
                                      .find_one_and_update(
                                          *session,
@@ -1339,7 +1375,7 @@ public:
         }
     }
 
-    void provision_account(const AccountProvisioning& account) {
+    void provision_account(const AccountProvisioning& account, bool insert_only = false) {
         if (account.account_name.empty()) {
             throw PlayerDataError("account name must not be empty");
         }
@@ -1352,6 +1388,13 @@ public:
             upsert.upsert(true);
             // 只覆盖认证与准入字段；已选角色不受重新开通影响。
             try {
+                if (insert_only) {
+                    static_cast<void>(collection(*client, accounts_collection).insert_one(
+                        make_document(kvp("_id", id), kvp("account_name", text(account.account_name)),
+                                      kvp("credential_hash", text(hash)), kvp("banned", account.banned),
+                                      kvp("whitelisted", account.whitelisted))));
+                    return;
+                }
                 static_cast<void>(
                     collection(*client, accounts_collection)
                         .update_one(
@@ -1520,12 +1563,15 @@ public:
             auto session = client->start_session();
             bool imported = false;
             try {
-                session.with_transaction(
-                    [&](mongocxx::client_session* transaction) {
+                run_transaction(
+                    session,
+                    [&](mongocxx::client_session* transaction,
+                        const auto& checkpoint) {
                         imported = false;
                         // 哈希期间另一服务可能已完成导入，事务内重新确认。
                         if (!bootstrap_pending(*client, transaction)) return;
-                        // 先写标记：并发导入者在这里写冲突，with_transaction
+                        checkpoint();
+                        // 先写标记：并发导入者在这里写冲突，事务
                         // 重试时就能看到已提交的标记而退出。
                         static_cast<void>(
                             collection(*client, metadata_collection)
@@ -1535,10 +1581,12 @@ public:
                                         kvp("_id", text(bootstrap_marker)),
                                         kvp("value", "complete"))));
                         if (!account_documents.empty()) {
+                            checkpoint();
                             static_cast<void>(
                                 collection(*client, accounts_collection)
                                     .insert_many(
                                         *transaction, account_documents));
+                            checkpoint();
                             static_cast<void>(
                                 collection(*client, characters_collection)
                                     .insert_many(
@@ -1560,6 +1608,70 @@ public:
     }
 
 private:
+    // 不使用驱动固定 120 秒的 with_transaction。事务体与提交共享预算；
+    // 未知提交结果只重试同一 session 的 commit，绝不重跑可能已提交的事务体。
+    // commit_transaction 自身保留驱动的一次网络重试、majority 与 unpin 语义。
+    template <typename Callback>
+    void run_transaction(
+        mongocxx::client_session& session,
+        Callback&& callback,
+        const mongocxx::options::transaction& options) const {
+        const auto deadline =
+            std::chrono::steady_clock::now() + transaction_timeout_;
+        const auto checkpoint = [&] {
+            if (std::chrono::steady_clock::now() >= deadline)
+                throw PlayerDataError(
+                    "mongodb transaction deadline exceeded; outcome may be unknown");
+        };
+        const auto retry = [&] {
+            if (std::chrono::steady_clock::now() >= deadline) return false;
+            std::this_thread::sleep_until(std::min(
+                deadline,
+                std::chrono::steady_clock::now() +
+                    std::chrono::milliseconds{5}));
+            return std::chrono::steady_clock::now() < deadline;
+        };
+        const auto abort = [&] {
+            // 清理失败不能替换原错误。驱动 abort 至多进行一次内部网络重试。
+            try {
+                session.abort_transaction();
+            } catch (const mongocxx::exception&) {
+            }
+        };
+        for (;;) {
+            checkpoint();
+            session.start_transaction(options);
+            try {
+                callback(&session, checkpoint);
+                checkpoint();
+            } catch (const mongocxx::operation_exception& error) {
+                abort();
+                if (error.has_error_label("TransientTransactionError") &&
+                    retry()) continue;
+                throw;
+            } catch (...) {
+                abort();
+                throw;
+            }
+            for (;;) {
+                try {
+                    // 首次提交前已有 checkpoint；每次重试均先检查同一预算。
+                    session.commit_transaction();
+                    return;
+                } catch (const mongocxx::operation_exception& error) {
+                    if (error.code().value() == 50) throw;  // MaxTimeMSExpired
+                    if (error.has_error_label("UnknownTransactionCommitResult")) {
+                        if (retry()) continue;
+                        throw;
+                    }
+                    if (error.has_error_label("TransientTransactionError") &&
+                        retry()) break;
+                    throw;
+                }
+            }
+        }
+    }
+
     [[nodiscard]] static std::int64_t database_realm_id(std::uint32_t realm_id) {
         if (realm_id == 0) throw PlayerDataError("realm_id must be non-zero");
         return std::int64_t{realm_id};
@@ -1600,6 +1712,8 @@ private:
         mongocxx::options::transaction options;
         options.write_concern(durable_write_concern());
         options.read_concern(majority_read_concern());
+        // 服务端单次提交上限；总重试由 run_transaction 的独立预算控制。
+        options.max_commit_time_ms(write_timeout_);
         return options;
     }
 
@@ -1698,6 +1812,7 @@ private:
 
     std::string database_name_;
     std::chrono::milliseconds write_timeout_;
+    std::chrono::milliseconds transaction_timeout_;
     CredentialHashCost credential_hash_cost_{CredentialHashCost::Interactive};
     // mongocxx::pool 本身线程安全；可变状态只有它。
     mutable std::optional<mongocxx::pool> pool_;
@@ -1791,6 +1906,10 @@ bool MongoPlayerDataStore::revoke_scene(
 void MongoPlayerDataStore::provision_account(
     const AccountProvisioning& account) {
     impl_->provision_account(account);
+}
+
+void MongoPlayerDataStore::insert_account(const AccountProvisioning& account) {
+    impl_->provision_account(account, true);
 }
 
 void MongoPlayerDataStore::set_account_access(

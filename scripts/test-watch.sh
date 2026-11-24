@@ -10,7 +10,9 @@
 #   其余选项(--preset、--jobs、--target、--test-regex、--test-jobs)原样传给
 #   test-fast.sh,每轮相同。
 #
-# 监听工具优先级:fswatch(macOS 常用)→ inotifywait(Linux)→ 轮询(平台无关兜底)。
+# 监听工具优先级按平台分支:Linux 为 inotifywait → fswatch,macOS 为 fswatch →
+# inotifywait;都没有时退回轮询(平台无关兜底)。监听工具在 PATH 上却起不来
+# (缺共享库、inotify 配额耗尽)时告警并改为轮询，不反复重启它。
 # 环境变量 REALMMESH_WATCH_TOOL=fswatch|inotify|poll 可强制指定。
 #
 # 是否有变更以文件快照为准(路径 + 修改时间 + 大小，另加比本轮时间戳新的文件),
@@ -75,13 +77,17 @@ realmmesh_require_preset_name "${preset}" || exit 64
 
 watch_tool="${REALMMESH_WATCH_TOOL:-}"
 if [[ -z "${watch_tool}" ]]; then
-    if command -v fswatch >/dev/null 2>&1; then
-        watch_tool=fswatch
-    elif command -v inotifywait >/dev/null 2>&1; then
-        watch_tool=inotify
-    else
-        watch_tool=poll
-    fi
+    case "$(uname -s)" in
+        Darwin) watch_candidates=(fswatch inotify) ;;
+        *) watch_candidates=(inotify fswatch) ;;
+    esac
+    watch_tool=poll
+    for candidate in "${watch_candidates[@]}"; do
+        if command -v "${candidate/inotify/inotifywait}" >/dev/null 2>&1; then
+            watch_tool="${candidate}"
+            break
+        fi
+    done
 fi
 case "${watch_tool}" in
     fswatch|inotify|poll) ;;
@@ -257,10 +263,20 @@ wait_for_change() {
         (sleep "${recheck_interval}"; kill "${watcher_pid}") 2>/dev/null &
         timer_pid=$!
         # 陷阱会让 wait 提前返回，监听进程可能还活着：交给 stop_watcher 收掉。
-        wait "${watcher_pid}" 2>/dev/null
+        local watcher_status=0
+        wait "${watcher_pid}" 2>/dev/null || watcher_status=$?
         stop_watcher
         stop_if_requested
         if changes_pending; then
+            return 0
+        fi
+        # 0 是事件唤醒,143 是定时复查的 TERM;其余是工具自身失败(缺共享库、inotify
+        # 配额耗尽等)。它的 stderr 已丢弃，不回退就会立刻重启它，空转成无间隔的快照。
+        if [[ "${watcher_status}" -ne 0 && "${watcher_status}" -ne 143 ]]; then
+            echo "test-watch: ${watch_tool} exited with status ${watcher_status};" \
+                "falling back to polling every ${poll_interval}s" >&2
+            watch_tool=poll
+            wait_for_change
             return 0
         fi
     done

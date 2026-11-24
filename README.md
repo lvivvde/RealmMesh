@@ -3,7 +3,7 @@
 RealmMesh 是一个 C++20 分布式游戏服务端框架。接入侧的目标场景是**瞬时登录洪峰**：
 百万级客户端在分钟级窗口内同时发起登录，系统按准入额度有序放行，不雪崩、不丢位次。
 业务侧将以一条轻量 MMO 参考链路验证服务拆分、跨进程路由、持久化与故障隔离；
-下文的“必做路线图”是尚待交付的项目承诺，不代表当前实现。
+下文的“必做路线图”列出分阶段目标；当前交付范围以“实施状态”为准。
 
 接入链路按「健全 → 排队 → 网关管线 → 直连业务服」分层：
 
@@ -30,7 +30,7 @@ flowchart LR
 - **业务服 `realm`**：EnterRealm 票据兑换点与客户端长连接落点；Realm Session 内完成
   角色列表、创建、选择与训练（Lua 规则，序号幂等），同账号新会话顶掉旧会话；选角后可显式进入 Scene。
 - **场景服务 `scene`**：独立 mTLS 服务，支持进入、移动互见、双实例转场、动态承载与排空；
-  Realm 持久确认后才广播。独立 Chat 已有服务、排序者及 C3 Realm 异步路由/参考客户端闭环，双承载故障矩阵待 C4–C5。
+  Realm 持久确认后才广播。独立 Chat 已有服务、排序者、Realm 异步路由、双承载转场隔离与 C5 组合故障验收入口；Chat Accepted 不写持久消息。
 - **边缘 CDN/WAF**：只定契约（验签放行、DDoS 防护），不在本仓库实现；边缘验签是
   能力分级优化，健全服/排队服/网关的本地验签不可省略。
 - 业务消息为 4 字节大端长度 + Protobuf `Envelope`（上限 64KiB）；不支持裸 TCP/UDP、
@@ -45,6 +45,19 @@ flowchart LR
 [协议文档](docs/protocol.md)、[分布式日志架构](docs/logging-architecture.md)、
 [observability development stack](deploy/observability/README.md)。
 
+## 文档导航
+
+| 要做的事 | 入口 |
+|---|---|
+| 理解领域词、当前结构与线协议 | [CONTEXT](CONTEXT.md)、[架构](docs/architecture.md)、[协议](docs/protocol.md) |
+| 查阅设计取舍与交付计划 | [ADR](docs/adr/)、[接入与参考业务路线图](docs/plans/2026-09-27-login-chain-roadmap.md) |
+| 构建与启动开发服务 | 下文“构建”“开发证书与密钥”“运行” |
+| 配置共享开发数据库 | [共享 MongoDB](docs/operations/shared-mongodb.md) |
+| 使用 Linux 开发环境 | [Linux ARM64 开发说明](docs/operations/linux-arm64-development.md) |
+| 验收 Scene 进入、移动、转场与恢复 | [Scene 运行说明](docs/operations/scene-reference-loop.md) |
+| 修改代码、运行测试与质量检查 | [代码归属](docs/agents/code-layout.md)、[构建性能约束](docs/agents/build-performance.md)、[测试说明](tests/README.md)、[质量检查](docs/agents/quality-checks.md) |
+| 查看日志、指标与告警 | [日志架构](docs/logging-architecture.md)、[可观测性开发栈](deploy/observability/README.md) |
+
 ## 实施状态
 
 规格本身仍是评审稿；下表"已实现"指代码、配置与测试均已落地。
@@ -55,22 +68,24 @@ flowchart LR
 
 | 范围 | 状态 |
 |---|---|
+| 浏览器双人演示：本机账号注册、登录排队、选角、摇杆与点地走跑、附近地图与空背包界面 | 已实现，[本机启动与验收](docs/operations/browser-demo.md) |
 | 传输基座：QUIC + TLS 1.3、客户端竞速与降级分类 | 已实现 |
 | 凭据编解码：极小 JSON（#37）、EdDSA JWT 与 JWKS（#38） | 已实现 |
 | HTTPS 服务边：有界 HTTP/1.1 解析与 TLS 传输（#39） | 已实现 |
 | 集群：etcd v3 注册/发现、实例额度上报（`conn_free`/`fetch_free`） | 已实现 |
-| AccountStore 抽象与配置账号表（#40） | 已实现 |
+| AccountStore 抽象（#40）；MongoDB 为权威来源，配置账号表仅用于空库首次导入 | 已实现 |
 | 登录健全服 `login_verify`（#41） | 已实现 |
 | 排队调度服 `queue`（#42） | 已实现 |
 | 网关三阶段管线与实例额度聚合（#43） | 已实现 |
 | 限流拉取管线（#44） | 已实现 |
 | handoff 与 EnterRealm 签发（#45） | 已实现 |
 | 业务服 EnterRealm 兑换与直连入场（#46） | 已实现 |
-| 指标/告警/仪表盘（#47）、L1 定向压测与 `realm_mesh_loadgen`（#48） | 已实现 |
+| 指标、告警与仪表盘（#47），含 Realm 与 Scene 帧耗时及超帧次数（#170）、L1 定向压测与 `realm_mesh_loadgen`（#48） | 已实现 |
 | 客户端状态机与自适应轮询（#49） | 已实现 |
 | 退役旧 Login 链路（#50） | 已实现 |
 | 身份 Token 回放守卫收敛（#63）、客户端真实兑换口（#64） | 已实现 |
 | 权威玩家数据源：MongoDB 副本集取代 SQLite（#99） | 已实现 |
+| 玩家数据事务有界重试（#186） | 已实现事务体与提交共享预算、未知提交只重试提交及连接池等待上限；真实故障与 Realm `3010` 回读验证见[测试说明](tests/README.md#玩家数据事务故障186) |
 | 登录链玩家数据加固：验签与 Realm 角色复核移出事件线程、Realm 必须配置数据源、`1007`/`1008` 分流、网关拉取超时与并发（#98；Realm 入场角色复核已由 #93 移除） | 已实现 |
 | Realm 最小业务闭环：票据不再带角色、Realm Session 选角/游戏中阶段、角色列表/创建/选择、Lua 训练规则与序号幂等、同账号新会话顶替旧会话、客户端 Realm API（#93） | 已实现 |
 | 共享临时开发库：TLS/认证、SSH 隧道与仓库外私有配置 | 已实现，见[连接说明](docs/operations/shared-mongodb.md) |
@@ -81,7 +96,7 @@ flowchart LR
 | 开发 Supervisor 停止信号与进程回收（#143/#129） | 已修复解析竞态及 wait 再次中断后的提前清理；逆序停止与真实进程回收证据见[诊断记录](docs/research/dev-services-signal-stop.md) |
 | 四层依赖方向（ADR-0014）第 1–5 步：客户端库 `framework/client` 迁入 `game/client`；Gateway 来源地址归一化与凭据入口拆头；边缘连接运行时迁入 `framework/edge`（`EdgeRuntime`、Edge Connection）；通用 `ServiceHost` + `ServiceModule` 注册表，`ServiceType` 改为字符串，四个服务模块迁入各自服务目录，`ServiceFrame` 拆为 `GatewayFrame` 与 `RealmFrame`（#152） | 已完成，`framework/service_host` 不依赖任何 `game/*`，Realm 不依赖 `game/gateway`；`layering_guard_test` 白名单已清空并移除，任何反向依赖都直接失败 |
 | Scene 参考业务：协议与持久边界、双人移动互见、双实例转场、动态加入与排空 | [规格与任务拆分](docs/specs/2026-10-17-scene-reference-loop.md)已完成；S1 协议/编解码与 MongoDB 场景条件写原语（#161）已实现；S2 独立 Scene、双人移动互见与 mTLS 已实现（#162）；S3 双实例转场与归属恢复已实现（#163）；S4 动态加入、共享分片承载 CAS、同分片重建与有身份校验的排空已实现（#164）；S5 组合故障矩阵、真实背压与严格验收已完成并合并（#165、PR #174）；[双平台全量、各三轮验收与归档记录](docs/research/scene-s5-acceptance-2026-10-23.md) |
-| 独立 Chat 在线频道与故障隔离 | [阶段 5 规格提案与 C1–C5 拆分](docs/specs/2026-10-23-chat-reference-loop.md)（[#175](https://github.com/lvivvde/RealmMesh/issues/175)）；C1（#176）已合并；C2（#177）实现独立Chat、mTLS、频道排序/资格/回执及有界分发；C3（#178）接通 Realm 独立有界 IO、选角/场景资格和参考客户端状态/发送/通知；双实例故障验收待 C4–C5 |
+| 独立 Chat 在线频道与故障隔离 | [阶段 5 规格与 C1–C5 拆分](docs/specs/2026-10-23-chat-reference-loop.md)（[#175](https://github.com/lvivvde/RealmMesh/issues/175)）；C1–C4 已实现协议、独立排序者、Realm/参考客户端闭环及双Scene/双Chat隔离；C5（#180）补齐 Chat/Realm SIGKILL、链路与回执丢失、旧资格、队列/截止、生产 1MiB mTLS 慢端和参考客户端通知溢出矩阵，并提供冻结源码/配置、实际指标、原始日志、归档 SHA256 的统一入口。阶段最终通过仍以双平台 CI 与各三轮归档为准。 |
 
 旧 `Login → Realm 选角 → Gateway 入场` 链路已整体退役：`login` 服务身份、7000 端口与
 旧入场消息编号都已删除，线名 `login` 永不复用（见[架构文档](docs/architecture.md)）。
@@ -96,6 +111,18 @@ Scene S1–S5 本机多进程验收（隔离 etcd/MongoDB、自动生成测试�
 报告保存在所选构建目录的 `acceptance/scene-reference-loop/`。独立 Scene 配置与参考客户端
 接口见 [Scene 运行说明](docs/operations/scene-reference-loop.md)。默认登录开发拓扑仍可单独运行；
 Scene 按需启用，缺失时不阻断 Realm 的心跳与训练。
+
+Chat C1–C5 本机多进程统一验收（沿用所选 preset 的实际 binaryDir 和构建预算）：
+
+```bash
+./scripts/run-chat-acceptance.sh --preset dev --jobs 6
+```
+
+每次运行在 `acceptance/chat-reference-loop/` 下保留独立报告、JUnit/GTest、实际 HTTP 指标、
+原始服务日志、tar.gz 与 SHA256；缺组、缺证据、跳过、失败或运行中源码变化均返回非零。
+macOS/Linux CI 还会将报告、归档及校验文件持久上传为
+`chat-c1-c5-<OS>-<run>-<attempt>` artifact；configure 失败也会先写入已登记 binaryDir，
+未有登记时退到 `.local/acceptance/chat-reference-loop/`，不会只留临时日志。
 
 ## 必做路线图
 
@@ -152,9 +179,11 @@ ALPN、鉴权或协议错误不会。网络不可达结果按当前网络缓存 
 | Admission Grant | JWT/EdDSA（`iss=realmmesh/queue`，`aud=realmmesh-gateway`、`purpose=gateway-admission`，绑定 `identity_jti`、来源号值与 `deployment_id`） | 排队服 | 网关校验与集群消费 | 放行批次起算（`admit_grace` 默认 5 min，协议上限 10 min），且 ≤ 身份 Token 到期 | 是（同一 `identity_jti` 在一个 deployment 内至多一次） |
 | EnterRealm 票据 | SessionTicket（对称键，用途字节 `EnterRealm=3`；旧用途字节作废不复用） | 网关 | 业务服 Realm 兑换 | 60 s | 是（重放防护） |
 
-Ed25519 私钥只在健全服（`REALMMESH_IDENTITY_KEY_SEED`，hex 注入），公钥经
-`GET /.well-known/jwks.json` 发布，内部消费方配置静态载入；轮换走 `kid` 单调递增 +
-24h 重叠窗双键并存。封禁/白名单状态不入 Token（签发时检查 + 网关拉取时二次校验兜底）。
+身份 Token 公钥经 `GET /.well-known/jwks.json` 发布。ADR-0004 要求私钥只在 Login Verifier，
+并以 `kid` + JWKS 支持 24h 重叠轮换；当前装配仍有差距：Login Verifier、Queue Scheduler
+与 Gateway 都读取 `REALMMESH_IDENTITY_KEY_SEED`（hex）构造身份 Token codec，
+内部消费方尚未切换为仅持公钥的装配，不能把上述密钥隔离与轮换要求视为已交付。
+封禁/白名单状态不入 Token（签发时检查 + 网关拉取时二次校验兜底）。
 
 ## HTTPS API
 
@@ -170,9 +199,10 @@ JSON over HTTP/1.1，keep-alive 必开：
 | `/healthz` | 两个服务 | — | 健康检查 |
 
 错误模型为 `{code, message, retry_after_seconds?}`（HTTP 状态与 `code` 并存），段号约定
-沿用 `edge.proto`：`1xxx` 凭据段（`1001` 凭据无效、`1002` 封禁、`1003` 白名单外、`1004` 玩家数据源暂不可用，HTTP `503`）、
+沿用 `edge.proto`：`1xxx` 凭据段（`1001` 凭据无效、`1002` 封禁、`1003` 白名单外、`1004` 玩家数据源暂不可用、`1005` 验签工作者满额，两者均为 HTTP `503`）、
 `2xxx` 排队段（`2001` 号牌无效/过期、`2002` 发号存储暂不可用）。网关边另有一套 `EdgeError.code`：`1001` 凭据无效、
-`1004` 满额拒绝 attach、`1005` 准入处理中（可重试）、`1006` 准入存储不可用（可重试）、
+`1004` 满额拒绝 attach、`1005` 准入处理中（可重试）、`1006` 准入存储不可用（可重试）、`1007` 账号不具备准入资格（终止登录）、
+`1008` 玩家数据暂不可用（退避后重新登录）、
 `2002` 未认证、`3002` 入场票据无效，以及限流时的 `429`（带 `retry_after_seconds`）。
 这两套 code 与 `Envelope.message_id` 是三个独立编号空间，数值相同不代表同一含义。各服务
 在独立 metrics 端口暴露 Prometheus 指标（见“运行”）。
@@ -182,7 +212,7 @@ JSON over HTTP/1.1，keep-alive 必开：
 `GatewayLoginPipeline` 是 Edge Session 登录阶段、准入额度、账号拉取结算、Handoff、
 会话收尾与对应指标的唯一权威。`GatewayFrame` 每帧只解析当前 Realm 端点并调用一次
 `advance()`；传输事件与命令分别经 `EdgeRuntimePrimaryTransport` 适配，账号拉取经
-非阻塞 `DelayedAccountFetchPort` 适配。旧的分步编排与公开 helper 已删除，不存在双路径。
+有界异步 `PlayerDataAccountFetchPort` 适配；`DelayedAccountFetchPort` 仅用于未配置数据源的隔离测试。旧的分步编排与公开 helper 已删除，不存在双路径。
 
 ```mermaid
 stateDiagram-v2
@@ -242,6 +272,22 @@ sudo apt install libssl-dev libnuma1 ninja-build
 ./scripts/build.sh
 ```
 
+没有 sudo 的 Linux 开发机（如 WSL2）把 CMake、Ninja、OpenSSL 开发包与 `libnuma`
+解到仓库内被 Git 忽略的 `.tools/`，再用环境变量指过去（路径按本机实际布局）：
+
+```bash
+export PATH="$PWD/.tools/cmake/bin:$PWD/.tools/ninja-local/usr/bin:$PATH"
+export OPENSSL_ROOT_DIR="$PWD/.tools/<openssl 前缀>"          # 含 include/openssl 与 lib*/libssl.so
+export CMAKE_LIBRARY_PATH="$PWD/.tools/sysroot/usr/lib/x86_64-linux-gnu"  # libnuma 等
+export LD_LIBRARY_PATH="$OPENSSL_ROOT_DIR/lib/x86_64-linux-gnu:$CMAKE_LIBRARY_PATH"
+./scripts/build.sh --preset dev-make   # 无 Ninja 时用 Make 回退
+```
+
+MsQuic 与 libnuma 的库目录会写进可执行文件 RUNPATH；但 RUNPATH 不传递，`libmsquic` 自身的依赖
+（不同版本可能有 `libxdp`、`libnl-3`）以及 `.tools/` 里 OpenSSL 的运行库仍靠 `LD_LIBRARY_PATH` 找到，
+它们缺失时 `ldd build/<预设目录>/bin/realm_mesh` 会显示 `not found`。macOS 对应的是 `DYLD_LIBRARY_PATH`，
+Homebrew 库自带绝对 install name，通常不需要设置。
+
 macOS（开发基准；装 `libmsquic` 即本地启用 QUIC，不装则只走 TLS/TCP）：
 
 ```bash
@@ -257,7 +303,7 @@ export PATH="$(brew --prefix openssl@3)/bin:$PATH"   # 测试证书生成要用 
 
 - **OpenSSL**：显式 `OPENSSL_ROOT_DIR`（`-D` 或环境变量）优先，无效即失败、不回退；未指定时
   macOS 默认 Homebrew `openssl@3` 专用前缀。不能用共享前缀 `/opt/homebrew/include`：其中还有
-  Homebrew 的 Abseil（`mongodb-community` 会顺带装上），会盖过工程固定版本。配置期会校验：头文件来自专用
+  Homebrew 的 Abseil（`mongodb-community` 会顺带装上），会盖过工程固定版本。Linux 未指定时交给 FindOpenSSL 的系统搜索（`libssl-dev`）。配置期会校验：头文件来自专用
   include 目录，头与库属于同一安装，探针程序能链接（架构一致），头与运行时主次版本一致。
 - **protoc**：默认下载并校验官方 protoc 35.0（无官方包的宿主从源码构建）。要用本机已有的 protoc，唯一入口是
   `-DREALMMESH_PROTOC_EXECUTABLE=<绝对路径>`，版本必须是 35.0，无效即失败、不改走下载。
@@ -291,7 +337,7 @@ Ninja 下库与生产程序的链接进深度 1 的原生池，编译仍用满 `
 发现，见[实施记录](docs/research/build-tool-cache-decisions.md#实施记录123)）；libsodium 照旧是单独的 `make -j1`。旧的 `build/dev`
 （`dev` 曾用 Make 时的目录）不会被删除、搬移或换生成器，确认不再需要后自行删除即可。
 
-原生 C/C++ 编译缓存（#124）：`REALMMESH_CCACHE` 缺省 `AUTO`，PATH 有 ccache 4.x（≥4.8）即启用，缺失时打印关闭；`ON` 缺工具或显式工具路径无效会配置失败。macOS 可 `brew install ccache`，Ubuntu 可 `sudo apt install ccache`，入口不自动安装。`cmake --preset dev -DREALMMESH_CCACHE=OFF` 关闭并移除项目管理的 launcher，之后 `./scripts/build.sh` 保持该缓存选择；`AUTO` 可重新开启。已有自定义 compiler launcher 与开启缓存冲突时明确报错，OFF 保留用户 launcher。
+原生 C/C++ 编译缓存（#124）：`REALMMESH_CCACHE` 缺省 `AUTO`，PATH 有 ccache 4.x（≥4.8）即启用，缺失时打印关闭；`ON` 缺工具或显式工具路径无效会配置失败。Ubuntu 可 `sudo apt install ccache`，macOS 可 `brew install ccache`，入口不自动安装。`cmake --preset dev -DREALMMESH_CCACHE=OFF` 关闭并移除项目管理的 launcher，之后 `./scripts/build.sh` 保持该缓存选择；`AUTO` 可重新开启。已有自定义 compiler launcher 与开启缓存冲突时明确报错，OFF 保留用户 launcher。
 
 专用缓存缺省 `${sourceDir}/.cache/ccache`（在 build 外，git 忽略），上限 5GiB；构建目录清理不会删除它。用户预设可覆盖 `REALMMESH_CCACHE_DIR`（绝对路径）、`REALMMESH_CCACHE_MAX_SIZE` 和 `REALMMESH_CCACHE_EXECUTABLE`。配置隔离个人/系统 ccache 设置并在每次调用固定 content 编译器校验、空 sloppiness、调试目录哈希、系统头检查、压缩及禁止硬链接；不强设路径映射，也不缓存 libsodium 的外部 Make 编译。`CCACHE_DIR=<专用目录> ccache --show-stats --verbose` 查看命中/未命中/大小/淘汰，未命中正常源码编译，编译错误不重试。
 
@@ -327,10 +373,10 @@ MongoDB 服务：`./scripts/configure-shared-mongodb.sh vps` 取一次私有连�
 `./scripts/with-shared-mongodb.sh <命令>` 启动服务，详见[共享库说明](docs/operations/shared-mongodb.md)。
 
 自动化集成测试不连共享库，而是由夹具在本机拉起临时 `mongod`，所以跑全量测试的机器
-需要 MongoDB 二进制：macOS 用 `brew tap mongodb/brew && brew trust mongodb/brew && brew install mongodb-community mongosh`；
-Linux（CI 自动执行）用 `./scripts/install-mongodb.sh` 下载固定版本到 `.tools/`。
+需要 MongoDB 二进制：Linux（CI 自动执行）用 `./scripts/install-mongodb.sh` 下载固定版本到 `.tools/`；
+macOS 用 `brew tap mongodb/brew && brew trust mongodb/brew && brew install mongodb-community mongosh`。
 离线时可用 `./scripts/run-mongodb-dev.sh` 在 `127.0.0.1:27017` 前台启动本机单节点 `rs0`
-（数据在 `.runtime/mongodb`，不碰 Homebrew 服务的配置与数据目录；两者都占 27017，
+（数据在 `.runtime/mongodb`，不碰系统或 Homebrew 的 MongoDB 服务的配置与数据目录；两者都占 27017，
 同时只能运行一个），此时不经包装命令，配置回落到默认本机 URI。
 
 ## 开发证书与密钥
@@ -365,21 +411,23 @@ export REALMMESH_ADMISSION_CONSUMPTION_DIGEST_KEY="$(openssl rand -hex 32)"  # �
 
 ## 运行
 
-开发环境可使用管理脚本一键启动或重启全部服务：
+先完成构建、etcd、开发证书与签名材料准备，并按[共享库说明](docs/operations/shared-mongodb.md)配置数据库连接。
+管理脚本的启动范围不同：all-in-one 运行默认四服务拓扑；dev-services 只管理 Realm 与 Gateway，
+完整登录还需另行启动 Login Verifier 与 Queue Scheduler。
 
 ```bash
 # all-in-one：单进程承载完整拓扑（四个服务）
-./scripts/dev-all-in-one.sh          # 默认 restart
+./scripts/with-shared-mongodb.sh ./scripts/dev-all-in-one.sh restart
 ./scripts/dev-all-in-one.sh status
 ./scripts/dev-all-in-one.sh stop
 
 # 同机多进程开发模式：realm 与 gateway 各占一个进程
-./scripts/dev-services.sh          # 默认 restart
+./scripts/with-shared-mongodb.sh ./scripts/dev-services.sh restart
 ./scripts/dev-services.sh status
 ./scripts/dev-services.sh stop
 
 # 用另一个预设的构建产物启动（默认 dev）
-./scripts/dev-services.sh --preset dev-make restart
+./scripts/with-shared-mongodb.sh ./scripts/dev-services.sh --preset dev-make restart
 ```
 
 脚本默认使用 `.runtime/tls/` 中的开发证书，将 PID 写入 `.runtime/pids/`。all-in-one
@@ -404,14 +452,15 @@ all-in-one 启动全部服务（`dev` 预设的构建目录即 `build/dev-ninja`
 `./scripts/build-dir.sh --preset NAME` 查）：
 
 ```bash
-./build/dev-ninja/bin/realm_mesh --config configs
-./build/dev-ninja/bin/realm_mesh --config configs --service login_verify   # 单服务模式
+./scripts/with-shared-mongodb.sh ./build/dev-ninja/bin/realm_mesh --config configs
+./scripts/with-shared-mongodb.sh ./build/dev-ninja/bin/realm_mesh --config configs --service login_verify   # 单服务模式
 ```
 
 用法：`realm_mesh [--config <dir>] [--service <name>] [--instance-id <id>]
 [--node-id <id>] [--zone <zone>]`。`--config` 默认当前目录下的 `configs/`；
-`--service` 取 `login_verify` / `queue` / `realm` / `gateway`，收窄为单服务
-进程；`--instance-id` / `--node-id` / `--zone` 覆盖服务发现身份。`SIGINT` / `SIGTERM`
+已注册的服务名为 `login_verify` / `queue` / `realm` / `gateway` / `scene` / `chat`；默认拓扑只包含前四个。
+Scene 需先加入自己的拓扑并配置独立 mTLS，见[运行说明](docs/operations/scene-reference-loop.md)。
+`--service` 将所选拓扑收窄为单服务进程；`--instance-id` / `--node-id` / `--zone` 覆盖服务发现身份。`SIGINT` / `SIGTERM`
 触发优雅停机。
 
 默认监听：
@@ -422,6 +471,8 @@ all-in-one 启动全部服务（`dev` 预设的构建目录即 `build/dev-ninja`
 | `queue` | 0（内核分配） | HTTPS/JSON | 9105 |
 | `gateway` | 8000 | QUIC 优先，TLS/TCP 兜底 | 9103 |
 | `realm` | 7100 | TLS/TCP | 9102 |
+| `scene`（按需启用） | 7200 | 内部 TLS/TCP，双向服务身份校验 | 9106 |
+| `chat`（按需启用） | 7300 | 内部 TLS/TCP，双向服务身份校验 | 9107 |
 
 健全服与排队服在开发配置里以 `listen_port = 0` 由内核分配端口（避免端口冲突），
 部署时显式指定。Gateway 会把两个候选端点一并下发，候选项包含
@@ -453,7 +504,8 @@ UDP 与 TCP 端口空间）。
 
 健全服的账号有效性数据源是 `AccountStore`；生产配置由共享 MongoDB 玩家数据源实现（`configs/common/player_data.lua`），
 `configs/common/accounts.lua` 只在空库首次启动时导入。Gateway 通过有界异步读取复核
-账号与所选角色，Realm 入场时再次核对角色归属；已提交数据在进程重启后保留。
+账号准入事实；EnterRealm 票据只绑定账号与 Realm，兑换后进入选角阶段，
+角色归属由 Realm 在选角时校验。已提交数据在进程重启后保留。
 排队服的放行步长（`release_step`）与批次间隔（`release_interval_seconds`）、网关的
 拉取并发预算（`pipeline_fetch_capacity`）、拉取工作线程（`fetch_workers`）、单次拉取超时
 （`fetch_timeout_ms`）与重试参数、健全服的验签工作者（`verify_workers`）与在途上限
@@ -476,7 +528,7 @@ ctest --preset dev -j 1       # 只跑全量测试
 ctest --preset dev -L '^lua$' # 只筛 Lua 用例（标签筛选是正则，要加锚点）
 ```
 
-快速入口不是完整验证；退出码、编译并行预算（缺省开发 Mac 8 路、Lima 2 路）与筛选规则见
+快速入口不是完整验证；退出码、编译并行预算（缺省按本机 CPU/内存与 cgroup 限额推算，如 8 GiB 机器 2 路、上限 8 路）与筛选规则见
 [tests/README.md](tests/README.md#运行方式)。
 
 单元测试基座是 Google Test 1.17 与 LuaUnit v3.5（均经 FetchContent 固定版本），
@@ -501,6 +553,9 @@ ctest --preset dev -L '^lua$' # 只筛 Lua 用例（标签筛选是正则，要�
 Actions 在 macOS 与 Linux 双平台跑全量 `ctest --preset dev`
 （`.github/workflows/ci.yml`；预设名集中在工作流的 `REALMMESH_CI_PRESET`，验收报告按
 `scripts/build-dir.sh` 解析出的构建目录上传），CI 的 QUIC 路径仅在 Linux 覆盖。
+
+CRAP、重复代码和变异测试入口见[质量检查说明](docs/agents/quality-checks.md)。
+它们按需生成报告，不进入 CI，也不替代上述测试与验收。
 
 ## License
 

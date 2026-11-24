@@ -18,6 +18,48 @@ void expect_rejected(
     return nullptr;
 }
 
+class RealmTransactionFailureTest : public RealmJourneyTest {
+protected:
+    const test_support::MongodProcess& player_data() const override {
+        return fault_mongo_;
+    }
+    void prepare_services(const std::string&) override {
+        const auto config = realm_root_.path() / "common" / "player_data.lua";
+        rewrite(config, "transaction_timeout_ms = 5000", "transaction_timeout_ms = 250");
+    }
+    test_support::MongodProcess fault_mongo_{
+        test_support::MongodProcess::TestCommands::Enabled};
+};
+
+TEST_F(RealmTransactionFailureTest, CommitFailureReturns3010AndRecoversByName) {
+    auto session = login();
+    ASSERT_NE(session, nullptr);
+    static_cast<void>(fault_mongo_.eval("admin", R"js(
+const r = db.runCommand({configureFailPoint: 'failCommand', mode: 'alwaysOn', data: {
+  failCommands: ['commitTransaction'], writeConcernError: {
+    code: 64, codeName: 'WriteConcernFailed', errmsg: 'injected commit acknowledgement failure'
+  }
+}});
+if (!r.ok) throw new Error(JSON.stringify(r));
+)js"));
+    const auto started = client::Clock::now();
+    const auto reply = session->create_character("Hero", started + 3s);
+    // 先解除故障；即使旧实现耗尽客户端截止，服务进程也能退出并回收。
+    static_cast<void>(fault_mongo_.eval("admin", R"js(
+const r = db.runCommand({configureFailPoint: 'failCommand', mode: 'off'});
+if (!r.ok) throw new Error(JSON.stringify(r));
+)js"));
+    expect_rejected(reply, common::edge_error_realm_data_unavailable, "commit timeout");
+    // 3010 不代表回滚：按名字找回已提交角色，不以新身份重做。
+    const auto roster = session->list_characters(soon());
+    ASSERT_TRUE(roster.ok());
+    ASSERT_EQ(roster.value.characters.size(), 1U);
+    EXPECT_EQ(roster.value.characters.front().name, "Hero");
+    EXPECT_TRUE(session->select_character(
+        roster.value.characters.front().character_id, soon()).ok());
+    EXPECT_TRUE(session->heartbeat(soon()));
+}
+
 TEST_F(RealmJourneyTest, CharacterLifecycleSurvivesReloginAndRealmRestart) {
     // 1. 新账号走完 Login Chain:Realm 里没有角色,也没有上次选择。
     auto first = login();
@@ -117,9 +159,15 @@ TEST_F(RealmJourneyTest, CharacterLifecycleSurvivesReloginAndRealmRestart) {
         ASSERT_TRUE(selected.ok());
         EXPECT_EQ(selected.value.training_seq, 0U);
     }
+    // 长循环容忍瞬时 3010:同一 seq 重放，首次写若已落库则回 replayed,
+    // 经验与等级仍须精确，故这里不断言 replayed;上面 3 次训练保持严格。
     for (std::uint64_t seq = 1; seq <= 90; ++seq) {
-        const auto trained = second->train(seq, soon());
-        ASSERT_TRUE(trained.ok()) << "seq " << seq;
+        const auto trained = retry_unavailable(
+            [&](client::TimePoint deadline) {
+                return second->train(seq, deadline);
+            });
+        ASSERT_TRUE(trained.ok())
+            << "seq " << seq << " error " << trained.error_code;
         EXPECT_EQ(trained.value.exp, seq * 10);
         EXPECT_EQ(trained.value.level, seq * 10 / 100 + 1);
     }

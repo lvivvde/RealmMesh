@@ -200,6 +200,10 @@ _Avoid_: Scene incarnation、全局消息序号、历史版本
 说明消息已被频道受理并取得顺序的回执；它与接收者独立推进的通知水位不同，不表示其他角色已收到或阅读，也不表示可离线恢复。
 _Avoid_: 已送达、已读、持久提交
 
+**Chat Notification Watermark**（聊天通知水位）:
+接收者在单个 Chat Membership 与 Chat Channel Epoch 中已经连续交付的频道序号；缺口或通知缓存溢出会终止这段连续性，它不是发送回执或历史游标。
+_Avoid_: Chat Receipt（发送受理边界）、已送达水位、历史游标
+
 ### Messaging
 
 **Envelope**:
@@ -214,6 +218,7 @@ _Avoid_: token、credential、cookie
 
 **Login Chain**:
 客户端从凭据到入场的七态驱动器:`verifying → queued → admitted → gateway_connecting → handoff_received → realm_connecting → in_game`;失败按规则回退(verify 失败回 idle 但健全服繁忙 1005 退避后重验、号牌过期自动重取、网关失败在放行宽限内重入、1007 账号不具备准入资格即终止回 idle、1008 玩家数据暂不可用按服务端建议退避后从 verifying 重来、Realm 直连失败在 EnterRealm 票据窗口内重试),不自作主张重排队。
+本机网页演示为每个发起登录的窗口独立驱动 Login Chain，排队时将查得的位置回报给该窗口。
 _Avoid_: 登录流程(流程指纸上步骤,链路是能跑出状态的实体)、session(那是服务端概念)
 
 **Login Stage**:

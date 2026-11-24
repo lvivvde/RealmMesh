@@ -178,6 +178,7 @@ LoginChain::Action LoginChain::poll_until_admitted(TimePoint deadline) {
                 eta_ = AdaptivePoller::estimate_eta(position,
                                                     progress.value.admit_rate);
                 consult_ticket = released >= credentials_.number;
+                if (config_.on_queue_position) config_.on_queue_position(position);
             } else {
                 poller_.record_failure();
                 consult_ticket = true;
@@ -204,6 +205,7 @@ LoginChain::Action LoginChain::poll_until_admitted(TimePoint deadline) {
                 return Action::Advanced;
             }
             position = me.value.position;
+            if (config_.on_queue_position) config_.on_queue_position(position);
         } else if (me.status.recovery == PortRecovery::Restart) {
             failure_ = me.status.failure;
             failure_detail_ = me.status.detail;

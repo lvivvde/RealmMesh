@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Real CTest lifecycle contracts for the shared MongoDB fixture."""
 import argparse
+import importlib.util
 import json
 import os
 import signal
@@ -10,6 +11,7 @@ import subprocess
 import tempfile
 import time
 import unittest
+from unittest import mock
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--source', required=True, type=Path)
@@ -19,6 +21,18 @@ ARGS, rest = parser.parse_known_args()
 MODULE = ARGS.source / 'tests/scripts/mongodb_ctest_fixture.py'
 
 class MongoCtestFixtureContract(unittest.TestCase):
+    def test_linux_owner_identity_does_not_depend_on_wall_clock(self):
+        if not Path('/proc/self/stat').is_file():
+            self.skipTest('Linux /proc process identity is unavailable')
+        spec = importlib.util.spec_from_file_location('mongodb_ctest_fixture', MODULE)
+        fixture = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(fixture)
+        with mock.patch.object(
+                fixture.subprocess, 'run',
+                side_effect=AssertionError('ps wall clock must not be read')):
+            owner_identity = fixture.identity(os.getpid())
+        self.assertRegex(owner_identity, r'^linux-start-ticks:[0-9]+$')
+
     def test_prepares_real_primary_and_cleans_up_after_ctest(self):
         with tempfile.TemporaryDirectory(prefix='mongodb-ctest-contract-') as directory:
             root = Path(directory)
@@ -56,7 +70,11 @@ set_tests_properties(Cleanup PROPERTIES FIXTURES_CLEANUP mongo TIMEOUT 5)
             observed=records[0]
             with self.assertRaises(ProcessLookupError): os.kill(observed['server_pid'],0)
             self.assertFalse(Path(observed['data_directory']).exists())
-            self.assertEqual(list(state.iterdir()),[])
+            # 只保留最近一次运行的 mongod.log 供事后排查。
+            retained=[p.name for p in state.iterdir()]
+            self.assertEqual(len(retained),1,retained)
+            self.assertRegex(retained[0],r'^ctest-\d+\.mongod\.log$')
+            self.assertGreater((state/retained[0]).stat().st_size,0)
 
     def test_distinct_databases_are_isolated_on_the_same_real_backend(self):
         with tempfile.TemporaryDirectory(prefix='mongodb-isolation-contract-') as directory:
@@ -242,7 +260,8 @@ set_tests_properties(Cleanup PROPERTIES FIXTURES_CLEANUP mongo TIMEOUT 5)
                             except ProcessLookupError: break
                             time.sleep(.02)
                         with self.assertRaises(ProcessLookupError): os.kill(pid,0)
-                    self.assertEqual(list(state.iterdir()),[])
+                    self.assertEqual([p.name for p in state.iterdir()
+                                      if not p.name.endswith('.mongod.log')],[])
                 finally:
                     if process.poll() is None:
                         process.kill();process.wait()
